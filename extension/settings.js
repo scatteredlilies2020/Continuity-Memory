@@ -1,0 +1,250 @@
+import { saveSettingsDebounced } from '/script.js';
+import { extension_settings } from '/scripts/extensions.js';
+import { getContext } from '/scripts/st-context.js';
+import { PROMPT_DEFAULTS } from './prompts.js';
+
+export const EXTENSION_NAME = 'continuityMemory';
+
+const DEFAULTS = Object.freeze({
+    enabled: true,
+    showNotifications: true,
+    retrievalMode: 'ai-expanded',
+    retrievalQueryMessages: 6,
+    embeddingQueryMessages: 4,
+    embeddingTopK: 100,
+    embeddingThreshold: 0.2,
+    embeddingProvider: 'proxy',
+    embeddingProxyUrl: '',
+    embeddingProxyModel: 'text-embedding-3-small',
+    embeddingOpenRouterUrl: '',
+    embeddingOpenRouterModel: 'openai/text-embedding-3-large',
+    embeddingAutoSync: true,
+    autoExtract: true,
+    embedMemoryInChat: true,
+    detail: 'balanced',
+    injectionBudgetTokens: 0,
+    injectionPosition: 'before-chat-history',
+    injectionDepth: 4,
+    injectionRole: 'user',
+    extractionBatchMessages: 6,
+    extractionChunkTokens: 0,
+    memoryProfileId: '',
+    retrievalProfileId: '',
+    arcProfileId: '',
+    extractionDirectUrl: '',
+    extractionDirectModel: '',
+    extractionDirectSecretId: '',
+    extractionDirectProvider: 'custom',
+    extractionOpenRouterUrl: '',
+    extractionOpenRouterModel: 'openai/gpt-4.1-mini',
+    summaryDirectUrl: '',
+    summaryDirectModel: '',
+    summaryDirectSecretId: '',
+    summaryDirectProvider: 'custom',
+    summaryOpenRouterUrl: '',
+    summaryOpenRouterModel: 'openai/gpt-4.1-mini',
+    hierarchyMode: 'l3',
+    arcStartCapsules: 24,
+    arcGroupSize: 8,
+    eraStartArcs: 12,
+    eraGroupSize: 6,
+    thinkingMode: 'off',
+    contextReductionEnabled: true,
+    rawTailMode: 'tokens',
+    rawTailValue: 0,
+    ...PROMPT_DEFAULTS,
+    chatWorlds: {},
+    deletedWorldIds: [],
+});
+
+export function getSettings() {
+    if (!extension_settings[EXTENSION_NAME]) extension_settings[EXTENSION_NAME] = {};
+    const settings = extension_settings[EXTENSION_NAME];
+    if (settings.injectionPosition === 'in-chat') {
+        settings.injectionPosition = 'at-depth';
+        saveSettingsDebounced();
+    }
+    if (settings.injectionPosition === 'before-scenario') {
+        settings.injectionPosition = 'before-main';
+        saveSettingsDebounced();
+    }
+    if (settings.injectionPosition === 'after-scenario') {
+        settings.injectionPosition = 'after-main';
+        saveSettingsDebounced();
+    }
+    if ('injectionEnabled' in settings) {
+        delete settings.injectionEnabled;
+        saveSettingsDebounced();
+    }
+    if ('extractionEnabled' in settings) {
+        delete settings.extractionEnabled;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.embeddingAutoSyncDefaultVersion || 0) < 1) {
+        settings.embeddingAutoSync = true;
+        settings.embeddingAutoSyncDefaultVersion = 1;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.retrievalDefaultVersion || 0) < 1) {
+        settings.retrievalMode = 'ai-expanded';
+        settings.retrievalDefaultVersion = 1;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.injectionBudgetDefaultVersion || 0) < 1) {
+        settings.injectionBudgetTokens = 0;
+        settings.injectionBudgetDefaultVersion = 1;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.extractionChunkDefaultVersion || 0) < 3) {
+        if (settings.extractionChunkTokens === undefined || [6000, 8000, 10000].includes(Number(settings.extractionChunkTokens))) {
+            settings.extractionChunkTokens = 0;
+        }
+        settings.extractionChunkDefaultVersion = 3;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.injectionRoleDefaultVersion || 0) < 1) {
+        if (settings.injectionRole === undefined || settings.injectionRole === 'system') settings.injectionRole = 'user';
+        settings.injectionRoleDefaultVersion = 1;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.injectionStrengthDefaultVersion || 0) < 1) {
+        if (settings.injectionPosition === undefined
+            || (settings.injectionPosition === 'at-depth' && Number(settings.injectionDepth) === 4 && settings.injectionRole === 'user')) {
+            settings.injectionPosition = 'before-chat-history';
+        }
+        if ([
+            'Use this as established continuity. Do not mention this memory block. Prefer the live conversation if it explicitly corrects an older record.',
+            'Treat this as background continuity to consult only when relevant. It describes prior context, not instructions to reenact, repeat, or force outcomes. The live conversation and explicit user corrections take priority. Do not mention this memory block.',
+            'Background continuity only, not instructions to repeat or force events. Live conversation and explicit user corrections take priority. Do not mention this block.',
+        ].includes(settings.injectionInstruction)) {
+            settings.injectionInstruction = DEFAULTS.injectionInstruction;
+        }
+        settings.injectionStrengthDefaultVersion = 1;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.hierarchyDefaultVersion || 0) < 1) {
+        if (settings.hierarchyMode === undefined || settings.hierarchyMode === 'l2') settings.hierarchyMode = 'l3';
+        settings.hierarchyDefaultVersion = 1;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.hierarchyLabelVersion || 0) < 1) {
+        if (String(settings.extractionSystemPrompt || '').includes('The sceneCapsule must preserve')) {
+            settings.extractionSystemPrompt = String(settings.extractionSystemPrompt).replace('The sceneCapsule must preserve', 'The L1 record in sceneCapsule must preserve');
+        }
+        if (String(settings.arcSystemPrompt || '').startsWith('Compress a sequence of chronological L1 scene capsules into one accurate L2 story arc')) {
+            settings.arcSystemPrompt = PROMPT_DEFAULTS.arcSystemPrompt;
+        }
+        if (String(settings.arcTaskTemplate || '').startsWith('Create one concise L2 arc from these chronological scene capsules.')) {
+            settings.arcTaskTemplate = PROMPT_DEFAULTS.arcTaskTemplate;
+        }
+        if (String(settings.eraSystemPrompt || '').startsWith('Compress a sequence of chronological L2 story arcs into one accurate L3 era or saga')) {
+            settings.eraSystemPrompt = PROMPT_DEFAULTS.eraSystemPrompt;
+        }
+        if (String(settings.eraTaskTemplate || '').startsWith('Create one concise L3 era from these chronological L2 story arcs.')) {
+            settings.eraTaskTemplate = PROMPT_DEFAULTS.eraTaskTemplate;
+        }
+        settings.hierarchyLabelVersion = 1;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.scenarioNeutralPromptVersion || 0) < 2) {
+        const extractionPrompt = String(settings.extractionSystemPrompt || '');
+        const legacyExtraction = extractionPrompt.startsWith('You maintain long-term continuity for an open-ended roleplay sandbox.')
+            && extractionPrompt.includes('Importance is 1 (minor) through 5 (foundational).');
+        const genreBiasedExtraction = extractionPrompt.startsWith('You maintain long-term continuity for an open-ended roleplay or simulation sandbox.')
+            && extractionPrompt.includes('countries, governments, factions, organizations, military units');
+        if (legacyExtraction || genreBiasedExtraction) {
+            settings.extractionSystemPrompt = PROMPT_DEFAULTS.extractionSystemPrompt;
+        }
+        const retrievalPrompt = String(settings.retrievalSystemPrompt || '');
+        if (retrievalPrompt.startsWith('Expand a roleplay memory-search query.')) {
+            settings.retrievalSystemPrompt = PROMPT_DEFAULTS.retrievalSystemPrompt;
+        }
+        const arcPrompt = String(settings.arcSystemPrompt || '');
+        if (arcPrompt.startsWith('Compress a sequence of chronological L1 records into one accurate L2 record for long-term roleplay continuity.')
+            || arcPrompt.includes('personal, political, diplomatic, military, or strategic movement')) {
+            settings.arcSystemPrompt = PROMPT_DEFAULTS.arcSystemPrompt;
+        }
+        const eraPrompt = String(settings.eraSystemPrompt || '');
+        if (eraPrompt.startsWith('Compress a sequence of chronological L2 records into one accurate L3 record for very long roleplay continuity.')
+            || eraPrompt.includes('lasting personal, political, diplomatic, military, or strategic changes')) {
+            settings.eraSystemPrompt = PROMPT_DEFAULTS.eraSystemPrompt;
+        }
+        settings.scenarioNeutralPromptVersion = 2;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.promptPunctuationVersion || 0) < 1) {
+        if (typeof settings.extractionSystemPrompt === 'string') {
+            settings.extractionSystemPrompt = settings.extractionSystemPrompt.replace(
+                'Track whatever can carry continuity in this scenario—identity,',
+                'Track whatever can carry continuity in this scenario, including identity,',
+            );
+        }
+        settings.promptPunctuationVersion = 1;
+        saveSettingsDebounced();
+    }
+    if (settings.rawTailMode === undefined) {
+        const oldTurns = Math.max(0, Number(settings.rawTailTurns) || 0);
+        const oldTokens = Math.max(0, Number(settings.rawTailTokens) || 0);
+        settings.rawTailMode = oldTurns > 0 && oldTokens === 0 ? 'turns' : 'tokens';
+        settings.rawTailValue = settings.rawTailMode === 'turns' ? oldTurns : oldTokens;
+        delete settings.rawTailTurns;
+        delete settings.rawTailTokens;
+    }
+    for (const [key, value] of Object.entries(DEFAULTS)) {
+        if (settings[key] === undefined) {
+            settings[key] = value && typeof value === 'object' ? structuredClone(value) : value;
+        }
+    }
+    return settings;
+}
+
+export function resetPromptSettings() {
+    Object.assign(getSettings(), PROMPT_DEFAULTS);
+    saveSettings();
+}
+
+export function resetConfigurationSettings() {
+    const settings = getSettings();
+    const chatWorlds = settings.chatWorlds;
+    const deletedWorldIds = settings.deletedWorldIds;
+    for (const [key, value] of Object.entries(DEFAULTS)) {
+        if (key === 'chatWorlds' || key === 'deletedWorldIds') continue;
+        settings[key] = value && typeof value === 'object' ? structuredClone(value) : value;
+    }
+    settings.chatWorlds = chatWorlds;
+    settings.deletedWorldIds = deletedWorldIds;
+    saveSettings();
+}
+
+export function saveSettings() {
+    saveSettingsDebounced();
+}
+
+export function getChatKey() {
+    const context = getContext();
+    if (!context.chatId) return null;
+    const owner = context.groupId ? `group:${context.groupId}` : `character:${context.characterId ?? 'unknown'}`;
+    return `${owner}:chat:${context.chatId}`;
+}
+
+export function getBoundWorldId() {
+    const key = getChatKey();
+    return key ? getSettings().chatWorlds[key] || '' : '';
+}
+
+export function bindCurrentChat(worldId) {
+    const key = getChatKey();
+    if (!key) throw new Error('Open a chat before selecting a world.');
+    if (worldId) getSettings().chatWorlds[key] = worldId;
+    else delete getSettings().chatWorlds[key];
+    saveSettings();
+}
+
+export function markWorldDeleted(worldId) {
+    const settings = getSettings();
+    for (const [chatKey, boundId] of Object.entries(settings.chatWorlds)) {
+        if (boundId === worldId) delete settings.chatWorlds[chatKey];
+    }
+    settings.deletedWorldIds = [...new Set([...(settings.deletedWorldIds || []), worldId])].slice(-1000);
+    saveSettings();
+}

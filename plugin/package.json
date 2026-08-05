@@ -1,0 +1,11 @@
+{
+  "name": "continuity-memory",
+  "version": "0.14.0-standalone.38",
+  "description": "Standalone structured continuity for SillyTavern; does not use Lorebooks or World Info.",
+  "type": "module",
+  "main": "index.js",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { recentRetrievalQuery } from '../extension/retrieval-query.js';
+import { parseExpandedTerms } from '../extension/semantic-terms.js';
+
+test('parses and deduplicates concise AI-expanded retrieval terms', () => {
+    const terms = parseExpandedTerms('<think>brief</think> {"terms":["doctor","physician","doctor","medical professional"]}');
+    assert.deepEqual(terms, ['doctor', 'physician', 'medical professional']);
+});
+
+test('AI retrieval keeps the selected number of complete messages', () => {
+    const longReply = `opening-${'country-state '.repeat(3000)}-statbox-ending`;
+    const messages = Array.from({ length: 8 }, (_, index) => ({ name: index % 2 ? 'AI' : 'User', mes: `message-${index}` }));
+    messages[5].mes = longReply;
+
+    const query = recentRetrievalQuery(messages, 3);
+
+    assert.doesNotMatch(query, /message-4/);
+    assert.match(query, /opening-/);
+    assert.match(query, /-statbox-ending/);
+    assert.match(query, /message-6/);
+    assert.match(query, /message-7/);
+});

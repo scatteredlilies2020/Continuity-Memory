@@ -1,0 +1,477 @@
+<div id="continuity_settings" class="extension_container continuity-panel">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b><i class="fa-solid fa-link"></i> Continuity Memory</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+            <div class="continuity-master-row">
+                <div>
+                    <label class="checkbox_label"><input id="continuity_enabled" type="checkbox"><span>Enabled</span></label>
+                    <label class="checkbox_label"><input id="continuity_notifications" type="checkbox"><span>Popup messages</span></label>
+                </div>
+                <div class="continuity-master-actions">
+                    <button id="continuity_toggle_all_sections" class="menu_button continuity-small-button" type="button" aria-pressed="false" title="Open every section">
+                        <i class="fa-solid fa-angles-down"></i> <span>Open all</span>
+                    </button>
+                    <button id="continuity_reset_defaults" class="menu_button continuity-small-button" title="Restore configuration defaults without deleting memory"><i class="fa-solid fa-rotate-left"></i> Reset defaults</button>
+                    <span id="continuity_status" class="continuity-status">Starting…</span>
+                </div>
+            </div>
+
+            <div class="continuity-card">
+                <h4>This chat's memory</h4>
+                <div id="continuity_memory_name" class="continuity-memory-name">Preparing memory…</div>
+                <div class="continuity-button-row">
+                    <button id="continuity_refresh" class="menu_button"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                </div>
+                <small>Created only when extraction begins, then kept separate for this chat. Briefly opening untouched chats creates no files.</small>
+                <label class="checkbox_label"><input id="continuity_embed_chat" type="checkbox"><span>Embed portable memory in chat files (global)</span></label>
+                <small>On: every opened chat can carry its Continuity memory, which increases chat-file size. Off: the current chat is cleaned immediately and other chats are cleaned when opened; normal memory still works from SillyTavern's user-file storage. Leave this off for very long chats unless you need portable chat exports.</small>
+                <details>
+                    <summary>Transfer memory</summary>
+                    <div class="continuity-button-row">
+                        <button id="continuity_export" class="menu_button"><i class="fa-solid fa-file-export"></i> Export memory</button>
+                        <label class="menu_button continuity-file-label"><i class="fa-solid fa-file-import"></i> Import memory<input id="continuity_import" type="file" accept="application/json,.json"></label>
+                        <label class="menu_button continuity-file-label"><i class="fa-solid fa-broom"></i> Clean exported chat<input id="continuity_clean_chat" type="file" accept="application/json,.json,.jsonl"></label>
+                    </div>
+                    <small>Import accepts only the same conversation history, verified by message fingerprints. Use it for a copied chat or transfer to another device; unrelated chats and changed branches are blocked.</small>
+                    <small>The cleaner removes embedded Continuity data locally and downloads a replacement chat file. Your original export is not modified.</small>
+                </details>
+            </div>
+
+            <div class="continuity-card">
+                <h4>Extraction</h4>
+                <label>Extraction model
+                    <select id="continuity_model_profile" class="text_pole">
+                        <option value="">Current active SillyTavern model</option>
+                        <option value="__direct__">Direct OpenAI-compatible API</option>
+                    </select>
+                </label>
+                <small>Turns chat messages into structured L1 memory. Retrieval and summarization can use their own model below.</small>
+                <div class="continuity-extraction-direct-setting continuity-card-inset">
+                    <b>Direct extraction API</b>
+                    <label>Provider
+                        <select id="continuity_extraction_direct_provider" class="text_pole">
+                            <option value="custom">Custom / OpenAI-compatible</option>
+                            <option value="openrouter">OpenRouter</option>
+                        </select>
+                    </label>
+                    <label>API URL
+                        <input id="continuity_extraction_direct_url" class="text_pole" type="url" placeholder="https://api.openai.com/v1">
+                    </label>
+                    <label>API password / key
+                        <input id="continuity_extraction_direct_key" class="text_pole" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved password">
+                    </label>
+                    <div class="continuity-button-row">
+                        <button id="continuity_extraction_direct_save_key" class="menu_button"><i class="fa-solid fa-key"></i> Save extraction password</button>
+                        <button id="continuity_extraction_direct_fetch_models" class="menu_button"><i class="fa-solid fa-arrows-rotate"></i> Fetch models</button>
+                    </div>
+                    <div id="continuity_extraction_direct_key_status" class="continuity-progress">No extraction password saved.</div>
+                    <select id="continuity_extraction_direct_model_select" class="text_pole" style="display: none;"></select>
+                    <div id="continuity_extraction_direct_models_status" class="continuity-progress">Model list not fetched yet.</div>
+                    <label>Model
+                        <input id="continuity_extraction_direct_model" class="text_pole" type="text" placeholder="gpt-4.1-mini">
+                    </label>
+                </div>
+                <label class="checkbox_label"><input id="continuity_auto" type="checkbox"><span>Process automatically in the background</span></label>
+                <details>
+                    <summary>Advanced extraction options</summary>
+                    <label>Reasoning / thinking
+                        <select id="continuity_thinking" class="text_pole">
+                            <option value="off">Off (default)</option>
+                            <option value="minimum">Minimum</option>
+                            <option value="default">Provider default</option>
+                        </select>
+                    </label>
+                    <small>Continuity always removes reasoning from stored memory, even when the model cannot disable it.</small>
+                    <div class="continuity-grid">
+                        <label>Detail
+                            <select id="continuity_detail" class="text_pole">
+                                <option value="light">Light</option>
+                                <option value="balanced">Balanced (default)</option>
+                                <option value="detailed">Detailed</option>
+                            </select>
+                        </label>
+                        <label>Automatic batch
+                            <input id="continuity_batch" class="text_pole" type="number" min="2" max="50" step="1">
+                            <small>messages; default 6</small>
+                        </label>
+                        <label>Extraction chunk
+                            <input id="continuity_chunk" class="text_pole" type="number" min="0" max="50000" step="500">
+                            <small>estimated source tokens; 0 = dynamic: 20% of context, up to 8000</small>
+                        </label>
+                    </div>
+                    <details>
+                        <summary>Extraction prompt templates</summary>
+                        <small>The required JSON schema and source messages are added separately and cannot be removed accidentally.</small>
+                        <label>Extraction and L1 instructions
+                            <textarea id="continuity_extraction_prompt" class="text_pole continuity-prompt-editor" rows="10"></textarea>
+                        </label>
+                        <label>Extraction request template
+                            <textarea id="continuity_extraction_template" class="text_pole continuity-prompt-editor" rows="7"></textarea>
+                            <small>Placeholders: <code>{{detail}}</code>, <code>{{schema}}</code>, <code>{{messages}}</code>. Schema and messages are appended automatically if omitted.</small>
+                        </label>
+                    </details>
+                </details>
+
+                <h4>Retrieval &amp; embeddings</h4>
+                <label>Memory retrieval
+                    <select id="continuity_retrieval_mode" class="text_pole">
+                        <option value="local">Local matching (fast)</option>
+                        <option value="ai-expanded">AI-expanded matching (default, more accurate)</option>
+                        <option value="embedding-hybrid">Embedding hybrid (vector + local, optional)</option>
+                    </select>
+                </label>
+                <small>AI-expanded uses a small cached LLM request. Embedding hybrid uses Continuity's own embedding provider configuration and local matching, without an LLM retrieval request. Both safely fall back to local matching.</small>
+                <label class="continuity-ai-retrieval-setting">AI retrieval model
+                    <select id="continuity_retrieval_profile" class="text_pole">
+                        <option value="">Same as extraction model</option>
+                    </select>
+                </label>
+                <small class="continuity-ai-retrieval-setting">Used only for AI-expanded matching. Leave unchanged to share the extraction model.</small>
+                <details class="continuity-text-retrieval-setting">
+                    <summary>Advanced retrieval history</summary>
+                    <label>Recent messages
+                        <input id="continuity_retrieval_messages" class="text_pole" type="number" min="2" max="50" step="1">
+                        <small>complete messages; default 6. Local matching processes them on-device. AI-expanded sends them to its retrieval model. Long messages are not truncated.</small>
+                    </label>
+                </details>
+                <div class="continuity-embedding-setting continuity-card-inset">
+                    <b>Embedding hybrid index</b>
+                    <label>Embedding provider
+                        <select id="continuity_embedding_provider_choice" class="text_pole">
+                            <option value="proxy">Custom / OpenAI-compatible proxy</option>
+                            <option value="openrouter">OpenRouter</option>
+                        </select>
+                    </label>
+                    <div class="continuity-embedding-proxy-setting">
+                        <label>Embedding endpoint base URL
+                            <input id="continuity_embedding_proxy_url" class="text_pole" type="text" autocomplete="off" spellcheck="false" placeholder="https://api.openai.com (default)">
+                        </label>
+                        <small>Leave blank for <code>https://api.openai.com</code>, or enter a proxy base URL. SillyTavern adds <code>/v1/embeddings</code>.</small>
+                    </div>
+                    <div class="continuity-embedding-openrouter-setting">
+                        <label>OpenRouter endpoint base URL
+                            <input id="continuity_embedding_openrouter_url" class="text_pole" type="text" autocomplete="off" spellcheck="false" placeholder="https://openrouter.ai/api/v1 (default)">
+                        </label>
+                        <small>Leave blank for <code>https://openrouter.ai/api/v1</code>, or enter another OpenAI-compatible base URL.</small>
+                    </div>
+                    <label><span id="continuity_embedding_key_label">Proxy password / embedding API key</span>
+                        <input id="continuity_embedding_api_key" class="text_pole" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved password">
+                    </label>
+                    <div id="continuity_embedding_key_status" class="continuity-progress">Password status not checked.</div>
+                    <div class="continuity-embedding-proxy-setting">
+                        <label>Proxy embedding model
+                            <select id="continuity_embedding_proxy_model" class="text_pole">
+                                <option value="text-embedding-3-small">text-embedding-3-small</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="continuity-embedding-openrouter-setting">
+                        <label>OpenRouter embedding model
+                            <select id="continuity_embedding_openrouter_model" class="text_pole">
+                                <option value="openai/text-embedding-3-large">openai/text-embedding-3-large</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="continuity-button-row">
+                        <button id="continuity_embedding_save_key" class="menu_button"><i class="fa-solid fa-key"></i> Save password securely</button>
+                        <button id="continuity_embedding_fetch_models" class="menu_button"><i class="fa-solid fa-arrows-rotate"></i> Fetch models</button>
+                    </div>
+                    <div id="continuity_embedding_models_status" class="continuity-progress">Model list not fetched yet. The known working model is preselected.</div>
+                    <small>The password is sent as the provider's Bearer API credential and stored by SillyTavern's core secrets service. Continuity never writes it to extension settings or chat files.</small>
+                    <div id="continuity_embedding_provider" class="continuity-progress">Vector provider not checked yet.</div>
+                    <div id="continuity_embedding_status" class="continuity-progress">The optional index has not been built.</div>
+                    <progress id="continuity_embedding_progress" max="1" value="0" style="width: 100%; display: none;"></progress>
+                    <details>
+                        <summary>Advanced embedding tuning</summary>
+                        <div class="continuity-grid">
+                            <label>Query history
+                                <input id="continuity_embedding_messages" class="text_pole" type="number" min="1" max="12" step="1">
+                                <small>recent non-system messages; default 4</small>
+                            </label>
+                            <label>Vector candidates
+                                <input id="continuity_embedding_top_k" class="text_pole" type="number" min="10" max="200" step="10">
+                                <small>before hybrid ranking; default 100</small>
+                            </label>
+                            <label>Similarity threshold
+                                <input id="continuity_embedding_threshold" class="text_pole" type="number" min="0" max="1" step="0.01">
+                                <small>provider-dependent; default 0.20</small>
+                            </label>
+                        </div>
+                    </details>
+                    <div class="continuity-button-row">
+                        <button id="continuity_embedding_build" class="menu_button"><i class="fa-solid fa-hammer"></i> Build index</button>
+                        <button id="continuity_embedding_pause" class="menu_button" style="display: none;"><i class="fa-solid fa-pause"></i> Pause index</button>
+                        <button id="continuity_embedding_stop" class="menu_button redWarningBG" style="display: none;"><i class="fa-solid fa-stop"></i> Stop index</button>
+                    </div>
+                    <details>
+                        <summary>Index maintenance</summary>
+                        <label class="checkbox_label"><input id="continuity_embedding_auto_sync" type="checkbox"><span>Update vectors automatically when memory changes</span></label>
+                        <small>On by default. Startup and opening or switching chats only inspect local index metadata; they never start embedding requests.</small>
+                        <div class="continuity-button-row">
+                            <button id="continuity_embedding_rebuild" class="menu_button redWarningBG"><i class="fa-solid fa-rotate"></i> Rebuild from scratch</button>
+                            <button id="continuity_embedding_delete" class="menu_button"><i class="fa-solid fa-trash"></i> Delete index</button>
+                        </div>
+                    </details>
+                    <small>Vectors are derived from the current structured memory and stored separately. They are never added to exports or portable chat memory. Continuity owns this configuration and does not read another extension's settings.</small>
+                </div>
+                <details>
+                    <summary>Advanced memory injection</summary>
+                    <div class="continuity-grid">
+                        <label>Injection budget
+                            <input id="continuity_budget" class="text_pole" type="number" min="0" max="12000" step="250">
+                            <small>0 = dynamic: 20% of the model context</small>
+                        </label>
+                        <label>Injection position
+                        <select id="continuity_injection_position" class="text_pole">
+                            <option value="before-main">Before Main Prompt / Story String</option>
+                            <option value="after-main">After Main Prompt / Story String</option>
+                            <option value="before-character-definitions">Before Character Definitions</option>
+                            <option value="after-character-definitions">After Character Definitions</option>
+                            <option value="before-example-messages">Before Example Messages</option>
+                            <option value="after-example-messages">After Example Messages</option>
+                            <option value="before-an">Before Author's Note</option>
+                            <option value="after-an">After Author's Note</option>
+                            <option value="before-chat-history">Before Chat History (default)</option>
+                            <option value="after-chat-history">After Chat History</option>
+                            <option value="before-jailbreak">Before Jailbreak</option>
+                            <option value="after-jailbreak">After Jailbreak</option>
+                            <option value="at-depth">In-chat at Depth</option>
+                        </select>
+                        </label>
+                        <label class="continuity_in_chat_setting">Chat depth
+                        <input id="continuity_injection_depth" class="text_pole" type="number" min="0" max="100" step="1">
+                        <small>0 = newest edge; default 4</small>
+                        </label>
+                        <label>Injection role
+                        <select id="continuity_injection_role" class="text_pole">
+                            <option value="user">User (default)</option>
+                            <option value="system">System</option>
+                            <option value="assistant">Assistant</option>
+                        </select>
+                        </label>
+                    </div>
+                    <small>Prompt Manager positions apply exactly on Chat Completion APIs. Other APIs safely use the closest main-prompt anchor. At-depth placement works across APIs.</small>
+                </details>
+                <details>
+                    <summary>Advanced retrieval prompts</summary>
+                    <label>AI retrieval expansion instructions
+                        <textarea id="continuity_retrieval_prompt" class="text_pole continuity-prompt-editor" rows="5"></textarea>
+                    </label>
+                    <label>AI retrieval query template
+                        <textarea id="continuity_retrieval_template" class="text_pole continuity-prompt-editor" rows="4"></textarea>
+                        <small>Placeholder: <code>{{conversation}}</code>. It is appended automatically if omitted.</small>
+                    </label>
+                    <label>Injected-memory guidance
+                        <textarea id="continuity_injection_prompt" class="text_pole continuity-prompt-editor" rows="4"></textarea>
+                    </label>
+                </details>
+                <h4>Summarization</h4>
+                <label>L2/L3 summarization model
+                    <select id="continuity_arc_profile" class="text_pole">
+                        <option value="">Same as extraction model</option>
+                        <option value="__direct__">Direct OpenAI-compatible API</option>
+                    </select>
+                </label>
+                <small>Creates the higher-level L2 and L3 summaries. Leave unchanged to share the extraction model.</small>
+                <div class="continuity-summary-direct-setting continuity-card-inset">
+                    <b>Direct L2/L3 summarizer API</b>
+                    <label>Provider
+                        <select id="continuity_summary_direct_provider" class="text_pole">
+                            <option value="custom">Custom / OpenAI-compatible</option>
+                            <option value="openrouter">OpenRouter</option>
+                        </select>
+                    </label>
+                    <label>API URL
+                        <input id="continuity_summary_direct_url" class="text_pole" type="url" placeholder="https://api.openai.com/v1">
+                    </label>
+                    <label>API password / key
+                        <input id="continuity_summary_direct_key" class="text_pole" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved password">
+                    </label>
+                    <div class="continuity-button-row">
+                        <button id="continuity_summary_direct_save_key" class="menu_button"><i class="fa-solid fa-key"></i> Save summarizer password</button>
+                        <button id="continuity_summary_direct_fetch_models" class="menu_button"><i class="fa-solid fa-arrows-rotate"></i> Fetch models</button>
+                    </div>
+                    <div id="continuity_summary_direct_key_status" class="continuity-progress">No summarizer password saved.</div>
+                    <select id="continuity_summary_direct_model_select" class="text_pole" style="display: none;"></select>
+                    <div id="continuity_summary_direct_models_status" class="continuity-progress">Model list not fetched yet.</div>
+                    <label>Model
+                        <input id="continuity_summary_direct_model" class="text_pole" type="text" placeholder="gpt-4.1-mini">
+                    </label>
+                </div>
+                <details>
+                    <summary>Advanced summarization options</summary>
+                    <div class="continuity-grid">
+                        <label>Memory hierarchy
+                            <select id="continuity_hierarchy_mode" class="text_pole">
+                                <option value="l3">L1 + L2 + L3 (default)</option>
+                                <option value="l2">L1 + L2 only</option>
+                                <option value="off">L1 only</option>
+                            </select>
+                        </label>
+                        <label>Start L2 after
+                            <input id="continuity_arc_start" class="text_pole" type="number" min="16" max="200" step="1">
+                            <small>L1 records; default 24</small>
+                        </label>
+                        <label>L1 records per L2
+                            <input id="continuity_arc_group" class="text_pole" type="number" min="4" max="20" step="1">
+                            <small>default 8; effective start is at least two groups</small>
+                        </label>
+                    </div>
+                    <div class="continuity-grid">
+                        <label>Start L3 after
+                            <input id="continuity_era_start" class="text_pole" type="number" min="8" max="100" step="1">
+                            <small>L2 records; default 12</small>
+                        </label>
+                        <label>L2 records per L3
+                            <input id="continuity_era_group" class="text_pole" type="number" min="3" max="16" step="1">
+                            <small>default 6; effective start is at least two groups</small>
+                        </label>
+                    </div>
+                    <small>L2 and L3 each use one additional request per completed group. Every L1 and L2 record is retained; higher levels never replace their sources.</small>
+                </details>
+                <details>
+                    <summary>Advanced summarization prompts</summary>
+                    <small>These instructions apply only to the selected L2/L3 summarization model.</small>
+                    <label>L2 instructions
+                        <textarea id="continuity_arc_prompt" class="text_pole continuity-prompt-editor" rows="7"></textarea>
+                    </label>
+                    <label>L2 request template
+                        <textarea id="continuity_arc_template" class="text_pole continuity-prompt-editor" rows="6"></textarea>
+                        <small>Internal source placeholders: <code>{{schema}}</code>, <code>{{capsules}}</code>. Both are appended automatically if omitted.</small>
+                    </label>
+                    <label>L3 instructions
+                        <textarea id="continuity_era_prompt" class="text_pole continuity-prompt-editor" rows="7"></textarea>
+                    </label>
+                    <label>L3 request template
+                        <textarea id="continuity_era_template" class="text_pole continuity-prompt-editor" rows="6"></textarea>
+                        <small>Internal source placeholders: <code>{{schema}}</code>, <code>{{arcs}}</code>. Both are appended automatically if omitted.</small>
+                    </label>
+                    <button id="continuity_reset_prompts" class="menu_button"><i class="fa-solid fa-rotate-left"></i> Reset prompts to defaults</button>
+                </details>
+            </div>
+
+            <div class="continuity-card">
+                <h4>Short-term chat context</h4>
+                <label class="checkbox_label"><input id="continuity_context_reduction" type="checkbox"><span>Reduce old processed chat sent to the model</span></label>
+                <small>Recent, changed, failed, and unprocessed messages always remain raw and visible. Messages are excluded only from the API request—not from the chat screen.</small>
+                <div id="continuity_context_stats" class="continuity-progress">Waiting for a generation.</div>
+                <details>
+                    <summary>Adjust recent raw memory</summary>
+                    <p><small>Choose one way to limit the recent chat kept verbatim. The other measurement will not impose a second hidden cap. Context safety still prevents the complete request from exceeding the model limit.</small></p>
+                    <div class="continuity-grid two">
+                        <label>Limit by
+                            <select id="continuity_tail_mode" class="text_pole">
+                                <option value="tokens">Tokens (default)</option>
+                                <option value="turns">User/AI turns</option>
+                            </select>
+                        </label>
+                        <label>Maximum (0 = dynamic)
+                            <input id="continuity_tail_value" class="text_pole" type="number" min="0">
+                            <small id="continuity_tail_help">0 automatically uses 25% of context, from 8k up to 25k tokens.</small>
+                        </label>
+                    </div>
+                </details>
+            </div>
+
+            <div class="continuity-card">
+                <h4>Processing</h4>
+                <div class="continuity-button-row">
+                    <button id="continuity_build" class="menu_button"><i class="fa-solid fa-hammer"></i> Build</button>
+                    <button id="continuity_repair_rollback" class="menu_button" style="display: none;"><i class="fa-solid fa-clock-rotate-left"></i> Repair rollback</button>
+                    <button id="continuity_pause" class="menu_button"><i class="fa-solid fa-pause"></i> Pause</button>
+                    <button id="continuity_stop" class="menu_button redWarningBG"><i class="fa-solid fa-stop"></i> Stop & clear queue</button>
+                </div>
+                <small>Build creates all missing memory and resumes interrupted work without redoing completed chunks.</small>
+                <div id="continuity_coverage" class="continuity-progress">Checking chat coverage…</div>
+                <div id="continuity_progress" class="continuity-progress"></div>
+                <div id="continuity_arc_status" class="continuity-progress"></div>
+                <div id="continuity_retry_status" class="continuity-progress"></div>
+                <details>
+                    <summary>Start over from scratch…</summary>
+                    <button id="continuity_rebuild_hierarchy" class="menu_button"><i class="fa-solid fa-layer-group"></i> Rebuild L2 & L3 only</button>
+                    <small>Keeps L1, extracted base memory, and extraction records. Deletes L2 and L3 together, rebuilds L2 from the existing L1, then rebuilds L3 from the new L2.</small>
+                    <hr>
+                    <button id="continuity_restart_build" class="menu_button redWarningBG"><i class="fa-solid fa-radiation"></i> Erase everything & start over</button>
+                    <small>Immediately erases all structured memory, L1/L2/L3, extraction records, retrieval cache, and vectors, then builds from the first message as if this chat had never been processed. Each fresh L1 chunk is saved as it completes, so Build resumes missing ranges after an interruption. No backup is saved.</small>
+                </details>
+            </div>
+
+            <div class="continuity-card">
+                <h4>Memory overview</h4>
+                <div id="continuity_counts" class="continuity-counts">No chat memory loaded.</div>
+                <details open>
+                    <summary>Browse stored memory</summary>
+                    <div class="continuity-viewer-controls">
+                        <select id="continuity_viewer_category" class="text_pole">
+                            <option value="scene">Latest extracted checkpoint</option>
+                            <option value="entities">Entities</option>
+                            <option value="facts">Facts</option>
+                            <option value="states">States</option>
+                            <option value="relationships">Relationships</option>
+                            <option value="events">Events</option>
+                            <option value="threads">Open threads</option>
+                            <option value="l1" selected>L1</option>
+                            <option value="l2">L2</option>
+                            <option value="l3">L3</option>
+                            <option value="corrections">Corrections</option>
+                        </select>
+                        <input id="continuity_viewer_search" class="text_pole" type="search" placeholder="Search this category…">
+                    </div>
+                    <div id="continuity_viewer_status" class="continuity-progress">No memory loaded.</div>
+                    <div id="continuity_memory_viewer" class="continuity-memory-viewer"></div>
+                    <div class="continuity-button-row continuity-viewer-pages">
+                        <button id="continuity_viewer_previous" class="menu_button continuity-small-button"><i class="fa-solid fa-chevron-left"></i> Previous</button>
+                        <button id="continuity_viewer_next" class="menu_button continuity-small-button">Next <i class="fa-solid fa-chevron-right"></i></button>
+                    </div>
+                </details>
+                <details>
+                    <summary>Preview next injected memory</summary>
+                    <pre id="continuity_preview" class="continuity-log">Nothing to inject.</pre>
+                </details>
+            </div>
+
+            <div class="continuity-card">
+                <details>
+                    <summary>Correct memory</summary>
+                    <small>Describe a factual correction in plain language. Continuity uses the extraction model to find matching stored records and shows every proposed change before anything is saved. Historical events enter L1 and rebuild affected L2/L3 summaries. Chat messages are never edited.</small>
+                    <textarea id="continuity_correction_input" class="text_pole" rows="4" placeholder="Example: [Character] already knew [information] before [scene]. Remove memories claiming they learned it there."></textarea>
+                    <div class="continuity-button-row">
+                        <button id="continuity_correction_review" class="menu_button"><i class="fa-solid fa-magnifying-glass"></i> Review correction</button>
+                    </div>
+                    <div id="continuity_correction_status" class="continuity-progress">No correction under review.</div>
+                    <div id="continuity_correction_preview_panel" hidden>
+                        <pre id="continuity_correction_preview" class="continuity-log"></pre>
+                        <div class="continuity-button-row">
+                            <button id="continuity_correction_apply" class="menu_button"><i class="fa-solid fa-check"></i> Apply reviewed changes</button>
+                            <button id="continuity_correction_cancel" class="menu_button"><i class="fa-solid fa-xmark"></i> Cancel</button>
+                        </div>
+                    </div>
+                </details>
+            </div>
+
+            <div class="continuity-card">
+                <details>
+                    <summary>Diagnostics</summary>
+                    <div class="continuity-button-row">
+                        <button id="continuity_test_storage" class="menu_button"><i class="fa-solid fa-heart-pulse"></i> Test storage</button>
+                        <button id="continuity_test_extractor" class="menu_button"><i class="fa-solid fa-flask"></i> Test extractor</button>
+                    </div>
+                    <pre id="continuity_diagnostics" class="continuity-log">Not tested yet.</pre>
+                    <details>
+                        <summary>Last extraction response</summary>
+                        <pre id="continuity_raw" class="continuity-log">No extraction yet.</pre>
+                    </details>
+                </details>
+            </div>
+
+            <div class="continuity-card continuity-danger">
+                <h4>Delete memory</h4>
+                <button id="continuity_delete" class="menu_button redWarningBG"><i class="fa-solid fa-trash"></i> Delete all memory</button>
+                <small>Deletes every L1/L2/L3 record, fact, state, relationship, event, thread, and local chat binding for this memory. No copy is saved; a warning is shown first.</small>
+            </div>
+        </div>
+    </div>
+</div>

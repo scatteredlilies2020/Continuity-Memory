@@ -1,0 +1,140 @@
+import { getTokenCountAsync } from '/scripts/tokenizers.js';
+import { getContext } from '/scripts/st-context.js';
+import { EXTRACTION_VERSION } from './coverage.js';
+import { promptManager } from '/scripts/openai.js';
+import { loadBoundWorld } from './engine.js';
+import { fingerprintMessage } from './fingerprint.js';
+import { runtime, updateRuntime } from './runtime.js';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js';
+import { tailPolicy } from './tail-policy.js';
+import { canReduceContext } from './reduction-policy.js';
+
+const tokenCache = new Map();
+const fixedPromptTokensByChat = new Map();
+let pendingTextMeasurement = null;
+
+function messageIdentity(message) {
+    const index = Number(message?.index);
+    if (!Number.isFinite(index) || index < 0) return null;
+    if (message?.is_system || Array.isArray(message?.extra?.tool_invocations)) return null;
+    return {
+        index,
+        name: message.name || (message.is_user ? 'User' : 'Character'),
+        text: String(message.mes || '').trim(),
+    };
+}
+
+async function countMessage(identity) {
+    const fingerprint = fingerprintMessage(identity);
+    if (tokenCache.has(fingerprint)) return tokenCache.get(fingerprint);
+    const count = Math.max(1, Number(await getTokenCountAsync(`${identity.name}: ${identity.text}`, 0)) || 1);
+    tokenCache.set(fingerprint, count);
+    if (tokenCache.size > 5000) tokenCache.delete(tokenCache.keys().next().value);
+    return count;
+}
+
+export async function reduceChatContext(coreChat, contextSize, _abort, type) {
+    const settings = getSettings();
+    if (!canReduceContext(settings, coreChat, type)) {
+        return;
+    }
+
+    try {
+        const worldId = getBoundWorldId();
+        const chatKey = getChatKey();
+        if (!worldId || !chatKey) return;
+        let world = runtime.world?.id === worldId ? runtime.world : await loadBoundWorld();
+        const processed = new Map((world?.sources?.[chatKey]?.processedMessages || [])
+            .filter(item => Number(item.version) === EXTRACTION_VERSION)
+            .map(item => [Number(item.index), item.fingerprint]));
+        if (!processed.size) {
+            updateRuntime({ contextReduction: { mode: 'waiting-for-extraction', hiddenMessages: 0, hiddenTokens: 0, tailMessages: coreChat.length, tailTurns: Math.ceil(coreChat.length / 2), tailTokens: 0 } });
+            return;
+        }
+
+        const comparable = coreChat.map((message, position) => ({ message, position, identity: messageIdentity(message) })).filter(item => item.identity?.text);
+        const counts = await Promise.all(comparable.map(item => countMessage(item.identity)));
+        const countByPosition = new Map(comparable.map((item, index) => [item.position, counts[index]]));
+        const size = Number(contextSize) || Number(getContext().maxContext) || 50000;
+        const budgetInfo = tailPolicy(settings, size, fixedPromptTokensByChat.get(chatKey));
+        const budget = budgetInfo.budget;
+        const tailPositions = new Set();
+        let tailTokens = 0;
+        let tailMessages = 0;
+        for (let cursor = comparable.length - 1; cursor >= 0; cursor--) {
+            const item = comparable[cursor];
+            const count = Math.max(1, Number(counts[cursor]) || 1);
+            if (tailMessages >= budgetInfo.maxMessages) break;
+            if (tailMessages >= budgetInfo.minimumMessages && tailTokens + count > budget) break;
+            tailPositions.add(item.position);
+            tailTokens += count;
+            tailMessages++;
+        }
+
+        const kept = [];
+        let hiddenMessages = 0;
+        let hiddenTokens = 0;
+        for (let position = 0; position < coreChat.length; position++) {
+            const message = coreChat[position];
+            const identity = messageIdentity(message);
+            if (!identity || tailPositions.has(position)) {
+                kept.push(message);
+                continue;
+            }
+            const fingerprint = fingerprintMessage(identity);
+            if (processed.get(identity.index) !== fingerprint) {
+                kept.push(message);
+                continue;
+            }
+            hiddenTokens += Math.max(1, Number(countByPosition.get(position)) || 1);
+            hiddenMessages++;
+        }
+
+        coreChat.splice(0, coreChat.length, ...kept);
+        pendingTextMeasurement = {
+            chatKey,
+            conversationTokens: Math.max(0, counts.reduce((sum, count) => sum + count, 0) - hiddenTokens),
+        };
+        updateRuntime({ contextReduction: {
+            mode: budgetInfo.measured ? 'active-measured' : 'active-learning',
+            hiddenMessages,
+            hiddenTokens,
+            tailMessages,
+            tailTurns: Math.ceil(tailMessages / 2),
+            tailTokens,
+            tailBudget: budget,
+            fixedPromptTokens: budgetInfo.fixedPromptTokens,
+            safetyTokens: budgetInfo.safetyTokens,
+        } });
+    } catch (error) {
+        console.error('[Continuity] Context reduction failed; sending original chat.', error);
+        updateRuntime({
+            contextReduction: { mode: 'failed-open', hiddenMessages: 0, hiddenTokens: 0, tailMessages: coreChat.length, tailTurns: Math.ceil(coreChat.length / 2), tailTokens: 0 },
+            lastError: `Context reduction failed safely: ${error.message}`,
+        });
+    }
+}
+
+export function captureChatCompletionOverhead() {
+    const chatKey = getChatKey();
+    if (!chatKey) return;
+    const counts = promptManager?.tokenHandler?.counts;
+    if (!counts || typeof counts !== 'object') return;
+    const total = Object.values(counts).map(Number).filter(Number.isFinite).reduce((sum, value) => sum + value, 0);
+    const conversation = Math.max(0, Number(counts.chatHistory ?? counts.conversation) || 0);
+    if (!total || total < conversation) return;
+    const fixedPromptTokens = Math.max(0, Math.round(total - conversation));
+    fixedPromptTokensByChat.set(chatKey, fixedPromptTokens);
+    updateRuntime({ contextReduction: { ...runtime.contextReduction, fixedPromptTokens } });
+}
+
+export async function captureTextCompletionOverhead(eventData) {
+    if (!pendingTextMeasurement || eventData?.dryRun || typeof eventData?.prompt !== 'string') return;
+    const currentKey = getChatKey();
+    if (!currentKey || currentKey !== pendingTextMeasurement.chatKey) return;
+    const total = await getTokenCountAsync(eventData.prompt, 0);
+    const fixedPromptTokens = Math.max(0, Math.round(total - pendingTextMeasurement.conversationTokens));
+    fixedPromptTokensByChat.set(currentKey, fixedPromptTokens);
+    pendingTextMeasurement = null;
+    updateRuntime({ contextReduction: { ...runtime.contextReduction, fixedPromptTokens } });
+}

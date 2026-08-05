@@ -1,0 +1,12 @@
+{
+  "display_name": "Continuity Memory",
+  "loading_order": 60,
+  "requires": [],
+  "optional": [],
+  "js": "extension/index.js",
+  "css": "extension/style.css",
+  "generate_interceptor": "continuityMemoryGenerateInterceptor",
+  "author": "Continuity Memory contributors",
+  "version": "0.14.0-standalone.38",
+  "description": "Standalone structured continuity for roleplay and simulations; does not use Lorebooks or World Info."
+}

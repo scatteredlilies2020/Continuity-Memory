@@ -1,0 +1,15 @@
+{
+  "name": "sillytavern-continuity",
+  "version": "0.14.0-standalone.38",
+  "description": "Standalone structured continuity for SillyTavern; does not use Lorebooks or World Info.",
+  "private": true,
+  "type": "module",
+  "main": "plugin/index.js",
+  "scripts": {
+    "check": "node --experimental-vm-modules scripts/check.js",
+    "test": "npm run check && node --test"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
