@@ -7,6 +7,7 @@ import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTI
 import { isRateLimitError } from './errors.js';
 import { collectFingerprintMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js';
 import { resolveExtractionChunk } from './extraction-budget.js';
+import { nextArcCapsules } from './hierarchy-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
 import { embedWorldInChat } from './portable.js';
@@ -651,28 +652,6 @@ function formatCapsules(capsules) {
     })).join('\n');
 }
 
-function nextArcCapsules(world, settings = getSettings()) {
-    if (!['l2', 'l3'].includes(settings.hierarchyMode)) return null;
-    const groupSize = Math.max(4, Math.min(20, Math.round(Number(settings.arcGroupSize) || 8)));
-    const threshold = Math.max(groupSize * 2, Math.min(200, Math.round(Number(settings.arcStartCapsules) || 24)));
-    const covered = new Set((world.arcs || []).flatMap(arc => arc.capsuleIds || []));
-    const byChat = new Map();
-    for (const capsule of world.capsules || []) {
-        const chatKey = capsule.chatKey || '';
-        if (!byChat.has(chatKey)) byChat.set(chatKey, []);
-        byChat.get(chatKey).push(capsule);
-    }
-    for (const capsules of byChat.values()) {
-        capsules.sort((a, b) => Number(a.from ?? 0) - Number(b.from ?? 0) || String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
-        if (capsules.length < threshold) continue;
-        const ungrouped = capsules.filter(capsule => !covered.has(capsule.id));
-        // Always retain at least one recent group as fine-grained L1-only history.
-        if (ungrouped.length < groupSize * 2) continue;
-        return ungrouped.slice(0, groupSize);
-    }
-    return null;
-}
-
 function formatArcs(arcs) {
     return arcs.map((arc, index) => JSON.stringify({
         sequence: index + 1,
@@ -757,7 +736,7 @@ export async function buildNextArc(worldId = getBoundWorldId(), expectedEpoch = 
     }
     if (Number(health.schemaVersion) < 4) throw new Error('Restart SillyTavern once to activate non-destructive L2 storage.');
     let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
-    const capsules = nextArcCapsules(world);
+    const capsules = nextArcCapsules(world, getSettings());
     if (!capsules) return null;
     updateRuntime({ arcStatus: `Building L2 from ${capsules.length} L1 records…`, arcError: '' });
     const result = await generateArc(capsules);

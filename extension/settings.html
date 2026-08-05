@@ -311,13 +311,9 @@
                                 <option value="off">L1 only</option>
                             </select>
                         </label>
-                        <label>Start L2 after
-                            <input id="continuity_arc_start" class="text_pole" type="number" min="16" max="200" step="1">
-                            <small>L1 records; default 24</small>
-                        </label>
                         <label>L1 records per L2
-                            <input id="continuity_arc_group" class="text_pole" type="number" min="4" max="20" step="1">
-                            <small>default 8; effective start is at least two groups</small>
+                            <input id="continuity_arc_group" class="text_pole" type="number" min="4" max="200" step="1">
+                            <small>default 24; one L2 is created for each complete group</small>
                         </label>
                     </div>
                     <div class="continuity-grid">

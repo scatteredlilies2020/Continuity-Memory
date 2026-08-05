@@ -12,12 +12,12 @@ import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
 import { formatCorrectionPreview } from './memory-correction.js';
 import { alignWorldToChat, collectFingerprintMessages } from './fingerprint.js';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.38';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.39';
 import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js';
 import { resolveInjectionBudget } from './injection-budget.js';
 import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.38';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.38';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.39';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.39';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -532,7 +532,6 @@ export function renderRuntime() {
     $('#continuity_batch').val(settings.extractionBatchMessages);
     $('#continuity_chunk').val(settings.extractionChunkTokens);
     $('#continuity_hierarchy_mode').val(settings.hierarchyMode);
-    $('#continuity_arc_start').val(settings.arcStartCapsules);
     $('#continuity_arc_group').val(settings.arcGroupSize);
     $('#continuity_era_start').val(settings.eraStartArcs);
     $('#continuity_era_group').val(settings.eraGroupSize);
@@ -925,8 +924,7 @@ export function initUI() {
     setSetting('#continuity_batch', 'extractionBatchMessages', value => Math.min(50, Math.max(2, Number(value) || 6)));
     setSetting('#continuity_chunk', 'extractionChunkTokens', value => Math.min(50000, Math.max(0, Number(value) || 0)));
     setSetting('#continuity_hierarchy_mode', 'hierarchyMode', value => ['off', 'l2', 'l3'].includes(value) ? value : 'l3');
-    setSetting('#continuity_arc_start', 'arcStartCapsules', value => Math.min(200, Math.max(16, Number(value) || 24)));
-    setSetting('#continuity_arc_group', 'arcGroupSize', value => Math.min(20, Math.max(4, Number(value) || 8)));
+    setSetting('#continuity_arc_group', 'arcGroupSize', value => Math.min(200, Math.max(4, Number(value) || 24)));
     setSetting('#continuity_era_start', 'eraStartArcs', value => Math.min(100, Math.max(8, Number(value) || 12)));
     setSetting('#continuity_era_group', 'eraGroupSize', value => Math.min(16, Math.max(3, Number(value) || 6)));
     setSetting('#continuity_thinking', 'thinkingMode');

@@ -44,8 +44,7 @@ const DEFAULTS = Object.freeze({
     summaryOpenRouterUrl: '',
     summaryOpenRouterModel: 'openai/gpt-4.1-mini',
     hierarchyMode: 'l3',
-    arcStartCapsules: 24,
-    arcGroupSize: 8,
+    arcGroupSize: 24,
     eraStartArcs: 12,
     eraGroupSize: 6,
     thinkingMode: 'off',
@@ -125,6 +124,14 @@ export function getSettings() {
     if (Number(settings.hierarchyDefaultVersion || 0) < 1) {
         if (settings.hierarchyMode === undefined || settings.hierarchyMode === 'l2') settings.hierarchyMode = 'l3';
         settings.hierarchyDefaultVersion = 1;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.l2BatchDefaultVersion || 0) < 1) {
+        const legacyStart = Math.round(Number(settings.arcStartCapsules));
+        const legacyGroup = Math.round(Number(settings.arcGroupSize));
+        settings.arcGroupSize = Math.max(4, Math.min(200, legacyStart || legacyGroup || 24));
+        delete settings.arcStartCapsules;
+        settings.l2BatchDefaultVersion = 1;
         saveSettingsDebounced();
     }
     if (Number(settings.hierarchyLabelVersion || 0) < 1) {
