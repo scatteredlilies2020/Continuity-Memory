@@ -8,6 +8,7 @@ import { isRateLimitError } from './errors.js';
 import { collectFingerprintMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
+import { completeL1Messages, resolveL1GroupSize } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
 import { embedWorldInChat } from './portable.js';
@@ -250,7 +251,7 @@ function collectMessages(from, to) {
     return messages;
 }
 
-async function chunkMessages(messages, tokenLimit) {
+async function chunkMessages(messages, tokenLimit, maxMessages = Infinity) {
     const chunks = [];
     let chunk = [];
     let tokens = 0;
@@ -258,7 +259,7 @@ async function chunkMessages(messages, tokenLimit) {
         const discontinuous = chunk.length && message.index > chunk.at(-1).index + 1;
         const candidate = discontinuous ? [message] : [...chunk, message];
         const candidateTokens = await getTokenCountAsync(formatMessages(candidate));
-        if (chunk.length && (candidateTokens > tokenLimit || discontinuous)) {
+        if (chunk.length && (candidateTokens > tokenLimit || candidate.length > maxMessages || discontinuous)) {
             chunks.push({ messages: chunk, tokens });
             chunk = [];
             tokens = 0;
@@ -978,8 +979,12 @@ export async function restartL1FromScratch() {
     const chat = getContext().chat || [];
     if (!worldId || !chatKey || !chat.length) throw new Error('Open a chat and prepare its memory first.');
     await requireRetryStorage();
-    const messages = collectMessages(0, chat.length - 1);
-    if (!messages.length) throw new Error('This chat has no processable messages.');
+    const allMessages = collectMessages(0, chat.length - 1);
+    if (!allMessages.length) throw new Error('This chat has no processable messages.');
+    const groupSize = resolveL1GroupSize(getSettings().extractionBatchMessages);
+    const messages = completeL1Messages(allMessages, groupSize);
+    const pendingTail = allMessages.length - messages.length;
+    if (!messages.length) throw new Error(`At least ${groupSize} processable messages are required for the first L1 record.`);
     runtime.generation++;
     const queued = runtime.queue.splice(0);
     for (const job of queued) job.reject?.(new Error('Start Over cleared the processing queue.'));
@@ -1001,7 +1006,7 @@ export async function restartL1FromScratch() {
         updateRuntime({ world, retryStatus: 'All old memory was erased. Preparing the first fresh L1 chunks…' });
         await embedWorldInChat(world);
 
-        const chunks = await chunkMessages(messages, resolveExtractionChunk(getSettings().extractionChunkTokens, getContext().maxContext));
+        const chunks = await chunkMessages(messages, resolveExtractionChunk(getSettings().extractionChunkTokens, getContext().maxContext), groupSize);
         for (let index = 0; index < chunks.length; index++) {
             if (runtime.paused || runtime.generation !== epoch) throw new Error('Fresh rebuild stopped. Completed chunks remain saved; use Build to resume.');
             const chunk = chunks[index].messages;
@@ -1023,9 +1028,9 @@ export async function restartL1FromScratch() {
         updateRuntime({
             status: 'idle',
             progress: null,
-            retryStatus: `Fresh L1 build complete: ${messages.length} messages in ${chunks.length} saved chunk(s).`,
+            retryStatus: `Fresh L1 build complete: ${messages.length} messages in ${chunks.length} saved chunk(s)${pendingTail ? `; ${pendingTail} recent message(s) remain raw until the next complete group` : ''}.`,
         });
-        return { messages: messages.length, chunks: chunks.length, completedChunks };
+        return { messages: messages.length, chunks: chunks.length, completedChunks, pendingTail };
     } catch (error) {
         const paused = runtime.paused || isRateLimitError(error) || /stopped/i.test(error.message);
         updateRuntime({
@@ -1117,7 +1122,8 @@ async function processRange(job, epoch) {
         updateRuntime({ lastValidation: `Skipped ${skipped} unchanged message(s); they are already in memory.` });
         return { chunks: 0, messages: 0, skipped };
     }
-    const chunks = await chunkMessages(unseen, resolveExtractionChunk(getSettings().extractionChunkTokens, getContext().maxContext));
+    const groupSize = resolveL1GroupSize(getSettings().extractionBatchMessages);
+    const chunks = await chunkMessages(unseen, resolveExtractionChunk(getSettings().extractionChunkTokens, getContext().maxContext), groupSize);
 
     for (let index = 0; index < chunks.length; index++) {
         if (runtime.paused || runtime.generation !== epoch) throw new Error('Processing stopped; pending results were discarded.');
@@ -1364,10 +1370,11 @@ export async function maybeAutoExtract(force = false, sourceMessages = null) {
     const lastIndex = activeMessages?.at(-1)?.index ?? context.chat.length - 1;
     const source = world.sources?.[chatKey];
     const coverage = getProcessingCoverage(world, activeMessages);
+    const groupSize = resolveL1GroupSize(settings.extractionBatchMessages);
     let pending = coverage.pendingMessages;
     if (!force) {
         if (!source) {
-            pending = pending.slice(-settings.extractionBatchMessages);
+            pending = pending.slice(-groupSize);
         } else {
             const processedIndexes = new Set((source.processedMessages || [])
                 .filter(item => Number(item.version) === EXTRACTION_VERSION)
@@ -1379,7 +1386,8 @@ export async function maybeAutoExtract(force = false, sourceMessages = null) {
             pending = pending.filter(message => processedIndexes.has(message.index) || message.index > lastProcessedIndex);
         }
     }
-    if (!pending.length || (!force && pending.length < settings.extractionBatchMessages)) return null;
+    pending = completeL1Messages(pending, groupSize);
+    if (!pending.length) return null;
     return enqueueRange({
         from: pending[0].index,
         to: pending.at(-1).index,

@@ -12,12 +12,13 @@ import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
 import { formatCorrectionPreview } from './memory-correction.js';
 import { alignWorldToChat, collectFingerprintMessages } from './fingerprint.js';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.39';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.40';
 import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js';
+import { completeL1MessageCount, resolveL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
 import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.39';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.39';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.40';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.40';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -716,14 +717,18 @@ async function continueFailedL1() {
     if (runtime.processing) throw new Error('Wait for current processing to finish.');
     const coverage = getProcessingCoverage();
     if (!coverage.pending) return { continued: 0, pendingMessages: 0 };
-    if (coverage.pending > 50 && !window.confirm(`Continue all ${coverage.pending} pending L1 messages? This may make several extraction requests.`)) return { cancelled: true, continued: 0 };
+    const groupSize = resolveL1GroupSize(getSettings().extractionBatchMessages);
+    const eligible = completeL1MessageCount(coverage.pending, groupSize);
+    const pendingTail = coverage.pending - eligible;
+    if (!eligible) return { continued: 0, pendingMessages: 0, pendingTail };
+    if (eligible > 50 && !window.confirm(`Continue ${eligible} eligible L1 messages? This may make several extraction requests.`)) return { cancelled: true, continued: 0 };
     if (!getSettings().enabled) throw new Error('Continuity is disabled. Enable it before building memory.');
     // Build Memory is an explicit request to process pending work, so it also
     // serves as Resume after Stop, Pause, or an automatic rate-limit pause.
     if (runtime.paused) resumeRuntime();
     const result = await maybeAutoExtract(true);
     if (!result) throw new Error('No pending L1 messages could be started. Open a populated chat and refresh Continuity.');
-    return { continued: result.chunks || 1, pendingMessages: result.messages || 0 };
+    return { continued: result.chunks || 1, pendingMessages: result.messages || 0, pendingTail };
 }
 
 async function finishHierarchy(l1, clearRetrieval = false, rebuildVectors = false) {
@@ -753,7 +758,7 @@ async function finishHierarchy(l1, clearRetrieval = false, rebuildVectors = fals
                 vectors = { status: 'empty', total: 0 };
             }
         }
-        updateRuntime({ status: 'idle', retryStatus: `Build complete: L1 ${l1.continued || l1.chunks || 0}, L2 ${arcs}, L3 ${eras}${clearRetrieval ? `, retrieval cache ${cacheEntries} cleared` : ''}${rebuildVectors ? `, vectors ${vectors?.total || 0}` : ''}.` });
+        updateRuntime({ status: 'idle', retryStatus: `Build complete: L1 ${l1.continued || l1.chunks || 0}, L2 ${arcs}, L3 ${eras}${l1.pendingTail ? `; ${l1.pendingTail} recent message(s) remain raw` : ''}${clearRetrieval ? `, retrieval cache ${cacheEntries} cleared` : ''}${rebuildVectors ? `, vectors ${vectors?.total || 0}` : ''}.` });
         return { ...l1, arcs, eras, cacheEntries, vectors };
     } catch (error) {
         updateRuntime({ status: 'error', retryStatus: `Build stopped safely: ${error.message}` });
@@ -921,7 +926,7 @@ export function initUI() {
     setSetting('#continuity_injection_position', 'injectionPosition');
     setSetting('#continuity_injection_depth', 'injectionDepth', value => Math.min(100, Math.max(0, Number(value) || 0)));
     setSetting('#continuity_injection_role', 'injectionRole');
-    setSetting('#continuity_batch', 'extractionBatchMessages', value => Math.min(50, Math.max(2, Number(value) || 6)));
+    setSetting('#continuity_batch', 'extractionBatchMessages', resolveL1GroupSize);
     setSetting('#continuity_chunk', 'extractionChunkTokens', value => Math.min(50000, Math.max(0, Number(value) || 0)));
     setSetting('#continuity_hierarchy_mode', 'hierarchyMode', value => ['off', 'l2', 'l3'].includes(value) ? value : 'l3');
     setSetting('#continuity_arc_group', 'arcGroupSize', value => Math.min(200, Math.max(4, Number(value) || 24)));

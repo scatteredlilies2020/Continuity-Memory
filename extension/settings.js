@@ -2,6 +2,7 @@ import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
 import { PROMPT_DEFAULTS } from './prompts.js';
+import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 
 export const EXTENSION_NAME = 'continuityMemory';
 
@@ -26,7 +27,7 @@ const DEFAULTS = Object.freeze({
     injectionPosition: 'before-chat-history',
     injectionDepth: 4,
     injectionRole: 'user',
-    extractionBatchMessages: 6,
+    extractionBatchMessages: DEFAULT_L1_GROUP_SIZE,
     extractionChunkTokens: 0,
     memoryProfileId: '',
     retrievalProfileId: '',
@@ -132,6 +133,13 @@ export function getSettings() {
         settings.arcGroupSize = Math.max(4, Math.min(200, legacyStart || legacyGroup || 24));
         delete settings.arcStartCapsules;
         settings.l2BatchDefaultVersion = 1;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.l1GroupDefaultVersion || 0) < 1) {
+        if (settings.extractionBatchMessages === undefined || Number(settings.extractionBatchMessages) === 6) {
+            settings.extractionBatchMessages = DEFAULT_L1_GROUP_SIZE;
+        }
+        settings.l1GroupDefaultVersion = 1;
         saveSettingsDebounced();
     }
     if (Number(settings.hierarchyLabelVersion || 0) < 1) {

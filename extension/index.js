@@ -1,21 +1,22 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.14.0-standalone.39';
+import { api } from './api.js?v=0.14.0-standalone.40';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
 import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js';
 import { buildMemoryPrompt } from './retrieval.js';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.39';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.40';
 import { onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js';
 import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds } from './ui.js?v=0.14.0-standalone.39';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds } from './ui.js?v=0.14.0-standalone.40';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.39';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.40';
 import { collectFingerprintMessages } from './fingerprint.js';
-import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.39';
+import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.40';
 import { roleplaySourceMessages, shouldGateRoleplayGeneration } from './generation-policy.js';
+import { completeL1MessageCount, resolveL1GroupSize } from './l1-policy.js';
 
 const PROMPT_KEY = 'continuity_memory_context';
 let lastObservedWorldId = null;
@@ -87,6 +88,8 @@ async function completeL1ForGeneration(sourceMessages) {
     while (true) {
         const coverage = getProcessingCoverage(runtime.world, sourceMessages);
         if (!coverage.pending) return coverage;
+        const groupSize = resolveL1GroupSize(getSettings().extractionBatchMessages);
+        if (!completeL1MessageCount(coverage.pending, groupSize)) return coverage;
         if (runtime.paused) resumeRuntime();
         updateRuntime({ status: 'preparing-roleplay', retryStatus: `Roleplay is waiting while Continuity processes ${coverage.pending} pending message(s)…` });
         const result = await maybeAutoExtract(true, sourceMessages);
@@ -151,7 +154,8 @@ async function prepareRoleplayGeneration(type) {
     await completeL1ForGeneration(sourceMessages);
     const hierarchy = await completeHierarchyForGeneration();
     const coverage = getProcessingCoverage(runtime.world, sourceMessages);
-    if (coverage.pending) throw new Error(`${coverage.pending} memory message(s) are still pending.`);
+    const eligiblePending = completeL1MessageCount(coverage.pending, getSettings().extractionBatchMessages);
+    if (eligiblePending) throw new Error(`${eligiblePending} eligible memory message(s) are still pending.`);
     const vectors = await completeVectorsForGeneration();
     const processedMessages = Math.max(0, initialCoverage.pending - coverage.pending);
     if (processedMessages) updates.push(`processed ${processedMessages} message(s) into L1`);
@@ -163,7 +167,13 @@ async function prepareRoleplayGeneration(type) {
     if (existingWork && Number(runtime.world?.revision ?? -1) !== revisionBeforeWaiting && !updates.length) {
         updates.push('completed pending memory work');
     }
-    updateRuntime({ status: 'idle', lastError: '', retryStatus: 'Continuity is fully ready. Starting roleplay generation…' });
+    updateRuntime({
+        status: 'idle',
+        lastError: '',
+        retryStatus: coverage.pending
+            ? `Continuity is ready. ${coverage.pending} recent message(s) remain raw until the next complete L1 group.`
+            : 'Continuity is fully ready. Starting roleplay generation…',
+    });
     const settings = getSettings();
     const recentLimit = Math.max(Number(settings.retrievalQueryMessages) || 6, Number(settings.embeddingQueryMessages) || 4);
     const notification = updates.length ? `Continuity updated before roleplay: ${updates.join('; ')}.` : '';

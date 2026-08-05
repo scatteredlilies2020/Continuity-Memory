@@ -78,6 +78,8 @@ Continuity builds three levels of chronological memory:
 - **L2** condenses groups of L1 records into larger arcs.
 - **L3** preserves long-running eras and developments.
 
+By default, Continuity creates one L1 from each complete group of 8 messages, one L2 from 24 L1 records, and one L3 from 6 L2 records. A smaller recent message tail stays raw until the next L1 group is complete.
+
 Relevant chronology is retrieved alongside structured facts and current state. Overlapping records from different levels are de-duplicated before they are added to the prompt.
 
 This preserves broad narrative continuity without injecting the entire history on every turn.
