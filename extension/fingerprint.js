@@ -110,6 +110,69 @@ function remapChatKey(world, from, to) {
     return aligned;
 }
 
+function chatIdentity(chatKey) {
+    const marker = ':chat:';
+    const position = String(chatKey || '').indexOf(marker);
+    return position >= 0 ? String(chatKey).slice(position + marker.length) : '';
+}
+
+function consolidateSourceAliases(world, candidates, currentChatKey) {
+    const targetIdentity = chatIdentity(currentChatKey);
+    const aliases = candidates.filter(candidate => chatIdentity(candidate.chatKey) === targetIdentity);
+    if (!targetIdentity || aliases.length !== candidates.length || !aliases.every(candidate => candidate.aligned)) return null;
+
+    const ranked = [...aliases].sort((left, right) => {
+        const recordDifference = right.records - left.records;
+        if (recordDifference) return recordDifference;
+        const indexDifference = right.lastProcessedIndex - left.lastProcessedIndex;
+        if (indexDifference) return indexDifference;
+        if (left.chatKey === currentChatKey && right.chatKey !== currentChatKey) return -1;
+        if (right.chatKey === currentChatKey && left.chatKey !== currentChatKey) return 1;
+        return String(world.sources?.[right.chatKey]?.lastProcessedAt || '')
+            .localeCompare(String(world.sources?.[left.chatKey]?.lastProcessedAt || ''));
+    });
+    const keep = ranked[0];
+    const droppedKeys = new Set(ranked.slice(1).map(candidate => candidate.chatKey));
+    const consolidated = structuredClone(world);
+
+    const filterSources = item => {
+        if (!item || !Array.isArray(item.sources)) return item;
+        const sources = item.sources.filter(source => !droppedKeys.has(source?.chatKey));
+        return sources.length ? { ...item, sources } : null;
+    };
+    const removedCapsuleIds = new Set((consolidated.capsules || [])
+        .filter(item => droppedKeys.has(item?.chatKey))
+        .map(item => item.id));
+    const removedArcIds = new Set((consolidated.arcs || [])
+        .filter(item => droppedKeys.has(item?.chatKey) || (item.capsuleIds || []).some(id => removedCapsuleIds.has(id)))
+        .map(item => item.id));
+
+    consolidated.scene = filterSources(consolidated.scene);
+    for (const key of ['entities', 'facts', 'states', 'relationships', 'events', 'threads']) {
+        consolidated[key] = (consolidated[key] || []).map(filterSources).filter(Boolean);
+    }
+    consolidated.capsules = (consolidated.capsules || [])
+        .filter(item => !droppedKeys.has(item?.chatKey))
+        .map(filterSources)
+        .filter(Boolean);
+    consolidated.extractions = (consolidated.extractions || []).filter(item => !droppedKeys.has(item?.chatKey));
+    consolidated.arcs = (consolidated.arcs || [])
+        .filter(item => !removedArcIds.has(item.id))
+        .map(filterSources)
+        .filter(Boolean);
+    consolidated.eras = (consolidated.eras || [])
+        .filter(item => !(item.arcIds || []).some(id => removedArcIds.has(id)))
+        .map(filterSources)
+        .filter(Boolean);
+    for (const key of droppedKeys) delete consolidated.sources?.[key];
+
+    return {
+        keep,
+        world: remapChatKey(consolidated, keep.chatKey, currentChatKey),
+        aliases: ranked.map(candidate => candidate.chatKey),
+    };
+}
+
 /**
  * Verifies that every processed message represented by one imported source is
  * still present at the same position in the current chat. Newer, unprocessed
@@ -153,6 +216,21 @@ export function alignWorldToChat(world, currentMessages, currentChatKey) {
         };
     }
     if (candidates.length > 1) {
+        const consolidated = consolidateSourceAliases(world, candidates, currentChatKey);
+        if (consolidated) {
+            const { keep } = consolidated;
+            return {
+                ok: true,
+                code: 'aligned-source-aliases',
+                message: `Verified ${keep.matched} processed message(s) and consolidated ${consolidated.aliases.length} device aliases for this chat.`,
+                ...keep,
+                pending: Math.max(0, current.length - keep.matched),
+                sourceChatKey: keep.chatKey,
+                changed: true,
+                aliases: consolidated.aliases,
+                world: consolidated.world,
+            };
+        }
         return {
             ok: false,
             code: 'multiple-source-chats',
@@ -189,6 +267,7 @@ export function alignWorldToChat(world, currentMessages, currentChatKey) {
         ...match,
         pending: Math.max(0, current.length - match.matched),
         sourceChatKey: match.chatKey,
+        changed: match.chatKey !== currentChatKey,
         world: remapChatKey(world, match.chatKey, currentChatKey),
     };
 }

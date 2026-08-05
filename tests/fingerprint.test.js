@@ -91,6 +91,39 @@ test('blocks memories that combine more than one source conversation', () => {
     assert.equal(result.ok, false);
     assert.equal(result.code, 'multiple-source-chats');
 });
+
+test('consolidates device-specific character aliases without re-extracting the copied chat', () => {
+    const deviceKey = 'character:22:chat:old.jsonl';
+    const current = [...messages(), { index: 2, name: 'User', text: 'What kind of cake?' }];
+    const complete = worldFor(current);
+    complete.sources[oldKey] = {
+        lastProcessedIndex: 2,
+        lastProcessedAt: '2026-08-05T10:00:00.000Z',
+        processedMessages: current.map(message => ({ index: message.index, fingerprint: fingerprintMessage(message), version: 2 })),
+    };
+    complete.extractions[0].to = 2;
+    complete.capsules[0].to = 2;
+    complete.sources[deviceKey] = {
+        lastProcessedIndex: 0,
+        lastProcessedAt: '2026-08-05T11:00:00.000Z',
+        processedMessages: [{ index: 0, fingerprint: fingerprintMessage(current[0]), version: 2 }],
+    };
+    complete.extractions.push({ id: 'redundant-extraction', chatKey: deviceKey, from: 0, to: 0 });
+    complete.capsules.push({ id: 'redundant-capsule', chatKey: deviceKey, from: 0, to: 0, sources: [{ chatKey: deviceKey, from: 0, to: 0 }] });
+    complete.facts.push({ id: 'redundant-fact', sources: [{ chatKey: deviceKey, from: 0, to: 0 }] });
+
+    const result = alignWorldToChat(complete, current, deviceKey);
+    assert.equal(result.ok, true);
+    assert.equal(result.code, 'aligned-source-aliases');
+    assert.equal(result.pending, 0);
+    assert.equal(result.changed, true);
+    assert.deepEqual(Object.keys(result.world.sources), [deviceKey]);
+    assert.equal(result.world.sources[deviceKey].lastProcessedIndex, 2);
+    assert.deepEqual(result.world.extractions.map(item => item.id), ['extraction-1']);
+    assert.deepEqual(result.world.capsules.map(item => item.id), ['capsule-1']);
+    assert.equal(result.world.facts.some(item => item.id === 'redundant-fact'), false);
+    assert.equal(result.world.facts[0].sources[0].chatKey, deviceKey);
+});
 test('finds the exact stored extraction affected by a changed swipe', () => {
     const current = messages();
     const world = worldFor(current);

@@ -12,13 +12,13 @@ import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
 import { formatCorrectionPreview } from './memory-correction.js';
 import { alignWorldToChat, collectFingerprintMessages } from './fingerprint.js';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.40';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.41';
 import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js';
 import { completeL1MessageCount, resolveL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
 import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.40';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.40';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.41';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.41';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -137,7 +137,7 @@ export async function refreshWorlds() {
 async function reconcileBoundWorldSource(world) {
     const chatKey = getChatKey();
     const sourceKeys = Object.keys(world?.sources || {});
-    if (!world || !chatKey || !sourceKeys.length || world.sources?.[chatKey]) return world;
+    if (!world || !chatKey || !sourceKeys.length || (sourceKeys.length === 1 && world.sources?.[chatKey])) return world;
 
     const alignment = alignWorldToChat(world, collectFingerprintMessages(getContext().chat || []), chatKey);
     const { world: ignored, ...diagnostic } = alignment;
@@ -182,7 +182,7 @@ async function recoverStoredWorldForCurrentChat(missingBoundWorldId) {
         .some(([chatKey, worldId]) => chatKey !== getChatKey() && worldId === stored.id);
     const saved = boundElsewhere
         ? (await api.importWorld(alignment.world)).world
-        : alignment.sourceChatKey && alignment.sourceChatKey !== getChatKey()
+        : alignment.changed || (alignment.sourceChatKey && alignment.sourceChatKey !== getChatKey())
             ? (await api.saveWorld(alignment.world)).world
             : stored;
     bindCurrentChat(saved.id);
@@ -218,7 +218,7 @@ export async function ensureCurrentChatMemory(createIfMissing = false, recoverSt
             if (existing && !boundElsewhere) {
                 const stored = (await api.getWorld(existing.id)).world;
                 const storedAlignment = verifyMemoryAlignment(stored);
-                const saved = storedAlignment.sourceChatKey && storedAlignment.sourceChatKey !== getChatKey()
+                const saved = storedAlignment.changed || (storedAlignment.sourceChatKey && storedAlignment.sourceChatKey !== getChatKey())
                     ? (await api.saveWorld(storedAlignment.world)).world
                     : storedAlignment.world;
                 bindCurrentChat(saved.id);

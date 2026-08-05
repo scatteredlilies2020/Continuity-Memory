@@ -7,6 +7,6 @@
   "css": "extension/style.css",
   "generate_interceptor": "continuityMemoryGenerateInterceptor",
   "author": "Continuity Memory contributors",
-  "version": "0.14.0-standalone.40",
+  "version": "0.14.0-standalone.41",
   "description": "Standalone structured continuity for roleplay and simulations; does not use Lorebooks or World Info."
 }
