@@ -248,6 +248,38 @@ test('retrieval omits a stale scene checkpoint while preserving durable memory',
     assert.match(result.prompt, /Recent chronological continuity \(L1\):/);
 });
 
+test('retrieval suppresses records from invalid extraction ranges before repair completes', () => {
+    const target = world();
+    const chatKey = 'chat';
+    mergeExtraction(target, extraction({
+        facts: [{ subject: 'Yui', predicate: 'obsolete destination', value: 'Abandoned observatory', category: 'plan', importance: 5, persistence: 'temporary' }],
+        events: [{ title: 'Obsolete observatory plan', summary: 'Yui planned to visit the abandoned observatory.', participants: ['Yui'], location: 'Observatory', storyTime: 'Earlier', consequences: '', importance: 5 }],
+    }), { chatKey, from: 0, to: 7, allowStateUpdates: true });
+    mergeExtraction(target, extraction({
+        facts: [{ subject: 'Yui', predicate: 'current destination', value: 'Harbor', category: 'plan', importance: 5, persistence: 'temporary' }],
+        events: [{ title: 'Harbor departure', summary: 'Yui left for the harbor.', participants: ['Yui'], location: 'Harbor', storyTime: 'Later', consequences: '', importance: 5 }],
+    }), { chatKey, from: 8, to: 15, allowStateUpdates: true });
+    target.facts.push({
+        id: 'corrected-destination', correctionId: 'correction-1', subject: 'Yui', predicate: 'authoritative fallback',
+        value: 'Lighthouse if the harbor closes', category: 'plan', importance: 5, persistence: 'temporary',
+        sources: [{ chatKey, from: 0, to: 7 }],
+    });
+
+    const result = buildMemoryPrompt(
+        target,
+        [{ name: 'User', mes: 'Where is Yui going, the observatory, harbor, or lighthouse?' }],
+        2600,
+        chatKey,
+        [],
+        undefined,
+        new Map(),
+        { invalidSourceRanges: [{ chatKey, from: 0, to: 7 }] },
+    );
+    assert.doesNotMatch(result.prompt, /Abandoned observatory|Obsolete observatory plan/i);
+    assert.match(result.prompt, /Harbor/);
+    assert.match(result.prompt, /Lighthouse if the harbor closes/);
+});
+
 test('retrieval supports short identifiers and CJK names', () => {
     const target = world();
     target.entities.push(

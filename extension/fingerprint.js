@@ -30,6 +30,14 @@ export function collectFingerprintMessages(chat = []) {
     }
     return messages;
 }
+
+function extractionFingerprints(world, extraction, chatKey) {
+    if ((extraction?.messageFingerprints || []).length) return extraction.messageFingerprints;
+    return (world.sources?.[chatKey]?.processedMessages || [])
+        .filter(item => Number(item.index) >= Number(extraction.from) && Number(item.index) <= Number(extraction.to))
+        .map(item => ({ index: Number(item.index), fingerprint: String(item.fingerprint || '') }));
+}
+
 export function findChangedExtractions(world, currentMessages, chatKey) {
     if (!world || !chatKey) return [];
     const current = new Map((currentMessages || []).map(message => [
@@ -38,12 +46,40 @@ export function findChangedExtractions(world, currentMessages, chatKey) {
     ]));
     return (world.extractions || []).filter(extraction => {
         if (extraction?.chatKey !== chatKey) return false;
-        const saved = extraction.messageFingerprints || [];
+        const saved = extractionFingerprints(world, extraction, chatKey);
         return saved.some(item => {
             const index = Number(item.index);
             return current.has(index) && current.get(index) !== String(item.fingerprint || '');
         });
     });
+}
+
+/**
+ * Returns stored extraction ranges whose source can no longer be verified
+ * against the active chat. Unlike findChangedExtractions, this also treats a
+ * deleted source message or missing provenance as invalid. Retrieval uses this
+ * fail-closed view while the mutation repair job is still pending.
+ */
+export function findInvalidExtractionRanges(world, currentMessages, chatKey) {
+    if (!world || !chatKey) return [];
+    const current = new Map((currentMessages || []).map(message => [
+        Number(message.index),
+        fingerprintMessage(message),
+    ]));
+    return (world.extractions || []).filter(extraction => {
+        if (extraction?.chatKey !== chatKey) return false;
+        const saved = extractionFingerprints(world, extraction, chatKey);
+        if (!saved.length) return true;
+        return saved.some(item => {
+            const index = Number(item.index);
+            return !current.has(index) || current.get(index) !== String(item.fingerprint || '');
+        });
+    }).map(extraction => ({
+        id: String(extraction.id || ''),
+        chatKey,
+        from: Number(extraction.from),
+        to: Number(extraction.to),
+    })).filter(range => Number.isFinite(range.from) && Number.isFinite(range.to));
 }
 
 function hasContinuityData(world) {

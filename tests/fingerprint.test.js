@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { alignWorldToChat, collectFingerprintMessages, findChangedExtractions, fingerprintMessage } from '../extension/fingerprint.js';
+import { alignWorldToChat, collectFingerprintMessages, findChangedExtractions, findInvalidExtractionRanges, fingerprintMessage } from '../extension/fingerprint.js';
 
 const oldKey = 'character:7:chat:old.jsonl';
 const newKey = 'character:22:chat:copied.jsonl';
@@ -151,4 +151,19 @@ test('does not mistake deleted tail fingerprints for editable source messages', 
     assert.deepEqual(findChangedExtractions(world, current, oldKey), []);
     const changed = [{ ...current[0] }, { ...current[1], text: 'Changed retained message' }];
     assert.deepEqual(findChangedExtractions(world, changed, oldKey).map(item => item.id), ['tail']);
+});
+
+test('marks edited, deleted, and unverifiable extraction ranges invalid for retrieval', () => {
+    const current = messages();
+    const world = worldFor(current);
+    world.extractions = [
+        { id: 'valid', chatKey: oldKey, from: 0, to: 0, messageFingerprints: [{ index: 0, fingerprint: fingerprintMessage(current[0]) }] },
+        { id: 'edited', chatKey: oldKey, from: 1, to: 1, messageFingerprints: [{ index: 1, fingerprint: 'old-content' }] },
+        { id: 'deleted', chatKey: oldKey, from: 2, to: 2, messageFingerprints: [{ index: 2, fingerprint: 'deleted-content' }] },
+        { id: 'legacy', chatKey: oldKey, from: 3, to: 3, messageFingerprints: [] },
+    ];
+    assert.deepEqual(
+        findInvalidExtractionRanges(world, current, oldKey).map(item => item.id),
+        ['edited', 'deleted', 'legacy'],
+    );
 });

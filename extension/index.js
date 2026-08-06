@@ -3,7 +3,7 @@ import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
 import { api } from './api.js?v=0.14.0-standalone.44';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js';
+import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js';
 import { buildMemoryPrompt } from './retrieval.js';
 import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.44';
 import { onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js';
@@ -13,7 +13,7 @@ import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
 import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.44';
-import { collectFingerprintMessages } from './fingerprint.js';
+import { collectFingerprintMessages, findInvalidExtractionRanges } from './fingerprint.js';
 import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.44';
 import { roleplaySourceMessages, shouldGateRoleplayGeneration } from './generation-policy.js';
 import { completeL1MessageCount, resolveL1GroupSize } from './l1-policy.js';
@@ -23,6 +23,7 @@ let lastObservedWorldId = null;
 let lastObservedWorldRevision = null;
 let injectionRefresh = null;
 let mutationSync = null;
+let divergenceRepairRequested = false;
 let activeGenerationReadiness = null;
 let pendingEmbeddingSyncWorld = null;
 
@@ -238,7 +239,11 @@ async function refreshInjection(useRetrievalAssist = false, strictEmbedding = fa
         updateRuntime({ retrievalAssist: { mode: 'local', terms: [], fallback: false } });
     }
     const budget = resolveInjectionBudget(settings.injectionBudgetTokens, getContext().maxContext);
-    const coverage = getProcessingCoverage(world, coverageMessages);
+    const sourceMessages = Array.isArray(coverageMessages)
+        ? coverageMessages
+        : collectFingerprintMessages(getContext().chat || []);
+    const coverage = getProcessingCoverage(world, sourceMessages);
+    const invalidSourceRanges = findInvalidExtractionRanges(world, sourceMessages, getChatKey());
     const { prompt, estimatedTokens } = buildMemoryPrompt(
         world,
         recent,
@@ -247,7 +252,7 @@ async function refreshInjection(useRetrievalAssist = false, strictEmbedding = fa
         expandedTerms,
         settings.injectionInstruction,
         semanticRanks,
-        { ...promptOptions, includeSceneCheckpoint: coverage.pending === 0 },
+        { ...promptOptions, invalidSourceRanges, includeSceneCheckpoint: coverage.pending === 0 },
     );
     const managerApplied = useRetrievalAssist && getContext().mainApi === 'openai'
         && configurePromptManagerInjection(promptManager, settings, prompt);
@@ -271,7 +276,8 @@ function scheduleInjectionRefresh() {
     }, 100);
 }
 
-function scheduleMutationSync(delay = 350) {
+function scheduleMutationSync(delay = 350, requireDivergenceRepair = false) {
+    if (requireDivergenceRepair) divergenceRepairRequested = true;
     if (mutationSync) clearTimeout(mutationSync);
     mutationSync = setTimeout(async () => {
         mutationSync = null;
@@ -279,10 +285,20 @@ function scheduleMutationSync(delay = 350) {
             scheduleMutationSync(1000);
             return;
         }
+        const repairRequested = divergenceRepairRequested;
+        divergenceRepairRequested = false;
         try {
-            const result = await syncChangedExtractions();
+            // A deletion shifts later message indexes, so exact-range replacement
+            // is unsafe. Remove the divergent suffix first; ordinary edits and
+            // swipes retain the cheaper exact extraction replacement path.
+            const rollback = getTailRollbackStatus();
+            const result = repairRequested || rollback.detected
+                ? await repairDivergedBranch()
+                : await syncChangedExtractions();
             if (result?.deferred) scheduleMutationSync(1000);
+            else if (result?.repaired || result?.synced) await refreshInjection();
         } catch (error) {
+            if (repairRequested) divergenceRepairRequested = true;
             updateRuntime({ lastError: `Live memory update failed: ${error.message}` });
         }
     }, delay);
@@ -396,6 +412,12 @@ async function init() {
         eventSource.on(eventName, () => {
             scheduleInjectionRefresh();
             scheduleMutationSync();
+        });
+    }
+    if (event_types.MESSAGE_DELETED) {
+        eventSource.on(event_types.MESSAGE_DELETED, () => {
+            scheduleInjectionRefresh();
+            scheduleMutationSync(350, true);
         });
     }
     eventSource.on(event_types.GENERATE_AFTER_COMBINE_PROMPTS, captureTextCompletionOverhead);
