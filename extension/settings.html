@@ -434,6 +434,10 @@
                     <summary>Correct memory</summary>
                     <small>Describe a factual correction in plain language. Continuity uses the extraction model to find matching stored records and shows every proposed change before anything is saved. Historical events enter L1 and rebuild affected L2/L3 summaries. Chat messages are never edited.</small>
                     <textarea id="continuity_correction_input" class="text_pole" rows="4" placeholder="Example: [Character] already knew [information] before [scene]. Remove memories claiming they learned it there."></textarea>
+                    <label>Maximum correction output tokens
+                        <input id="continuity_correction_tokens" class="text_pole" type="number" min="1000" max="32000" step="1000">
+                        <small>default 8000; reasoning-capable models may share this allowance between thinking and JSON output</small>
+                    </label>
                     <div class="continuity-button-row">
                         <button id="continuity_correction_review" class="menu_button"><i class="fa-solid fa-magnifying-glass"></i> Review correction</button>
                     </div>

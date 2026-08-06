@@ -10,6 +10,7 @@ import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, resolveL1GroupSize } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
+import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
 import { embedWorldInChat } from './portable.js';
 import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js';
@@ -618,7 +619,12 @@ export async function reviewMemoryCorrection(instruction) {
     const epoch = runtime.generation;
     updateRuntime({ processing: true, status: 'reviewing-correction', lastError: '', retryStatus: `Reviewing ${candidates.length} potentially relevant memory record(s)…` });
     try {
-        const raw = await requestStructured(prompt, CORRECTION_SYSTEM_PROMPT, correctionJsonSchema, 4000);
+        const raw = await requestStructured(
+            prompt,
+            CORRECTION_SYSTEM_PROMPT,
+            correctionJsonSchema,
+            resolveCorrectionResponseTokens(getSettings().correctionResponseTokens),
+        );
         if (runtime.generation !== epoch) throw new Error('Correction review was stopped; no proposal was retained.');
         const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
         const proposal = augmentCorrectionChronology(world, validateCorrectionProposal(world, parsed, request));

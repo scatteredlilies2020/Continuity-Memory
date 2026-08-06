@@ -11,14 +11,15 @@ import { clearRetrievalExpansionCache } from './semantic-retrieval.js';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
 import { formatCorrectionPreview } from './memory-correction.js';
+import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { alignWorldToChat, collectFingerprintMessages } from './fingerprint.js';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.49';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.50';
 import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js';
 import { completeL1MessageCount, resolveL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
 import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.49';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.49';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.50';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.50';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -532,6 +533,7 @@ export function renderRuntime() {
     updateInjectionPlacementUI(settings);
     $('#continuity_batch').val(settings.extractionBatchMessages);
     $('#continuity_chunk').val(settings.extractionChunkTokens);
+    $('#continuity_correction_tokens').val(resolveCorrectionResponseTokens(settings.correctionResponseTokens));
     $('#continuity_hierarchy_mode').val(settings.hierarchyMode);
     $('#continuity_arc_group').val(settings.arcGroupSize);
     $('#continuity_era_start').val(settings.eraStartArcs);
@@ -928,6 +930,7 @@ export function initUI() {
     setSetting('#continuity_injection_role', 'injectionRole');
     setSetting('#continuity_batch', 'extractionBatchMessages', resolveL1GroupSize);
     setSetting('#continuity_chunk', 'extractionChunkTokens', value => Math.min(50000, Math.max(0, Number(value) || 0)));
+    setSetting('#continuity_correction_tokens', 'correctionResponseTokens', resolveCorrectionResponseTokens);
     setSetting('#continuity_hierarchy_mode', 'hierarchyMode', value => ['off', 'l2', 'l3'].includes(value) ? value : 'l3');
     setSetting('#continuity_arc_group', 'arcGroupSize', value => Math.min(200, Math.max(4, Number(value) || 24)));
     setSetting('#continuity_era_start', 'eraStartArcs', value => Math.min(100, Math.max(8, Number(value) || 12)));

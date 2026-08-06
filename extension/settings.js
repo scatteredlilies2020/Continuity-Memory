@@ -3,6 +3,7 @@ import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
 import { CANONICAL_RECORD_RULES, DURABLE_MEMORY_RULES, IDENTITY_RESOLUTION_RULES, PROMPT_DEFAULTS } from './prompts.js';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
+import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
 
 export const EXTENSION_NAME = 'continuityMemory';
 
@@ -29,6 +30,7 @@ const DEFAULTS = Object.freeze({
     injectionRole: 'user',
     extractionBatchMessages: DEFAULT_L1_GROUP_SIZE,
     extractionChunkTokens: 0,
+    correctionResponseTokens: DEFAULT_CORRECTION_RESPONSE_TOKENS,
     memoryProfileId: '',
     retrievalProfileId: '',
     arcProfileId: '',
