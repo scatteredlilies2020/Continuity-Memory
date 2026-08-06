@@ -20,6 +20,14 @@ test('uses SillyTavern normalized controls for native providers', () => {
     assert.deepEqual(result.payload, { include_reasoning: false, reasoning_effort: 'none' });
 });
 
+test('uses GPT-5.6 supported minimum reasoning effort', () => {
+    for (const model of ['gpt-5.6', 'gpt-5.6-sol', 'openai/gpt-5.6-terra', 'gpt-5.6-luna']) {
+        const result = buildThinkingRequest({ mode: 'minimum', source: 'openai', model });
+        assert.equal(result.payload.reasoning_effort, 'low');
+    }
+    assert.equal(buildThinkingRequest({ mode: 'minimum', source: 'openai', model: 'gpt-5.4' }).payload.reasoning_effort, 'min');
+});
+
 test('uses valid thinking controls for Gemini 2.5 and Gemini 3+ models', () => {
     for (const model of ['gemini-3.1-pro-preview', 'gemini-3.5-flash', 'gemini-3.6-flash']) {
         const result = buildThinkingRequest({ mode: 'off', source: 'google', model });

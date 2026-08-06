@@ -1,3 +1,5 @@
+import { minimumReasoningEffort } from './model-compatibility.js?v=0.14.0-standalone.54';
+
 function normalizedMode(mode) {
     return ['off', 'minimum', 'default'].includes(mode) ? mode : 'off';
 }
@@ -68,7 +70,7 @@ export function buildThinkingRequest({ mode, source = '', model = '', url = '', 
 
     const reasoningEffort = gemini
         ? (mode === 'off' && gemini.canDisableThinking ? 'none' : 'low')
-        : (mode === 'off' ? 'none' : 'min');
+        : (mode === 'off' ? 'none' : minimumReasoningEffort(model));
 
     const normalized = {
         include_reasoning: mode !== 'off',

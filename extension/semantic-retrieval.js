@@ -1,13 +1,14 @@
 import { extractMessageFromData } from '/script.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
-import { isThinkingControlError } from './thinking-policy.js?v=0.14.0-standalone.53';
-import { generateWithThinkingPolicy, requestDirectText } from './engine.js?v=0.14.0-standalone.53';
+import { isThinkingControlError } from './thinking-policy.js?v=0.14.0-standalone.54';
+import { generateWithThinkingPolicy, requestDirectText } from './engine.js?v=0.14.0-standalone.54';
 import { parseExpandedTerms } from './semantic-terms.js';
 import { recentRetrievalQuery } from './retrieval-query.js';
-import { getSettings } from './settings.js?v=0.14.0-standalone.53';
-import { buildThinkingRequest } from './thinking-policy.js?v=0.14.0-standalone.53';
-import { DEFAULT_RETRIEVAL_QUERY_TEMPLATE, DEFAULT_RETRIEVAL_SYSTEM_PROMPT, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.53';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js';
+import { getSettings } from './settings.js?v=0.14.0-standalone.54';
+import { buildThinkingRequest } from './thinking-policy.js?v=0.14.0-standalone.54';
+import { DEFAULT_RETRIEVAL_QUERY_TEMPLATE, DEFAULT_RETRIEVAL_SYSTEM_PROMPT, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.54';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.54';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.54';
 
 const cache = new Map();
 
@@ -39,12 +40,12 @@ async function requestExpansion(prompt) {
     let response;
     try {
         response = await ConnectionManagerRequestService.sendRequest(
-            profileId, messages, 300, options, isolatedProfilePayload({ temperature: 0, ...thinking.payload }),
+            profileId, messages, 300, options, isolatedProfilePayload({ ...outputTokenPayload(profile.model, 300), ...thinking.payload }),
         );
     } catch (error) {
         if (!thinking.controlled || !isThinkingControlError(error)) throw error;
         response = await ConnectionManagerRequestService.sendRequest(
-            profileId, messages, 300, options, isolatedProfilePayload({ temperature: 0 }),
+            profileId, messages, 300, options, isolatedProfilePayload(outputTokenPayload(profile.model, 300)),
         );
     }
     const result = extractMessageFromData(response, apiMap.selected);

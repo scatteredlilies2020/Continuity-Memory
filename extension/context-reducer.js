@@ -2,10 +2,10 @@ import { getTokenCountAsync } from '/scripts/tokenizers.js';
 import { getContext } from '/scripts/st-context.js';
 import { EXTRACTION_VERSION } from './coverage.js';
 import { promptManager } from '/scripts/openai.js';
-import { loadBoundWorld } from './engine.js?v=0.14.0-standalone.53';
+import { loadBoundWorld } from './engine.js?v=0.14.0-standalone.54';
 import { fingerprintMessage } from './fingerprint.js';
 import { runtime, updateRuntime } from './runtime.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.53';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.54';
 import { tailPolicy } from './tail-policy.js';
 import { canReduceContext } from './reduction-policy.js';
 

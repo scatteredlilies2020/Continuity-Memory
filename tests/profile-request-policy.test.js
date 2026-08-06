@@ -13,12 +13,12 @@ test('connection profile calls exclude preset and instruct prompt additions', ()
     });
 });
 
-test('connection profile calls disable custom prompt post-processing', () => {
+test('connection profile calls remove hard sampling and disable custom prompt post-processing', () => {
     assert.deepEqual(isolatedProfilePayload({
         temperature: 0.2,
+        top_p: 0.9,
         custom_prompt_post_processing: 'merge',
     }), {
-        temperature: 0.2,
         custom_prompt_post_processing: '',
     });
 });

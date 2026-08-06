@@ -12,12 +12,13 @@ import { completeL1Messages, resolveL1GroupSize } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.54';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js';
-import { buildExtractionSystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.53';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.54';
+import { buildExtractionSystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.54';
 import { sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.53';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.53';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.54';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.54';
 import { runtime, updateRuntime } from './runtime.js';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
@@ -486,8 +487,7 @@ async function requestDirectStructured(prompt, systemPrompt, jsonSchema, respons
         model: config.model,
         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }],
         stream: false,
-        temperature: 0.2,
-        max_tokens: responseLength,
+        ...outputTokenPayload(config.model, responseLength),
         ...(config.provider === 'openrouter' ? { api_url: config.url } : { custom_url: config.url, secret_id: config.secretId || undefined }),
         ...(withSchema && shouldSendStructuredSchema(thinking.adapter) ? { json_schema: jsonSchema } : {}),
         ...thinking.payload,
@@ -554,7 +554,7 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
     let thinkingPayload = thinking.payload;
     updateRuntime({ thinkingControl: { mode: getSettings().thinkingMode, adapter: thinking.adapter, fallback: false } });
     const compatibilityPayload = () => isolatedProfilePayload({
-        temperature: 0.2,
+        ...outputTokenPayload(profile.model, responseLength),
         ...thinkingPayload,
     });
     let response;
