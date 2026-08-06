@@ -14,10 +14,10 @@ import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
 import { embedWorldInChat } from './portable.js';
 import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js';
-import { DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js';
+import { buildExtractionSystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.53';
 import { sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.52';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.53';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.53';
 import { runtime, updateRuntime } from './runtime.js';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
@@ -434,7 +434,8 @@ async function extractChunk(messages, world = runtime.world) {
     let lastError;
     for (let attempt = 1; attempt <= 2; attempt++) {
         try {
-            const raw = await requestExtraction(prompt, String(settings.extractionSystemPrompt ?? DEFAULT_EXTRACTION_SYSTEM_PROMPT));
+            const systemPrompt = buildExtractionSystemPrompt(settings.extractionSystemPrompt, settings.jbEnabled, settings.jbPrompt);
+            const raw = await requestExtraction(prompt, systemPrompt);
             updateRuntime({ lastRawResponse: String(raw).slice(0, 30000) });
             const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
             const result = validateResult(parsed, world);

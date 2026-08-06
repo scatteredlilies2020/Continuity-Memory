@@ -1,12 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+    buildExtractionSystemPrompt,
     DEFAULT_ARC_SYSTEM_PROMPT,
     DEFAULT_ERA_SYSTEM_PROMPT,
     DEFAULT_EXTRACTION_SYSTEM_PROMPT,
+    DEFAULT_JB_PROMPT,
     DEFAULT_RETRIEVAL_SYSTEM_PROMPT,
     renderPromptTemplate,
 } from '../extension/prompts.js';
+
+test('JB prompt is appended to extraction instructions only when enabled', () => {
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', false, '<rules>custom</rules>'), 'Base extraction instructions.');
+    assert.equal(
+        buildExtractionSystemPrompt('Base extraction instructions.', true, '<rules>custom</rules>'),
+        'Base extraction instructions.\n\n<rules>custom</rules>',
+    );
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', true, '   '), 'Base extraction instructions.');
+    assert.equal(buildExtractionSystemPrompt('', true, '<rules>custom</rules>'), '<rules>custom</rules>');
+    assert.match(DEFAULT_JB_PROMPT, /^<rules>[\s\S]*<\/rules>$/);
+});
 
 test('custom prompt templates cannot omit required payloads', () => {
     const rendered = renderPromptTemplate('Custom instruction only.', {

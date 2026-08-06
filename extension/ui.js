@@ -3,7 +3,7 @@ import { getContext } from '/scripts/st-context.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor } from './engine.js?v=0.14.0-standalone.52';
+import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor } from './engine.js?v=0.14.0-standalone.53';
 import { worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
 import { buildMemoryPrompt } from './retrieval.js';
@@ -13,13 +13,13 @@ import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
 import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { alignWorldToChat, collectFingerprintMessages } from './fingerprint.js';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.52';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.53';
 import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js';
 import { completeL1MessageCount, resolveL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.52';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.52';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.53';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.53';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.53';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -516,6 +516,7 @@ export function renderRuntime() {
     $('#continuity_embedding_stop').toggle(embeddingActive);
     $('#continuity_embedding_auto_sync').prop('checked', settings.embeddingAutoSync);
     $('#continuity_auto').prop('checked', settings.autoExtract);
+    $('#continuity_jb_enabled').prop('checked', settings.jbEnabled);
     const rollback = getTailRollbackStatus();
     $('#continuity_repair_rollback')
         .toggle(rollback.detected)
@@ -561,6 +562,7 @@ export function renderRuntime() {
         ? (sharedOpenRouterSaved ? 'The shared OpenRouter key is saved.' : 'No shared OpenRouter key saved.')
         : (settings.summaryDirectSecretId ? 'A summarizer password is saved.' : 'No summarizer password saved; keyless endpoints remain supported.'));
     $('#continuity_extraction_prompt').val(settings.extractionSystemPrompt);
+    $('#continuity_jb_prompt').val(settings.jbPrompt);
     $('#continuity_extraction_template').val(settings.extractionTaskTemplate);
     $('#continuity_retrieval_prompt').val(settings.retrievalSystemPrompt);
     $('#continuity_retrieval_template').val(settings.retrievalQueryTemplate);
@@ -898,6 +900,7 @@ export function initUI() {
             });
     });
     setSetting('#continuity_auto', 'autoExtract', Boolean);
+    setSetting('#continuity_jb_enabled', 'jbEnabled', Boolean);
     $('#continuity_embed_chat').on('change', async function () {
         const enabled = $(this).prop('checked');
         getSettings().embedMemoryInChat = enabled;
@@ -962,6 +965,7 @@ export function initUI() {
     $('#continuity_extraction_direct_model_select').on('change', function () { $('#continuity_extraction_direct_model').val($(this).val()).trigger('change'); });
     $('#continuity_summary_direct_model_select').on('change', function () { $('#continuity_summary_direct_model').val($(this).val()).trigger('change'); });
     setSetting('#continuity_extraction_prompt', 'extractionSystemPrompt', String);
+    setSetting('#continuity_jb_prompt', 'jbPrompt', String);
     setSetting('#continuity_extraction_template', 'extractionTaskTemplate', String);
     setSetting('#continuity_retrieval_prompt', 'retrievalSystemPrompt', String);
     setSetting('#continuity_retrieval_template', 'retrievalQueryTemplate', String);

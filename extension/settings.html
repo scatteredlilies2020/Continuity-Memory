@@ -75,6 +75,8 @@
                     </label>
                 </div>
                 <label class="checkbox_label"><input id="continuity_auto" type="checkbox"><span>Process automatically in the background</span></label>
+                <label class="checkbox_label"><input id="continuity_jb_enabled" type="checkbox"><span>JB for extraction / L1</span></label>
+                <small>When enabled, appends the editable JB prompt below to extraction and L1 requests only. Off by default.</small>
                 <details>
                     <summary>Advanced extraction options</summary>
                     <label>Reasoning / thinking
@@ -107,6 +109,10 @@
                         <small>The required JSON schema and source messages are added separately and cannot be removed accidentally.</small>
                         <label>Extraction and L1 instructions
                             <textarea id="continuity_extraction_prompt" class="text_pole continuity-prompt-editor" rows="10"></textarea>
+                        </label>
+                        <label>JB prompt
+                            <textarea id="continuity_jb_prompt" class="text_pole continuity-prompt-editor" rows="5"></textarea>
+                            <small>Appended after the extraction and L1 instructions only while the visible JB toggle is enabled.</small>
                         </label>
                         <label>Extraction request template
                             <textarea id="continuity_extraction_template" class="text_pole continuity-prompt-editor" rows="7"></textarea>
