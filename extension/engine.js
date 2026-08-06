@@ -14,6 +14,7 @@ import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions,
 import { embedWorldInChat } from './portable.js';
 import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js';
 import { DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js';
+import { sanitizeReconciliationMetadata } from './reconciliation-policy.js';
 import { getBoundWorldId, getChatKey, getSettings } from './settings.js';
 import { buildThinkingRequest, isThinkingControlError } from './thinking-policy.js';
 import { runtime, updateRuntime } from './runtime.js';
@@ -35,7 +36,7 @@ const temporalRelationSchema = {
 const extractionSchema = {
     type: 'object',
     additionalProperties: false,
-    required: ['scene', 'sceneCapsule', 'entities', 'identityResolutions', 'facts', 'states', 'relationships', 'events', 'threads'],
+    required: ['scene', 'sceneCapsule', 'entities', 'identityResolutions', 'recordMerges', 'facts', 'states', 'relationships', 'events', 'threads'],
     properties: {
         scene: {
             type: 'object', additionalProperties: false,
@@ -60,9 +61,9 @@ const extractionSchema = {
         entities: {
             type: 'array', items: {
                 type: 'object', additionalProperties: false,
-                required: ['name', 'type', 'aliases', 'description', 'importance'],
+                required: ['targetId', 'name', 'type', 'aliases', 'description', 'importance'],
                 properties: {
-                    name: { type: 'string' }, type: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } },
+                    targetId: { type: 'string' }, name: { type: 'string' }, type: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } },
                     description: { type: 'string' }, importance: { type: 'integer', minimum: 1, maximum: 5 },
                 },
             },
@@ -76,12 +77,24 @@ const extractionSchema = {
                 },
             },
         },
+        recordMerges: {
+            type: 'array', maxItems: 20, items: {
+                type: 'object', additionalProperties: false,
+                required: ['category', 'canonicalId', 'duplicateIds', 'evidence'],
+                properties: {
+                    category: { type: 'string', enum: ['facts', 'states', 'relationships', 'threads'] },
+                    canonicalId: { type: 'string' },
+                    duplicateIds: { type: 'array', maxItems: 12, items: { type: 'string' } },
+                    evidence: { type: 'string' },
+                },
+            },
+        },
         facts: {
             type: 'array', items: {
                 type: 'object', additionalProperties: false,
-                required: ['subject', 'predicate', 'value', 'category', 'importance', 'persistence'],
+                required: ['targetId', 'subject', 'predicate', 'value', 'category', 'importance', 'persistence'],
                 properties: {
-                    subject: { type: 'string' }, predicate: { type: 'string' }, value: { type: 'string' }, category: { type: 'string' },
+                    targetId: { type: 'string' }, subject: { type: 'string' }, predicate: { type: 'string' }, value: { type: 'string' }, category: { type: 'string' },
                     importance: { type: 'integer', minimum: 1, maximum: 5 }, persistence: { type: 'string', enum: ['temporary', 'recurring', 'persistent'] },
                 },
             },
@@ -89,9 +102,9 @@ const extractionSchema = {
         states: {
             type: 'array', items: {
                 type: 'object', additionalProperties: false,
-                required: ['subject', 'attribute', 'value', 'previous', 'importance', 'scope', 'operation'],
+                required: ['targetId', 'subject', 'attribute', 'value', 'previous', 'importance', 'scope', 'operation'],
                 properties: {
-                    subject: { type: 'string' }, attribute: { type: 'string' }, value: { type: 'string' }, previous: { type: 'string' },
+                    targetId: { type: 'string' }, subject: { type: 'string' }, attribute: { type: 'string' }, value: { type: 'string' }, previous: { type: 'string' },
                     importance: { type: 'integer', minimum: 1, maximum: 5 },
                     scope: { type: 'string', enum: ['scene', 'ongoing'] },
                     operation: { type: 'string', enum: ['set', 'clear'] },
@@ -101,9 +114,9 @@ const extractionSchema = {
         relationships: {
             type: 'array', items: {
                 type: 'object', additionalProperties: false,
-                required: ['from', 'to', 'kind', 'status', 'dynamic', 'importance'],
+                required: ['targetId', 'from', 'to', 'kind', 'status', 'dynamic', 'importance'],
                 properties: {
-                    from: { type: 'string' }, to: { type: 'string' }, kind: { type: 'string' }, status: { type: 'string' },
+                    targetId: { type: 'string' }, from: { type: 'string' }, to: { type: 'string' }, kind: { type: 'string' }, status: { type: 'string' },
                     dynamic: { type: 'string' }, importance: { type: 'integer', minimum: 1, maximum: 5 },
                 },
             },
@@ -123,9 +136,9 @@ const extractionSchema = {
         threads: {
             type: 'array', items: {
                 type: 'object', additionalProperties: false,
-                required: ['title', 'detail', 'status', 'participants', 'importance'],
+                required: ['targetId', 'title', 'detail', 'status', 'participants', 'importance'],
                 properties: {
-                    title: { type: 'string' }, detail: { type: 'string' }, status: { type: 'string', enum: ['open', 'resolved', 'abandoned'] },
+                    targetId: { type: 'string' }, title: { type: 'string' }, detail: { type: 'string' }, status: { type: 'string', enum: ['open', 'resolved', 'abandoned'] },
                     participants: { type: 'array', items: { type: 'string' } }, importance: { type: 'integer', minimum: 1, maximum: 5 },
                 },
             },
@@ -221,13 +234,14 @@ const ARC_JSON_SHAPE_EXAMPLE = JSON.stringify({
 const JSON_SHAPE_EXAMPLE = JSON.stringify({
     scene: { location: '', time: '', participants: [], activity: '', mood: '' },
     sceneCapsule: { title: '', storyTime: '', location: '', participants: [], opening: '', beats: [], emotionalArc: '', closing: '', importance: 3, temporal: { frame: 'main narrative', relation: 'unknown', elapsed: '', certainty: 'unknown' } },
-    entities: [{ name: '', type: '', aliases: [], description: '', importance: 3 }],
+    entities: [{ targetId: '', name: '', type: '', aliases: [], description: '', importance: 3 }],
     identityResolutions: [{ reference: '', canonical: '', evidence: '' }],
-    facts: [{ subject: '', predicate: '', value: '', category: '', importance: 3, persistence: 'persistent' }],
-    states: [{ subject: '', attribute: '', value: '', previous: '', importance: 3, scope: 'scene', operation: 'set' }],
-    relationships: [{ from: '', to: '', kind: '', status: '', dynamic: '', importance: 3 }],
+    recordMerges: [{ category: 'facts', canonicalId: '', duplicateIds: [], evidence: '' }],
+    facts: [{ targetId: '', subject: '', predicate: '', value: '', category: '', importance: 3, persistence: 'persistent' }],
+    states: [{ targetId: '', subject: '', attribute: '', value: '', previous: '', importance: 3, scope: 'scene', operation: 'set' }],
+    relationships: [{ targetId: '', from: '', to: '', kind: '', status: '', dynamic: '', importance: 3 }],
     events: [{ title: '', summary: '', participants: [], location: '', storyTime: '', consequences: '', importance: 3, temporal: { frame: 'main narrative', relation: 'same-period', elapsed: '', certainty: 'implicit' } }],
-    threads: [{ title: '', detail: '', status: 'open', participants: [], importance: 3 }],
+    threads: [{ targetId: '', title: '', detail: '', status: 'open', participants: [], importance: 3 }],
 });
 
 let activeExtractionThinkingMode = null;
@@ -300,7 +314,7 @@ async function chunkMessages(messages, tokenLimit, maxMessages = Infinity) {
     return chunks;
 }
 
-function validateResult(result) {
+function validateResult(result, world) {
     if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('Extractor returned no JSON object.');
     if (!result.sceneCapsule || typeof result.sceneCapsule !== 'object' || !Array.isArray(result.sceneCapsule.beats)) {
         throw new Error('Extractor returned no valid chronological scene capsule.');
@@ -308,6 +322,7 @@ function validateResult(result) {
     for (const key of ['entities', 'facts', 'states', 'relationships', 'events', 'threads']) {
         if (!Array.isArray(result[key])) throw new Error(`Extractor field "${key}" is not an array.`);
     }
+    sanitizeReconciliationMetadata(result, world);
     return result;
 }
 
@@ -327,38 +342,71 @@ function extractionStateContext(world, messages) {
         const mentioned = subject && conversation.includes(subject.toLocaleLowerCase());
         return { item, mentioned, sourceTo: Number(source?.to ?? -1) };
     }).sort((a, b) => Number(b.mentioned) - Number(a.mentioned) || b.sourceTo - a.sourceTo);
-    const active = [...rankedActive.filter(entry => entry.mentioned), ...rankedActive.slice(0, 16)]
+    const active = [...rankedActive.filter(entry => entry.mentioned), ...rankedActive.slice(0, 12)]
         .filter((entry, index, all) => all.findIndex(other => other.item === entry.item) === index)
-        .slice(0, 40);
+        .slice(0, 24);
     const activeSubjects = new Set(active.map(({ item }) => String(item.subject || '').toLocaleLowerCase()));
     const entities = (world?.entities || []).filter(entity => {
         const names = [entity.name, ...(entity.aliases || [])].map(value => String(value || '').toLocaleLowerCase()).filter(Boolean);
         return names.some(name => conversation.includes(name)) || activeSubjects.has(String(entity.name || '').toLocaleLowerCase());
-    }).slice(0, 60).map(entity => ({ name: entity.name, aliases: entity.aliases || [] }));
-    const threadCandidates = (world?.threads || []).filter(item => item.status === 'open').map(item => {
+    }).slice(0, 30).map(entity => ({ targetId: entity.id, name: entity.name, aliases: entity.aliases || [] }));
+    const rankCanonical = (items, searchable, subjects, limit) => (items || []).map(item => {
+        const source = latestSourceRange(item);
+        const content = searchable(item);
+        const score = [...contextTerms(content)].reduce((total, term) => total + Number(conversationTerms.has(term)), 0)
+            + subjects(item).reduce((total, subject) => total + (subject && conversation.includes(String(subject).toLocaleLowerCase()) ? 6 : 0), 0);
+        return { item, score, sourceTo: Number(source?.to ?? -1) };
+    }).filter(entry => entry.score > 0)
+        .sort((a, b) => b.score - a.score || b.sourceTo - a.sourceTo)
+        .slice(0, limit)
+        .map(({ item }) => item);
+    const facts = rankCanonical(world?.facts,
+        item => `${item.subject || ''} ${item.predicate || ''} ${item.value || ''}`,
+        item => [item.subject], 18).map(item => ({
+        targetId: item.id,
+        subject: item.subject,
+        predicate: item.predicate,
+        value: String(item.value || '').replace(/\s+/g, ' ').trim().slice(0, 180),
+    }));
+    const relationships = rankCanonical(world?.relationships,
+        item => `${item.from || ''} ${item.to || ''} ${item.kind || ''} ${item.status || ''} ${item.dynamic || ''}`,
+        item => [item.from, item.to], 12).map(item => ({
+        targetId: item.id,
+        from: item.from,
+        to: item.to,
+        kind: item.kind,
+        status: item.status,
+        dynamic: String(item.dynamic || '').replace(/\s+/g, ' ').trim().slice(0, 180),
+    }));
+    const threadCandidates = (world?.threads || []).map(item => {
         const source = latestSourceRange(item);
         const searchable = `${item.title || ''} ${item.detail || ''} ${(item.participants || []).join(' ')}`;
         const score = [...contextTerms(searchable)].reduce((total, term) => total + Number(conversationTerms.has(term)), 0);
         return { item, score, sourceTo: Number(source?.to ?? -1) };
     }).sort((a, b) => b.score - a.score || b.sourceTo - a.sourceTo);
-    const activeThreads = [...threadCandidates.filter(entry => entry.score > 0).slice(0, 9), ...threadCandidates.slice(0, 3)]
+    const activeThreads = [...threadCandidates.filter(entry => entry.score > 0).slice(0, 8), ...threadCandidates.filter(entry => entry.item.status === 'open').slice(0, 2)]
         .filter((entry, index, all) => all.findIndex(other => other.item === entry.item) === index)
         .slice(0, 12)
         .map(({ item }) => ({
+            targetId: item.id,
             title: item.title,
             detail: String(item.detail || '').replace(/\s+/g, ' ').trim().slice(0, 240),
+            status: item.status,
         }));
     const snapshot = {
         canonicalEntities: entities,
         activeStates: active.map(({ item }) => ({
+            targetId: item.id,
             subject: item.subject,
             attribute: item.attribute,
             value: item.value,
             scope: item.scope,
         })),
-        openThreads: activeThreads,
+        canonicalFacts: facts,
+        canonicalRelationships: relationships,
+        knownThreads: activeThreads,
     };
-    return `LIFECYCLE CONTEXT (not source events):\n${JSON.stringify(snapshot)}\n\nReuse exact supplied names, attributes, and thread titles. Clear an invalidated ongoing state with an empty value. If this excerpt explicitly completes or abandons an open thread, return that title with its new status. Do not copy unchanged context.`;
+    return `CANONICAL MEMORY CONTEXT (reference only; not source events):\n${JSON.stringify(snapshot)}\n\nFor entities, facts, states, relationships, and threads, set targetId to the supplied record ID when the new narrative updates the same underlying record even if its wording differs; preserve its canonical identity fields. Leave targetId empty only for genuinely new records. Do not output unchanged records. If multiple supplied facts, states, relationships, or threads are semantic duplicates of one durable item, add one recordMerges entry naming the canonical ID and duplicate IDs; never merge merely similar or recurring events. Clear an invalidated ongoing state with an empty value. Reuse exact canonical names, predicates, attributes, relationship kinds, and thread titles.`;
 }
 
 function extractionTemporalContext(world) {
@@ -387,7 +435,7 @@ async function extractChunk(messages, world = runtime.world) {
             const raw = await requestExtraction(prompt, String(settings.extractionSystemPrompt ?? DEFAULT_EXTRACTION_SYSTEM_PROMPT));
             updateRuntime({ lastRawResponse: String(raw).slice(0, 30000) });
             const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
-            const result = validateResult(parsed);
+            const result = validateResult(parsed, world);
             updateRuntime({ lastValidation: `Valid structured extraction${attempt > 1 ? ' after retry' : ''}` });
             return result;
         } catch (error) {

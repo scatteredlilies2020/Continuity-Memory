@@ -55,11 +55,14 @@ function shouldPreserveHistoricalRecord(item, meta) {
 function mergeArray(world, collection, target, incoming, identity, meta, prefix, combine, preserveExisting = false) {
     for (const raw of incoming || []) {
         if (!raw || typeof raw !== 'object') continue;
-        const normalized = combine ? combine(raw) : raw;
+        const requestedTargetId = text(raw.targetId);
+        const requestedIndex = requestedTargetId ? target.findIndex(item => item.id === requestedTargetId) : -1;
+        const requestedTarget = requestedIndex >= 0 ? target[requestedIndex] : null;
+        const normalized = combine ? combine(raw, requestedTarget) : raw;
         if (isSuppressedByCorrection(world, collection, normalized, meta)) continue;
         const identityKey = identity(normalized);
         if (!identityKey) continue;
-        const index = target.findIndex(item => identity(item) === identityKey);
+        const index = requestedIndex >= 0 ? requestedIndex : target.findIndex(item => identity(item) === identityKey);
         if (index >= 0) {
             const preserve = typeof preserveExisting === 'function'
                 ? preserveExisting(target[index], normalized)
@@ -70,8 +73,11 @@ function mergeArray(world, collection, target, incoming, identity, meta, prefix,
             if (collection === 'entities') merged.aliases = cleanList([...(target[index].aliases || []), ...(normalized.aliases || [])]);
             if (collection === 'threads') merged.participants = cleanList([...(target[index].participants || []), ...(normalized.participants || [])]);
             target[index] = common({ ...merged, id: target[index].id, createdAt: target[index].createdAt }, meta, prefix);
+            raw.targetId = target[index].id;
         } else {
-            target.push(common(normalized, meta, prefix));
+            const created = common({ ...normalized, ...(requestedTargetId ? { id: requestedTargetId } : {}) }, meta, prefix);
+            target.push(created);
+            raw.targetId = created.id;
         }
     }
 }
@@ -198,6 +204,29 @@ function applyIdentityResolution(world, raw, meta) {
     return true;
 }
 
+function applyRecordMerge(world, raw, meta) {
+    const category = text(raw?.category);
+    if (!['facts', 'states', 'relationships', 'threads'].includes(category) || !text(raw?.evidence)) return false;
+    const records = world[category] || [];
+    const canonicalId = text(raw.canonicalId);
+    const duplicateIds = [...new Set(cleanList(raw.duplicateIds).filter(itemId => itemId !== canonicalId))];
+    const canonical = records.find(item => item.id === canonicalId);
+    const duplicates = duplicateIds.map(itemId => records.find(item => item.id === itemId));
+    if (!canonical || !duplicates.length || duplicates.some(item => !item)) return false;
+    if ([canonical, ...duplicates].some(item => item.correctionId || shouldPreserveHistoricalRecord(item, meta))) return false;
+
+    if (category === 'threads') {
+        canonical.participants = cleanList([...(canonical.participants || []), ...duplicates.flatMap(item => item.participants || [])]);
+    }
+    const resolutionSource = sourceRef(meta);
+    canonical.sources = mergedSources(canonical.sources || [], ...duplicates.map(item => item.sources || []), [resolutionSource]);
+    canonical.updatedAt = resolutionSource.capturedAt;
+    const removedIds = new Set(duplicateIds);
+    world[category] = records.filter(item => !removedIds.has(item.id));
+    raw.duplicateIds = duplicateIds;
+    return true;
+}
+
 export function mergeExtraction(world, result, meta) {
     world.entities ||= [];
     world.facts ||= [];
@@ -230,9 +259,9 @@ export function mergeExtraction(world, result, meta) {
     // durable continuity. Scene and active state remain tail-only snapshots.
     const preserveHistoricalRecord = item => shouldPreserveHistoricalRecord(item, meta);
 
-    mergeArray(world, 'entities', world.entities, result.entities, item => key(item.name), meta, 'entity', item => {
+    mergeArray(world, 'entities', world.entities, result.entities, item => key(item.name), meta, 'entity', (item, existing) => {
         const suppliedName = text(item.name);
-        const canonicalName = canonicalMemorySubject(world, suppliedName);
+        const canonicalName = existing?.name || canonicalMemorySubject(world, suppliedName);
         return {
             name: canonicalName,
             type: text(item.type) || 'entity',
@@ -244,9 +273,9 @@ export function mergeExtraction(world, result, meta) {
 
     for (const resolution of result.identityResolutions || []) applyIdentityResolution(world, resolution, meta);
 
-    mergeArray(world, 'facts', world.facts, result.facts, item => `${key(item.subject)}|${key(item.predicate)}`, meta, 'fact', item => ({
-        subject: canonicalMemorySubject(world, item.subject),
-        predicate: text(item.predicate),
+    mergeArray(world, 'facts', world.facts, result.facts, item => `${key(item.subject)}|${key(item.predicate)}`, meta, 'fact', (item, existing) => ({
+        subject: existing?.subject || canonicalMemorySubject(world, item.subject),
+        predicate: existing?.predicate || text(item.predicate),
         value: text(item.value),
         category: text(item.category),
         importance: clampImportance(item.importance),
@@ -262,9 +291,12 @@ export function mergeExtraction(world, result, meta) {
         world.states = world.states.filter(item => item.correctionId || item.scope === 'ongoing');
         for (const raw of result.states || []) {
             if (!raw || typeof raw !== 'object') continue;
+            const requestedTargetId = text(raw.targetId);
+            const requestedIndex = requestedTargetId ? world.states.findIndex(item => item.id === requestedTargetId) : -1;
+            const requestedTarget = requestedIndex >= 0 ? world.states[requestedIndex] : null;
             const normalized = {
-                subject: canonicalMemorySubject(world, raw.subject),
-                attribute: canonicalStateAttribute(raw.attribute),
+                subject: requestedTarget?.subject || canonicalMemorySubject(world, raw.subject),
+                attribute: requestedTarget?.attribute || canonicalStateAttribute(raw.attribute),
                 value: text(raw.value),
                 previous: text(raw.previous),
                 importance: clampImportance(raw.importance),
@@ -274,8 +306,9 @@ export function mergeExtraction(world, result, meta) {
             };
             if (!normalized.subject || !normalized.attribute || isSuppressedByCorrection(world, 'states', normalized, meta)) continue;
             const identity = stateIdentity(world, normalized);
-            const index = world.states.findIndex(item => stateIdentity(world, item) === identity);
+            const index = requestedIndex >= 0 ? requestedIndex : world.states.findIndex(item => stateIdentity(world, item) === identity);
             if (normalized.operation === 'clear') {
+                if (index >= 0) raw.targetId = world.states[index].id;
                 world.states = world.states.filter(item => item.correctionId || stateIdentity(world, item) !== identity);
                 continue;
             }
@@ -284,16 +317,19 @@ export function mergeExtraction(world, result, meta) {
                 const existing = world.states[index];
                 const merged = existing.correctionId ? { ...normalized, ...existing } : { ...existing, ...normalized };
                 world.states[index] = common({ ...merged, id: existing.id, createdAt: existing.createdAt }, meta, 'state');
+                raw.targetId = world.states[index].id;
             } else {
-                world.states.push(common(normalized, meta, 'state'));
+                const created = common({ ...normalized, ...(requestedTargetId ? { id: requestedTargetId } : {}) }, meta, 'state');
+                world.states.push(created);
+                raw.targetId = created.id;
             }
         }
     }
 
-    mergeArray(world, 'relationships', world.relationships, result.relationships, item => `${key(item.from)}|${key(item.to)}|${key(item.kind)}`, meta, 'relationship', item => ({
-        from: canonicalMemorySubject(world, item.from),
-        to: canonicalMemorySubject(world, item.to),
-        kind: text(item.kind) || 'relationship',
+    mergeArray(world, 'relationships', world.relationships, result.relationships, item => `${key(item.from)}|${key(item.to)}|${key(item.kind)}`, meta, 'relationship', (item, existing) => ({
+        from: existing?.from || canonicalMemorySubject(world, item.from),
+        to: existing?.to || canonicalMemorySubject(world, item.to),
+        kind: existing?.kind || text(item.kind) || 'relationship',
         status: text(item.status),
         dynamic: text(item.dynamic),
         importance: clampImportance(item.importance),
@@ -325,14 +361,16 @@ export function mergeExtraction(world, result, meta) {
         if (!duplicate) world.events.push(common(event, meta, 'event'));
     }
 
-    mergeArray(world, 'threads', world.threads, result.threads, item => key(item.title), meta, 'thread', item => ({
-        title: text(item.title),
+    mergeArray(world, 'threads', world.threads, result.threads, item => key(item.title), meta, 'thread', (item, existing) => ({
+        title: existing?.title || text(item.title),
         detail: text(item.detail),
         status: ['open', 'resolved', 'abandoned'].includes(item.status) ? item.status : 'open',
         participants: canonicalList(world, item.participants),
         importance: clampImportance(item.importance),
         temporalAnchorId: l1Temporal.anchorId,
     }), preserveHistoricalRecord);
+
+    for (const merge of result.recordMerges || []) applyRecordMerge(world, merge, meta);
 
     if (result.sceneCapsule && typeof result.sceneCapsule === 'object') {
         const raw = result.sceneCapsule;

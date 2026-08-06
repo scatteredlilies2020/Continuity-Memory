@@ -54,6 +54,8 @@ Mutable state is fail-closed. Scene-local locations, activities, emotions, and p
 
 When the narrative later identifies an earlier unknown, disguised, or descriptive reference, Continuity migrates matching structured references to the canonical entity and merges duplicates. The identification must be supported by the chat; outside franchise knowledge, resemblance, suspicion, and unconfirmed claims do not establish identity.
 
+Relevant existing mutable records are supplied to each extraction with stable IDs. Repeated facts are omitted, genuine changes update the existing ID even when phrased differently, and clearly redundant facts, states, relationships, or threads can be consolidated while retaining every source range. This process follows the current scenario's semantics rather than hardcoded genres, characters, or predicate vocabularies; ambiguous records remain separate.
+
 ## Memory retrieval
 
 Continuity offers three retrieval modes.
@@ -101,6 +103,8 @@ Continuity reduces old raw chat only after it has been safely covered by memory.
 Recent conversation remains verbatim. Extracted records sourced wholly from that visible raw tail are not injected beside it, so an interpretation of recent events cannot compete with the original messages. Older messages are represented by retrieved structured memory and chronology while remaining unchanged and readable in the chat.
 
 If extraction fails or coverage is incomplete, Continuity keeps the uncovered messages in context.
+
+When a roleplay request must wait for queued memory work, Continuity shows a single status notification with the pending message count, active range, and queued-job count. Generation resumes automatically when memory is ready.
 
 ## Models and connections
 

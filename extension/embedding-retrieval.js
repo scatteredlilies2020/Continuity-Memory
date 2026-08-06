@@ -1,6 +1,6 @@
 import { getRequestHeaders } from '/script.js';
 import { buildEmbeddingDocuments, buildEmbeddingQuery, semanticRanksFromResponse } from './embedding-index.js';
-import { resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.46';
+import { resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.49';
 import { getSettings } from './settings.js';
 import { runtime, updateRuntime } from './runtime.js';
 

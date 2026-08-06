@@ -18,6 +18,7 @@ function extraction(overrides = {}) {
         sceneCapsule: { title: 'After-school practice', storyTime: 'After school', location: 'Music room', participants: ['Yui', 'Mio'], opening: 'Yui and Mio met to practice.', beats: ['They worked through a song.', 'Yui suggested rehearsing again Saturday.'], emotionalArc: 'They relaxed as the practice improved.', closing: 'They left with a weekend plan.', importance: 3, temporal: { frame: 'main narrative', relation: 'after', elapsed: '', certainty: 'implicit' } },
         entities: [{ name: 'Yui', type: 'character', aliases: [], description: 'A guitarist who loves snacks.', importance: 5 }],
         identityResolutions: [],
+        recordMerges: [],
         facts: [{ subject: 'Yui', predicate: 'favorite snack', value: 'cake', category: 'preference', importance: 3, persistence: 'persistent' }],
         states: [{ subject: 'Yui', attribute: 'location', value: 'Music room', previous: '', importance: 3, scope: 'scene', operation: 'set' }],
         relationships: [{ from: 'Yui', to: 'Mio', kind: 'friendship', status: 'Close friends', dynamic: 'Yui teases Mio gently.', importance: 4 }],
@@ -38,6 +39,78 @@ test('merges durable records and updates matching facts instead of duplicating t
     assert.equal(target.sources[meta.chatKey].lastProcessedIndex, 8);
     assert.equal(target.capsules.length, 2);
     assert.deepEqual(target.sources[meta.chatKey].processedMessages, [{ index: 0, fingerprint: 'first', version: EXTRACTION_VERSION }]);
+});
+
+test('stable target IDs update semantically matching records across arbitrary scenarios', () => {
+    const target = world();
+    const first = extraction({
+        facts: [{ targetId: '', subject: 'North Canal', predicate: 'maintenance objective', value: 'Reduce leakage before planting season', category: 'infrastructure', importance: 4, persistence: 'persistent' }],
+        events: [],
+    });
+    mergeExtraction(target, first, { chatKey: 'simulation', from: 0, to: 7, allowStateUpdates: true });
+    const factId = target.facts[0].id;
+    assert.equal(first.facts[0].targetId, factId);
+
+    const update = extraction({
+        facts: [{ targetId: factId, subject: 'the canal', predicate: 'priority', value: 'Leakage repairs are funded and must finish before planting season', category: 'infrastructure', importance: 4, persistence: 'persistent' }],
+        events: [],
+    });
+    mergeExtraction(target, update, { chatKey: 'simulation', from: 8, to: 15, allowStateUpdates: true });
+
+    assert.equal(target.facts.length, 1);
+    assert.equal(target.facts[0].subject, 'North Canal');
+    assert.equal(target.facts[0].predicate, 'maintenance objective');
+    assert.equal(target.facts[0].value, 'Leakage repairs are funded and must finish before planting season');
+    assert.deepEqual(target.facts[0].sources.map(source => [source.from, source.to]), [[0, 7], [8, 15]]);
+});
+
+test('validated semantic merge instructions consolidate prior duplicates and preserve provenance', () => {
+    const target = world();
+    mergeExtraction(target, extraction({
+        facts: [
+            { targetId: '', subject: 'Mara', predicate: 'long-term goal', value: 'Open a neighborhood bakery', category: 'goal', importance: 4, persistence: 'persistent' },
+            { targetId: '', subject: 'Mara', predicate: 'dreams of', value: 'Running her own bakery for the neighborhood', category: 'goal', importance: 4, persistence: 'persistent' },
+        ],
+        events: [],
+    }), { chatKey: 'life-sim', from: 0, to: 7, allowStateUpdates: true });
+    const [canonical, duplicate] = target.facts;
+
+    mergeExtraction(target, extraction({
+        facts: [],
+        events: [],
+        recordMerges: [{
+            category: 'facts',
+            canonicalId: canonical.id,
+            duplicateIds: [duplicate.id],
+            evidence: 'Both records describe Mara’s same bakery goal.',
+        }],
+    }), { chatKey: 'life-sim', from: 8, to: 15, allowStateUpdates: true });
+
+    assert.equal(target.facts.length, 1);
+    assert.equal(target.facts[0].id, canonical.id);
+    assert.deepEqual(target.facts[0].sources.map(source => [source.from, source.to]), [[0, 7], [8, 15]]);
+});
+
+test('stored target IDs remain replay-safe after records are rebuilt from extraction results', () => {
+    const original = world();
+    const first = extraction({
+        facts: [{ targetId: '', subject: 'Research Lab', predicate: 'power source', value: 'Backup generator', category: 'resource', importance: 3, persistence: 'persistent' }],
+        events: [],
+    });
+    mergeExtraction(original, first, { chatKey: 'management', from: 0, to: 7, allowStateUpdates: true });
+    const stableId = original.facts[0].id;
+    const second = extraction({
+        facts: [{ targetId: stableId, subject: 'Lab', predicate: 'electricity', value: 'Grid power restored; generator retained for emergencies', category: 'resource', importance: 3, persistence: 'persistent' }],
+        events: [],
+    });
+    mergeExtraction(original, second, { chatKey: 'management', from: 8, to: 15, allowStateUpdates: true });
+
+    const replayed = world();
+    mergeExtraction(replayed, structuredClone(first), { chatKey: 'management', from: 0, to: 7, allowStateUpdates: true });
+    mergeExtraction(replayed, structuredClone(second), { chatKey: 'management', from: 8, to: 15, allowStateUpdates: true });
+    assert.equal(replayed.facts.length, 1);
+    assert.equal(replayed.facts[0].id, stableId);
+    assert.equal(replayed.facts[0].value, 'Grid power restored; generator retained for emergencies');
 });
 
 test('narrative identity resolutions migrate and deduplicate durable references', () => {

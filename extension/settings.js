@@ -1,7 +1,7 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { DURABLE_MEMORY_RULES, IDENTITY_RESOLUTION_RULES, PROMPT_DEFAULTS } from './prompts.js';
+import { CANONICAL_RECORD_RULES, DURABLE_MEMORY_RULES, IDENTITY_RESOLUTION_RULES, PROMPT_DEFAULTS } from './prompts.js';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 
 export const EXTENSION_NAME = 'continuityMemory';
@@ -216,6 +216,18 @@ export function getSettings() {
             settings.extractionSystemPrompt = prompt.replace(marker, `${marker}\n${IDENTITY_RESOLUTION_RULES}`);
         }
         settings.identityResolutionPromptVersion = 1;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.canonicalRecordPromptVersion || 0) < 1) {
+        const prompt = String(settings.extractionSystemPrompt || '');
+        const marker = 'Use identityResolutions only when the supplied narrative establishes';
+        if (prompt.includes(marker) && !prompt.includes('Canonical memory context contains relevant existing mutable records')) {
+            const ruleEnd = 'Leave identityResolutions empty when the excerpt establishes no identity.';
+            settings.extractionSystemPrompt = prompt.includes(ruleEnd)
+                ? prompt.replace(ruleEnd, `${ruleEnd}\n${CANONICAL_RECORD_RULES}`)
+                : `${prompt}\n${CANONICAL_RECORD_RULES}`;
+        }
+        settings.canonicalRecordPromptVersion = 1;
         saveSettingsDebounced();
     }
     if (settings.rawTailMode === undefined) {

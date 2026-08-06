@@ -1,21 +1,21 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.14.0-standalone.46';
+import { api } from './api.js?v=0.14.0-standalone.49';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
 import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js';
 import { buildMemoryPrompt } from './retrieval.js';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.46';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.49';
 import { onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js';
 import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds } from './ui.js?v=0.14.0-standalone.46';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds } from './ui.js?v=0.14.0-standalone.49';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.46';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.49';
 import { collectFingerprintMessages, findInvalidExtractionRanges } from './fingerprint.js';
-import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.46';
-import { roleplaySourceMessages, shouldGateRoleplayGeneration } from './generation-policy.js';
+import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.49';
+import { roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration } from './generation-policy.js';
 import { completeL1MessageCount, resolveL1GroupSize } from './l1-policy.js';
 
 const PROMPT_KEY = 'continuity_memory_context';
@@ -27,9 +27,9 @@ let divergenceRepairRequested = false;
 let activeGenerationReadiness = null;
 let pendingEmbeddingSyncWorld = null;
 
-function showGenerationNotification(type, message) {
+function showGenerationNotification(type, message, options = undefined) {
     if (!getSettings().showNotifications || !window.toastr?.[type]) return false;
-    window.toastr[type](message, 'Continuity Memory');
+    window.toastr[type](message, 'Continuity Memory', options);
     return true;
 }
 
@@ -146,6 +146,12 @@ async function completeVectorsForGeneration() {
 async function prepareRoleplayGeneration(type) {
     const updates = [];
     await ensureCurrentChatMemory(true);
+    const waitingChat = roleplaySourceMessages(getContext().chat || [], type).filter(message => !message?.is_system);
+    const waitingMessages = collectFingerprintMessages(waitingChat);
+    const waitingCoverage = getProcessingCoverage(runtime.world, waitingMessages);
+    const eligibleAtStart = completeL1MessageCount(waitingCoverage.pending, getSettings().extractionBatchMessages);
+    const waitingNotification = roleplayWaitNotification(runtime, eligibleAtStart);
+    if (waitingNotification) showGenerationNotification('info', waitingNotification, { timeOut: 12000, extendedTimeOut: 4000 });
     const revisionBeforeWaiting = Number(runtime.world?.revision ?? -1);
     const existingWork = runtime.processing || runtime.queue.length || runtime.paused;
     await waitForActiveMemoryWork();

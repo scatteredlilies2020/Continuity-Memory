@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { roleplaySourceMessages, shouldGateRoleplayGeneration } from '../extension/generation-policy.js';
+import { roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration } from '../extension/generation-policy.js';
 
 const chat = [{ index: 0, mes: 'Hello' }];
 
@@ -23,4 +23,21 @@ test('temporarily excludes the reply being replaced during swipe generation', ()
     const messages = [{ index: 0 }, { index: 1 }, { index: 2 }];
     assert.deepEqual(roleplaySourceMessages(messages, 'swipe'), [{ index: 0 }, { index: 1 }]);
     assert.deepEqual(roleplaySourceMessages(messages, 'regenerate'), messages);
+});
+
+test('describes memory work that delays roleplay generation', () => {
+    const message = roleplayWaitNotification({
+        processing: true,
+        paused: false,
+        queue: [{}, {}],
+        progress: { from: 204, to: 211 },
+    }, 48);
+    assert.match(message, /48 messages awaiting L1 extraction/);
+    assert.match(message, /currently processing messages 204–211/);
+    assert.match(message, /2 queued memory jobs/);
+    assert.match(message, /start automatically/);
+});
+
+test('does not notify when roleplay can begin immediately', () => {
+    assert.equal(roleplayWaitNotification({ processing: false, paused: false, queue: [] }, 0), '');
 });
