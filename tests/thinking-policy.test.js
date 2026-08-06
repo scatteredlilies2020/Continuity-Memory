@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildThinkingRequest, isThinkingControlError } from '../extension/thinking-policy.js';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from '../extension/thinking-policy.js';
 
 test('translates thinking off for recognized custom endpoints', () => {
     const deepseek = buildThinkingRequest({ mode: 'off', source: 'custom', model: 'deepseek-v4-flash' });
@@ -68,6 +68,14 @@ test('does not force unsupported controls on older or unversioned Gemini models'
         assert.deepEqual(result.payload, {});
         assert.equal(result.controlled, false);
     }
+});
+
+test('detects Gemini in provider-default mode and omits its oversized native schema', () => {
+    const result = buildThinkingRequest({ mode: 'default', source: 'makersuite', model: 'gemini-3.1-pro-preview' });
+    assert.equal(result.adapter, 'gemini-provider-default');
+    assert.deepEqual(result.payload, {});
+    assert.equal(shouldSendStructuredSchema(result.adapter), false);
+    assert.equal(shouldSendStructuredSchema('openrouter'), true);
 });
 
 test('recognizes endpoint rejections of optional thinking controls', () => {

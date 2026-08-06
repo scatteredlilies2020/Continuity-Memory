@@ -17,7 +17,7 @@ import { isolatedProfileOptions, isolatedProfilePayload } from './profile-reques
 import { DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js';
 import { sanitizeReconciliationMetadata } from './reconciliation-policy.js';
 import { getBoundWorldId, getChatKey, getSettings } from './settings.js';
-import { buildThinkingRequest, isThinkingControlError } from './thinking-policy.js';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.52';
 import { runtime, updateRuntime } from './runtime.js';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
@@ -257,6 +257,7 @@ export function applyExtractionRequestSettings(data) {
         url: data.custom_url || data.reverse_proxy,
     });
     Object.assign(data, control.payload);
+    if (!shouldSendStructuredSchema(control.adapter)) delete data.json_schema;
     updateRuntime({ thinkingControl: { mode: activeExtractionThinkingMode, adapter: control.adapter, fallback: false } });
 }
 
@@ -487,7 +488,7 @@ async function requestDirectStructured(prompt, systemPrompt, jsonSchema, respons
         temperature: 0.2,
         max_tokens: responseLength,
         ...(config.provider === 'openrouter' ? { api_url: config.url } : { custom_url: config.url, secret_id: config.secretId || undefined }),
-        ...(withSchema ? { json_schema: jsonSchema } : {}),
+        ...(withSchema && shouldSendStructuredSchema(thinking.adapter) ? { json_schema: jsonSchema } : {}),
         ...thinking.payload,
     };
     updateRuntime({ thinkingControl: { mode: getSettings().thinkingMode, adapter: thinking.adapter, fallback: false } });
@@ -556,6 +557,24 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
         ...thinkingPayload,
     });
     let response;
+    if (!shouldSendStructuredSchema(thinking.adapter)) {
+        updateRuntime({ lastValidation: 'Gemini native schema omitted; using compatible exact-shape JSON prompting.' });
+        try {
+            response = await ConnectionManagerRequestService.sendRequest(
+                profileId, messages, responseLength, options, compatibilityPayload(),
+            );
+        } catch (error) {
+            if (!thinking.controlled || !isThinkingControlError(error)) throw error;
+            thinkingPayload = {};
+            updateRuntime({ thinkingControl: { mode: getSettings().thinkingMode, adapter: thinking.adapter, fallback: true } });
+            response = await ConnectionManagerRequestService.sendRequest(
+                profileId, messages, responseLength, options, compatibilityPayload(),
+            );
+        }
+        const result = extractMessageFromData(response, apiMap.selected);
+        if (!result || typeof result !== 'string') throw new Error(`Connection profile “${profile.name}” returned no text.`);
+        return result;
+    }
     try {
         response = await ConnectionManagerRequestService.sendRequest(
             profileId, messages, responseLength, options, { ...compatibilityPayload(), json_schema: jsonSchema },

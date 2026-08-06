@@ -58,9 +58,10 @@ function customBody(adapter, mode, model, reasoningEffort = '') {
  */
 export function buildThinkingRequest({ mode, source = '', model = '', url = '', profileName = '' } = {}) {
     mode = normalizedMode(mode);
-    if (mode === 'default') return { adapter: source || 'provider-default', payload: {}, controlled: false };
-
     const gemini = identifyGemini({ source, model, url, profileName });
+    if (mode === 'default') {
+        return { adapter: gemini ? 'gemini-provider-default' : (source || 'provider-default'), payload: {}, controlled: false };
+    }
     if (gemini && !gemini.knownThinkingModel) {
         return { adapter: 'gemini-provider-default', payload: {}, controlled: false };
     }
@@ -84,6 +85,15 @@ export function buildThinkingRequest({ mode, source = '', model = '', url = '', 
         payload: { ...normalized, custom_include_body: JSON.stringify(includeBody) },
         controlled: true,
     };
+}
+
+/**
+ * Continuity's extraction schema is intentionally broad and deeply nested.
+ * Gemini may reject schemas of that complexity with a generic INVALID_ARGUMENT,
+ * so its exact-shape prompt and local validator provide the compatible path.
+ */
+export function shouldSendStructuredSchema(adapter = '') {
+    return !String(adapter).startsWith('gemini');
 }
 
 export function isThinkingControlError(error) {

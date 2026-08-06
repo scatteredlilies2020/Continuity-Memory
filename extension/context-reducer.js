@@ -2,7 +2,7 @@ import { getTokenCountAsync } from '/scripts/tokenizers.js';
 import { getContext } from '/scripts/st-context.js';
 import { EXTRACTION_VERSION } from './coverage.js';
 import { promptManager } from '/scripts/openai.js';
-import { loadBoundWorld } from './engine.js';
+import { loadBoundWorld } from './engine.js?v=0.14.0-standalone.52';
 import { fingerprintMessage } from './fingerprint.js';
 import { runtime, updateRuntime } from './runtime.js';
 import { getBoundWorldId, getChatKey, getSettings } from './settings.js';
