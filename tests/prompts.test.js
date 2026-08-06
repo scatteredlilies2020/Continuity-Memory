@@ -30,8 +30,11 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /scenario's own ontology/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /person, group, institution, place, object, resource, process, system, or concept/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /reports, logs, turns, status updates, simulation results/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Use state for replaceable values or conditions/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /several simultaneous values, combine the complete set/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /State holds replaceable conditions/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /durable, tense-neutral identity summaries/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /unfinished matters in atomic threads/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /exact supplied thread title/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /combine simultaneous values of one predicate/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Most retained items should be 2 or 3/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /reserve 5 for truly foundational continuity/);
     assert.match(DEFAULT_RETRIEVAL_SYSTEM_PROMPT, /roleplay or simulation/);

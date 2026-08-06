@@ -1,7 +1,7 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { PROMPT_DEFAULTS } from './prompts.js';
+import { DURABLE_MEMORY_RULES, PROMPT_DEFAULTS } from './prompts.js';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 
 export const EXTENSION_NAME = 'continuityMemory';
@@ -195,6 +195,18 @@ export function getSettings() {
             );
         }
         settings.promptPunctuationVersion = 1;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.durableMemoryPromptVersion || 0) < 1) {
+        const prompt = String(settings.extractionSystemPrompt || '');
+        const startMarker = 'Use state for replaceable values or conditions';
+        const endMarker = 'Avoid duplicating the same idea in many fields.';
+        const start = prompt.indexOf(startMarker);
+        const end = prompt.indexOf(endMarker, start);
+        if (start >= 0 && end >= start && !prompt.includes('Entity descriptions are durable, tense-neutral identity summaries')) {
+            settings.extractionSystemPrompt = `${prompt.slice(0, start)}${DURABLE_MEMORY_RULES}${prompt.slice(end + endMarker.length)}`;
+        }
+        settings.durableMemoryPromptVersion = 1;
         saveSettingsDebounced();
     }
     if (settings.rawTailMode === undefined) {

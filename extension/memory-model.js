@@ -40,6 +40,18 @@ function common(item, meta, prefix) {
     };
 }
 
+function shouldPreserveHistoricalRecord(item, meta) {
+    if (meta.allowStateUpdates !== false) return false;
+    const sources = (item.sources || []).filter(source => source?.chatKey);
+    if (sources.some(source => source.chatKey !== meta.chatKey)) return true;
+    const sameChatEnds = sources
+        .filter(source => source.chatKey === meta.chatKey)
+        .map(source => Number(source.to))
+        .filter(Number.isFinite);
+    const incomingEnd = Number(meta.to);
+    return !sameChatEnds.length || !Number.isFinite(incomingEnd) || incomingEnd < Math.max(...sameChatEnds);
+}
+
 function mergeArray(world, collection, target, incoming, identity, meta, prefix, combine, preserveExisting = false) {
     for (const raw of incoming || []) {
         if (!raw || typeof raw !== 'object') continue;
@@ -49,9 +61,14 @@ function mergeArray(world, collection, target, incoming, identity, meta, prefix,
         if (!identityKey) continue;
         const index = target.findIndex(item => identity(item) === identityKey);
         if (index >= 0) {
-            const merged = preserveExisting || target[index].correctionId
+            const preserve = typeof preserveExisting === 'function'
+                ? preserveExisting(target[index], normalized)
+                : preserveExisting;
+            const merged = preserve || target[index].correctionId
                 ? { ...normalized, ...target[index] }
                 : { ...target[index], ...normalized };
+            if (collection === 'entities') merged.aliases = cleanList([...(target[index].aliases || []), ...(normalized.aliases || [])]);
+            if (collection === 'threads') merged.participants = cleanList([...(target[index].participants || []), ...(normalized.participants || [])]);
             target[index] = common({ ...merged, id: target[index].id, createdAt: target[index].createdAt }, meta, prefix);
         } else {
             target.push(common(normalized, meta, prefix));
@@ -94,7 +111,10 @@ export function mergeExtraction(world, result, meta) {
         }, meta, 'scene');
     }
 
-    const preserveCurrent = meta.allowStateUpdates === false;
+    // Historical backfill must not replace a record from another chat or
+    // regress a later range, but newer ranges in the same chat must advance
+    // durable continuity. Scene and active state remain tail-only snapshots.
+    const preserveHistoricalRecord = item => shouldPreserveHistoricalRecord(item, meta);
 
     mergeArray(world, 'entities', world.entities, result.entities, item => key(item.name), meta, 'entity', item => {
         const suppliedName = text(item.name);
@@ -106,7 +126,7 @@ export function mergeExtraction(world, result, meta) {
             description: text(item.description),
             importance: clampImportance(item.importance),
         };
-    }, preserveCurrent);
+    }, preserveHistoricalRecord);
 
     mergeArray(world, 'facts', world.facts, result.facts, item => `${key(item.subject)}|${key(item.predicate)}`, meta, 'fact', item => ({
         subject: canonicalMemorySubject(world, item.subject),
@@ -116,7 +136,7 @@ export function mergeExtraction(world, result, meta) {
         importance: clampImportance(item.importance),
         persistence: ['temporary', 'recurring', 'persistent'].includes(item.persistence) ? item.persistence : 'persistent',
         temporalAnchorId: l1Temporal.anchorId,
-    }), preserveCurrent);
+    }), preserveHistoricalRecord);
 
     if (meta.allowStateUpdates !== false) {
         // Scene state is a replaceable snapshot, not historical memory. Advancing
@@ -162,7 +182,7 @@ export function mergeExtraction(world, result, meta) {
         dynamic: text(item.dynamic),
         importance: clampImportance(item.importance),
         temporalAnchorId: l1Temporal.anchorId,
-    }), preserveCurrent);
+    }), preserveHistoricalRecord);
 
     // Events are immutable history. Deduplicate only the same event extracted from overlapping ranges.
     for (const raw of result.events || []) {
@@ -196,7 +216,7 @@ export function mergeExtraction(world, result, meta) {
         participants: canonicalList(world, item.participants),
         importance: clampImportance(item.importance),
         temporalAnchorId: l1Temporal.anchorId,
-    }), preserveCurrent);
+    }), preserveHistoricalRecord);
 
     if (result.sceneCapsule && typeof result.sceneCapsule === 'object') {
         const raw = result.sceneCapsule;

@@ -84,6 +84,42 @@ test('historical partial imports do not replace current mutable continuity', () 
     assert.equal(target.threads[0].status, 'resolved');
 });
 
+test('newer historical ranges advance durable records without allowing older ranges to regress them', () => {
+    const target = world();
+    const chatKey = 'chat';
+    mergeExtraction(target, extraction({
+        entities: [{ name: 'Tea Circle Amphitheater', type: 'place', aliases: ['Tea Circle'], description: 'Venue where Team 7 will assemble a stage.', importance: 3 }],
+        facts: [{ subject: 'D-014', predicate: 'status', value: 'scheduled', category: 'mission', importance: 3, persistence: 'temporary' }],
+        relationships: [{ from: 'Team 7', to: 'D-014', kind: 'assignment', status: 'Pending', dynamic: '', importance: 3 }],
+        threads: [{ title: 'Complete D-014', detail: 'Team 7 must assemble the stage.', status: 'open', participants: ['Team 7'], importance: 3 }],
+    }), { chatKey, from: 0, to: 4, allowStateUpdates: false });
+    mergeExtraction(target, extraction({
+        entities: [{ name: 'Tea Circle Amphitheater', type: 'place', aliases: [], description: 'East-district venue and site of Team 7’s completed D-014 stage setup.', importance: 3 }],
+        facts: [{ subject: 'D-014', predicate: 'status', value: 'completed and accepted', category: 'mission', importance: 4, persistence: 'persistent' }],
+        relationships: [{ from: 'Team 7', to: 'D-014', kind: 'assignment', status: 'Completed', dynamic: 'Accepted by the client.', importance: 4 }],
+        threads: [{ title: 'Complete D-014', detail: 'The stage setup was accepted.', status: 'resolved', participants: ['Sakura'], importance: 4 }],
+    }), { chatKey, from: 5, to: 9, allowStateUpdates: false });
+
+    assert.equal(target.entities[0].description, 'East-district venue and site of Team 7’s completed D-014 stage setup.');
+    assert.deepEqual(target.entities[0].aliases, ['Tea Circle']);
+    assert.equal(target.facts[0].value, 'completed and accepted');
+    assert.equal(target.relationships[0].status, 'Completed');
+    assert.equal(target.threads[0].status, 'resolved');
+    assert.deepEqual(target.threads[0].participants, ['Team 7', 'Sakura']);
+
+    mergeExtraction(target, extraction({
+        entities: [{ name: 'Tea Circle Amphitheater', type: 'place', aliases: [], description: 'Venue where Team 7 will assemble a stage.', importance: 3 }],
+        facts: [{ subject: 'D-014', predicate: 'status', value: 'scheduled', category: 'mission', importance: 3, persistence: 'temporary' }],
+        relationships: [{ from: 'Team 7', to: 'D-014', kind: 'assignment', status: 'Pending', dynamic: '', importance: 3 }],
+        threads: [{ title: 'Complete D-014', detail: 'Team 7 must assemble the stage.', status: 'open', participants: ['Team 7'], importance: 3 }],
+    }), { chatKey, from: 2, to: 4, allowStateUpdates: false });
+
+    assert.equal(target.entities[0].description, 'East-district venue and site of Team 7’s completed D-014 stage setup.');
+    assert.equal(target.facts[0].value, 'completed and accepted');
+    assert.equal(target.relationships[0].status, 'Completed');
+    assert.equal(target.threads[0].status, 'resolved');
+});
+
 test('state lifecycle expires scenes and fails closed when ongoing state is not reconfirmed', () => {
     const target = world();
     const chatKey = 'chat';
@@ -196,9 +232,9 @@ test('retrieval reserves room for every populated memory category', () => {
     for (const heading of [
         'Latest extracted checkpoint',
         'Recent chronological continuity (L1)',
-        'Open intentions, goals, and unresolved matters',
+        'Open matters',
         'Relevant entities',
-        'State confirmed in latest hidden L1',
+        'Latest state',
         'Relationships',
         'Established facts',
         'Relevant past events',

@@ -301,19 +301,43 @@ function validateResult(result) {
     return result;
 }
 
+const CONTEXT_STOP_WORDS = new Set('a an the and are as at be by for from has have in is it of on or that the their this to was were will with'.split(' '));
+
+function contextTerms(value) {
+    return new Set((String(value || '').toLocaleLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu) || [])
+        .filter(term => term.length > 1 && !CONTEXT_STOP_WORDS.has(term)));
+}
+
 function extractionStateContext(world, messages) {
     const conversation = formatMessages(messages).toLocaleLowerCase();
-    const active = (world?.states || []).filter(isActiveState).map(item => {
+    const conversationTerms = contextTerms(conversation);
+    const rankedActive = (world?.states || []).filter(isActiveState).map(item => {
         const source = latestSourceRange(item);
         const subject = String(item.subject || '');
         const mentioned = subject && conversation.includes(subject.toLocaleLowerCase());
         return { item, mentioned, sourceTo: Number(source?.to ?? -1) };
-    }).sort((a, b) => Number(b.mentioned) - Number(a.mentioned) || b.sourceTo - a.sourceTo).slice(0, 100);
+    }).sort((a, b) => Number(b.mentioned) - Number(a.mentioned) || b.sourceTo - a.sourceTo);
+    const active = [...rankedActive.filter(entry => entry.mentioned), ...rankedActive.slice(0, 16)]
+        .filter((entry, index, all) => all.findIndex(other => other.item === entry.item) === index)
+        .slice(0, 40);
     const activeSubjects = new Set(active.map(({ item }) => String(item.subject || '').toLocaleLowerCase()));
     const entities = (world?.entities || []).filter(entity => {
         const names = [entity.name, ...(entity.aliases || [])].map(value => String(value || '').toLocaleLowerCase()).filter(Boolean);
         return names.some(name => conversation.includes(name)) || activeSubjects.has(String(entity.name || '').toLocaleLowerCase());
-    }).slice(0, 120).map(entity => ({ name: entity.name, aliases: entity.aliases || [] }));
+    }).slice(0, 60).map(entity => ({ name: entity.name, aliases: entity.aliases || [] }));
+    const threadCandidates = (world?.threads || []).filter(item => item.status === 'open').map(item => {
+        const source = latestSourceRange(item);
+        const searchable = `${item.title || ''} ${item.detail || ''} ${(item.participants || []).join(' ')}`;
+        const score = [...contextTerms(searchable)].reduce((total, term) => total + Number(conversationTerms.has(term)), 0);
+        return { item, score, sourceTo: Number(source?.to ?? -1) };
+    }).sort((a, b) => b.score - a.score || b.sourceTo - a.sourceTo);
+    const activeThreads = [...threadCandidates.filter(entry => entry.score > 0).slice(0, 9), ...threadCandidates.slice(0, 3)]
+        .filter((entry, index, all) => all.findIndex(other => other.item === entry.item) === index)
+        .slice(0, 12)
+        .map(({ item }) => ({
+            title: item.title,
+            detail: String(item.detail || '').replace(/\s+/g, ' ').trim().slice(0, 240),
+        }));
     const snapshot = {
         canonicalEntities: entities,
         activeStates: active.map(({ item }) => ({
@@ -322,8 +346,9 @@ function extractionStateContext(world, messages) {
             value: item.value,
             scope: item.scope,
         })),
+        openThreads: activeThreads,
     };
-    return `ACTIVE STATE LIFECYCLE CONTEXT (not source events):\n${JSON.stringify(snapshot)}\n\nState output rules:\n- Reuse the exact canonical entity, subject, and attribute wording above whenever it refers to the same thing.\n- operation "set" establishes or changes a state. operation "clear" retires an ongoing state made false by this excerpt; for clear, use an empty value and identify the same subject and attribute.\n- scope "scene" is for immediate location, activity, pose, emotion, short-term plan, or other scene-local conditions. It expires automatically when the next L1 range advances.\n- scope "ongoing" is only for a condition explicitly expected to survive scene changes, such as an unresolved injury, possession, assignment, or continuing constraint. It remains stored until updated or cleared, but is injected as current only while reconfirmed by the newest L1 range.\n- Never encode a predicted, scheduled, intended, or expected future occurrence as a current state. Preserve it as a thread or chronological plan until it actually happens.\n- Emit only states directly supported at the end of this excerpt. Do not copy context states merely to keep them alive.`;
+    return `LIFECYCLE CONTEXT (not source events):\n${JSON.stringify(snapshot)}\n\nReuse exact supplied names, attributes, and thread titles. Clear an invalidated ongoing state with an empty value. If this excerpt explicitly completes or abandons an open thread, return that title with its new status. Do not copy unchanged context.`;
 }
 
 function extractionTemporalContext(world) {
