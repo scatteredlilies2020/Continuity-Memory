@@ -10,6 +10,7 @@ export const DEFAULT_EXTRACTION_SYSTEM_PROMPT = `You maintain long-term continui
 Extract only information supported by the supplied messages. Follow the scenario's own ontology: an actor or subject may be a person, group, institution, place, object, resource, process, system, or concept. Track whatever can carry continuity in this scenario, including identity, rules, capabilities, ownership or control, quantities, conditions, relationships, intentions, decisions, events, consequences, and unresolved matters. Apply this equally to personal or social roleplay, life and management simulations, strategy, mystery, creative or educational scenarios, and unusual or non-narrative formats.
 Treat stat boxes, status panels, trackers, choice menus, and formatted snapshots as evidence, not as text to preserve. Extract only useful facts or changes from them; ignore decorative formatting and repeated unchanged values. Explicit user/OOC corrections take priority. If an automatically generated status box conflicts with what actually happened in narration or dialogue, prefer the narrative event.
 Chronological continuity is a primary requirement. The L1 record in sceneCapsule must preserve the chronological and causal flow of the excerpt, whether it is narration, dialogue, actions, reports, logs, turns, status updates, simulation results, or a mixture: how it opened, what happened in order, why decisions or reactions followed, meaningful changes and outcomes, transitions, and how the situation ended. Use emotionalArc for the principal overall movement in people, relationships, conditions, strategy, or the wider system; leave it empty when none exists. Do not flatten a sequence into disconnected facts. Be information-dense: opening, emotionalArc, and closing are at most one short sentence each; use at most 10 one-sentence beats; combine closely related developments; omit atmosphere, stylistic description, raw formatting, and repetition unless continuity depends on it; never quote source text at length.
+Narrative time is independent of message count, token count, L1 boundaries, extraction time, and real-world time. Track local subjective frames and only explicit or clearly implied temporal relations. Preserve relative phrases such as yesterday, tomorrow, later, last year, or the last 300 days; the temporal metadata binds them to an immutable L1 anchor. Never invent calendar dates, elapsed durations, day boundaries, time skips, or synchronization between separate frames. Perceived duration is not actual elapsed time unless the source establishes that.
 Use state for replaceable values or conditions that are true at the end of the excerpt. Every state must declare a lifecycle scope and operation: scene state expires when the next L1 range advances; ongoing state remains stored until a later set or clear operation but is eligible for current-state injection only while reconfirmed by the newest L1 range. Use scene for immediate locations, activities, poses, emotions, and short-term plans. Use ongoing only for explicitly continuing injuries, possessions, assignments, constraints, or similar conditions. Never encode a predicted, scheduled, intended, or expected future occurrence as current state; preserve it as a thread or chronological plan until it happens. Reuse canonical subject and attribute wording from the supplied active-state context. Emit clear when the excerpt resolves or invalidates an ongoing state. Do not repeat a supplied state merely to keep it alive. Use facts for stable or cumulative knowledge; when one predicate has several simultaneous values, combine the complete set into one value instead of emitting competing records. Use events for notable things that happened. Use relationships for meaningful connections or dependencies between any actors or subjects. Use threads for unresolved intentions, questions, commitments, processes, tensions, risks, or goals. Reuse stable names and wording for recurring actors, attributes, relationships, and threads. Do not invent facts. Avoid duplicating the same idea in many fields.
 ${IMPORTANCE_RUBRIC}
 The scene capsule importance rates the excerpt as a whole. Keep the scene capsule concise.`;
@@ -24,12 +25,15 @@ Return only one JSON object with this exact shape and all keys present:
 
 {{messages}}
 
-{{active_states}}`;
+{{active_states}}
+
+{{temporal_context}}`;
 
 export const DEFAULT_RETRIEVAL_QUERY_TEMPLATE = `Current conversation:
 {{conversation}}`;
 
 export const DEFAULT_ARC_SYSTEM_PROMPT = `Compress a sequence of chronological L1 records into one accurate L2 record for long-term roleplay or simulation continuity. Preserve causal order, important decisions and consequences, changes in actors, relationships, capabilities, conditions, goals, rules, or the wider system, and unresolved threads. Follow the scenario's own ontology; participants need not be people. Retain meaningful local developments without preserving raw source formatting. Remove repetition and decorative prose. Never invent events or resolve anything the source leaves open.
+Message order and L1 sequence establish source order, not elapsed story time. Preserve supplied temporal anchors, relative wording, subjective frames, and explicit time skips. Never invent dates, durations, day boundaries, or synchronization between frames.
 ${IMPORTANCE_RUBRIC}
 Rate the L2 interval as a whole.`;
 
@@ -40,6 +44,7 @@ Return only one JSON object with this exact shape and all keys present:
 {{capsules}}`;
 
 export const DEFAULT_ERA_SYSTEM_PROMPT = `Compress a sequence of chronological L2 records into one accurate L3 record for very long roleplay or simulation continuity. Preserve the major causal progression, foundational decisions and consequences, lasting changes in actors, relationships, capabilities, conditions, goals, rules, or the wider system, and unresolved threads that survive this range. Follow the scenario's own ontology; participants need not be people. Remove repeated L2-level detail and raw source formatting. Never invent events, alter chronology, or resolve anything the sources leave open.
+Message order and hierarchy sequence establish source order, not elapsed story time. Preserve supplied temporal-anchor spans, relative wording, subjective frames, and explicit time skips. Never invent dates, durations, day boundaries, or synchronization between frames.
 ${IMPORTANCE_RUBRIC}
 Rate the L3 interval as a whole.`;
 

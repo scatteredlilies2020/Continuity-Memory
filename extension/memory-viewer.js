@@ -38,6 +38,16 @@ function sourceLabels(item) {
     return direct ? [direct, ...fromSources.slice(-3)] : fromSources.slice(-4);
 }
 
+function addTemporal(fields, item) {
+    const temporal = item?.temporal;
+    add(fields, 'Temporal anchor', temporal?.anchorId || temporal?.referenceId || item?.temporalAnchorId);
+    add(fields, 'Time frame', temporal?.frame || (item?.temporalFrames || []).join(', '));
+    add(fields, 'Temporal relation', temporal?.relation);
+    add(fields, 'Explicit interval', temporal?.elapsed);
+    const anchors = item?.temporalAnchorIds || [];
+    if (anchors.length > 1) add(fields, 'Anchor span', `${anchors[0]} … ${anchors.at(-1)}`);
+}
+
 function categoryItems(world, category) {
     if (!world) return [];
     if (category === 'scene') return world.scene ? [world.scene] : [];
@@ -58,6 +68,7 @@ function entry(category, item, index) {
         add(fields, 'Active participants / subjects', item.participants);
         add(fields, 'Activity / process', item.activity);
         add(fields, 'Tone / conditions', item.mood);
+        addTemporal(fields, item);
     } else if (category === 'entities') {
         add(fields, 'Type', item.type);
         add(fields, 'Aliases', item.aliases);
@@ -67,26 +78,31 @@ function entry(category, item, index) {
         add(fields, 'Value', item.value);
         add(fields, 'Category', item.category);
         add(fields, 'Persistence', item.persistence);
+        addTemporal(fields, item);
     } else if (category === 'states') {
         title = [item.subject, item.attribute].filter(Boolean).join(' — ') || title;
         add(fields, 'Current value', item.value);
         add(fields, 'Previous value', item.previous);
         add(fields, 'Lifecycle', item.scope);
+        addTemporal(fields, item);
     } else if (category === 'relationships') {
         title = [item.from, item.to].filter(Boolean).join(' ↔ ') || title;
         add(fields, 'Type', item.kind);
         add(fields, 'Status', item.status);
         add(fields, 'Dynamic', item.dynamic);
+        addTemporal(fields, item);
     } else if (category === 'events') {
         add(fields, 'Summary', item.summary);
         add(fields, 'Participants', item.participants);
         add(fields, 'Location', item.location);
         add(fields, 'Story time', item.storyTime);
         add(fields, 'Consequences', item.consequences);
+        addTemporal(fields, item);
     } else if (category === 'threads') {
         add(fields, 'Status', item.status);
         add(fields, 'Details', item.detail);
         add(fields, 'Participants', item.participants);
+        addTemporal(fields, item);
     } else if (category === 'corrections') {
         title = item.summary || 'Memory correction';
         add(fields, 'Instruction', item.instruction);
@@ -99,6 +115,7 @@ function entry(category, item, index) {
         add(fields, 'Key progression', item.beats);
         add(fields, 'Overall progression', item.emotionalArc);
         add(fields, 'Closing', item.closing);
+        addTemporal(fields, item);
     } else {
         add(fields, 'Story time', item.storyTime);
         add(fields, 'Participants', item.participants);
@@ -107,6 +124,7 @@ function entry(category, item, index) {
         add(fields, 'Overall progression', item.emotionalArc);
         add(fields, 'Closing state', item.closingState);
         add(fields, 'Still open', item.openThreads);
+        addTemporal(fields, item);
     }
     const sources = sourceLabels(item);
     const importance = Number(item.importance);

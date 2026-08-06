@@ -1,6 +1,7 @@
 import { EXTRACTION_VERSION } from './coverage.js';
 import { isSuppressedByCorrection } from './memory-correction.js';
 import { canonicalMemorySubject, canonicalStateAttribute, stateIdentity, stateScope } from './state-lifecycle.js';
+import { buildL1TemporalAnchor, buildRelativeTemporalAnchor } from './temporal-anchors.js';
 import { randomUuid } from './uuid.js';
 
 function text(value) {
@@ -79,6 +80,7 @@ export function mergeExtraction(world, result, meta) {
     world.threads ||= [];
     world.corrections ||= [];
     world.sources ||= {};
+    const l1Temporal = buildL1TemporalAnchor(world, result.sceneCapsule?.temporal, meta);
 
     if (meta.allowStateUpdates !== false && result.scene && typeof result.scene === 'object') {
         world.scene = common({
@@ -88,6 +90,7 @@ export function mergeExtraction(world, result, meta) {
             participants: canonicalList(world, result.scene.participants),
             activity: text(result.scene.activity),
             mood: text(result.scene.mood),
+            temporal: l1Temporal,
         }, meta, 'scene');
     }
 
@@ -112,6 +115,7 @@ export function mergeExtraction(world, result, meta) {
         category: text(item.category),
         importance: clampImportance(item.importance),
         persistence: ['temporary', 'recurring', 'persistent'].includes(item.persistence) ? item.persistence : 'persistent',
+        temporalAnchorId: l1Temporal.anchorId,
     }), preserveCurrent);
 
     if (meta.allowStateUpdates !== false) {
@@ -130,6 +134,7 @@ export function mergeExtraction(world, result, meta) {
                 importance: clampImportance(raw.importance),
                 scope: stateScope(raw.scope),
                 operation: raw.operation === 'clear' ? 'clear' : 'set',
+                temporalAnchorId: l1Temporal.anchorId,
             };
             if (!normalized.subject || !normalized.attribute || isSuppressedByCorrection(world, 'states', normalized, meta)) continue;
             const identity = stateIdentity(world, normalized);
@@ -156,6 +161,7 @@ export function mergeExtraction(world, result, meta) {
         status: text(item.status),
         dynamic: text(item.dynamic),
         importance: clampImportance(item.importance),
+        temporalAnchorId: l1Temporal.anchorId,
     }), preserveCurrent);
 
     // Events are immutable history. Deduplicate only the same event extracted from overlapping ranges.
@@ -166,6 +172,7 @@ export function mergeExtraction(world, result, meta) {
             participants: canonicalList(world, raw.participants),
             location: text(raw.location),
             storyTime: text(raw.storyTime),
+            temporal: buildRelativeTemporalAnchor(raw.temporal, l1Temporal),
             consequences: text(raw.consequences),
             importance: clampImportance(raw.importance),
         };
@@ -188,6 +195,7 @@ export function mergeExtraction(world, result, meta) {
         status: ['open', 'resolved', 'abandoned'].includes(item.status) ? item.status : 'open',
         participants: canonicalList(world, item.participants),
         importance: clampImportance(item.importance),
+        temporalAnchorId: l1Temporal.anchorId,
     }), preserveCurrent);
 
     if (result.sceneCapsule && typeof result.sceneCapsule === 'object') {
@@ -195,6 +203,7 @@ export function mergeExtraction(world, result, meta) {
         const capsule = {
             title: clipped(raw.title, 100) || `Messages ${meta.from}–${meta.to}`,
             storyTime: clipped(raw.storyTime, 120),
+            temporal: l1Temporal,
             location: clipped(raw.location, 160),
             participants: canonicalList(world, raw.participants),
             opening: clipped(raw.opening, 320),
@@ -404,6 +413,8 @@ export function addDerivedArc(world, result, capsules) {
     }
     const rangeStarts = capsules.map(item => Number(item.from)).filter(Number.isFinite);
     const rangeEnds = capsules.map(item => Number(item.to)).filter(Number.isFinite);
+    const temporalAnchorIds = [...new Set(capsules.map(item => item.temporal?.anchorId).filter(Boolean))];
+    const temporalFrames = [...new Set(capsules.map(item => item.temporal?.frame).filter(Boolean))];
     const arc = {
         id: id('arc'),
         title: clipped(result.title, 140) || `L2 covering ${capsules.length} L1 records`,
@@ -416,6 +427,8 @@ export function addDerivedArc(world, result, capsules) {
         openThreads: cleanList(result.openThreads, 12).map(item => clipped(item, 260)),
         importance: clampImportance(result.importance),
         capsuleIds,
+        temporalAnchorIds,
+        temporalFrames,
         chatKey: capsules[0]?.chatKey || '',
         ...(rangeStarts.length && rangeEnds.length ? { from: Math.min(...rangeStarts), to: Math.max(...rangeEnds) } : {}),
         createdAt: new Date().toISOString(),
@@ -446,6 +459,8 @@ export function addDerivedEra(world, result, arcs) {
     }
     const rangeStarts = arcs.map(item => Number(item.from)).filter(Number.isFinite);
     const rangeEnds = arcs.map(item => Number(item.to)).filter(Number.isFinite);
+    const temporalAnchorIds = [...new Set(arcs.flatMap(item => item.temporalAnchorIds || []))];
+    const temporalFrames = [...new Set(arcs.flatMap(item => item.temporalFrames || []))];
     const era = {
         id: id('era'),
         title: clipped(result.title, 160) || `L3 covering ${arcs.length} L2 records`,
@@ -459,6 +474,8 @@ export function addDerivedEra(world, result, arcs) {
         importance: clampImportance(result.importance),
         arcIds,
         capsuleIds,
+        temporalAnchorIds,
+        temporalFrames,
         chatKey: arcs[0]?.chatKey || '',
         ...(rangeStarts.length && rangeEnds.length ? { from: Math.min(...rangeStarts), to: Math.max(...rangeEnds) } : {}),
         createdAt: new Date().toISOString(),

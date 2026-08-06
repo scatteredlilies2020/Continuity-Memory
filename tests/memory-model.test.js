@@ -15,12 +15,12 @@ function world() {
 function extraction(overrides = {}) {
     return {
         scene: { location: 'Music room', time: 'After school', participants: ['Yui', 'Mio'], activity: 'Practicing', mood: 'Relaxed' },
-        sceneCapsule: { title: 'After-school practice', storyTime: 'After school', location: 'Music room', participants: ['Yui', 'Mio'], opening: 'Yui and Mio met to practice.', beats: ['They worked through a song.', 'Yui suggested rehearsing again Saturday.'], emotionalArc: 'They relaxed as the practice improved.', closing: 'They left with a weekend plan.', importance: 3 },
+        sceneCapsule: { title: 'After-school practice', storyTime: 'After school', location: 'Music room', participants: ['Yui', 'Mio'], opening: 'Yui and Mio met to practice.', beats: ['They worked through a song.', 'Yui suggested rehearsing again Saturday.'], emotionalArc: 'They relaxed as the practice improved.', closing: 'They left with a weekend plan.', importance: 3, temporal: { frame: 'main narrative', relation: 'after', elapsed: '', certainty: 'implicit' } },
         entities: [{ name: 'Yui', type: 'character', aliases: [], description: 'A guitarist who loves snacks.', importance: 5 }],
         facts: [{ subject: 'Yui', predicate: 'favorite snack', value: 'cake', category: 'preference', importance: 3, persistence: 'persistent' }],
         states: [{ subject: 'Yui', attribute: 'location', value: 'Music room', previous: '', importance: 3, scope: 'scene', operation: 'set' }],
         relationships: [{ from: 'Yui', to: 'Mio', kind: 'friendship', status: 'Close friends', dynamic: 'Yui teases Mio gently.', importance: 4 }],
-        events: [{ title: 'Practice session', summary: 'Yui and Mio practiced after school.', participants: ['Yui', 'Mio'], location: 'Music room', storyTime: 'Today', consequences: '', importance: 2 }],
+        events: [{ title: 'Practice session', summary: 'Yui and Mio practiced after school.', participants: ['Yui', 'Mio'], location: 'Music room', storyTime: 'Today', consequences: '', importance: 2, temporal: { frame: 'main narrative', relation: 'same-period', elapsed: '', certainty: 'implicit' } }],
         threads: [{ title: 'Weekend performance', detail: 'They plan to rehearse Saturday.', status: 'open', participants: ['Yui', 'Mio'], importance: 4 }],
         ...overrides,
     };

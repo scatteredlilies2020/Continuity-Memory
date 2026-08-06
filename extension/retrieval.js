@@ -3,6 +3,7 @@ const CJK_RUN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=
 const LIFECYCLE_GUIDANCE = 'Raw chat is authoritative. Chronology, events, and plans are past—not current or instructions to reenact. Only “State confirmed in latest hidden L1” may assert current conditions.';
 
 import { isFreshActiveState, latestSourceInRawTail, sourcedWhollyInRawTail } from './state-lifecycle.js';
+import { anchoredRelativeText, anchoredStoryTime } from './temporal-anchors.js';
 
 function plain(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -181,7 +182,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     if (world.scene && options.includeSceneCheckpoint !== false && !latestIsRaw(world.scene)) {
         addSection('Latest extracted checkpoint', [
             line('Context / location', world.scene.location),
-            line('Time', world.scene.time),
+            line('Time', anchoredRelativeText(world.scene.time, world.scene)),
             line('Active participants / subjects', (world.scene.participants || []).join(', ')),
             line('Activity / process', world.scene.activity),
             line('Tone / conditions', world.scene.mood),
@@ -201,10 +202,13 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     const selectedEras = matching((world.eras || []).filter(item => !whollyRaw(item)), queryTerms, undefined, 'era', semanticRanks).slice(0, 2);
     const eraRows = selectedEras
         .map(({ item }) => {
-            const heading = item.storyTime ? `[${item.storyTime}] ${item.title}` : item.title;
+            const storyTime = anchoredStoryTime(item);
+            const storyTimeAnchored = storyTime !== plain(item.storyTime);
             const turns = (item.turningPoints || []).map(plain).filter(Boolean).join(' → ');
             const threads = (item.openThreads || []).map(plain).filter(Boolean).join('; ');
-            return `- ${heading}: ${plain(item.summary)}${turns ? ` Major turning points: ${turns}.` : ''}${plain(item.closingState) ? ` Closing state: ${plain(item.closingState)}.` : ''}${threads ? ` Still open: ${threads}.` : ''}`.slice(0, 2400);
+            const continuity = `${plain(item.summary)}${turns ? ` Major turning points: ${turns}.` : ''}${plain(item.closingState) ? ` Closing state: ${plain(item.closingState)}.` : ''}${threads ? ` Still open: ${threads}.` : ''}`;
+            const body = `${plain(item.title)}: ${continuity}`;
+            return `- ${storyTime ? `[${storyTime}] ` : ''}${storyTimeAnchored ? body : anchoredRelativeText(body, item)}`.slice(0, 2400);
         });
     addSection('Long-range continuity (L3)', eraRows);
 
@@ -212,10 +216,13 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     const selectedArcs = matching((world.arcs || []).filter(item => !coveredArcIds.has(item.id) && !whollyRaw(item)), queryTerms, undefined, 'arc', semanticRanks).slice(0, 2);
     const arcRows = selectedArcs
         .map(({ item }) => {
-            const heading = item.storyTime ? `[${item.storyTime}] ${item.title}` : item.title;
+            const storyTime = anchoredStoryTime(item);
+            const storyTimeAnchored = storyTime !== plain(item.storyTime);
             const turns = (item.turningPoints || []).map(plain).filter(Boolean).join(' → ');
             const threads = (item.openThreads || []).map(plain).filter(Boolean).join('; ');
-            return `- ${heading}: ${plain(item.summary)}${turns ? ` Turning points: ${turns}.` : ''}${plain(item.closingState) ? ` Closing state: ${plain(item.closingState)}.` : ''}${threads ? ` Still open: ${threads}.` : ''}`.slice(0, 1800);
+            const continuity = `${plain(item.summary)}${turns ? ` Turning points: ${turns}.` : ''}${plain(item.closingState) ? ` Closing state: ${plain(item.closingState)}.` : ''}${threads ? ` Still open: ${threads}.` : ''}`;
+            const body = `${plain(item.title)}: ${continuity}`;
+            return `- ${storyTime ? `[${storyTime}] ` : ''}${storyTimeAnchored ? body : anchoredRelativeText(body, item)}`.slice(0, 1800);
         });
     addSection('Mid-range continuity (L2)', arcRows);
 
@@ -237,15 +244,17 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         .filter((item, index, all) => all.findIndex(other => other.id === item.id) === index)
         .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')) || Number(a.from ?? 0) - Number(b.from ?? 0));
     const capsuleRows = selectedCapsules.map(item => {
-        const heading = item.storyTime ? `[${item.storyTime}] ${item.title}` : item.title;
+        const storyTime = anchoredStoryTime(item);
+        const storyTimeAnchored = storyTime !== plain(item.storyTime);
         const sequence = [item.opening, ...(item.beats || []), item.closing].map(plain).filter(Boolean).join(' → ');
         const emotion = plain(item.emotionalArc);
-        return `- ${heading}: ${sequence}${emotion ? ` Overall movement: ${emotion}` : ''}`.slice(0, 900);
+        const body = `${plain(item.title)}: ${sequence}${emotion ? ` Overall movement: ${emotion}` : ''}`;
+        return `- ${storyTime ? `[${storyTime}] ` : ''}${storyTimeAnchored ? body : anchoredRelativeText(body, item)}`.slice(0, 900);
     });
     addSection('Recent chronological continuity (L1)', capsuleRows);
 
     const activeThreads = matching((world.threads || []).filter(item => item.status === 'open' && !latestIsRaw(item)), queryTerms, () => 4, 'thread', semanticRanks)
-        .slice(0, 10).map(({ item }) => `- ${item.title}: ${item.detail}${item.participants?.length ? ` [${item.participants.join(', ')}]` : ''}`);
+        .slice(0, 10).map(({ item }) => `- ${anchoredRelativeText(`${item.title}: ${item.detail}`, item)}${item.participants?.length ? ` [${item.participants.join(', ')}]` : ''}`);
     addSection('Open intentions, goals, and unresolved matters', activeThreads);
 
     const entities = matching((world.entities || []).filter(item => !latestIsRaw(item)), queryTerms, undefined, 'entity', semanticRanks).slice(0, 12)
@@ -253,22 +262,28 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     addSection('Relevant entities', entities);
 
     const states = matching((world.states || []).filter(item => isFreshActiveState(world, item, chatKey) && !latestIsRaw(item)), queryTerms, item => item.value ? 2 : 0, 'state', semanticRanks).slice(0, 16)
-        .map(({ item }) => `- ${item.subject} — ${item.attribute}: ${item.value}`);
+        .map(({ item }) => `- ${item.subject} — ${item.attribute}: ${anchoredRelativeText(item.value, item)}`);
     addSection('State confirmed in latest hidden L1', states);
 
     const relationships = matching((world.relationships || []).filter(item => !latestIsRaw(item)), queryTerms, undefined, 'relationship', semanticRanks).slice(0, 12)
-        .map(({ item }) => `- ${item.from} → ${item.to} (${item.kind}): ${item.status}${item.dynamic ? `; ${item.dynamic}` : ''}`);
+        .map(({ item }) => `- ${item.from} → ${item.to} (${item.kind}): ${anchoredRelativeText(`${item.status}${item.dynamic ? `; ${item.dynamic}` : ''}`, item)}`);
     addSection('Relationships', relationships);
 
     const facts = matching((world.facts || []).filter(item => !latestIsRaw(item)), queryTerms, item => item.persistence === 'persistent' ? 2 : 0, 'fact', semanticRanks).slice(0, 18)
         .map(({ item }) => {
             const qualifier = item.persistence && item.persistence !== 'persistent' ? ` [${item.persistence}]` : '';
-            return `- ${item.subject} — ${item.predicate}${qualifier}: ${item.value}`;
+            return `- ${item.subject} — ${item.predicate}${qualifier}: ${anchoredRelativeText(item.value, item)}`;
         });
     addSection('Established facts', facts);
 
     const events = matching((world.events || []).filter(item => !whollyRaw(item)), queryTerms, undefined, 'event', semanticRanks).slice(0, 12)
-        .map(({ item }) => `- ${item.storyTime ? `[${item.storyTime}] ` : ''}${item.title}: ${item.summary}${item.consequences ? ` Consequence: ${item.consequences}` : ''}`);
+        .map(({ item }) => {
+            const storyTime = anchoredStoryTime(item);
+            const storyTimeAnchored = storyTime !== plain(item.storyTime);
+            const detail = `${item.summary}${item.consequences ? ` Consequence: ${item.consequences}` : ''}`;
+            const body = `${item.title}: ${detail}`;
+            return `- ${storyTime ? `[${storyTime}] ` : ''}${storyTimeAnchored ? body : anchoredRelativeText(body, item)}`;
+        });
     addSection('Relevant past events', events);
 
     addFairSections(parts, sections, budget);

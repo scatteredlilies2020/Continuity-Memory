@@ -18,6 +18,19 @@ import { getBoundWorldId, getChatKey, getSettings } from './settings.js';
 import { buildThinkingRequest, isThinkingControlError } from './thinking-policy.js';
 import { runtime, updateRuntime } from './runtime.js';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
+import { temporalContext } from './temporal-anchors.js';
+
+const temporalRelationSchema = {
+    type: 'object',
+    additionalProperties: false,
+    required: ['frame', 'relation', 'elapsed', 'certainty'],
+    properties: {
+        frame: { type: 'string' },
+        relation: { type: 'string', enum: ['same-period', 'after', 'before', 'overlaps', 'detached', 'unknown'] },
+        elapsed: { type: 'string' },
+        certainty: { type: 'string', enum: ['explicit', 'implicit', 'unknown'] },
+    },
+};
 
 const extractionSchema = {
     type: 'object',
@@ -34,13 +47,14 @@ const extractionSchema = {
         },
         sceneCapsule: {
             type: 'object', additionalProperties: false,
-            required: ['title', 'storyTime', 'location', 'participants', 'opening', 'beats', 'emotionalArc', 'closing', 'importance'],
+            required: ['title', 'storyTime', 'location', 'participants', 'opening', 'beats', 'emotionalArc', 'closing', 'importance', 'temporal'],
             properties: {
                 title: { type: 'string' }, storyTime: { type: 'string' }, location: { type: 'string' },
                 participants: { type: 'array', items: { type: 'string' } }, opening: { type: 'string' },
                 beats: { type: 'array', items: { type: 'string' }, maxItems: 10 },
                 emotionalArc: { type: 'string' }, closing: { type: 'string' },
                 importance: { type: 'integer', minimum: 1, maximum: 5 },
+                temporal: temporalRelationSchema,
             },
         },
         entities: {
@@ -88,11 +102,12 @@ const extractionSchema = {
         events: {
             type: 'array', items: {
                 type: 'object', additionalProperties: false,
-                required: ['title', 'summary', 'participants', 'location', 'storyTime', 'consequences', 'importance'],
+                required: ['title', 'summary', 'participants', 'location', 'storyTime', 'consequences', 'importance', 'temporal'],
                 properties: {
                     title: { type: 'string' }, summary: { type: 'string' }, participants: { type: 'array', items: { type: 'string' } },
                     location: { type: 'string' }, storyTime: { type: 'string' }, consequences: { type: 'string' },
                     importance: { type: 'integer', minimum: 1, maximum: 5 },
+                    temporal: temporalRelationSchema,
                 },
             },
         },
@@ -196,12 +211,12 @@ const ARC_JSON_SHAPE_EXAMPLE = JSON.stringify({
 
 const JSON_SHAPE_EXAMPLE = JSON.stringify({
     scene: { location: '', time: '', participants: [], activity: '', mood: '' },
-    sceneCapsule: { title: '', storyTime: '', location: '', participants: [], opening: '', beats: [], emotionalArc: '', closing: '', importance: 3 },
+    sceneCapsule: { title: '', storyTime: '', location: '', participants: [], opening: '', beats: [], emotionalArc: '', closing: '', importance: 3, temporal: { frame: 'main narrative', relation: 'unknown', elapsed: '', certainty: 'unknown' } },
     entities: [{ name: '', type: '', aliases: [], description: '', importance: 3 }],
     facts: [{ subject: '', predicate: '', value: '', category: '', importance: 3, persistence: 'persistent' }],
     states: [{ subject: '', attribute: '', value: '', previous: '', importance: 3, scope: 'scene', operation: 'set' }],
     relationships: [{ from: '', to: '', kind: '', status: '', dynamic: '', importance: 3 }],
-    events: [{ title: '', summary: '', participants: [], location: '', storyTime: '', consequences: '', importance: 3 }],
+    events: [{ title: '', summary: '', participants: [], location: '', storyTime: '', consequences: '', importance: 3, temporal: { frame: 'main narrative', relation: 'same-period', elapsed: '', certainty: 'implicit' } }],
     threads: [{ title: '', detail: '', status: 'open', participants: [], importance: 3 }],
 });
 
@@ -311,6 +326,11 @@ function extractionStateContext(world, messages) {
     return `ACTIVE STATE LIFECYCLE CONTEXT (not source events):\n${JSON.stringify(snapshot)}\n\nState output rules:\n- Reuse the exact canonical entity, subject, and attribute wording above whenever it refers to the same thing.\n- operation "set" establishes or changes a state. operation "clear" retires an ongoing state made false by this excerpt; for clear, use an empty value and identify the same subject and attribute.\n- scope "scene" is for immediate location, activity, pose, emotion, short-term plan, or other scene-local conditions. It expires automatically when the next L1 range advances.\n- scope "ongoing" is only for a condition explicitly expected to survive scene changes, such as an unresolved injury, possession, assignment, or continuing constraint. It remains stored until updated or cleared, but is injected as current only while reconfirmed by the newest L1 range.\n- Never encode a predicted, scheduled, intended, or expected future occurrence as a current state. Preserve it as a thread or chronological plan until it actually happens.\n- Emit only states directly supported at the end of this excerpt. Do not copy context states merely to keep them alive.`;
 }
 
+function extractionTemporalContext(world) {
+    const anchors = temporalContext(world, getChatKey());
+    return `IMMUTABLE NARRATIVE-TIME CONTEXT:\n${JSON.stringify(anchors)}\n\nTemporal output rules:\n- Message count, token count, L1 boundaries, extraction time, and real-world time never imply elapsed story time.\n- frame identifies the local subjective timeline or clock. Reuse an exact prior frame name when it is the same timeline; use a distinct frame for dreams, flashbacks, time-dilated locations, alternate timelines, or other unsynchronized clocks.\n- For sceneCapsule, relation is relative to the most recent earlier L1 in the same frame. For each event, relation is relative to the containing sceneCapsule: same-period, after, before, overlaps, detached, or unknown. Ordering does not imply a duration.\n- elapsed contains only an explicitly stated narrative interval such as "three years"; otherwise leave it empty. Perceived duration is not elapsed time.\n- certainty is explicit only when narration or dialogue establishes the timing, implicit for a clear qualitative sequence without a duration, and unknown otherwise.\n- Preserve phrases such as yesterday, tomorrow, last year, or the last 300 days in storyTime when no calendar exists. They will be bound to this immutable L1 anchor and must never float relative to a later current scene.\n- A time skip changes narrative time only when the source establishes it. Never invent dates or synchronize separate frames.`;
+}
+
 async function extractChunk(messages, world = runtime.world) {
     const settings = getSettings();
     const detail = settings.detail;
@@ -324,7 +344,8 @@ async function extractChunk(messages, world = runtime.world) {
         schema: JSON_SHAPE_EXAMPLE,
         messages: formatMessages(messages),
         active_states: extractionStateContext(world, messages),
-    }, ['schema', 'messages', 'active_states']);
+        temporal_context: extractionTemporalContext(world),
+    }, ['schema', 'messages', 'active_states', 'temporal_context']);
     let lastError;
     for (let attempt = 1; attempt <= 2; attempt++) {
         try {
@@ -668,6 +689,7 @@ function formatCapsules(capsules) {
     return capsules.map((capsule, index) => JSON.stringify({
         sequence: index + 1,
         storyTime: capsule.storyTime,
+        temporal: capsule.temporal,
         location: capsule.location,
         participants: capsule.participants,
         opening: capsule.opening,
@@ -682,6 +704,8 @@ function formatArcs(arcs) {
     return arcs.map((arc, index) => JSON.stringify({
         sequence: index + 1,
         storyTime: arc.storyTime,
+        temporalAnchorIds: arc.temporalAnchorIds,
+        temporalFrames: arc.temporalFrames,
         participants: arc.participants,
         summary: arc.summary,
         turningPoints: arc.turningPoints,

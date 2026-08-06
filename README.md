@@ -86,6 +86,12 @@ Relevant chronology is retrieved alongside structured facts and current state. O
 
 This preserves broad narrative continuity without injecting the entire history on every turn.
 
+### Narrative time
+
+Message counts and L1 boundaries record source order, never elapsed story time. Every new L1 receives an immutable temporal anchor and links only to the preceding anchor in the same subjective time frame. Explicit time skips are retained; unstated dates, durations, day boundaries, and synchronization between dreams, flashbacks, alternate timelines, or other local clocks are never inferred.
+
+Relative wording such as “yesterday,” “tomorrow,” “last year,” and “the last 300 days” is preserved and bound to the anchor where it was stated. When one of those memories is retrieved later, Continuity adds its short anchor reference so the phrase cannot silently drift with the current scene. Ordinary non-relative memories carry no extra prompt text, and L2/L3 summaries retain compact anchor spans rather than copying every timestamp.
+
 ## Context handling
 
 Continuity reduces old raw chat only after it has been safely covered by memory.
