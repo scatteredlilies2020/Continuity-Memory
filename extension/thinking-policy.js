@@ -2,6 +2,24 @@ function normalizedMode(mode) {
     return ['off', 'minimum', 'default'].includes(mode) ? mode : 'off';
 }
 
+function identifyGemini({ source = '', model = '', url = '', profileName = '' } = {}) {
+    const provider = String(source).toLowerCase();
+    const address = String(url).toLowerCase();
+    const identity = `${model} ${profileName}`.toLowerCase();
+    const detected = /gemini/.test(identity)
+        || /(?:^|[-_ ])(?:google|makersuite|vertexai|vertex-ai)(?:$|[-_ ])/.test(provider)
+        || address.includes('generativelanguage.googleapis.com');
+    if (!detected) return null;
+
+    const version = identity.match(/gemini[^\d]*(\d+)(?:[._-](\d+))?/);
+    const major = Number(version?.[1]);
+    const minor = Number(version?.[2] || 0);
+    return {
+        knownThinkingModel: major > 2 || (major === 2 && minor >= 5),
+        canDisableThinking: major === 2 && minor === 5 && /flash/.test(identity) && !/pro/.test(identity),
+    };
+}
+
 function identifyCustomEndpoint({ model = '', url = '', profileName = '' } = {}) {
     const address = String(url).toLowerCase();
     const identity = `${profileName} ${model}`.toLowerCase();
@@ -13,14 +31,14 @@ function identifyCustomEndpoint({ model = '', url = '', profileName = '' } = {})
     return 'openai-compatible';
 }
 
-function customBody(adapter, mode, model) {
+function customBody(adapter, mode, model, reasoningEffort = '') {
     if (mode === 'default') return {};
     const off = mode === 'off';
     switch (adapter) {
         case 'deepseek':
             return { thinking: { type: off ? 'disabled' : 'enabled' } };
         case 'openrouter':
-            return { reasoning: { effort: off ? 'none' : 'minimal', exclude: true } };
+            return { reasoning: { effort: reasoningEffort || (off ? 'none' : 'minimal'), exclude: true } };
         case 'ollama':
             return { think: off ? false : (String(model).toLowerCase().includes('gpt-oss') ? 'low' : true) };
         case 'qwen':
@@ -30,7 +48,7 @@ function customBody(adapter, mode, model) {
                 ? { reasoning_effort: 'none', chat_template_kwargs: { enable_thinking: false } }
                 : { reasoning_effort: 'low' };
         default:
-            return { reasoning_effort: off ? 'none' : 'minimal' };
+            return { reasoning_effort: reasoningEffort || (off ? 'none' : 'minimal') };
     }
 }
 
@@ -42,17 +60,27 @@ export function buildThinkingRequest({ mode, source = '', model = '', url = '', 
     mode = normalizedMode(mode);
     if (mode === 'default') return { adapter: source || 'provider-default', payload: {}, controlled: false };
 
-    const normalized = mode === 'off'
-        ? { include_reasoning: false, reasoning_effort: 'none' }
-        : { include_reasoning: true, reasoning_effort: 'min' };
+    const gemini = identifyGemini({ source, model, url, profileName });
+    if (gemini && !gemini.knownThinkingModel) {
+        return { adapter: 'gemini-provider-default', payload: {}, controlled: false };
+    }
+
+    const reasoningEffort = gemini
+        ? (mode === 'off' && gemini.canDisableThinking ? 'none' : 'low')
+        : (mode === 'off' ? 'none' : 'min');
+
+    const normalized = {
+        include_reasoning: mode !== 'off',
+        reasoning_effort: reasoningEffort,
+    };
     if (source !== 'custom') {
-        return { adapter: source || 'sillytavern-active', payload: normalized, controlled: true };
+        return { adapter: gemini ? 'gemini' : (source || 'sillytavern-active'), payload: normalized, controlled: true };
     }
 
     const adapter = identifyCustomEndpoint({ model, url, profileName });
-    const includeBody = customBody(adapter, mode, model);
+    const includeBody = customBody(adapter, mode, model, gemini ? reasoningEffort : '');
     return {
-        adapter,
+        adapter: gemini ? `gemini-${adapter}` : adapter,
         payload: { ...normalized, custom_include_body: JSON.stringify(includeBody) },
         controlled: true,
     };

@@ -13,13 +13,13 @@ import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
 import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { alignWorldToChat, collectFingerprintMessages } from './fingerprint.js';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.50';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.51';
 import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js';
 import { completeL1MessageCount, resolveL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
 import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.50';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.50';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.51';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.51';
 
 let worlds = [];
 let creatingChatMemory = null;
