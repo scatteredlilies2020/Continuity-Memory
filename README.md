@@ -52,6 +52,8 @@ Continuity detects edits, deletions, swipes, and branch changes. A checkpoint is
 
 Mutable state is fail-closed. Scene-local locations, activities, emotions, and plans expire when the next L1 range advances. Longer-running conditions are stored for reconciliation, but are injected as current only when the newest L1 reconfirms them. Predicted or scheduled events remain plans or open threads until they actually occur. Legacy state records without lifecycle metadata are never injected as current.
 
+When the narrative later identifies an earlier unknown, disguised, or descriptive reference, Continuity migrates matching structured references to the canonical entity and merges duplicates. The identification must be supported by the chat; outside franchise knowledge, resemblance, suspicion, and unconfirmed claims do not establish identity.
+
 ## Memory retrieval
 
 Continuity offers three retrieval modes.

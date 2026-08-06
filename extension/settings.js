@@ -1,7 +1,7 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { DURABLE_MEMORY_RULES, PROMPT_DEFAULTS } from './prompts.js';
+import { DURABLE_MEMORY_RULES, IDENTITY_RESOLUTION_RULES, PROMPT_DEFAULTS } from './prompts.js';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 
 export const EXTENSION_NAME = 'continuityMemory';
@@ -207,6 +207,15 @@ export function getSettings() {
             settings.extractionSystemPrompt = `${prompt.slice(0, start)}${DURABLE_MEMORY_RULES}${prompt.slice(end + endMarker.length)}`;
         }
         settings.durableMemoryPromptVersion = 1;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.identityResolutionPromptVersion || 0) < 1) {
+        const prompt = String(settings.extractionSystemPrompt || '');
+        const marker = 'Entity descriptions are durable, tense-neutral identity summaries, not snapshots.';
+        if (prompt.includes(marker) && !prompt.includes('Use identityResolutions only when')) {
+            settings.extractionSystemPrompt = prompt.replace(marker, `${marker}\n${IDENTITY_RESOLUTION_RULES}`);
+        }
+        settings.identityResolutionPromptVersion = 1;
         saveSettingsDebounced();
     }
     if (settings.rawTailMode === undefined) {

@@ -37,6 +37,8 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /combine simultaneous values of one predicate/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Most retained items should be 2 or 3/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /reserve 5 for truly foundational continuity/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Use identityResolutions only when the supplied narrative establishes/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /outside franchise knowledge/);
     assert.match(DEFAULT_RETRIEVAL_SYSTEM_PROMPT, /roleplay or simulation/);
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /participants need not be people/);
     assert.match(DEFAULT_ERA_SYSTEM_PROMPT, /participants need not be people/);

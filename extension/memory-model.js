@@ -36,7 +36,7 @@ function common(item, meta, prefix) {
         id: item.id || id(prefix),
         createdAt: item.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        sources: [...(Array.isArray(item.sources) ? item.sources : []), sourceRef(meta)].slice(-20),
+        sources: mergedSources(Array.isArray(item.sources) ? item.sources : [], [sourceRef(meta)]),
     };
 }
 
@@ -84,6 +84,120 @@ function canonicalList(world, value, max = 30) {
     return [...new Set(cleanList(value, max).map(item => canonicalMemorySubject(world, item)).filter(Boolean))].slice(0, max);
 }
 
+function mergedSources(...groups) {
+    const sources = new Map();
+    for (const source of groups.flat()) {
+        if (!source?.chatKey || !Number.isFinite(Number(source.from)) || !Number.isFinite(Number(source.to))) continue;
+        const identity = `${source.chatKey}|${Number(source.from)}|${Number(source.to)}`;
+        sources.set(identity, { ...source, from: Number(source.from), to: Number(source.to) });
+    }
+    return [...sources.values()].slice(-20);
+}
+
+function recordTimestamp(item) {
+    return Math.max(
+        Number.isFinite(Date.parse(item?.updatedAt)) ? Date.parse(item.updatedAt) : 0,
+        ...(item?.sources || []).map(source => Number.isFinite(Date.parse(source?.capturedAt)) ? Date.parse(source.capturedAt) : 0),
+    );
+}
+
+function mergeCanonicalDuplicates(left, right) {
+    const preferred = left.correctionId
+        ? left
+        : right.correctionId || recordTimestamp(right) >= recordTimestamp(left)
+            ? right
+            : left;
+    const other = preferred === left ? right : left;
+    return {
+        ...other,
+        ...preferred,
+        sources: mergedSources(left.sources || [], right.sources || []),
+        createdAt: left.createdAt || right.createdAt,
+        updatedAt: recordTimestamp(right) >= recordTimestamp(left) ? right.updatedAt : left.updatedAt,
+    };
+}
+
+function deduplicateCanonicalRecords(items, identity) {
+    const result = [];
+    const indexes = new Map();
+    for (const item of items || []) {
+        const identityKey = identity(item);
+        if (!identityKey || !indexes.has(identityKey)) {
+            if (identityKey) indexes.set(identityKey, result.length);
+            result.push(item);
+            continue;
+        }
+        const index = indexes.get(identityKey);
+        result[index] = mergeCanonicalDuplicates(result[index], item);
+    }
+    return result;
+}
+
+function exactEntityNames(entity) {
+    return [entity?.name, ...(entity?.aliases || [])].map(key).filter(Boolean);
+}
+
+function applyIdentityResolution(world, raw, meta) {
+    const reference = text(raw?.reference);
+    const requestedCanonical = text(raw?.canonical);
+    const evidence = text(raw?.evidence);
+    if (!reference || !requestedCanonical || !evidence || key(reference) === key(requestedCanonical)) return false;
+
+    const canonicalMatches = world.entities.filter(entity => exactEntityNames(entity).includes(key(requestedCanonical)));
+    if (canonicalMatches.length !== 1) return false;
+    const canonicalEntity = canonicalMatches[0];
+    if (canonicalEntity.correctionId || shouldPreserveHistoricalRecord(canonicalEntity, meta)) return false;
+
+    const referenceMatches = world.entities.filter(entity => entity !== canonicalEntity && exactEntityNames(entity).includes(key(reference)));
+    if (referenceMatches.length > 1) return false;
+    const priorEntity = referenceMatches[0];
+    if (priorEntity?.correctionId || (priorEntity && shouldPreserveHistoricalRecord(priorEntity, meta))) return false;
+
+    const replacedNames = new Set([key(reference)]);
+    if (priorEntity) {
+        for (const name of [priorEntity.name, ...(priorEntity.aliases || [])]) replacedNames.add(key(name));
+    }
+    const canonicalName = text(canonicalEntity.name);
+    const resolutionSource = sourceRef(meta);
+    canonicalEntity.aliases = cleanList([
+        ...(canonicalEntity.aliases || []),
+        reference,
+        ...(priorEntity ? [priorEntity.name, ...(priorEntity.aliases || [])] : []),
+    ]).filter(alias => key(alias) !== key(canonicalName));
+    canonicalEntity.sources = mergedSources(canonicalEntity.sources || [], priorEntity?.sources || [], [resolutionSource]);
+    canonicalEntity.updatedAt = resolutionSource.capturedAt;
+    if (priorEntity) world.entities = world.entities.filter(entity => entity !== priorEntity);
+
+    const replace = value => replacedNames.has(key(value)) ? canonicalName : text(value);
+    const replaceList = (value, max = 30) => cleanList(value, max).map(replace).filter(Boolean);
+    const updateRecord = (item, fields) => {
+        if (item.correctionId || shouldPreserveHistoricalRecord(item, meta)) return item;
+        const changed = Object.entries(fields).some(([name, value]) => JSON.stringify(item?.[name]) !== JSON.stringify(value));
+        if (!changed) return item;
+        return { ...item, ...fields, updatedAt: resolutionSource.capturedAt, sources: mergedSources(item.sources || [], [resolutionSource]) };
+    };
+    const updateParticipants = (item, max = 30) => {
+        if (item.correctionId || shouldPreserveHistoricalRecord(item, meta)) return item;
+        const participants = replaceList(item.participants, max);
+        return JSON.stringify(item.participants) === JSON.stringify(participants) ? item : { ...item, participants };
+    };
+
+    if (world.scene) world.scene = updateRecord(world.scene, { participants: replaceList(world.scene.participants) });
+    world.facts = (world.facts || []).map(item => updateRecord(item, { subject: replace(item.subject) }));
+    world.states = (world.states || []).map(item => updateRecord(item, { subject: replace(item.subject) }));
+    world.relationships = (world.relationships || []).map(item => updateRecord(item, { from: replace(item.from), to: replace(item.to) }));
+    world.events = (world.events || []).map(item => updateRecord(item, { participants: replaceList(item.participants) }));
+    world.threads = (world.threads || []).map(item => updateRecord(item, { participants: replaceList(item.participants) }));
+    world.capsules = (world.capsules || []).map(item => updateParticipants(item));
+    world.arcs = (world.arcs || []).map(item => updateParticipants(item));
+    world.eras = (world.eras || []).map(item => updateParticipants(item, 40));
+
+    world.facts = deduplicateCanonicalRecords(world.facts, item => `${key(item.subject)}|${key(item.predicate)}`);
+    world.states = deduplicateCanonicalRecords(world.states, item => stateIdentity(world, item));
+    world.relationships = deduplicateCanonicalRecords(world.relationships, item => `${key(item.from)}|${key(item.to)}|${key(item.kind)}`);
+    return true;
+}
+
 export function mergeExtraction(world, result, meta) {
     world.entities ||= [];
     world.facts ||= [];
@@ -127,6 +241,8 @@ export function mergeExtraction(world, result, meta) {
             importance: clampImportance(item.importance),
         };
     }, preserveHistoricalRecord);
+
+    for (const resolution of result.identityResolutions || []) applyIdentityResolution(world, resolution, meta);
 
     mergeArray(world, 'facts', world.facts, result.facts, item => `${key(item.subject)}|${key(item.predicate)}`, meta, 'fact', item => ({
         subject: canonicalMemorySubject(world, item.subject),

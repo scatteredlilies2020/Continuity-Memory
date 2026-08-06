@@ -17,6 +17,7 @@ function extraction(overrides = {}) {
         scene: { location: 'Music room', time: 'After school', participants: ['Yui', 'Mio'], activity: 'Practicing', mood: 'Relaxed' },
         sceneCapsule: { title: 'After-school practice', storyTime: 'After school', location: 'Music room', participants: ['Yui', 'Mio'], opening: 'Yui and Mio met to practice.', beats: ['They worked through a song.', 'Yui suggested rehearsing again Saturday.'], emotionalArc: 'They relaxed as the practice improved.', closing: 'They left with a weekend plan.', importance: 3, temporal: { frame: 'main narrative', relation: 'after', elapsed: '', certainty: 'implicit' } },
         entities: [{ name: 'Yui', type: 'character', aliases: [], description: 'A guitarist who loves snacks.', importance: 5 }],
+        identityResolutions: [],
         facts: [{ subject: 'Yui', predicate: 'favorite snack', value: 'cake', category: 'preference', importance: 3, persistence: 'persistent' }],
         states: [{ subject: 'Yui', attribute: 'location', value: 'Music room', previous: '', importance: 3, scope: 'scene', operation: 'set' }],
         relationships: [{ from: 'Yui', to: 'Mio', kind: 'friendship', status: 'Close friends', dynamic: 'Yui teases Mio gently.', importance: 4 }],
@@ -37,6 +38,62 @@ test('merges durable records and updates matching facts instead of duplicating t
     assert.equal(target.sources[meta.chatKey].lastProcessedIndex, 8);
     assert.equal(target.capsules.length, 2);
     assert.deepEqual(target.sources[meta.chatKey].processedMessages, [{ index: 0, fingerprint: 'first', version: EXTRACTION_VERSION }]);
+});
+
+test('narrative identity resolutions migrate and deduplicate durable references', () => {
+    const target = world();
+    const chatKey = 'chat';
+    const reference = 'the man responsible for his clan’s destruction';
+    mergeExtraction(target, extraction({
+        entities: [{ name: 'Sasuke Uchiha', type: 'character', aliases: ['Sasuke'], description: 'An avenger.', importance: 5 }],
+        facts: [{ subject: reference, predicate: 'identity', value: 'unknown', category: 'identity', importance: 4, persistence: 'persistent' }],
+        relationships: [{ from: 'Sasuke Uchiha', to: reference, kind: 'revenge target', status: 'unresolved', dynamic: 'Sasuke intends to kill him.', importance: 5 }],
+        events: [{ ...extraction().events[0], participants: ['Sasuke Uchiha', reference] }],
+        threads: [{ title: 'Sasuke’s revenge', detail: 'Identify and confront the killer.', status: 'open', participants: ['Sasuke Uchiha', reference], importance: 5 }],
+    }), { chatKey, from: 128, to: 135, allowStateUpdates: true });
+
+    mergeExtraction(target, extraction({
+        entities: [{ name: 'Itachi Uchiha', type: 'character', aliases: ['Itachi'], description: 'Sasuke’s elder brother.', importance: 5 }],
+        identityResolutions: [{ reference, canonical: 'Itachi Uchiha', evidence: 'The narrative identifies Itachi as the previously unnamed man.' }],
+        facts: [{ subject: 'Itachi Uchiha', predicate: 'identity', value: 'Sasuke’s elder brother and revenge target', category: 'identity', importance: 5, persistence: 'persistent' }],
+        relationships: [{ from: 'Sasuke Uchiha', to: 'Itachi Uchiha', kind: 'revenge target', status: 'identified', dynamic: 'Sasuke now names Itachi as his target.', importance: 5 }],
+        events: [],
+        threads: [{ title: 'Sasuke’s revenge', detail: 'Sasuke intends to confront Itachi.', status: 'open', participants: ['Sasuke Uchiha', 'Itachi Uchiha'], importance: 5 }],
+    }), { chatKey, from: 216, to: 223, allowStateUpdates: true });
+
+    assert.equal(target.relationships.length, 1);
+    assert.equal(target.relationships[0].to, 'Itachi Uchiha');
+    assert.equal(target.relationships[0].status, 'identified');
+    assert.deepEqual(target.relationships[0].sources.map(source => [source.from, source.to]), [[128, 135], [216, 223]]);
+    assert.equal(target.facts.length, 1);
+    assert.equal(target.facts[0].subject, 'Itachi Uchiha');
+    assert.equal(target.facts[0].value, 'Sasuke’s elder brother and revenge target');
+    assert.deepEqual(target.entities.find(item => item.name === 'Itachi Uchiha').aliases, ['Itachi', reference]);
+    assert.deepEqual(target.events[0].participants, ['Sasuke Uchiha', 'Itachi Uchiha']);
+    assert.deepEqual(target.threads[0].participants, ['Sasuke Uchiha', 'Itachi Uchiha']);
+});
+
+test('identity resolution fails closed without one unambiguous canonical entity', () => {
+    const target = world();
+    const reference = 'the masked commander';
+    mergeExtraction(target, extraction({
+        entities: [
+            { name: 'Candidate One', type: 'character', aliases: [reference], description: '', importance: 3 },
+            { name: 'Candidate Two', type: 'character', aliases: [reference], description: '', importance: 3 },
+            { name: 'Confirmed Name', type: 'character', aliases: [], description: '', importance: 3 },
+        ],
+        relationships: [{ from: 'Yui', to: reference, kind: 'opponent', status: 'unknown', dynamic: '', importance: 3 }],
+    }), { chatKey: 'chat', from: 0, to: 7, allowStateUpdates: true });
+
+    mergeExtraction(target, extraction({
+        entities: [{ name: 'Confirmed Name', type: 'character', aliases: [], description: '', importance: 3 }],
+        identityResolutions: [{ reference, canonical: 'Confirmed Name', evidence: 'Ambiguous test evidence.' }],
+        relationships: [],
+        events: [],
+    }), { chatKey: 'chat', from: 8, to: 15, allowStateUpdates: true });
+
+    assert.equal(target.relationships[0].to, reference);
+    assert.deepEqual(target.entities.find(item => item.name === 'Confirmed Name').aliases, []);
 });
 
 test('L1 records retain up to ten expanded chronological beats', () => {

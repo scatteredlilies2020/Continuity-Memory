@@ -35,7 +35,7 @@ const temporalRelationSchema = {
 const extractionSchema = {
     type: 'object',
     additionalProperties: false,
-    required: ['scene', 'sceneCapsule', 'entities', 'facts', 'states', 'relationships', 'events', 'threads'],
+    required: ['scene', 'sceneCapsule', 'entities', 'identityResolutions', 'facts', 'states', 'relationships', 'events', 'threads'],
     properties: {
         scene: {
             type: 'object', additionalProperties: false,
@@ -64,6 +64,15 @@ const extractionSchema = {
                 properties: {
                     name: { type: 'string' }, type: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } },
                     description: { type: 'string' }, importance: { type: 'integer', minimum: 1, maximum: 5 },
+                },
+            },
+        },
+        identityResolutions: {
+            type: 'array', items: {
+                type: 'object', additionalProperties: false,
+                required: ['reference', 'canonical', 'evidence'],
+                properties: {
+                    reference: { type: 'string' }, canonical: { type: 'string' }, evidence: { type: 'string' },
                 },
             },
         },
@@ -213,6 +222,7 @@ const JSON_SHAPE_EXAMPLE = JSON.stringify({
     scene: { location: '', time: '', participants: [], activity: '', mood: '' },
     sceneCapsule: { title: '', storyTime: '', location: '', participants: [], opening: '', beats: [], emotionalArc: '', closing: '', importance: 3, temporal: { frame: 'main narrative', relation: 'unknown', elapsed: '', certainty: 'unknown' } },
     entities: [{ name: '', type: '', aliases: [], description: '', importance: 3 }],
+    identityResolutions: [{ reference: '', canonical: '', evidence: '' }],
     facts: [{ subject: '', predicate: '', value: '', category: '', importance: 3, persistence: 'persistent' }],
     states: [{ subject: '', attribute: '', value: '', previous: '', importance: 3, scope: 'scene', operation: 'set' }],
     relationships: [{ from: '', to: '', kind: '', status: '', dynamic: '', importance: 3 }],
