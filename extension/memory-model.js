@@ -1,5 +1,6 @@
 import { EXTRACTION_VERSION } from './coverage.js';
 import { isSuppressedByCorrection } from './memory-correction.js';
+import { canonicalMemorySubject, canonicalStateAttribute, stateIdentity, stateScope } from './state-lifecycle.js';
 import { randomUuid } from './uuid.js';
 
 function text(value) {
@@ -61,6 +62,10 @@ function cleanList(value, max = 30) {
     return [...new Set((Array.isArray(value) ? value : []).map(text).filter(Boolean))].slice(0, max);
 }
 
+function canonicalList(world, value, max = 30) {
+    return [...new Set(cleanList(value, max).map(item => canonicalMemorySubject(world, item)).filter(Boolean))].slice(0, max);
+}
+
 export function mergeExtraction(world, result, meta) {
     world.entities ||= [];
     world.facts ||= [];
@@ -80,7 +85,7 @@ export function mergeExtraction(world, result, meta) {
             ...(world.scene || {}),
             location: text(result.scene.location),
             time: text(result.scene.time),
-            participants: cleanList(result.scene.participants),
+            participants: canonicalList(world, result.scene.participants),
             activity: text(result.scene.activity),
             mood: text(result.scene.mood),
         }, meta, 'scene');
@@ -88,16 +93,20 @@ export function mergeExtraction(world, result, meta) {
 
     const preserveCurrent = meta.allowStateUpdates === false;
 
-    mergeArray(world, 'entities', world.entities, result.entities, item => key(item.name), meta, 'entity', item => ({
-        name: text(item.name),
-        type: text(item.type) || 'entity',
-        aliases: cleanList(item.aliases),
-        description: text(item.description),
-        importance: clampImportance(item.importance),
-    }), preserveCurrent);
+    mergeArray(world, 'entities', world.entities, result.entities, item => key(item.name), meta, 'entity', item => {
+        const suppliedName = text(item.name);
+        const canonicalName = canonicalMemorySubject(world, suppliedName);
+        return {
+            name: canonicalName,
+            type: text(item.type) || 'entity',
+            aliases: cleanList([...(item.aliases || []), ...(canonicalName !== suppliedName ? [suppliedName] : [])]),
+            description: text(item.description),
+            importance: clampImportance(item.importance),
+        };
+    }, preserveCurrent);
 
     mergeArray(world, 'facts', world.facts, result.facts, item => `${key(item.subject)}|${key(item.predicate)}`, meta, 'fact', item => ({
-        subject: text(item.subject),
+        subject: canonicalMemorySubject(world, item.subject),
         predicate: text(item.predicate),
         value: text(item.value),
         category: text(item.category),
@@ -106,18 +115,43 @@ export function mergeExtraction(world, result, meta) {
     }), preserveCurrent);
 
     if (meta.allowStateUpdates !== false) {
-        mergeArray(world, 'states', world.states, result.states, item => `${key(item.subject)}|${key(item.attribute)}`, meta, 'state', item => ({
-            subject: text(item.subject),
-            attribute: text(item.attribute),
-            value: text(item.value),
-            previous: text(item.previous),
-            importance: clampImportance(item.importance),
-        }));
+        // Scene state is a replaceable snapshot, not historical memory. Advancing
+        // the active timeline retires the previous scene snapshot automatically.
+        // Ongoing state is retained for reconciliation until an explicit update
+        // or clear; retrieval still requires confirmation in the newest L1.
+        world.states = world.states.filter(item => item.correctionId || item.scope === 'ongoing');
+        for (const raw of result.states || []) {
+            if (!raw || typeof raw !== 'object') continue;
+            const normalized = {
+                subject: canonicalMemorySubject(world, raw.subject),
+                attribute: canonicalStateAttribute(raw.attribute),
+                value: text(raw.value),
+                previous: text(raw.previous),
+                importance: clampImportance(raw.importance),
+                scope: stateScope(raw.scope),
+                operation: raw.operation === 'clear' ? 'clear' : 'set',
+            };
+            if (!normalized.subject || !normalized.attribute || isSuppressedByCorrection(world, 'states', normalized, meta)) continue;
+            const identity = stateIdentity(world, normalized);
+            const index = world.states.findIndex(item => stateIdentity(world, item) === identity);
+            if (normalized.operation === 'clear') {
+                world.states = world.states.filter(item => item.correctionId || stateIdentity(world, item) !== identity);
+                continue;
+            }
+            if (!normalized.value) continue;
+            if (index >= 0) {
+                const existing = world.states[index];
+                const merged = existing.correctionId ? { ...normalized, ...existing } : { ...existing, ...normalized };
+                world.states[index] = common({ ...merged, id: existing.id, createdAt: existing.createdAt }, meta, 'state');
+            } else {
+                world.states.push(common(normalized, meta, 'state'));
+            }
+        }
     }
 
     mergeArray(world, 'relationships', world.relationships, result.relationships, item => `${key(item.from)}|${key(item.to)}|${key(item.kind)}`, meta, 'relationship', item => ({
-        from: text(item.from),
-        to: text(item.to),
+        from: canonicalMemorySubject(world, item.from),
+        to: canonicalMemorySubject(world, item.to),
         kind: text(item.kind) || 'relationship',
         status: text(item.status),
         dynamic: text(item.dynamic),
@@ -129,7 +163,7 @@ export function mergeExtraction(world, result, meta) {
         const event = {
             title: text(raw.title),
             summary: text(raw.summary),
-            participants: cleanList(raw.participants),
+            participants: canonicalList(world, raw.participants),
             location: text(raw.location),
             storyTime: text(raw.storyTime),
             consequences: text(raw.consequences),
@@ -152,7 +186,7 @@ export function mergeExtraction(world, result, meta) {
         title: text(item.title),
         detail: text(item.detail),
         status: ['open', 'resolved', 'abandoned'].includes(item.status) ? item.status : 'open',
-        participants: cleanList(item.participants),
+        participants: canonicalList(world, item.participants),
         importance: clampImportance(item.importance),
     }), preserveCurrent);
 
@@ -162,7 +196,7 @@ export function mergeExtraction(world, result, meta) {
             title: clipped(raw.title, 100) || `Messages ${meta.from}–${meta.to}`,
             storyTime: clipped(raw.storyTime, 120),
             location: clipped(raw.location, 160),
-            participants: cleanList(raw.participants),
+            participants: canonicalList(world, raw.participants),
             opening: clipped(raw.opening, 320),
             beats: cleanList(raw.beats, 10).map(item => clipped(item, 400)),
             emotionalArc: clipped(raw.emotionalArc, 320),
@@ -273,7 +307,7 @@ export function removeChatContributions(world, chatKey) {
 function replayIdentity(collection, item, chatKey) {
     if (collection === 'entities') return key(item.name);
     if (collection === 'facts') return `${key(item.subject)}|${key(item.predicate)}`;
-    if (collection === 'states') return `${key(item.subject)}|${key(item.attribute)}`;
+    if (collection === 'states') return stateIdentity(null, item);
     if (collection === 'relationships') return `${key(item.from)}|${key(item.to)}|${key(item.kind)}`;
     if (collection === 'threads') return key(item.title);
     if (collection === 'capsules' || collection === 'extractions') {

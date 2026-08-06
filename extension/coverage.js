@@ -1,6 +1,6 @@
 import { fingerprintMessage } from './fingerprint.js';
 
-export const EXTRACTION_VERSION = 2;
+export const EXTRACTION_VERSION = 3;
 
 function ranges(indexes) {
     const result = [];

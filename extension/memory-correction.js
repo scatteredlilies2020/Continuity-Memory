@@ -3,7 +3,7 @@ import { randomUuid } from './uuid.js';
 const COLLECTIONS = Object.freeze({
     entities: ['name', 'type', 'aliases', 'description', 'importance'],
     facts: ['subject', 'predicate', 'value', 'category', 'importance', 'persistence'],
-    states: ['subject', 'attribute', 'value', 'previous', 'importance'],
+    states: ['subject', 'attribute', 'value', 'previous', 'importance', 'scope', 'operation'],
     relationships: ['from', 'to', 'kind', 'status', 'dynamic', 'importance'],
     events: ['title', 'summary', 'participants', 'location', 'storyTime', 'consequences', 'importance'],
     threads: ['title', 'detail', 'status', 'participants', 'importance'],
@@ -40,6 +40,10 @@ function publicRecord(category, item) {
         else result[field] = text(item?.[field]);
     }
     if (category === 'facts' && !['temporary', 'recurring', 'persistent'].includes(result.persistence)) result.persistence = 'persistent';
+    if (category === 'states') {
+        if (!['scene', 'ongoing'].includes(result.scope)) result.scope = 'ongoing';
+        result.operation = 'set';
+    }
     if (category === 'threads' && !['open', 'resolved', 'abandoned'].includes(result.status)) result.status = 'open';
     return result;
 }

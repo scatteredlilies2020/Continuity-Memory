@@ -1,7 +1,9 @@
+import { isFreshActiveState } from './state-lifecycle.js';
+
 const INDEXED_CATEGORIES = Object.freeze([
     ['entity', 'entities', ['name', 'type', 'aliases', 'description']],
     ['fact', 'facts', ['subject', 'predicate', 'value', 'category', 'persistence']],
-    ['state', 'states', ['subject', 'attribute', 'value', 'previous']],
+    ['state', 'states', ['subject', 'attribute', 'value', 'previous', 'scope']],
     ['relationship', 'relationships', ['from', 'to', 'kind', 'status', 'dynamic']],
     ['event', 'events', ['title', 'summary', 'participants', 'location', 'storyTime', 'consequences']],
     ['thread', 'threads', ['title', 'detail', 'status', 'participants']],
@@ -51,6 +53,7 @@ export function buildEmbeddingDocuments(world) {
         for (const item of world?.[collection] || []) {
             if (!item?.id) continue;
             if (category === 'thread' && item.status !== 'open') continue;
+            if (category === 'state' && !isFreshActiveState(world, item)) continue;
             const key = embeddingRecordKey(category, item.id);
             const text = embeddingRecordText(category, item, fields);
             if (!text) continue;

@@ -1,20 +1,20 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.14.0-standalone.42';
+import { api } from './api.js?v=0.14.0-standalone.43';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
 import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js';
 import { buildMemoryPrompt } from './retrieval.js';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.42';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.43';
 import { onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js';
 import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds } from './ui.js?v=0.14.0-standalone.42';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds } from './ui.js?v=0.14.0-standalone.43';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.42';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.43';
 import { collectFingerprintMessages } from './fingerprint.js';
-import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.42';
+import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.43';
 import { roleplaySourceMessages, shouldGateRoleplayGeneration } from './generation-policy.js';
 import { completeL1MessageCount, resolveL1GroupSize } from './l1-policy.js';
 
@@ -47,8 +47,10 @@ globalThis.continuityMemoryGenerateInterceptor = async (coreChat, contextSize, a
                 .finally(() => { activeGenerationReadiness = null; });
         }
         const readiness = await activeGenerationReadiness;
-        await refreshInjection(true, true, readiness.sourceMessages, readiness.recentMessages);
-        await reduceChatContext(coreChat, contextSize, abort, type);
+        const reduction = await reduceChatContext(coreChat, contextSize, abort, type);
+        await refreshInjection(true, true, readiness.sourceMessages, readiness.recentMessages, {
+            rawTailRange: reduction?.rawTailRange || null,
+        });
         if (readiness.notification) showGenerationNotification('success', readiness.notification);
     } catch (error) {
         abort(true);
@@ -180,7 +182,7 @@ async function prepareRoleplayGeneration(type) {
     return { sourceMessages, recentMessages: activeChat.slice(-recentLimit), notification };
 }
 
-async function refreshInjection(useRetrievalAssist = false, strictEmbedding = false, coverageMessages = null, recentMessages = null) {
+async function refreshInjection(useRetrievalAssist = false, strictEmbedding = false, coverageMessages = null, recentMessages = null, promptOptions = {}) {
     const settings = getSettings();
     const placement = resolveInjectionPlacement(settings, extension_prompt_types, extension_prompt_roles);
     if (!settings.enabled || !getBoundWorldId()) {
@@ -245,7 +247,7 @@ async function refreshInjection(useRetrievalAssist = false, strictEmbedding = fa
         expandedTerms,
         settings.injectionInstruction,
         semanticRanks,
-        { includeSceneCheckpoint: coverage.pending === 0 },
+        { ...promptOptions, includeSceneCheckpoint: coverage.pending === 0 },
     );
     const managerApplied = useRetrievalAssist && getContext().mainApi === 'openai'
         && configurePromptManagerInjection(promptManager, settings, prompt);

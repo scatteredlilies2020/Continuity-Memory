@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildEmbeddingDocuments } from '../extension/embedding-index.js';
+import { EXTRACTION_VERSION } from '../extension/coverage.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from '../extension/memory-model.js';
 import { buildMemoryPrompt } from '../extension/retrieval.js';
 
@@ -17,7 +18,7 @@ function extraction(overrides = {}) {
         sceneCapsule: { title: 'After-school practice', storyTime: 'After school', location: 'Music room', participants: ['Yui', 'Mio'], opening: 'Yui and Mio met to practice.', beats: ['They worked through a song.', 'Yui suggested rehearsing again Saturday.'], emotionalArc: 'They relaxed as the practice improved.', closing: 'They left with a weekend plan.', importance: 3 },
         entities: [{ name: 'Yui', type: 'character', aliases: [], description: 'A guitarist who loves snacks.', importance: 5 }],
         facts: [{ subject: 'Yui', predicate: 'favorite snack', value: 'cake', category: 'preference', importance: 3, persistence: 'persistent' }],
-        states: [{ subject: 'Yui', attribute: 'location', value: 'Music room', previous: '', importance: 3 }],
+        states: [{ subject: 'Yui', attribute: 'location', value: 'Music room', previous: '', importance: 3, scope: 'scene', operation: 'set' }],
         relationships: [{ from: 'Yui', to: 'Mio', kind: 'friendship', status: 'Close friends', dynamic: 'Yui teases Mio gently.', importance: 4 }],
         events: [{ title: 'Practice session', summary: 'Yui and Mio practiced after school.', participants: ['Yui', 'Mio'], location: 'Music room', storyTime: 'Today', consequences: '', importance: 2 }],
         threads: [{ title: 'Weekend performance', detail: 'They plan to rehearse Saturday.', status: 'open', participants: ['Yui', 'Mio'], importance: 4 }],
@@ -35,7 +36,7 @@ test('merges durable records and updates matching facts instead of duplicating t
     assert.equal(target.facts[0].sources.length, 2);
     assert.equal(target.sources[meta.chatKey].lastProcessedIndex, 8);
     assert.equal(target.capsules.length, 2);
-    assert.deepEqual(target.sources[meta.chatKey].processedMessages, [{ index: 0, fingerprint: 'first', version: 2 }]);
+    assert.deepEqual(target.sources[meta.chatKey].processedMessages, [{ index: 0, fingerprint: 'first', version: EXTRACTION_VERSION }]);
 });
 
 test('L1 records retain up to ten expanded chronological beats', () => {
@@ -83,6 +84,91 @@ test('historical partial imports do not replace current mutable continuity', () 
     assert.equal(target.threads[0].status, 'resolved');
 });
 
+test('state lifecycle expires scenes and fails closed when ongoing state is not reconfirmed', () => {
+    const target = world();
+    const chatKey = 'chat';
+    mergeExtraction(target, extraction({
+        sceneCapsule: { ...extraction().sceneCapsule, title: 'Day one preparations', opening: 'The team prepared separately.', beats: [], closing: 'They finished preparing.' },
+        states: [
+            { subject: 'Yui', attribute: 'location', value: 'Home', previous: '', importance: 2, scope: 'scene', operation: 'set' },
+            { subject: 'Yui', attribute: 'injury', value: 'Bandaged shoulder', previous: '', importance: 3, scope: 'ongoing', operation: 'set' },
+        ],
+    }), { chatKey, from: 0, to: 7, allowStateUpdates: true });
+    mergeExtraction(target, extraction({
+        scene: { ...extraction().scene, location: 'Riverside park' },
+        sceneCapsule: { ...extraction().sceneCapsule, title: 'Rest at the park', opening: 'The team reached the park.', beats: [], closing: 'They rested together.' },
+        states: [{ subject: 'Yui', attribute: 'location', value: 'Riverside park', previous: 'Home', importance: 3, scope: 'scene', operation: 'set' }],
+    }), { chatKey, from: 8, to: 15, allowStateUpdates: true });
+
+    assert.equal(target.states.some(item => item.value === 'Home'), false);
+    assert.equal(target.states.some(item => item.value === 'Bandaged shoulder'), true);
+    const prompt = buildMemoryPrompt(target, [{ name: 'User', mes: 'Where is Yui now, and what is her injury?' }], 2400, chatKey);
+    assert.match(prompt.prompt, /Riverside park/);
+    assert.doesNotMatch(prompt.prompt, /Bandaged shoulder/);
+
+    mergeExtraction(target, extraction({
+        states: [{ subject: 'Yui', attribute: 'injury', value: '', previous: 'Bandaged shoulder', importance: 3, scope: 'ongoing', operation: 'clear' }],
+    }), { chatKey, from: 16, to: 23, allowStateUpdates: true });
+    assert.equal(target.states.some(item => item.attribute === 'injury'), false);
+});
+
+test('state subjects reuse canonical entity names and legacy unscoped states never inject', () => {
+    const target = world();
+    const chatKey = 'chat';
+    mergeExtraction(target, extraction({
+        entities: [{ name: 'Naruto Uzumaki', type: 'character', aliases: [], description: 'A genin.', importance: 4 }],
+        states: [{ subject: 'Naruto', attribute: 'current location', value: 'Riverside park', previous: '', importance: 3, scope: 'scene', operation: 'set' }],
+    }), { chatKey, from: 8, to: 15, allowStateUpdates: true });
+    target.states.push({
+        id: 'legacy-stale', subject: 'Sasuke Uchiha', attribute: 'location',
+        value: 'Performing unique obsolete grip drills at Hokage Tower', importance: 5,
+        sources: [{ chatKey, from: 0, to: 7 }],
+    });
+
+    assert.equal(target.states.find(item => item.value === 'Riverside park').subject, 'Naruto Uzumaki');
+    assert.equal(target.states.find(item => item.value === 'Riverside park').attribute, 'location');
+    const prompt = buildMemoryPrompt(target, [{ name: 'User', mes: 'What about those unique obsolete grip drills?' }], 1800, chatKey);
+    assert.doesNotMatch(prompt.prompt, /unique obsolete grip drills/i);
+    assert.doesNotMatch(prompt.prompt, /Hokage Tower/);
+});
+
+test('raw chat tail suppresses overlapping extracted memory while retaining hidden history', () => {
+    const target = world();
+    const chatKey = 'chat';
+    mergeExtraction(target, extraction({
+        sceneCapsule: { ...extraction().sceneCapsule, title: 'Hidden rehearsal', opening: 'Yui rehearsed an older song.', beats: [], closing: 'The rehearsal ended.' },
+    }), { chatKey, from: 0, to: 7, allowStateUpdates: true });
+    mergeExtraction(target, extraction({
+        scene: { ...extraction().scene, location: 'Visible raw-tail room' },
+        sceneCapsule: { ...extraction().sceneCapsule, title: 'Visible raw-tail scene', opening: 'Yui entered the visible raw-tail room.', beats: [], closing: 'She remained there.' },
+        states: [{ subject: 'Yui', attribute: 'location', value: 'Visible raw-tail room', previous: '', importance: 3, scope: 'scene', operation: 'set' }],
+    }), { chatKey, from: 8, to: 15, allowStateUpdates: true });
+
+    const prompt = buildMemoryPrompt(
+        target,
+        [{ name: 'User', mes: 'Continue with Yui.' }],
+        2400,
+        chatKey,
+        [],
+        undefined,
+        new Map(),
+        { rawTailRange: { from: 8, to: 15 } },
+    );
+    assert.match(prompt.prompt, /Hidden rehearsal/);
+    assert.doesNotMatch(prompt.prompt, /Visible raw-tail scene/);
+    assert.doesNotMatch(prompt.prompt, /Visible raw-tail room/);
+    assert.doesNotMatch(prompt.prompt, /Latest extracted checkpoint:/);
+});
+
+test('whole-token retrieval does not confuse contractions with substrings', () => {
+    const target = world();
+    mergeExtraction(target, extraction({
+        states: [{ subject: 'Yui', attribute: 'activity', value: 'Practicing a drill', previous: '', importance: 3, scope: 'scene', operation: 'set' }],
+    }), { chatKey: 'chat', from: 0, to: 7, allowStateUpdates: true });
+    const prompt = buildMemoryPrompt(target, [{ name: 'User', mes: "I'll decide later." }], 1800, 'chat');
+    assert.doesNotMatch(prompt.prompt, /Practicing a drill/);
+});
+
 test('identical recurring events in separate ranges remain separate', () => {
     const target = world();
     const repeated = extraction({ sceneCapsule: null, entities: [], facts: [], states: [], relationships: [], threads: [] });
@@ -112,7 +198,7 @@ test('retrieval reserves room for every populated memory category', () => {
         'Recent chronological continuity (L1)',
         'Open intentions, goals, and unresolved matters',
         'Relevant entities',
-        'Current state',
+        'State confirmed in latest hidden L1',
         'Relationships',
         'Established facts',
         'Relevant past events',

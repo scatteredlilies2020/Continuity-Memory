@@ -24,6 +24,11 @@ function messageIdentity(message) {
     };
 }
 
+function messageRange(messages) {
+    const indexes = (messages || []).map(message => Number(message?.index)).filter(Number.isFinite);
+    return indexes.length ? { from: Math.min(...indexes), to: Math.max(...indexes) } : null;
+}
+
 async function countMessage(identity) {
     const fingerprint = fingerprintMessage(identity);
     if (tokenCache.has(fingerprint)) return tokenCache.get(fingerprint);
@@ -36,20 +41,20 @@ async function countMessage(identity) {
 export async function reduceChatContext(coreChat, contextSize, _abort, type) {
     const settings = getSettings();
     if (!canReduceContext(settings, coreChat, type)) {
-        return;
+        return { rawTailRange: messageRange(coreChat) };
     }
 
     try {
         const worldId = getBoundWorldId();
         const chatKey = getChatKey();
-        if (!worldId || !chatKey) return;
+        if (!worldId || !chatKey) return { rawTailRange: messageRange(coreChat) };
         let world = runtime.world?.id === worldId ? runtime.world : await loadBoundWorld();
         const processed = new Map((world?.sources?.[chatKey]?.processedMessages || [])
             .filter(item => Number(item.version) === EXTRACTION_VERSION)
             .map(item => [Number(item.index), item.fingerprint]));
         if (!processed.size) {
             updateRuntime({ contextReduction: { mode: 'waiting-for-extraction', hiddenMessages: 0, hiddenTokens: 0, tailMessages: coreChat.length, tailTurns: Math.ceil(coreChat.length / 2), tailTokens: 0 } });
-            return;
+            return { rawTailRange: messageRange(coreChat) };
         }
 
         const comparable = coreChat.map((message, position) => ({ message, position, identity: messageIdentity(message) })).filter(item => item.identity?.text);
@@ -106,12 +111,15 @@ export async function reduceChatContext(coreChat, contextSize, _abort, type) {
             fixedPromptTokens: budgetInfo.fixedPromptTokens,
             safetyTokens: budgetInfo.safetyTokens,
         } });
+        const rawTailIndexes = comparable.filter(item => tailPositions.has(item.position)).map(item => item.identity.index);
+        return { rawTailRange: rawTailIndexes.length ? { from: Math.min(...rawTailIndexes), to: Math.max(...rawTailIndexes) } : null };
     } catch (error) {
         console.error('[Continuity] Context reduction failed; sending original chat.', error);
         updateRuntime({
             contextReduction: { mode: 'failed-open', hiddenMessages: 0, hiddenTokens: 0, tailMessages: coreChat.length, tailTurns: Math.ceil(coreChat.length / 2), tailTokens: 0 },
             lastError: `Context reduction failed safely: ${error.message}`,
         });
+        return { rawTailRange: messageRange(coreChat) };
     }
 }
 

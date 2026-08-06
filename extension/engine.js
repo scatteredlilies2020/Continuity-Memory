@@ -17,6 +17,7 @@ import { DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTE
 import { getBoundWorldId, getChatKey, getSettings } from './settings.js';
 import { buildThinkingRequest, isThinkingControlError } from './thinking-policy.js';
 import { runtime, updateRuntime } from './runtime.js';
+import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 
 const extractionSchema = {
     type: 'object',
@@ -65,10 +66,12 @@ const extractionSchema = {
         states: {
             type: 'array', items: {
                 type: 'object', additionalProperties: false,
-                required: ['subject', 'attribute', 'value', 'previous', 'importance'],
+                required: ['subject', 'attribute', 'value', 'previous', 'importance', 'scope', 'operation'],
                 properties: {
                     subject: { type: 'string' }, attribute: { type: 'string' }, value: { type: 'string' }, previous: { type: 'string' },
                     importance: { type: 'integer', minimum: 1, maximum: 5 },
+                    scope: { type: 'string', enum: ['scene', 'ongoing'] },
+                    operation: { type: 'string', enum: ['set', 'clear'] },
                 },
             },
         },
@@ -196,7 +199,7 @@ const JSON_SHAPE_EXAMPLE = JSON.stringify({
     sceneCapsule: { title: '', storyTime: '', location: '', participants: [], opening: '', beats: [], emotionalArc: '', closing: '', importance: 3 },
     entities: [{ name: '', type: '', aliases: [], description: '', importance: 3 }],
     facts: [{ subject: '', predicate: '', value: '', category: '', importance: 3, persistence: 'persistent' }],
-    states: [{ subject: '', attribute: '', value: '', previous: '', importance: 3 }],
+    states: [{ subject: '', attribute: '', value: '', previous: '', importance: 3, scope: 'scene', operation: 'set' }],
     relationships: [{ from: '', to: '', kind: '', status: '', dynamic: '', importance: 3 }],
     events: [{ title: '', summary: '', participants: [], location: '', storyTime: '', consequences: '', importance: 3 }],
     threads: [{ title: '', detail: '', status: 'open', participants: [], importance: 3 }],
@@ -283,7 +286,32 @@ function validateResult(result) {
     return result;
 }
 
-async function extractChunk(messages) {
+function extractionStateContext(world, messages) {
+    const conversation = formatMessages(messages).toLocaleLowerCase();
+    const active = (world?.states || []).filter(isActiveState).map(item => {
+        const source = latestSourceRange(item);
+        const subject = String(item.subject || '');
+        const mentioned = subject && conversation.includes(subject.toLocaleLowerCase());
+        return { item, mentioned, sourceTo: Number(source?.to ?? -1) };
+    }).sort((a, b) => Number(b.mentioned) - Number(a.mentioned) || b.sourceTo - a.sourceTo).slice(0, 100);
+    const activeSubjects = new Set(active.map(({ item }) => String(item.subject || '').toLocaleLowerCase()));
+    const entities = (world?.entities || []).filter(entity => {
+        const names = [entity.name, ...(entity.aliases || [])].map(value => String(value || '').toLocaleLowerCase()).filter(Boolean);
+        return names.some(name => conversation.includes(name)) || activeSubjects.has(String(entity.name || '').toLocaleLowerCase());
+    }).slice(0, 120).map(entity => ({ name: entity.name, aliases: entity.aliases || [] }));
+    const snapshot = {
+        canonicalEntities: entities,
+        activeStates: active.map(({ item }) => ({
+            subject: item.subject,
+            attribute: item.attribute,
+            value: item.value,
+            scope: item.scope,
+        })),
+    };
+    return `ACTIVE STATE LIFECYCLE CONTEXT (not source events):\n${JSON.stringify(snapshot)}\n\nState output rules:\n- Reuse the exact canonical entity, subject, and attribute wording above whenever it refers to the same thing.\n- operation "set" establishes or changes a state. operation "clear" retires an ongoing state made false by this excerpt; for clear, use an empty value and identify the same subject and attribute.\n- scope "scene" is for immediate location, activity, pose, emotion, short-term plan, or other scene-local conditions. It expires automatically when the next L1 range advances.\n- scope "ongoing" is only for a condition explicitly expected to survive scene changes, such as an unresolved injury, possession, assignment, or continuing constraint. It remains stored until updated or cleared, but is injected as current only while reconfirmed by the newest L1 range.\n- Never encode a predicted, scheduled, intended, or expected future occurrence as a current state. Preserve it as a thread or chronological plan until it actually happens.\n- Emit only states directly supported at the end of this excerpt. Do not copy context states merely to keep them alive.`;
+}
+
+async function extractChunk(messages, world = runtime.world) {
     const settings = getSettings();
     const detail = settings.detail;
     const detailInstruction = detail === 'light'
@@ -295,7 +323,8 @@ async function extractChunk(messages) {
         detail: detailInstruction,
         schema: JSON_SHAPE_EXAMPLE,
         messages: formatMessages(messages),
-    }, ['schema', 'messages']);
+        active_states: extractionStateContext(world, messages),
+    }, ['schema', 'messages', 'active_states']);
     let lastError;
     for (let attempt = 1; attempt <= 2; attempt++) {
         try {

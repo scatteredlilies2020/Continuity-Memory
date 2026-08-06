@@ -71,6 +71,7 @@ function entry(category, item, index) {
         title = [item.subject, item.attribute].filter(Boolean).join(' — ') || title;
         add(fields, 'Current value', item.value);
         add(fields, 'Previous value', item.previous);
+        add(fields, 'Lifecycle', item.scope);
     } else if (category === 'relationships') {
         title = [item.from, item.to].filter(Boolean).join(' ↔ ') || title;
         add(fields, 'Type', item.kind);

@@ -50,6 +50,8 @@ Applied corrections are recorded as authoritative revisions. If a historical eve
 
 Continuity detects edits, deletions, swipes, and branch changes. A checkpoint is withheld whenever newer or changed messages are waiting to be processed, which keeps the recent raw chat authoritative.
 
+Mutable state is fail-closed. Scene-local locations, activities, emotions, and plans expire when the next L1 range advances. Longer-running conditions are stored for reconciliation, but are injected as current only when the newest L1 reconfirms them. Predicted or scheduled events remain plans or open threads until they actually occur. Legacy state records without lifecycle metadata are never injected as current.
+
 ## Memory retrieval
 
 Continuity offers three retrieval modes.
@@ -88,7 +90,7 @@ This preserves broad narrative continuity without injecting the entire history o
 
 Continuity reduces old raw chat only after it has been safely covered by memory.
 
-Recent conversation remains verbatim. Older messages are represented by retrieved structured memory and chronology while remaining unchanged and readable in the chat.
+Recent conversation remains verbatim. Extracted records sourced wholly from that visible raw tail are not injected beside it, so an interpretation of recent events cannot compete with the original messages. Older messages are represented by retrieved structured memory and chronology while remaining unchanged and readable in the chat.
 
 If extraction fails or coverage is incomplete, Continuity keeps the uncovered messages in context.
 

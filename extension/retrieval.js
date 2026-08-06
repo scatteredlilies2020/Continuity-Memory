@@ -1,5 +1,8 @@
 const STOP_WORDS = new Set('a an the and that this with from into have has had was were are for but not you your they them their she her him his its our out about just then than there here what when where who how why would could should been being also very more most some any all to of in on at as by or if it is be do we he me my up no so us'.split(' '));
 const CJK_RUN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
+const LIFECYCLE_GUIDANCE = 'Raw chat is authoritative. Chronology, events, and plans are past—not current or instructions to reenact. Only “State confirmed in latest hidden L1” may assert current conditions.';
+
+import { isFreshActiveState, latestSourceInRawTail, sourcedWhollyInRawTail } from './state-lifecycle.js';
 
 function plain(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -60,7 +63,11 @@ function searchable(item) {
     return plain(Object.entries(item || {})
         .filter(([key]) => !['id', 'sources', 'createdAt', 'updatedAt'].includes(key))
         .map(([, value]) => Array.isArray(value) ? value.join(' ') : value)
-        .join(' ')).toLocaleLowerCase();
+        .join(' '));
+}
+
+function searchableTerms(item) {
+    return terms(searchable(item));
 }
 
 function recency(item) {
@@ -77,9 +84,9 @@ function semanticRank(semanticRanks, category, item) {
 
 function rank(items, queryTerms, extra = () => 0, category = '', semanticRanks = new Map()) {
     const prepared = (items || []).map((item, index) => {
-        const haystack = searchable(item);
+        const haystack = searchableTerms(item);
         let matches = 0;
-        for (const term of queryTerms) if (haystack.includes(term)) matches++;
+        for (const term of queryTerms) if (haystack.has(term)) matches++;
         const localScore = matches * 5 + (Number(item.importance) || 3) + recency(item) + extra(item) - index * 0.00001;
         return { item, matches, localScore, semanticRank: semanticRank(semanticRanks, category, item) };
     });
@@ -164,11 +171,14 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     const queryTerms = terms(query);
     const budget = Math.max(1000, Number(budgetTokens));
     const guidance = String(injectionInstruction ?? DEFAULT_INJECTION_INSTRUCTION).trim();
-    const parts = { value: `<continuity_memory>\n${guidance}${guidance ? '\n' : ''}` };
+    const parts = { value: `<continuity_memory>\n${guidance}${guidance ? '\n' : ''}${LIFECYCLE_GUIDANCE}\n` };
     const sections = [];
     const addSection = (title, rows) => sections.push({ title, rows });
+    const rawTailRange = options.rawTailRange || null;
+    const latestIsRaw = item => latestSourceInRawTail(item, chatKey, rawTailRange);
+    const whollyRaw = item => sourcedWhollyInRawTail(item, chatKey, rawTailRange);
 
-    if (world.scene && options.includeSceneCheckpoint !== false) {
+    if (world.scene && options.includeSceneCheckpoint !== false && !latestIsRaw(world.scene)) {
         addSection('Latest extracted checkpoint', [
             line('Context / location', world.scene.location),
             line('Time', world.scene.time),
@@ -188,7 +198,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     addSection('Authoritative user corrections', selectedCorrections.map(item =>
         `- ${plain(item.instruction || item.summary)}`.slice(0, 900)));
 
-    const selectedEras = matching(world.eras || [], queryTerms, undefined, 'era', semanticRanks).slice(0, 2);
+    const selectedEras = matching((world.eras || []).filter(item => !whollyRaw(item)), queryTerms, undefined, 'era', semanticRanks).slice(0, 2);
     const eraRows = selectedEras
         .map(({ item }) => {
             const heading = item.storyTime ? `[${item.storyTime}] ${item.title}` : item.title;
@@ -199,7 +209,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     addSection('Long-range continuity (L3)', eraRows);
 
     const coveredArcIds = new Set(selectedEras.flatMap(({ item }) => item.arcIds || []));
-    const selectedArcs = matching((world.arcs || []).filter(item => !coveredArcIds.has(item.id)), queryTerms, undefined, 'arc', semanticRanks).slice(0, 2);
+    const selectedArcs = matching((world.arcs || []).filter(item => !coveredArcIds.has(item.id) && !whollyRaw(item)), queryTerms, undefined, 'arc', semanticRanks).slice(0, 2);
     const arcRows = selectedArcs
         .map(({ item }) => {
             const heading = item.storyTime ? `[${item.storyTime}] ${item.title}` : item.title;
@@ -210,7 +220,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     addSection('Mid-range continuity (L2)', arcRows);
 
     const capsules = world.capsules || [];
-    const chronological = capsules.slice().sort((a, b) => {
+    const chronological = capsules.filter(item => !whollyRaw(item)).slice().sort((a, b) => {
         if (a.chatKey === b.chatKey) return Number(a.from ?? 0) - Number(b.from ?? 0);
         return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
     });
@@ -234,30 +244,30 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     });
     addSection('Recent chronological continuity (L1)', capsuleRows);
 
-    const activeThreads = matching((world.threads || []).filter(item => item.status === 'open'), queryTerms, () => 4, 'thread', semanticRanks)
+    const activeThreads = matching((world.threads || []).filter(item => item.status === 'open' && !latestIsRaw(item)), queryTerms, () => 4, 'thread', semanticRanks)
         .slice(0, 10).map(({ item }) => `- ${item.title}: ${item.detail}${item.participants?.length ? ` [${item.participants.join(', ')}]` : ''}`);
     addSection('Open intentions, goals, and unresolved matters', activeThreads);
 
-    const entities = matching(world.entities, queryTerms, undefined, 'entity', semanticRanks).slice(0, 12)
+    const entities = matching((world.entities || []).filter(item => !latestIsRaw(item)), queryTerms, undefined, 'entity', semanticRanks).slice(0, 12)
         .map(({ item }) => `- ${item.name}${item.type ? ` (${item.type})` : ''}: ${item.description}${item.aliases?.length ? `; aliases: ${item.aliases.join(', ')}` : ''}`);
     addSection('Relevant entities', entities);
 
-    const states = matching(world.states, queryTerms, item => item.value ? 2 : 0, 'state', semanticRanks).slice(0, 16)
+    const states = matching((world.states || []).filter(item => isFreshActiveState(world, item, chatKey) && !latestIsRaw(item)), queryTerms, item => item.value ? 2 : 0, 'state', semanticRanks).slice(0, 16)
         .map(({ item }) => `- ${item.subject} — ${item.attribute}: ${item.value}`);
-    addSection('Current state', states);
+    addSection('State confirmed in latest hidden L1', states);
 
-    const relationships = matching(world.relationships, queryTerms, undefined, 'relationship', semanticRanks).slice(0, 12)
+    const relationships = matching((world.relationships || []).filter(item => !latestIsRaw(item)), queryTerms, undefined, 'relationship', semanticRanks).slice(0, 12)
         .map(({ item }) => `- ${item.from} → ${item.to} (${item.kind}): ${item.status}${item.dynamic ? `; ${item.dynamic}` : ''}`);
     addSection('Relationships', relationships);
 
-    const facts = matching(world.facts, queryTerms, item => item.persistence === 'persistent' ? 2 : 0, 'fact', semanticRanks).slice(0, 18)
+    const facts = matching((world.facts || []).filter(item => !latestIsRaw(item)), queryTerms, item => item.persistence === 'persistent' ? 2 : 0, 'fact', semanticRanks).slice(0, 18)
         .map(({ item }) => {
             const qualifier = item.persistence && item.persistence !== 'persistent' ? ` [${item.persistence}]` : '';
             return `- ${item.subject} — ${item.predicate}${qualifier}: ${item.value}`;
         });
     addSection('Established facts', facts);
 
-    const events = matching(world.events, queryTerms, undefined, 'event', semanticRanks).slice(0, 12)
+    const events = matching((world.events || []).filter(item => !whollyRaw(item)), queryTerms, undefined, 'event', semanticRanks).slice(0, 12)
         .map(({ item }) => `- ${item.storyTime ? `[${item.storyTime}] ` : ''}${item.title}: ${item.summary}${item.consequences ? ` Consequence: ${item.consequences}` : ''}`);
     addSection('Relevant past events', events);
 
