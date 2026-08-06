@@ -121,3 +121,8 @@ test('L2 and L3 preserve anchor spans without inflating ordinary text', () => {
     assert.equal(anchoredRelativeText('A waited at the station', arc), 'A waited at the station');
     assert.equal(anchoredRelativeText('A waited for the last 300 days', arc), `A waited for the last 300 days (relative to ${arc.temporalAnchorIds[0]}…${arc.temporalAnchorIds.at(-1)})`);
 });
+
+test('legacy relative phrases fail closed until they are re-extracted with anchors', () => {
+    assert.equal(anchoredStoryTime({ storyTime: 'yesterday' }), 'yesterday; relative to its recorded past source; exact anchor unavailable');
+    assert.equal(anchoredRelativeText('They will return tomorrow', {}), 'They will return tomorrow (relative to its recorded past source; exact anchor unavailable)');
+});

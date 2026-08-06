@@ -3,6 +3,7 @@ const CERTAINTIES = new Set(['explicit', 'implicit', 'unknown']);
 const RELATIVE_QUANTITY = String.raw`(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|several|a few)`;
 const RELATIVE_UNIT = String.raw`(?:seconds?|minutes?|hours?|days?|weeks?|months?|years?|mornings?|afternoons?|evenings?|nights?)`;
 const RELATIVE_TIME = new RegExp(String.raw`\b(?:right now|now|currently|today|tonight|yesterday|tomorrow|later|earlier|recently|soon|this\s+${RELATIVE_UNIT}|that\s+${RELATIVE_UNIT}|(?:last|next|previous|following|past)\s+(?:${RELATIVE_QUANTITY}\s+)?${RELATIVE_UNIT}|in\s+${RELATIVE_QUANTITY}\s+${RELATIVE_UNIT}|${RELATIVE_QUANTITY}\s+${RELATIVE_UNIT}\s+(?:ago|later|earlier)|(?:the\s+)?(?:day|night|week|month|year)\s+(?:before|after))\b`, 'iu');
+const LEGACY_RELATIVE_REFERENCE = 'its recorded past source; exact anchor unavailable';
 
 function text(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -82,6 +83,7 @@ export function anchoredStoryTime(item) {
     const anchor = temporal?.anchorId || temporal?.referenceId || eventAnchor || span;
     const details = [];
     if (anchor) details.push(`relative to ${anchor}`);
+    else if (RELATIVE_TIME.test(label)) details.push(`relative to ${LEGACY_RELATIVE_REFERENCE}`);
     if (frameIsSpecial) details.push(`frame ${temporal.frame}`);
     if (spanFramesAreSpecial) details.push(`frames ${spanFrames.join(', ')}`);
     if (temporal?.relation && temporal.relation !== 'unknown') details.push(temporal.relation);
@@ -93,7 +95,8 @@ export function anchoredRelativeText(value, item) {
     const label = text(value);
     if (!label || !RELATIVE_TIME.test(label)) return label;
     const anchor = text(item?.temporalAnchorId || item?.temporal?.anchorId || item?.temporal?.referenceId || temporalSpan(item));
-    return anchor ? label.replace(RELATIVE_TIME, match => `${match} (relative to ${anchor})`) : label;
+    const reference = anchor || LEGACY_RELATIVE_REFERENCE;
+    return label.replace(RELATIVE_TIME, match => `${match} (relative to ${reference})`);
 }
 
 function temporalSpan(item) {
