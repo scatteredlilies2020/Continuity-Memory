@@ -7,6 +7,7 @@ import { recentRetrievalQuery } from './retrieval-query.js';
 import { getSettings } from './settings.js';
 import { buildThinkingRequest } from './thinking-policy.js';
 import { DEFAULT_RETRIEVAL_QUERY_TEMPLATE, DEFAULT_RETRIEVAL_SYSTEM_PROMPT, renderPromptTemplate } from './prompts.js';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js';
 
 const cache = new Map();
 
@@ -27,7 +28,7 @@ async function requestExpansion(prompt) {
     const profile = ConnectionManagerRequestService.getProfile(profileId);
     const apiMap = ConnectionManagerRequestService.validateProfile(profile);
     const messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }];
-    const options = { stream: false, extractData: false, includePreset: false, includeInstruct: false };
+    const options = isolatedProfileOptions();
     const thinking = buildThinkingRequest({
         mode: settings.thinkingMode,
         source: apiMap.source,
@@ -38,12 +39,12 @@ async function requestExpansion(prompt) {
     let response;
     try {
         response = await ConnectionManagerRequestService.sendRequest(
-            profileId, messages, 300, options, { temperature: 0, ...thinking.payload },
+            profileId, messages, 300, options, isolatedProfilePayload({ temperature: 0, ...thinking.payload }),
         );
     } catch (error) {
         if (!thinking.controlled || !isThinkingControlError(error)) throw error;
         response = await ConnectionManagerRequestService.sendRequest(
-            profileId, messages, 300, options, { temperature: 0 },
+            profileId, messages, 300, options, isolatedProfilePayload({ temperature: 0 }),
         );
     }
     const result = extractMessageFromData(response, apiMap.selected);

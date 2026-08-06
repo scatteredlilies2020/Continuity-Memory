@@ -12,6 +12,7 @@ import { completeL1Messages, resolveL1GroupSize } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
 import { embedWorldInChat } from './portable.js';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js';
 import { DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js';
 import { getBoundWorldId, getChatKey, getSettings } from './settings.js';
 import { buildThinkingRequest, isThinkingControlError } from './thinking-policy.js';
@@ -406,12 +407,7 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
         { role: 'system', content: systemPrompt },
         { role: 'user', content: prompt },
     ];
-    const options = {
-        stream: false,
-        extractData: false,
-        includePreset: false,
-        includeInstruct: false,
-    };
+    const options = isolatedProfileOptions();
     const thinking = buildThinkingRequest({
         mode: getSettings().thinkingMode,
         source: apiMap.source,
@@ -421,7 +417,7 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
     });
     let thinkingPayload = thinking.payload;
     updateRuntime({ thinkingControl: { mode: getSettings().thinkingMode, adapter: thinking.adapter, fallback: false } });
-    const compatibilityPayload = () => ({
+    const compatibilityPayload = () => isolatedProfilePayload({
         temperature: 0.2,
         ...thinkingPayload,
     });
