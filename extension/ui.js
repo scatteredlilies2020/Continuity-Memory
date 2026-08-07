@@ -15,7 +15,7 @@ import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { alignWorldToChat, collectFingerprintMessages } from './fingerprint.js?v=0.14.0-standalone.55';
 import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.55';
 import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.55';
-import { completeL1MessageCount, resolveL1GroupSize } from './l1-policy.js';
+import { completeL1MessageCount, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
 import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.55';
 import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.55';
@@ -42,6 +42,11 @@ function toast(type, message) {
     if (!getSettings().showNotifications) return;
     if (window.toastr?.[type]) window.toastr[type](message, 'Continuity Memory');
     else console[type === 'error' ? 'error' : 'log'](`[Continuity] ${message}`);
+}
+
+function settingWarning(message) {
+    if (window.toastr?.warning) window.toastr.warning(message, 'Continuity Memory');
+    else console.warn(`[Continuity] ${message}`);
 }
 
 function setSetting(id, key, transform = value => value) {
@@ -932,7 +937,14 @@ export function initUI() {
     setSetting('#continuity_injection_position', 'injectionPosition');
     setSetting('#continuity_injection_depth', 'injectionDepth', value => Math.min(100, Math.max(0, Number(value) || 0)));
     setSetting('#continuity_injection_role', 'injectionRole');
-    setSetting('#continuity_batch', 'extractionBatchMessages', resolveL1GroupSize);
+    $('#continuity_batch').on('change', function () {
+        const result = validateL1GroupSize($(this).val());
+        $(this).val(result.value);
+        getSettings().extractionBatchMessages = result.value;
+        saveSettings();
+        renderRuntime();
+        if (!result.valid) settingWarning(`Messages per L1 must be a whole number from 2 to 50. Adjusted to ${result.value}.`);
+    });
     setSetting('#continuity_chunk', 'extractionChunkTokens', value => Math.min(50000, Math.max(0, Number(value) || 0)));
     setSetting('#continuity_correction_tokens', 'correctionResponseTokens', resolveCorrectionResponseTokens);
     setSetting('#continuity_hierarchy_mode', 'hierarchyMode', value => ['off', 'l2', 'l3'].includes(value) ? value : 'l3');

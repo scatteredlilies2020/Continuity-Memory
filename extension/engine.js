@@ -8,7 +8,7 @@ import { isRateLimitError } from './errors.js';
 import { collectFingerprintMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.55';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
-import { completeL1Messages, resolveL1GroupSize } from './l1-policy.js';
+import { completeL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
@@ -1280,7 +1280,7 @@ async function processRange(job, epoch) {
         updateRuntime({ lastValidation: `Skipped ${skipped} unchanged message(s); they are already in memory.` });
         return { chunks: 0, messages: 0, skipped };
     }
-    const groupSize = resolveL1GroupSize(getSettings().extractionBatchMessages);
+    const groupSize = resolveL1GroupSize(job.l1GroupSize);
     const chunks = await chunkMessages(unseen, resolveExtractionChunk(getSettings().extractionChunkTokens, getContext().maxContext), groupSize);
 
     for (let index = 0; index < chunks.length; index++) {
@@ -1337,12 +1337,12 @@ async function processQueue() {
     }
 }
 
-export function enqueueRange({ from, to, worldId = getBoundWorldId(), allowStateUpdates = true, reason = 'manual', messageIndexes = null, sourceMessages = null }) {
+export function enqueueRange({ from, to, worldId = getBoundWorldId(), allowStateUpdates = true, reason = 'manual', messageIndexes = null, sourceMessages = null, l1GroupSize = getSettings().extractionBatchMessages }) {
     if (!worldId) return Promise.reject(new Error('Select or create a world first.'));
     const chatKey = getChatKey();
     if (!chatKey) return Promise.reject(new Error('Open a chat first.'));
     return new Promise((resolve, reject) => {
-        runtime.queue.push({ from: Number(from), to: Number(to), worldId, chatKey, allowStateUpdates, reason, messageIndexes, sourceMessages, resolve, reject });
+        runtime.queue.push({ from: Number(from), to: Number(to), worldId, chatKey, allowStateUpdates, reason, messageIndexes, sourceMessages, l1GroupSize: resolveL1GroupSize(l1GroupSize), resolve, reject });
         updateRuntime({ status: runtime.paused ? 'paused' : 'queued' });
         processQueue();
     });
@@ -1531,9 +1531,7 @@ export async function maybeAutoExtract(force = false, sourceMessages = null) {
     const groupSize = resolveL1GroupSize(settings.extractionBatchMessages);
     let pending = coverage.pendingMessages;
     if (!force) {
-        if (!source) {
-            pending = pending.slice(-groupSize);
-        } else {
+        if (source) {
             const processedIndexes = new Set((source.processedMessages || [])
                 .filter(item => Number(item.version) === EXTRACTION_VERSION)
                 .map(item => Number(item.index)));
@@ -1543,8 +1541,12 @@ export async function maybeAutoExtract(force = false, sourceMessages = null) {
             // explicit user choice via Process all pending or Backfill.
             pending = pending.filter(message => processedIndexes.has(message.index) || message.index > lastProcessedIndex);
         }
+        // MESSAGE_RECEIVED triggers automatic work after an AI reply. Leave
+        // that newest reply raw until a later message confirms it was kept.
+        pending = selectAutomaticL1Messages(pending, groupSize, !source);
+    } else {
+        pending = completeL1Messages(pending, groupSize);
     }
-    pending = completeL1Messages(pending, groupSize);
     if (!pending.length) return null;
     return enqueueRange({
         from: pending[0].index,
