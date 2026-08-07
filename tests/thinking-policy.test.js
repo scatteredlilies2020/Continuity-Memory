@@ -78,11 +78,15 @@ test('does not force unsupported controls on older or unversioned Gemini models'
     }
 });
 
-test('detects Gemini in provider-default mode and omits its oversized native schema', () => {
+test('Gemini omits only the oversized L1 schema and retains smaller structured schemas', () => {
     const result = buildThinkingRequest({ mode: 'default', source: 'makersuite', model: 'gemini-3.1-pro-preview' });
     assert.equal(result.adapter, 'gemini-provider-default');
     assert.deepEqual(result.payload, {});
     assert.equal(shouldSendStructuredSchema(result.adapter), false);
+    assert.equal(shouldSendStructuredSchema(result.adapter, { name: 'continuity_memory_extraction' }), false);
+    assert.equal(shouldSendStructuredSchema(result.adapter, { name: 'continuity_memory_correction' }), true);
+    assert.equal(shouldSendStructuredSchema(result.adapter, { name: 'continuity_l2_arc' }), true);
+    assert.equal(shouldSendStructuredSchema(result.adapter, { name: 'continuity_l3_era' }), true);
     assert.equal(shouldSendStructuredSchema('openrouter'), true);
 });
 

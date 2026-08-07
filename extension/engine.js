@@ -273,7 +273,7 @@ export function applyExtractionRequestSettings(data) {
         url: data.custom_url || data.reverse_proxy,
     });
     Object.assign(data, control.payload);
-    if (!shouldSendStructuredSchema(control.adapter)) delete data.json_schema;
+    if (!shouldSendStructuredSchema(control.adapter, data.json_schema)) delete data.json_schema;
     updateRuntime({ thinkingControl: { mode: activeExtractionThinkingMode, adapter: control.adapter, fallback: false } });
 }
 
@@ -514,7 +514,7 @@ async function requestDirectStructured(prompt, systemPrompt, jsonSchema, respons
         stream: false,
         ...outputTokenPayload(config.model, responseLength),
         ...(config.provider === 'openrouter' ? { api_url: config.url } : { custom_url: config.url, secret_id: config.secretId || undefined }),
-        ...(withSchema && shouldSendStructuredSchema(thinking.adapter) ? { json_schema: jsonSchema } : {}),
+        ...(withSchema && shouldSendStructuredSchema(thinking.adapter, jsonSchema) ? { json_schema: jsonSchema } : {}),
         ...thinking.payload,
     };
     updateRuntime({ thinkingControl: { mode: getSettings().thinkingMode, adapter: thinking.adapter, fallback: false } });
@@ -584,7 +584,7 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
         ...thinkingPayload,
     });
     let response;
-    if (!shouldSendStructuredSchema(thinking.adapter)) {
+    if (!shouldSendStructuredSchema(thinking.adapter, jsonSchema)) {
         updateRuntime({ lastValidation: 'Gemini native schema omitted; using compatible exact-shape JSON prompting.' });
         try {
             response = await ConnectionManagerRequestService.sendRequest(

@@ -90,12 +90,15 @@ export function buildThinkingRequest({ mode, source = '', model = '', url = '', 
 }
 
 /**
- * Continuity's extraction schema is intentionally broad and deeply nested.
- * Gemini may reject schemas of that complexity with a generic INVALID_ARGUMENT,
- * so its exact-shape prompt and local validator provide the compatible path.
+ * Continuity's L1 extraction schema is intentionally broad and deeply nested.
+ * Gemini may reject that one schema with a generic INVALID_ARGUMENT, so L1 uses
+ * its exact-shape prompt and local validator there. Smaller L2, L3, and
+ * correction schemas remain enabled.
  */
-export function shouldSendStructuredSchema(adapter = '') {
-    return !String(adapter).startsWith('gemini');
+export function shouldSendStructuredSchema(adapter = '', jsonSchema = null) {
+    if (!String(adapter).startsWith('gemini')) return true;
+    const schemaName = typeof jsonSchema === 'string' ? jsonSchema : jsonSchema?.name;
+    return Boolean(schemaName) && schemaName !== 'continuity_memory_extraction';
 }
 
 export function isThinkingControlError(error) {
