@@ -17,6 +17,7 @@ import { collectMemoryEligibleMessages, findInvalidExtractionRanges } from './fi
 import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.57';
 import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration } from './generation-policy.js?v=0.14.0-standalone.57';
 import { completeL1MessageCount, resolveL1GroupSize } from './l1-policy.js';
+import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
 
 const PROMPT_KEY = 'continuity_memory_context';
 let lastObservedWorldId = null;
@@ -448,8 +449,9 @@ async function init() {
         }, 250);
     });
     eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY, eventData => {
+        if (!shouldCapturePromptMeasurement(eventData)) return;
         captureChatCompletionOverhead();
-        if (!eventData?.dryRun) clearPromptManagerInjection(promptManager);
+        clearPromptManagerInjection(promptManager);
     });
     for (const eventName of [event_types.MESSAGE_SWIPED, event_types.MESSAGE_EDITED, event_types.MESSAGE_UPDATED].filter(Boolean)) {
         eventSource.on(eventName, () => {
