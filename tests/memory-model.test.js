@@ -552,19 +552,27 @@ test('L2 preserves a complete generated summary through storage and retrieval', 
     const chatKey = 'long-l2-chat';
     mergeExtraction(target, extraction(), { chatKey, from: 0, to: 7, allowStateUpdates: true });
     const completeSummary = `${'Alpha development remained causally important. '.repeat(80)}FINAL_L2_SENTENCE.`;
+    const completeTitle = `${'Complete alpha title context. '.repeat(8)}FINAL_L2_TITLE.`;
+    const completeStoryTime = `${'Relative narrative interval. '.repeat(8)}FINAL_L2_TIME.`;
+    const completeTurningPoint = `${'A detailed causal turning point remained important. '.repeat(8)}FINAL_L2_TURN.`;
+    const completeThread = `${'A detailed unresolved thread remained important. '.repeat(7)}FINAL_L2_THREAD.`;
     assert.ok(completeSummary.length > 1800);
 
     const completeProgression = `${'Trust changed through each major development. '.repeat(20)}FINAL_L2_PROGRESSION.`;
     const completeClosing = `${'The interval closed with a durable consequence. '.repeat(20)}FINAL_L2_CLOSING.`;
     const arc = addDerivedArc(target, {
-        title: 'Complete alpha history', storyTime: 'Spring', participants: ['Yui', 'Mio'],
-        summary: completeSummary, turningPoints: ['Their first rehearsal'], emotionalArc: completeProgression,
-        closingState: completeClosing, openThreads: ['First concert'], importance: 4,
+        title: completeTitle, storyTime: completeStoryTime, participants: ['Yui', 'Mio'],
+        summary: completeSummary, turningPoints: [completeTurningPoint], emotionalArc: completeProgression,
+        closingState: completeClosing, openThreads: [completeThread], importance: 4,
     }, [target.capsules[0]]);
 
     assert.equal(arc.summary, completeSummary);
+    assert.equal(arc.title, completeTitle);
+    assert.equal(arc.storyTime, completeStoryTime);
+    assert.equal(arc.turningPoints[0], completeTurningPoint);
     assert.equal(arc.emotionalArc, completeProgression);
     assert.equal(arc.closingState, completeClosing);
+    assert.equal(arc.openThreads[0], completeThread);
     assert.ok(!arc.summary.endsWith('…'));
     assert.ok(!arc.emotionalArc.endsWith('…'));
     assert.ok(!arc.closingState.endsWith('…'));
@@ -633,19 +641,27 @@ test('L3 preserves a complete generated summary through storage and retrieval', 
         closingState: 'The club remained active.', openThreads: ['First concert'], importance: 4,
     }, [target.capsules[0]]);
     const completeSummary = `${'Omega era development remained causally important. '.repeat(80)}FINAL_L3_SENTENCE.`;
+    const completeTitle = `${'Complete omega title context. '.repeat(8)}FINAL_L3_TITLE.`;
+    const completeStoryTime = `${'Long-range narrative interval. '.repeat(9)}FINAL_L3_TIME.`;
+    const completeTurningPoint = `${'A detailed long-range turning point remained important. '.repeat(9)}FINAL_L3_TURN.`;
+    const completeThread = `${'A detailed long-range unresolved thread remained important. '.repeat(7)}FINAL_L3_THREAD.`;
     assert.ok(completeSummary.length > 2600);
 
     const completeProgression = `${'The long-range progression remained causally significant. '.repeat(20)}FINAL_L3_PROGRESSION.`;
     const completeClosing = `${'The era closed with a durable long-range consequence. '.repeat(20)}FINAL_L3_CLOSING.`;
     const era = addDerivedEra(target, {
-        title: 'Complete omega era', storyTime: 'Spring', participants: ['Yui', 'Mio'],
-        summary: completeSummary, turningPoints: ['The era began'], emotionalArc: completeProgression,
-        closingState: completeClosing, openThreads: ['First concert'], importance: 5,
+        title: completeTitle, storyTime: completeStoryTime, participants: ['Yui', 'Mio'],
+        summary: completeSummary, turningPoints: [completeTurningPoint], emotionalArc: completeProgression,
+        closingState: completeClosing, openThreads: [completeThread], importance: 5,
     }, [arc]);
 
     assert.equal(era.summary, completeSummary);
+    assert.equal(era.title, completeTitle);
+    assert.equal(era.storyTime, completeStoryTime);
+    assert.equal(era.turningPoints[0], completeTurningPoint);
     assert.equal(era.emotionalArc, completeProgression);
     assert.equal(era.closingState, completeClosing);
+    assert.equal(era.openThreads[0], completeThread);
     assert.ok(!era.summary.endsWith('…'));
     assert.ok(!era.emotionalArc.endsWith('…'));
     assert.ok(!era.closingState.endsWith('…'));
