@@ -6,9 +6,9 @@
   "main": "index.js",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/scatteredlilies2020/Continuity_Memory.git"
+    "url": "git+https://github.com/scatteredlilies2020/Continuity-Memory.git"
   },
-  "homepage": "https://github.com/scatteredlilies2020/Continuity_Memory#readme",
+  "homepage": "https://github.com/scatteredlilies2020/Continuity-Memory#readme",
   "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=18.0.0"

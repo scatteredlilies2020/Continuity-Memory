@@ -139,7 +139,7 @@ Exports still produce one portable JSON file. Imports are accepted only for a fi
 2. Enter this repository URL:
 
    ```text
-   https://github.com/scatteredlilies2020/Continuity_Memory.git
+   https://github.com/scatteredlilies2020/Continuity-Memory.git
    ```
 
 No server plugin, terminal command, additional dependency, or user-managed folder is required.
