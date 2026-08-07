@@ -133,7 +133,7 @@ export function captureChatCompletionOverhead() {
     if (!total || total < conversation) return;
     const fixedPromptTokens = Math.max(0, Math.round(total - conversation));
     fixedPromptTokensByChat.set(chatKey, fixedPromptTokens);
-    updateRuntime({ contextReduction: { ...runtime.contextReduction, fixedPromptTokens } });
+    updateRuntime({ contextReduction: { ...runtime.contextReduction, fixedPromptTokens, totalPromptTokens: Math.round(total) } });
 }
 
 export async function captureTextCompletionOverhead(eventData) {
@@ -144,5 +144,5 @@ export async function captureTextCompletionOverhead(eventData) {
     const fixedPromptTokens = Math.max(0, Math.round(total - pendingTextMeasurement.conversationTokens));
     fixedPromptTokensByChat.set(currentKey, fixedPromptTokens);
     pendingTextMeasurement = null;
-    updateRuntime({ contextReduction: { ...runtime.contextReduction, fixedPromptTokens } });
+    updateRuntime({ contextReduction: { ...runtime.contextReduction, fixedPromptTokens, totalPromptTokens: Math.round(total) } });
 }

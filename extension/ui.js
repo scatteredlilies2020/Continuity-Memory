@@ -587,8 +587,9 @@ export function renderRuntime() {
         : 'No processable chat messages.');
     $('#continuity_pause').html(runtime.paused ? '<i class="fa-solid fa-play"></i> Resume' : '<i class="fa-solid fa-pause"></i> Pause');
     const reduction = runtime.contextReduction || {};
+    const totalPromptTokens = reduction.totalPromptTokens == null ? null : Math.max(0, Math.round(Number(reduction.totalPromptTokens) || 0));
     $('#continuity_context_stats').text(String(reduction.mode || '').startsWith('active')
-        ? `Last request: kept ${reduction.tailTurns} recent turn(s) / ~${reduction.tailTokens} tokens; excluded ${reduction.hiddenMessages} old message(s) / ~${reduction.hiddenTokens} tokens. ${reduction.fixedPromptTokens === null ? 'Learning card/lorebook overhead.' : `Other prompts: ~${reduction.fixedPromptTokens} tokens; safety: ${reduction.safetyTokens}.`}`
+        ? `Last request: kept ${reduction.tailTurns} recent turn(s) / ~${reduction.tailTokens} tokens; excluded ${reduction.hiddenMessages} old message(s) / ~${reduction.hiddenTokens} tokens. ${reduction.fixedPromptTokens === null ? 'Learning card/lorebook overhead.' : `Other prompts: ~${reduction.fixedPromptTokens} tokens. ${totalPromptTokens === null ? 'Total sent: measuring.' : `Total sent: ~${totalPromptTokens} tokens (history + all prompts);`} safety reserve: ${reduction.safetyTokens} tokens.`}`
         : `Context reduction: ${reduction.mode || 'waiting'}.`);
 
     const counts = worldCounts(runtime.world);
