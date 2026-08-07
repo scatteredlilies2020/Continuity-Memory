@@ -8,21 +8,11 @@ import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.57';
 import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.57';
 import { tailPolicy } from './tail-policy.js';
 import { canReduceContext } from './reduction-policy.js';
+import { mapContextMessages } from './context-message-map.js';
 
 const tokenCache = new Map();
 const fixedPromptTokensByChat = new Map();
 let pendingTextMeasurement = null;
-
-function messageIdentity(message) {
-    const index = Number(message?.index);
-    if (!Number.isFinite(index) || index < 0) return null;
-    if (message?.is_system || Array.isArray(message?.extra?.tool_invocations)) return null;
-    return {
-        index,
-        name: message.name || (message.is_user ? 'User' : 'Character'),
-        text: String(message.mes || '').trim(),
-    };
-}
 
 function messageRange(messages) {
     const indexes = (messages || []).map(message => Number(message?.index)).filter(Number.isFinite);
@@ -57,8 +47,10 @@ export async function reduceChatContext(coreChat, contextSize, _abort, type) {
             return { rawTailRange: messageRange(coreChat) };
         }
 
-        const comparable = coreChat.map((message, position) => ({ message, position, identity: messageIdentity(message) })).filter(item => item.identity?.text);
-        const counts = await Promise.all(comparable.map(item => countMessage(item.identity)));
+        const mapped = mapContextMessages(coreChat, getContext().chat || []);
+        const mappedByPosition = new Map(mapped.map(item => [item.position, item]));
+        const comparable = mapped.filter(item => item.promptIdentity?.text);
+        const counts = await Promise.all(comparable.map(item => countMessage(item.promptIdentity)));
         const countByPosition = new Map(comparable.map((item, index) => [item.position, counts[index]]));
         const size = Number(contextSize) || Number(getContext().maxContext) || 50000;
         const budgetInfo = tailPolicy(settings, size, fixedPromptTokensByChat.get(chatKey));
@@ -81,13 +73,15 @@ export async function reduceChatContext(coreChat, contextSize, _abort, type) {
         let hiddenTokens = 0;
         for (let position = 0; position < coreChat.length; position++) {
             const message = coreChat[position];
-            const identity = messageIdentity(message);
-            if (!identity || tailPositions.has(position)) {
+            const mappedMessage = mappedByPosition.get(position);
+            const promptIdentity = mappedMessage?.promptIdentity;
+            const sourceIdentity = mappedMessage?.sourceIdentity;
+            if (!promptIdentity || !sourceIdentity || tailPositions.has(position)) {
                 kept.push(message);
                 continue;
             }
-            const fingerprint = fingerprintMessage(identity);
-            if (processed.get(identity.index) !== fingerprint) {
+            const fingerprint = fingerprintMessage(sourceIdentity);
+            if (processed.get(sourceIdentity.index) !== fingerprint) {
                 kept.push(message);
                 continue;
             }
@@ -111,7 +105,10 @@ export async function reduceChatContext(coreChat, contextSize, _abort, type) {
             fixedPromptTokens: budgetInfo.fixedPromptTokens,
             safetyTokens: budgetInfo.safetyTokens,
         } });
-        const rawTailIndexes = comparable.filter(item => tailPositions.has(item.position)).map(item => item.identity.index);
+        const rawTailIndexes = comparable
+            .filter(item => tailPositions.has(item.position))
+            .map(item => item.sourceIdentity?.index)
+            .filter(Number.isFinite);
         return { rawTailRange: rawTailIndexes.length ? { from: Math.min(...rawTailIndexes), to: Math.max(...rawTailIndexes) } : null };
     } catch (error) {
         console.error('[Continuity] Context reduction failed; sending original chat.', error);
