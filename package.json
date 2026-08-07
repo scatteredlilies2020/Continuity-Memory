@@ -5,6 +5,11 @@
   "private": true,
   "type": "module",
   "main": "plugin/index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/scatteredlilies2020/Continuity_Memory.git"
+  },
+  "homepage": "https://github.com/scatteredlilies2020/Continuity_Memory#readme",
   "scripts": {
     "check": "node --experimental-vm-modules scripts/check.js",
     "test": "npm run check && node --test"
