@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
     buildExtractionSystemPrompt,
+    CONTINUITY_COVERAGE_RULES,
     DEFAULT_ARC_SYSTEM_PROMPT,
     DEFAULT_ERA_SYSTEM_PROMPT,
     DEFAULT_EXTRACTION_SYSTEM_PROMPT,
@@ -54,6 +55,11 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /outside franchise knowledge/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Canonical memory context contains relevant existing mutable records/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Omit an existing record when the excerpt only repeats it unchanged/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Coverage and retrieval are separate concerns/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /silently inventory every distinct continuity-bearing strand/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /background coverage belongs in compact facts, states, relationships, events, or threads/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /When uncertain about future relevance, retain one compact low-importance record/);
+    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(CONTINUITY_COVERAGE_RULES));
     assert.match(DEFAULT_RETRIEVAL_SYSTEM_PROMPT, /roleplay or simulation/);
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /participants need not be people/);
     assert.match(DEFAULT_ERA_SYSTEM_PROMPT, /participants need not be people/);

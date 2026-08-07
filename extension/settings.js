@@ -1,7 +1,7 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { CANONICAL_RECORD_RULES, DURABLE_MEMORY_RULES, IDENTITY_RESOLUTION_RULES, PROMPT_DEFAULTS } from './prompts.js?v=0.14.0-standalone.55';
+import { CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, IDENTITY_RESOLUTION_RULES, PROMPT_DEFAULTS } from './prompts.js?v=0.14.0-standalone.56';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
 
@@ -231,6 +231,21 @@ export function getSettings() {
                 : `${prompt}\n${CANONICAL_RECORD_RULES}`;
         }
         settings.canonicalRecordPromptVersion = 1;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.continuityCoveragePromptVersion || 0) < 1) {
+        let prompt = String(settings.extractionSystemPrompt || '');
+        if (prompt.includes('use at most 6 one-sentence beats')) {
+            prompt = prompt.replace('use at most 6 one-sentence beats', 'use at most 10 one-sentence beats');
+        }
+        if (prompt && !prompt.includes('Coverage and retrieval are separate concerns.')) {
+            const marker = 'Assign importance by likely future continuity value';
+            prompt = prompt.includes(marker)
+                ? prompt.replace(marker, `${CONTINUITY_COVERAGE_RULES}\n${marker}`)
+                : `${prompt}\n${CONTINUITY_COVERAGE_RULES}`;
+        }
+        settings.extractionSystemPrompt = prompt || PROMPT_DEFAULTS.extractionSystemPrompt;
+        settings.continuityCoveragePromptVersion = 1;
         saveSettingsDebounced();
     }
     if (settings.rawTailMode === undefined) {
