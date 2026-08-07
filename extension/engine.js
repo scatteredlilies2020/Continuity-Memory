@@ -12,6 +12,7 @@ import { completeL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } fro
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
+import { memoryResponseTokens } from './memory-response-policy.js';
 import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.57';
 import { embedWorldInChat } from './portable.js';
 import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.57';
@@ -476,7 +477,7 @@ async function extractChunk(messages, world = runtime.world) {
 }
 
 async function requestExtraction(prompt, systemPrompt) {
-    return requestStructured(prompt, systemPrompt, extractionJsonSchema, 8000);
+    return requestStructured(prompt, systemPrompt, extractionJsonSchema, memoryResponseTokens('l1'));
 }
 
 function directRequestConfig(kind) {
@@ -540,7 +541,7 @@ export async function requestDirectText(prompt, systemPrompt, responseLength = 3
     return requestDirectStructured(prompt, systemPrompt, null, responseLength, kind, false);
 }
 
-async function requestStructured(prompt, systemPrompt, jsonSchema, responseLength = 8000, profileId = getSettings().memoryProfileId, directKind = 'extraction') {
+async function requestStructured(prompt, systemPrompt, jsonSchema, responseLength = null, profileId = getSettings().memoryProfileId, directKind = 'extraction') {
     if (profileId === DIRECT_PROFILE_ID) {
         try {
             return await requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, directKind, true);
@@ -563,6 +564,7 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
 
     const profile = ConnectionManagerRequestService.getProfile(profileId);
     const apiMap = ConnectionManagerRequestService.validateProfile(profile);
+    const profileResponseLength = responseLength ?? undefined;
     const messages = [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: prompt },
@@ -586,14 +588,14 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
         updateRuntime({ lastValidation: 'Gemini native schema omitted; using compatible exact-shape JSON prompting.' });
         try {
             response = await ConnectionManagerRequestService.sendRequest(
-                profileId, messages, responseLength, options, compatibilityPayload(),
+                profileId, messages, profileResponseLength, options, compatibilityPayload(),
             );
         } catch (error) {
             if (!thinking.controlled || !isThinkingControlError(error)) throw error;
             thinkingPayload = {};
             updateRuntime({ thinkingControl: { mode: getSettings().thinkingMode, adapter: thinking.adapter, fallback: true } });
             response = await ConnectionManagerRequestService.sendRequest(
-                profileId, messages, responseLength, options, compatibilityPayload(),
+                profileId, messages, profileResponseLength, options, compatibilityPayload(),
             );
         }
         const result = extractMessageFromData(response, apiMap.selected);
@@ -602,7 +604,7 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
     }
     try {
         response = await ConnectionManagerRequestService.sendRequest(
-            profileId, messages, responseLength, options, { ...compatibilityPayload(), json_schema: jsonSchema },
+            profileId, messages, profileResponseLength, options, { ...compatibilityPayload(), json_schema: jsonSchema },
         );
     } catch (error) {
         if (thinking.controlled && isThinkingControlError(error)) {
@@ -611,7 +613,7 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
             updateRuntime({ thinkingControl: { mode: getSettings().thinkingMode, adapter: thinking.adapter, fallback: true } });
             try {
                 response = await ConnectionManagerRequestService.sendRequest(
-                    profileId, messages, responseLength, options, { ...compatibilityPayload(), json_schema: jsonSchema },
+                    profileId, messages, profileResponseLength, options, { ...compatibilityPayload(), json_schema: jsonSchema },
                 );
             } catch (retryError) {
                 error = retryError;
@@ -627,14 +629,14 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
         updateRuntime({ lastValidation: `Profile JSON mode unavailable; using compatible plain mode: ${rootErrorMessage(error)}` });
         try {
             response = await ConnectionManagerRequestService.sendRequest(
-                profileId, messages, responseLength, options, compatibilityPayload(),
+                profileId, messages, profileResponseLength, options, compatibilityPayload(),
             );
         } catch (plainError) {
             if (!Object.keys(thinkingPayload).length || !isThinkingControlError(plainError)) throw plainError;
             thinkingPayload = {};
             updateRuntime({ thinkingControl: { mode: getSettings().thinkingMode, adapter: thinking.adapter, fallback: true } });
             response = await ConnectionManagerRequestService.sendRequest(
-                profileId, messages, responseLength, options, compatibilityPayload(),
+                profileId, messages, profileResponseLength, options, compatibilityPayload(),
             );
         }
     }
@@ -888,7 +890,7 @@ async function generateArc(capsules) {
     }, ['schema', 'capsules']);
     const profileId = settings.arcProfileId || settings.memoryProfileId;
     const directKind = settings.arcProfileId === DIRECT_PROFILE_ID ? 'summary' : 'extraction';
-    const raw = await requestStructured(prompt, String(settings.arcSystemPrompt ?? DEFAULT_ARC_SYSTEM_PROMPT), arcJsonSchema, 1800, profileId, directKind);
+    const raw = await requestStructured(prompt, String(settings.arcSystemPrompt ?? DEFAULT_ARC_SYSTEM_PROMPT), arcJsonSchema, memoryResponseTokens('l2'), profileId, directKind);
     updateRuntime({ lastArcResponse: String(raw).slice(0, 20000) });
     return validateArcResult(typeof raw === 'string' ? parseJsonResponse(raw) : raw, 'L2');
 }
@@ -1086,7 +1088,7 @@ async function generateEra(arcs) {
     }, ['schema', 'arcs']);
     const profileId = settings.arcProfileId || settings.memoryProfileId;
     const directKind = settings.arcProfileId === DIRECT_PROFILE_ID ? 'summary' : 'extraction';
-    const raw = await requestStructured(prompt, String(settings.eraSystemPrompt ?? DEFAULT_ERA_SYSTEM_PROMPT), eraJsonSchema, 2200, profileId, directKind);
+    const raw = await requestStructured(prompt, String(settings.eraSystemPrompt ?? DEFAULT_ERA_SYSTEM_PROMPT), eraJsonSchema, memoryResponseTokens('l3'), profileId, directKind);
     updateRuntime({ lastEraResponse: String(raw).slice(0, 20000) });
     return validateArcResult(typeof raw === 'string' ? parseJsonResponse(raw) : raw, 'L3');
 }

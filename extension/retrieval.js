@@ -231,7 +231,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
             const threads = (item.openThreads || []).map(plain).filter(Boolean).join('; ');
             const continuity = `${plain(item.summary)}${turns ? ` Major turning points: ${turns}.` : ''}${plain(item.closingState) ? ` Closing state: ${plain(item.closingState)}.` : ''}${threads ? ` Still open: ${threads}.` : ''}`;
             const body = `${plain(item.title)}: ${continuity}`;
-            return `- ${storyTime ? `[${storyTime}] ` : ''}${storyTimeAnchored ? body : anchoredRelativeText(body, item)}`.slice(0, 2400);
+            return `- ${storyTime ? `[${storyTime}] ` : ''}${storyTimeAnchored ? body : anchoredRelativeText(body, item)}`;
         });
     addSection('Long-range continuity (L3)', eraRows);
 
@@ -245,7 +245,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
             const threads = (item.openThreads || []).map(plain).filter(Boolean).join('; ');
             const continuity = `${plain(item.summary)}${turns ? ` Turning points: ${turns}.` : ''}${plain(item.closingState) ? ` Closing state: ${plain(item.closingState)}.` : ''}${threads ? ` Still open: ${threads}.` : ''}`;
             const body = `${plain(item.title)}: ${continuity}`;
-            return `- ${storyTime ? `[${storyTime}] ` : ''}${storyTimeAnchored ? body : anchoredRelativeText(body, item)}`.slice(0, 1800);
+            return `- ${storyTime ? `[${storyTime}] ` : ''}${storyTimeAnchored ? body : anchoredRelativeText(body, item)}`;
         });
     addSection('Mid-range continuity (L2)', arcRows);
 
@@ -272,7 +272,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         const sequence = [item.opening, ...(item.beats || []), item.closing].map(plain).filter(Boolean).join(' → ');
         const emotion = plain(item.emotionalArc);
         const body = `${plain(item.title)}: ${sequence}${emotion ? ` Overall movement: ${emotion}` : ''}`;
-        return `- ${storyTime ? `[${storyTime}] ` : ''}${storyTimeAnchored ? body : anchoredRelativeText(body, item)}`.slice(0, 900);
+        return `- ${storyTime ? `[${storyTime}] ` : ''}${storyTimeAnchored ? body : anchoredRelativeText(body, item)}`;
     });
     addSection('Recent chronological continuity (L1)', capsuleRows);
 

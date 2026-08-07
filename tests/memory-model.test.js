@@ -547,6 +547,46 @@ test('L2 records are non-destructive derivatives and become stale when an L1 sou
     assert.equal(target.arcs.length, 0);
 });
 
+test('L2 preserves a complete generated summary through storage and retrieval', () => {
+    const target = world();
+    const chatKey = 'long-l2-chat';
+    mergeExtraction(target, extraction(), { chatKey, from: 0, to: 7, allowStateUpdates: true });
+    const completeSummary = `${'Alpha development remained causally important. '.repeat(80)}FINAL_L2_SENTENCE.`;
+    assert.ok(completeSummary.length > 1800);
+
+    const arc = addDerivedArc(target, {
+        title: 'Complete alpha history', storyTime: 'Spring', participants: ['Yui', 'Mio'],
+        summary: completeSummary, turningPoints: ['Their first rehearsal'], emotionalArc: 'Trust grew.',
+        closingState: 'The club remained active.', openThreads: ['First concert'], importance: 4,
+    }, [target.capsules[0]]);
+
+    assert.equal(arc.summary, completeSummary);
+    assert.ok(!arc.summary.endsWith('…'));
+    const prompt = buildMemoryPrompt(target, [{ name: 'User', mes: 'Continue the alpha history.' }], 12000, chatKey);
+    assert.match(prompt.prompt, /FINAL_L2_SENTENCE\./);
+});
+
+test('L1 retrieval preserves the complete bounded capsule', () => {
+    const target = world();
+    const chatKey = 'complete-l1-chat';
+    const boundedCapsule = {
+        ...extraction().sceneCapsule,
+        opening: `${'Opening context remained relevant. '.repeat(8)}OPENING_END.`,
+        beats: Array.from({ length: 10 }, (_, index) => `Beat ${index + 1}: ${'causal development remained relevant. '.repeat(8)}BEAT_${index + 1}_END.`),
+        emotionalArc: `${'The relationship continued to change. '.repeat(7)}EMOTIONAL_END.`,
+        closing: `${'The resulting situation remained unresolved. '.repeat(6)}FINAL_L1_SENTENCE.`,
+    };
+    mergeExtraction(target, extraction({ sceneCapsule: boundedCapsule }), { chatKey, from: 0, to: 7, allowStateUpdates: true });
+
+    const capsule = target.capsules[0];
+    assert.ok(capsule.opening.length <= 320);
+    assert.ok(capsule.beats.every(beat => beat.length <= 400));
+    assert.ok(capsule.emotionalArc.length <= 320);
+    assert.ok(capsule.closing.length <= 320);
+    const prompt = buildMemoryPrompt(target, [{ name: 'User', mes: 'Continue the unresolved situation.' }], 12000, chatKey);
+    assert.match(prompt.prompt, /FINAL_L1_SENTENCE\./);
+});
+
 test('L3 records retain L2 and L1 sources and invalidate when a source changes', () => {
     const target = world();
     const meta = { chatKey: 'chat', from: 0, to: 4, allowStateUpdates: true };
@@ -574,6 +614,30 @@ test('L3 records retain L2 and L1 sources and invalidate when a source changes',
     replaceExtraction(target, extraction({ sceneCapsule: { ...extraction().sceneCapsule, closing: 'The club disbanded.' } }), meta);
     assert.equal(target.arcs.length, 0);
     assert.equal(target.eras.length, 0);
+});
+
+test('L3 preserves a complete generated summary through storage and retrieval', () => {
+    const target = world();
+    const chatKey = 'long-l3-chat';
+    mergeExtraction(target, extraction(), { chatKey, from: 0, to: 7, allowStateUpdates: true });
+    const arc = addDerivedArc(target, {
+        title: 'Omega arc', storyTime: 'Spring', participants: ['Yui', 'Mio'],
+        summary: 'The omega history began.', turningPoints: ['Their first rehearsal'], emotionalArc: 'Trust grew.',
+        closingState: 'The club remained active.', openThreads: ['First concert'], importance: 4,
+    }, [target.capsules[0]]);
+    const completeSummary = `${'Omega era development remained causally important. '.repeat(80)}FINAL_L3_SENTENCE.`;
+    assert.ok(completeSummary.length > 2600);
+
+    const era = addDerivedEra(target, {
+        title: 'Complete omega era', storyTime: 'Spring', participants: ['Yui', 'Mio'],
+        summary: completeSummary, turningPoints: ['The era began'], emotionalArc: 'Trust endured.',
+        closingState: 'The era remained active.', openThreads: ['First concert'], importance: 5,
+    }, [arc]);
+
+    assert.equal(era.summary, completeSummary);
+    assert.ok(!era.summary.endsWith('…'));
+    const prompt = buildMemoryPrompt(target, [{ name: 'User', mes: 'Continue the omega era.' }], 12000, chatKey);
+    assert.match(prompt.prompt, /FINAL_L3_SENTENCE\./);
 });
 
 test('retrying L1 transactionally replaces the selected range contribution', () => {

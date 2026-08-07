@@ -15,6 +15,11 @@ test('uses the GPT-5 output token field and preserves legacy-compatible models',
     assert.deepEqual(outputTokenPayload('gpt-4.1-mini', 1800), { max_tokens: 1800 });
 });
 
+test('omits plugin output limits when the provider manages memory response length', () => {
+    assert.deepEqual(outputTokenPayload('gpt-5.6-sol', null), {});
+    assert.deepEqual(outputTokenPayload('gpt-4.1-mini', undefined), {});
+});
+
 test('maps GPT-5.6 minimum reasoning to low', () => {
     assert.equal(minimumReasoningEffort('gpt-5.6'), 'low');
     assert.equal(minimumReasoningEffort('gpt-5.4'), 'min');
