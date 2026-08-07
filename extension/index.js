@@ -1,21 +1,21 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.14.0-standalone.54';
+import { api } from './api.js?v=0.14.0-standalone.55';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.54';
+import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.55';
 import { buildMemoryPrompt } from './retrieval.js';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.54';
-import { onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js';
-import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.54';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds } from './ui.js?v=0.14.0-standalone.54';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.55';
+import { invalidateRuntimeWork, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.55';
+import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.55';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds } from './ui.js?v=0.14.0-standalone.55';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.54';
-import { collectFingerprintMessages, findInvalidExtractionRanges } from './fingerprint.js';
-import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.54';
-import { roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration } from './generation-policy.js';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.55';
+import { collectFingerprintMessages, findInvalidExtractionRanges } from './fingerprint.js?v=0.14.0-standalone.55';
+import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.55';
+import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration } from './generation-policy.js?v=0.14.0-standalone.55';
 import { completeL1MessageCount, resolveL1GroupSize } from './l1-policy.js';
 
 const PROMPT_KEY = 'continuity_memory_context';
@@ -49,7 +49,7 @@ globalThis.continuityMemoryGenerateInterceptor = async (coreChat, contextSize, a
         }
         const readiness = await activeGenerationReadiness;
         const reduction = await reduceChatContext(coreChat, contextSize, abort, type);
-        await refreshInjection(true, true, readiness.sourceMessages, readiness.recentMessages, {
+        await refreshInjection(true, readiness.strictEmbedding, readiness.sourceMessages, readiness.recentMessages, {
             rawTailRange: reduction?.rawTailRange || null,
         });
         if (readiness.notification) showGenerationNotification('success', readiness.notification);
@@ -149,23 +149,50 @@ async function prepareRoleplayGeneration(type) {
     const waitingChat = roleplaySourceMessages(getContext().chat || [], type).filter(message => !message?.is_system);
     const waitingMessages = collectFingerprintMessages(waitingChat);
     const waitingCoverage = getProcessingCoverage(runtime.world, waitingMessages);
-    const eligibleAtStart = completeL1MessageCount(waitingCoverage.pending, getSettings().extractionBatchMessages);
-    const waitingNotification = roleplayWaitNotification(runtime, eligibleAtStart);
+    const groupSize = resolveL1GroupSize(getSettings().extractionBatchMessages);
+    const waitingBacklog = roleplayBacklogPolicy(waitingCoverage.pending, groupSize);
+    const activeWorkAtStart = runtime.processing || runtime.queue.length > 0;
+    const waitingNotification = activeWorkAtStart || waitingBacklog.shouldCatchUp
+        ? roleplayWaitNotification(runtime, waitingBacklog.shouldCatchUp ? waitingBacklog.eligible : 0)
+        : '';
     if (waitingNotification) showGenerationNotification('info', waitingNotification, { timeOut: 12000, extendedTimeOut: 4000 });
     const revisionBeforeWaiting = Number(runtime.world?.revision ?? -1);
-    const existingWork = runtime.processing || runtime.queue.length || runtime.paused;
-    await waitForActiveMemoryWork();
+    let backgroundError = '';
+    if (activeWorkAtStart || waitingBacklog.shouldCatchUp) {
+        try {
+            // Let an in-flight request settle before roleplay uses the same
+            // SillyTavern connection. A merely paused soft backlog remains raw
+            // and does not stop roleplay until it reaches the hard limit.
+            await waitForActiveMemoryWork();
+        } catch (error) {
+            if (waitingBacklog.shouldCatchUp) throw error;
+            backgroundError = error.message || String(error);
+            updates.push('left failed background memory work safely in raw chat');
+        }
+    }
     const activeChat = roleplaySourceMessages(getContext().chat || [], type).filter(message => !message?.is_system);
     const sourceMessages = collectFingerprintMessages(activeChat);
+    // This repair must precede every injection and every catch-up attempt.
+    // It removes stale saved contributions after edits, swipes, and deletes;
+    // refreshInjection also excludes any still-invalid source ranges fail-closed.
     const repair = await repairDivergedBranch({ sourceMessages });
     if (repair.repaired) updates.push(`repaired changed memory from message ${repair.repairFrom} onward`);
     const initialCoverage = getProcessingCoverage(runtime.world, sourceMessages);
-    await completeL1ForGeneration(sourceMessages);
-    const hierarchy = await completeHierarchyForGeneration();
+    const initialBacklog = roleplayBacklogPolicy(initialCoverage.pending, groupSize);
+    let hierarchy = { arcs: 0, eras: 0 };
+    let vectors = null;
+    let caughtUp = false;
+    if (initialBacklog.shouldCatchUp) {
+        await completeL1ForGeneration(sourceMessages);
+        hierarchy = await completeHierarchyForGeneration();
+        vectors = await completeVectorsForGeneration();
+        caughtUp = true;
+    }
     const coverage = getProcessingCoverage(runtime.world, sourceMessages);
-    const eligiblePending = completeL1MessageCount(coverage.pending, getSettings().extractionBatchMessages);
-    if (eligiblePending) throw new Error(`${eligiblePending} eligible memory message(s) are still pending.`);
-    const vectors = await completeVectorsForGeneration();
+    const remainingBacklog = roleplayBacklogPolicy(coverage.pending, groupSize);
+    if (remainingBacklog.shouldCatchUp) {
+        throw new Error(`${remainingBacklog.eligible} L1 message(s) remain beyond the safe background limit.`);
+    }
     const processedMessages = Math.max(0, initialCoverage.pending - coverage.pending);
     if (processedMessages) updates.push(`processed ${processedMessages} message(s) into L1`);
     if (hierarchy.arcs) updates.push(`created ${hierarchy.arcs} L2 record(s)`);
@@ -173,20 +200,20 @@ async function prepareRoleplayGeneration(type) {
     const vectorAdded = Math.max(0, Number(vectors?.added) || 0);
     const vectorRemoved = Math.max(0, Number(vectors?.removed) || 0);
     if (vectorAdded || vectorRemoved) updates.push(`updated vectors (+${vectorAdded}, -${vectorRemoved})`);
-    if (existingWork && Number(runtime.world?.revision ?? -1) !== revisionBeforeWaiting && !updates.length) {
+    if (activeWorkAtStart && Number(runtime.world?.revision ?? -1) !== revisionBeforeWaiting && !updates.length) {
         updates.push('completed pending memory work');
     }
-    updateRuntime({
-        status: 'idle',
-        lastError: '',
-        retryStatus: coverage.pending
-            ? `Continuity is ready. ${coverage.pending} recent message(s) remain raw until the next complete L1 group.`
-            : 'Continuity is fully ready. Starting roleplay generation…',
-    });
+    const retainedError = backgroundError || (runtime.paused ? runtime.lastError : '');
+    const retryStatus = coverage.pending
+        ? `Continuity is ready with ${coverage.pending} recent message(s) protected as raw chat; background L1 may trail safely up to ${remainingBacklog.hardLimit - 1}.`
+        : 'Continuity is fully ready. Starting roleplay generation…';
+    updateRuntime(retainedError
+        ? { status: runtime.paused ? 'paused' : 'error', lastError: retainedError, retryStatus }
+        : { status: 'idle', lastError: '', retryStatus });
     const settings = getSettings();
     const recentLimit = Math.max(Number(settings.retrievalQueryMessages) || 6, Number(settings.embeddingQueryMessages) || 4);
     const notification = updates.length ? `Continuity updated before roleplay: ${updates.join('; ')}.` : '';
-    return { sourceMessages, recentMessages: activeChat.slice(-recentLimit), notification };
+    return { sourceMessages, recentMessages: activeChat.slice(-recentLimit), notification, strictEmbedding: caughtUp };
 }
 
 async function refreshInjection(useRetrievalAssist = false, strictEmbedding = false, coverageMessages = null, recentMessages = null, promptOptions = {}) {
@@ -291,6 +318,10 @@ function scheduleMutationSync(delay = 350, requireDivergenceRepair = false) {
             scheduleMutationSync(1000);
             return;
         }
+        if (runtime.processing) {
+            scheduleMutationSync(1000, divergenceRepairRequested);
+            return;
+        }
         const repairRequested = divergenceRepairRequested;
         divergenceRepairRequested = false;
         try {
@@ -311,6 +342,9 @@ function scheduleMutationSync(delay = 350, requireDivergenceRepair = false) {
 }
 
 async function onChatChanged() {
+    if (runtime.processing || runtime.queue.length) {
+        invalidateRuntimeWork('Chat changed; discarded memory work belonging to the previous chat.');
+    }
     const settings = getSettings();
     const placement = resolveInjectionPlacement(settings, extension_prompt_types, extension_prompt_roles);
     setExtensionPrompt(PROMPT_KEY, '', placement.position, placement.depth, false, placement.role);
@@ -328,6 +362,9 @@ async function onChatDeleted(chatId, ownerKind) {
     }
     if (!result.binding) return;
     const { chatKey, worldId, sharedElsewhere } = result.binding;
+    if (runtime.world?.id === worldId && (runtime.processing || runtime.queue.length)) {
+        invalidateRuntimeWork('Chat was deleted; discarded its active and queued memory work.');
+    }
     if (!sharedElsewhere) {
         try { await purgeEmbeddingIndex(worldId); }
         catch (error) { console.warn('[Continuity] Could not remove the deleted chat’s derived embedding index.', error); }
@@ -416,12 +453,18 @@ async function init() {
     });
     for (const eventName of [event_types.MESSAGE_SWIPED, event_types.MESSAGE_EDITED, event_types.MESSAGE_UPDATED].filter(Boolean)) {
         eventSource.on(eventName, () => {
+            if (runtime.processing || runtime.queue.length) {
+                invalidateRuntimeWork('A source message changed; discarded memory work based on its previous content.');
+            }
             scheduleInjectionRefresh();
             scheduleMutationSync();
         });
     }
     if (event_types.MESSAGE_DELETED) {
         eventSource.on(event_types.MESSAGE_DELETED, () => {
+            if (runtime.processing || runtime.queue.length) {
+                invalidateRuntimeWork('A source message was deleted; discarded memory work that could contain it.');
+            }
             scheduleInjectionRefresh();
             scheduleMutationSync(350, true);
         });

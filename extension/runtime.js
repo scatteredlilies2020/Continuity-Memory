@@ -47,3 +47,11 @@ export function pauseRuntime() {
 export function resumeRuntime() {
     updateRuntime({ paused: false, status: runtime.processing ? 'processing' : 'idle' });
 }
+
+export function invalidateRuntimeWork(reason = 'Chat changed while memory processing was active.') {
+    runtime.generation++;
+    const queued = runtime.queue.splice(0);
+    for (const job of queued) job.reject?.(new Error(reason));
+    updateRuntime({ progress: null, retryStatus: reason });
+    return { invalidated: runtime.processing || queued.length > 0, queued: queued.length };
+}

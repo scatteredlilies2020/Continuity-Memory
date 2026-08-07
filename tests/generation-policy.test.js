@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration } from '../extension/generation-policy.js';
+import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration } from '../extension/generation-policy.js';
 
 const chat = [{ index: 0, mes: 'Hello' }];
 
@@ -23,6 +23,31 @@ test('temporarily excludes the reply being replaced during swipe generation', ()
     const messages = [{ index: 0 }, { index: 1 }, { index: 2 }];
     assert.deepEqual(roleplaySourceMessages(messages, 'swipe'), [{ index: 0 }, { index: 1 }]);
     assert.deepEqual(roleplaySourceMessages(messages, 'regenerate'), messages);
+});
+
+test('allows one background L1 batch of headroom before roleplay must catch up', () => {
+    assert.deepEqual(roleplayBacklogPolicy(1, 8), {
+        pending: 1,
+        eligible: 0,
+        backgroundThreshold: 8,
+        hardLimit: 16,
+        shouldCatchUp: false,
+    });
+    assert.equal(roleplayBacklogPolicy(8, 8).shouldCatchUp, false);
+    assert.equal(roleplayBacklogPolicy(15, 8).shouldCatchUp, false);
+    assert.equal(roleplayBacklogPolicy(16, 8).shouldCatchUp, true);
+    assert.equal(roleplayBacklogPolicy(16, 8).eligible, 16);
+});
+
+test('scales the protected background headroom with the configured L1 group size', () => {
+    assert.deepEqual(roleplayBacklogPolicy(23, 12), {
+        pending: 23,
+        eligible: 12,
+        backgroundThreshold: 12,
+        hardLimit: 24,
+        shouldCatchUp: false,
+    });
+    assert.equal(roleplayBacklogPolicy(24, 12).shouldCatchUp, true);
 });
 
 test('describes memory work that delays roleplay generation', () => {

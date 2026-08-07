@@ -1,6 +1,22 @@
+import { completeL1MessageCount, resolveL1GroupSize } from './l1-policy.js';
+
 export function shouldGateRoleplayGeneration(settings, coreChat, type) {
     if (!settings?.enabled || !Array.isArray(coreChat) || type === 'quiet' || type === 'impersonate') return false;
     return coreChat.length > 0 || type === 'swipe' || type === 'regenerate';
+}
+
+export function roleplayBacklogPolicy(pendingMessages, groupSize) {
+    const size = resolveL1GroupSize(groupSize);
+    const pending = Math.max(0, Math.round(Number(pendingMessages) || 0));
+    const eligible = completeL1MessageCount(pending, size);
+    const hardLimit = size * 2;
+    return {
+        pending,
+        eligible,
+        backgroundThreshold: size,
+        hardLimit,
+        shouldCatchUp: pending >= hardLimit,
+    };
 }
 
 export function roleplaySourceMessages(messages, type) {

@@ -86,6 +86,8 @@ Continuity builds three levels of chronological memory:
 
 By default, Continuity creates one L1 from each complete group of 8 messages, one L2 from 24 L1 records, and one L3 from 6 L2 records. A smaller recent message tail stays raw until the next L1 group is complete.
 
+Once a complete L1 group accumulates, Continuity starts extracting it in the background. Roleplay can continue with up to one additional group of uncovered messages because every uncovered message remains verbatim in the prompt. If the uncovered backlog reaches two complete groups (16 messages by default), Continuity catches up before starting the next roleplay response. An extraction request already using the active SillyTavern connection is also allowed to settle first so its temporary request settings cannot leak into roleplay.
+
 Relevant chronology is retrieved alongside structured facts and current state. Overlapping records from different levels are de-duplicated before they are added to the prompt.
 
 This preserves broad narrative continuity without injecting the entire history on every turn.
@@ -102,7 +104,7 @@ Continuity reduces old raw chat only after it has been safely covered by memory.
 
 Recent conversation remains verbatim. Extracted records sourced wholly from that visible raw tail are not injected beside it, so an interpretation of recent events cannot compete with the original messages. Older messages are represented by retrieved structured memory and chronology while remaining unchanged and readable in the chat.
 
-If extraction fails or coverage is incomplete, Continuity keeps the uncovered messages in context.
+If extraction fails or coverage is incomplete, Continuity keeps the uncovered messages in context. Stored ranges whose source messages were edited, swiped, hidden, or deleted are excluded from retrieval immediately and repaired before later use.
 
 When a roleplay request must wait for queued memory work, Continuity shows a single status notification with the pending message count, active range, and queued-job count. Generation resumes automatically when memory is ready.
 
