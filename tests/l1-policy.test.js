@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { completeL1MessageCount, completeL1Messages, holdBackLatestMessage, resolveL1GroupSize, selectAutomaticL1Messages, validateL1GroupSize } from '../extension/l1-policy.js';
+import { completeL1MessageCount, completeL1Messages, resolveL1GroupSize, selectAutomaticL1Messages, validateL1GroupSize } from '../extension/l1-policy.js';
 
 test('L1 defaults to complete groups of eight messages', () => {
     assert.equal(resolveL1GroupSize(), 8);
@@ -14,30 +14,25 @@ test('L1 leaves an incomplete recent tail unselected', () => {
     assert.deepEqual(completeL1Messages(messages).map(item => item.index), Array.from({ length: 16 }, (_, index) => index));
 });
 
-test('automatic L1 selection holds back the newest reply', () => {
+test('automatic L1 selection consumes complete eligible groups', () => {
     const messages = Array.from({ length: 9 }, (_, index) => ({ index }));
-    const stable = holdBackLatestMessage(messages);
-    assert.deepEqual(stable.map(item => item.index), Array.from({ length: 8 }, (_, index) => index));
-    assert.deepEqual(messages.map(item => item.index), Array.from({ length: 9 }, (_, index) => index));
-    assert.deepEqual(holdBackLatestMessage([]), []);
     assert.deepEqual(selectAutomaticL1Messages(messages).map(item => item.index), Array.from({ length: 8 }, (_, index) => index));
-    assert.deepEqual(selectAutomaticL1Messages(messages.slice(0, 8)), []);
+    assert.deepEqual(selectAutomaticL1Messages(messages.slice(0, 8)).map(item => item.index), Array.from({ length: 8 }, (_, index) => index));
 });
 
-test('automatic L1 bootstrap keeps only the newest stable complete group', () => {
-    const messages = Array.from({ length: 18 }, (_, index) => ({ index }));
+test('automatic L1 bootstrap keeps only the newest complete eligible group', () => {
+    const messages = Array.from({ length: 17 }, (_, index) => ({ index }));
     assert.deepEqual(selectAutomaticL1Messages(messages, 8, true).map(item => item.index), [9, 10, 11, 12, 13, 14, 15, 16]);
-    assert.deepEqual(selectAutomaticL1Messages(messages.slice(0, 8), 8, true), []);
+    assert.deepEqual(selectAutomaticL1Messages(messages.slice(0, 7), 8, true), []);
 });
 
-test('automatic holdback scales across every allowed L1 group size', () => {
+test('automatic selection scales across every allowed L1 group size', () => {
     for (const size of [2, 3, 8, 12, 50]) {
-        const messages = Array.from({ length: size * 2 + 1 }, (_, index) => ({ index }));
+        const messages = Array.from({ length: size * 2 }, (_, index) => ({ index }));
         const selected = selectAutomaticL1Messages(messages, size);
         assert.equal(selected.length, size * 2);
         assert.equal(selected.at(-1).index, size * 2 - 1);
-        assert.equal(selected.some(message => message.index === size * 2), false);
-        assert.deepEqual(selectAutomaticL1Messages(messages.slice(0, size), size), []);
+        assert.deepEqual(selectAutomaticL1Messages(messages.slice(0, size), size), messages.slice(0, size));
 
         const bootstrap = selectAutomaticL1Messages(messages, size, true);
         assert.equal(bootstrap.length, size);
@@ -45,7 +40,7 @@ test('automatic holdback scales across every allowed L1 group size', () => {
     }
 });
 
-test('lowering the L1 group size preserves the same held-back newest reply', () => {
+test('lowering the L1 group size reshapes only complete eligible groups', () => {
     const messages = Array.from({ length: 9 }, (_, index) => ({ index }));
     assert.deepEqual(selectAutomaticL1Messages(messages, 8).map(item => item.index), [0, 1, 2, 3, 4, 5, 6, 7]);
     assert.deepEqual(selectAutomaticL1Messages(messages, 2).map(item => item.index), [0, 1, 2, 3, 4, 5, 6, 7]);

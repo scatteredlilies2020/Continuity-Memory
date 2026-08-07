@@ -5,7 +5,7 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.55';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.55';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
@@ -1076,7 +1076,7 @@ export async function syncChangedExtractions(force = false) {
     if (!worldId || !chatKey) return { synced: 0 };
 
     let world = runtime.world?.id === worldId ? runtime.world : (await api.getWorld(worldId)).world;
-    const currentMessages = collectFingerprintMessages(getContext().chat || []);
+    const currentMessages = collectMemoryEligibleMessages(getContext().chat || []);
     const targets = findChangedExtractions(world, currentMessages, chatKey);
     if (!targets.length) return { synced: 0 };
 
@@ -1137,7 +1137,7 @@ export async function restartL1FromScratch() {
     const chat = getContext().chat || [];
     if (!worldId || !chatKey || !chat.length) throw new Error('Open a chat and prepare its memory first.');
     await requireRetryStorage();
-    const allMessages = collectMessages(0, chat.length - 1);
+    const allMessages = collectMemoryEligibleMessages(chat);
     if (!allMessages.length) throw new Error('This chat has no processable messages.');
     const groupSize = resolveL1GroupSize(getSettings().extractionBatchMessages);
     const messages = completeL1Messages(allMessages, groupSize);
@@ -1354,14 +1354,14 @@ export function getProcessingCoverage(world = runtime.world, sourceMessages = nu
     if (!chatKey || !chat.length) {
         return { total: 0, latestIndex: -1, processed: 0, pending: 0, changed: 0, outdated: 0, neverProcessed: 0, pendingMessages: [], pendingRanges: [] };
     }
-    const messages = Array.isArray(sourceMessages) ? sourceMessages : collectMessages(0, chat.length - 1);
+    const messages = Array.isArray(sourceMessages) ? sourceMessages : collectMemoryEligibleMessages(chat);
     return analyzeCoverage(messages, world?.sources?.[chatKey]?.processedMessages || []);
 }
 
 export function getBranchRepairStatus(world = runtime.world, sourceMessages = null) {
     const chatKey = getChatKey();
     if (!world || !chatKey) return { detected: false, earliestIndex: null, repairFrom: null, affectedExtractions: [] };
-    const messages = Array.isArray(sourceMessages) ? sourceMessages : collectFingerprintMessages(getContext().chat || []);
+    const messages = Array.isArray(sourceMessages) ? sourceMessages : collectMemoryEligibleMessages(getContext().chat || []);
     return analyzeBranchDivergence(
         messages,
         world.sources?.[chatKey]?.processedMessages || [],
@@ -1376,7 +1376,7 @@ export async function repairDivergedBranch({ sourceMessages = null } = {}) {
     const chatKey = getChatKey();
     if (!worldId || !chatKey) throw new Error('Open a chat with Continuity memory first.');
     await requireRetryStorage();
-    const messages = Array.isArray(sourceMessages) ? sourceMessages : collectFingerprintMessages(getContext().chat || []);
+    const messages = Array.isArray(sourceMessages) ? sourceMessages : collectMemoryEligibleMessages(getContext().chat || []);
     let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
     const divergence = getBranchRepairStatus(world, messages);
     if (!divergence.detected) return { repaired: false, repairFrom: null, retained: 0 };
@@ -1541,8 +1541,8 @@ export async function maybeAutoExtract(force = false, sourceMessages = null) {
             // explicit user choice via Process all pending or Backfill.
             pending = pending.filter(message => processedIndexes.has(message.index) || message.index > lastProcessedIndex);
         }
-        // MESSAGE_RECEIVED triggers automatic work after an AI reply. Leave
-        // that newest reply raw until a later message confirms it was kept.
+        // The shared eligible-message view already omits the provisional
+        // newest AI reply from every automatic and forced CM path.
         pending = selectAutomaticL1Messages(pending, groupSize, !source);
     } else {
         pending = completeL1Messages(pending, groupSize);

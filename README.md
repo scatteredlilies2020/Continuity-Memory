@@ -84,7 +84,7 @@ Continuity builds three levels of chronological memory:
 - **L2** condenses groups of L1 records into larger arcs.
 - **L3** preserves long-running eras and developments.
 
-By default, Continuity creates one L1 from each complete group of 8 messages, one L2 from 24 L1 records, and one L3 from 6 L2 records. A smaller recent message tail stays raw until the next L1 group is complete. Automatic extraction also leaves the newest AI reply raw until a later message confirms it was kept, so an immediate swipe or regeneration never enters memory.
+By default, Continuity creates one L1 from each complete group of 8 messages, one L2 from 24 L1 records, and one L3 from 6 L2 records. A smaller recent message tail stays raw until the next L1 group is complete. The newest AI reply remains provisional raw chat and is excluded from every CM extraction, backlog count, and catch-up calculation until a later message confirms it was kept, so an immediate swipe or regeneration never enters memory.
 
 Once a complete L1 group accumulates, Continuity starts extracting it in the background. Roleplay can continue with up to one additional group of uncovered messages because every uncovered message remains verbatim in the prompt. If the uncovered backlog reaches two complete groups (16 messages by default), Continuity catches up before starting the next roleplay response. An extraction request already using the active SillyTavern connection is also allowed to settle first so its temporary request settings cannot leak into roleplay.
 

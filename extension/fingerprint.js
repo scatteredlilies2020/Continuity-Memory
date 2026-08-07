@@ -31,6 +31,13 @@ export function collectFingerprintMessages(chat = []) {
     return messages;
 }
 
+export function collectMemoryEligibleMessages(chat = []) {
+    const messages = collectFingerprintMessages(chat);
+    if (!messages.length) return messages;
+    const latest = messages.at(-1);
+    return chat[latest.index]?.is_user ? messages : messages.slice(0, -1);
+}
+
 function extractionFingerprints(world, extraction, chatKey) {
     if ((extraction?.messageFingerprints || []).length) return extraction.messageFingerprints;
     return (world.sources?.[chatKey]?.processedMessages || [])

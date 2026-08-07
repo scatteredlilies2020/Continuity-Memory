@@ -22,14 +22,9 @@ export function completeL1Messages(messages, groupSize = DEFAULT_L1_GROUP_SIZE) 
     return source.slice(0, completeL1MessageCount(source.length, groupSize));
 }
 
-export function holdBackLatestMessage(messages) {
-    const source = Array.isArray(messages) ? messages : [];
-    return source.slice(0, -1);
-}
-
 export function selectAutomaticL1Messages(messages, groupSize = DEFAULT_L1_GROUP_SIZE, bootstrap = false) {
     const size = resolveL1GroupSize(groupSize);
-    const stable = holdBackLatestMessage(messages);
-    const candidates = bootstrap ? stable.slice(-size) : stable;
+    const source = Array.isArray(messages) ? messages : [];
+    const candidates = bootstrap ? source.slice(-size) : source;
     return completeL1Messages(candidates, size);
 }

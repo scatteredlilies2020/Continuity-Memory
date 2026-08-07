@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { collectMemoryEligibleMessages } from '../extension/fingerprint.js';
 import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration } from '../extension/generation-policy.js';
 
 const chat = [{ index: 0, mes: 'Hello' }];
@@ -37,6 +38,19 @@ test('allows one background L1 batch of headroom before roleplay must catch up',
     assert.equal(roleplayBacklogPolicy(15, 8).shouldCatchUp, false);
     assert.equal(roleplayBacklogPolicy(16, 8).shouldCatchUp, true);
     assert.equal(roleplayBacklogPolicy(16, 8).eligible, 16);
+});
+
+test('excludes the provisional newest AI output from the catch-up boundary', () => {
+    const eligible = Array.from({ length: 15 }, (_, index) => ({
+        mes: `Stable ${index}`,
+        name: 'User',
+        is_user: true,
+    }));
+    const provisional = { mes: 'Mutable newest reply', name: 'Character', is_user: false };
+    const pending = collectMemoryEligibleMessages([...eligible, provisional]).length;
+    assert.equal(pending, 15);
+    assert.equal(roleplayBacklogPolicy(pending, 8).shouldCatchUp, false);
+    assert.equal(roleplayBacklogPolicy([...eligible, { mes: 'Stable 15', is_user: true }].length, 8).shouldCatchUp, true);
 });
 
 test('scales the protected background headroom with the configured L1 group size', () => {

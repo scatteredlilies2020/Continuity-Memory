@@ -13,7 +13,7 @@ import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
 import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.55';
-import { collectFingerprintMessages, findInvalidExtractionRanges } from './fingerprint.js?v=0.14.0-standalone.55';
+import { collectMemoryEligibleMessages, findInvalidExtractionRanges } from './fingerprint.js?v=0.14.0-standalone.55';
 import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.55';
 import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration } from './generation-policy.js?v=0.14.0-standalone.55';
 import { completeL1MessageCount, resolveL1GroupSize } from './l1-policy.js';
@@ -147,7 +147,7 @@ async function prepareRoleplayGeneration(type) {
     const updates = [];
     await ensureCurrentChatMemory(true);
     const waitingChat = roleplaySourceMessages(getContext().chat || [], type).filter(message => !message?.is_system);
-    const waitingMessages = collectFingerprintMessages(waitingChat);
+    const waitingMessages = collectMemoryEligibleMessages(waitingChat);
     const waitingCoverage = getProcessingCoverage(runtime.world, waitingMessages);
     const groupSize = resolveL1GroupSize(getSettings().extractionBatchMessages);
     const waitingBacklog = roleplayBacklogPolicy(waitingCoverage.pending, groupSize);
@@ -171,7 +171,7 @@ async function prepareRoleplayGeneration(type) {
         }
     }
     const activeChat = roleplaySourceMessages(getContext().chat || [], type).filter(message => !message?.is_system);
-    const sourceMessages = collectFingerprintMessages(activeChat);
+    const sourceMessages = collectMemoryEligibleMessages(activeChat);
     // This repair must precede every injection and every catch-up attempt.
     // It removes stale saved contributions after edits, swipes, and deletes;
     // refreshInjection also excludes any still-invalid source ranges fail-closed.
@@ -274,7 +274,7 @@ async function refreshInjection(useRetrievalAssist = false, strictEmbedding = fa
     const budget = resolveInjectionBudget(settings.injectionBudgetTokens, getContext().maxContext);
     const sourceMessages = Array.isArray(coverageMessages)
         ? coverageMessages
-        : collectFingerprintMessages(getContext().chat || []);
+        : collectMemoryEligibleMessages(getContext().chat || []);
     const coverage = getProcessingCoverage(world, sourceMessages);
     const invalidSourceRanges = findInvalidExtractionRanges(world, sourceMessages, getChatKey());
     const { prompt, estimatedTokens } = buildMemoryPrompt(
@@ -437,7 +437,7 @@ async function init() {
         setTimeout(async () => {
             try {
                 const settings = getSettings();
-                const processableMessages = collectFingerprintMessages(getContext().chat || []).length;
+                const processableMessages = collectMemoryEligibleMessages(getContext().chat || []).length;
                 if (!getBoundWorldId() && processableMessages >= settings.extractionBatchMessages) {
                     await ensureCurrentChatMemory(true);
                 }

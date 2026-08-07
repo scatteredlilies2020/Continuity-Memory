@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { alignWorldToChat, collectFingerprintMessages, findChangedExtractions, findInvalidExtractionRanges, fingerprintMessage } from '../extension/fingerprint.js';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, findInvalidExtractionRanges, fingerprintMessage } from '../extension/fingerprint.js';
 
 const oldKey = 'character:7:chat:old.jsonl';
 const newKey = 'character:22:chat:copied.jsonl';
@@ -45,6 +45,22 @@ test('collects the same processable message shape used by extraction', () => {
     assert.deepEqual(collectFingerprintMessages(chat), [
         { index: 0, name: 'User', text: 'hello' },
         { index: 3, name: 'Character', text: 'cake' },
+    ]);
+});
+
+test('CM eligibility excludes only the provisional newest AI output', () => {
+    const user = { mes: 'First prompt', name: 'User', is_user: true };
+    const assistant = { mes: 'Mutable reply', name: 'Yui', is_user: false };
+    assert.deepEqual(collectMemoryEligibleMessages([user, assistant]), [
+        { index: 0, name: 'User', text: 'First prompt' },
+    ]);
+    assert.deepEqual(collectMemoryEligibleMessages([user, assistant, { mes: 'Accepted', name: 'User', is_user: true }]), [
+        { index: 0, name: 'User', text: 'First prompt' },
+        { index: 1, name: 'Yui', text: 'Mutable reply' },
+        { index: 2, name: 'User', text: 'Accepted' },
+    ]);
+    assert.deepEqual(collectMemoryEligibleMessages([user, assistant, { mes: 'ignored', is_system: true }]), [
+        { index: 0, name: 'User', text: 'First prompt' },
     ]);
 });
 
