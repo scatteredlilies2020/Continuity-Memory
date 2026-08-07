@@ -280,6 +280,13 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         .slice(0, 10).map(({ item }) => `- ${anchoredRelativeText(`${item.title}: ${item.detail}`, item)}${item.participants?.length ? ` [${item.participants.join(', ')}]` : ''}`);
     addSection('Open matters', activeThreads);
 
+    const backgrounds = matching((world.backgrounds || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)), queryTerms, item => item.status === 'active' ? 1 : 0, 'background', semanticRanks)
+        .slice(0, 12).map(({ item }) => {
+            const qualifiers = [item.status, item.certainty].map(plain).filter(Boolean).join(', ');
+            return `- ${anchoredRelativeText(`${item.topic}${qualifiers ? ` [${qualifiers}]` : ''}: ${item.summary}`, item)}${item.participants?.length ? ` [${item.participants.join(', ')}]` : ''}`;
+        });
+    addSection('Relevant background developments', backgrounds);
+
     const entities = matching((world.entities || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)), queryTerms, undefined, 'entity', semanticRanks).slice(0, 12)
         .map(({ item }) => `- ${item.name}${item.type ? ` (${item.type})` : ''}: ${item.description}${item.aliases?.length ? `; aliases: ${item.aliases.join(', ')}` : ''}`);
     addSection('Relevant entities', entities);
@@ -313,5 +320,5 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity_memory>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value) };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.56';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.57';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';

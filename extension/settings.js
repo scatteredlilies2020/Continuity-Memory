@@ -1,7 +1,7 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, IDENTITY_RESOLUTION_RULES, PROMPT_DEFAULTS } from './prompts.js?v=0.14.0-standalone.56';
+import { CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, IDENTITY_RESOLUTION_RULES, PROMPT_DEFAULTS } from './prompts.js?v=0.14.0-standalone.57';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
 
@@ -246,6 +246,23 @@ export function getSettings() {
         }
         settings.extractionSystemPrompt = prompt || PROMPT_DEFAULTS.extractionSystemPrompt;
         settings.continuityCoveragePromptVersion = 1;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.compactBackgroundPromptVersion || 0) < 1) {
+        let prompt = String(settings.extractionSystemPrompt || PROMPT_DEFAULTS.extractionSystemPrompt);
+        if (!prompt.includes('output exactly one compact backgrounds record')) {
+            const startMarker = 'Coverage and retrieval are separate concerns.';
+            const endMarker = 'Assign importance by likely future continuity value';
+            const start = prompt.indexOf(startMarker);
+            const end = prompt.indexOf(endMarker, Math.max(0, start));
+            prompt = start >= 0 && end > start
+                ? `${prompt.slice(0, start)}${CONTINUITY_COVERAGE_RULES}\n${prompt.slice(end)}`
+                : prompt.includes(endMarker)
+                    ? prompt.replace(endMarker, `${CONTINUITY_COVERAGE_RULES}\n${endMarker}`)
+                    : `${prompt}\n${CONTINUITY_COVERAGE_RULES}`;
+        }
+        settings.extractionSystemPrompt = prompt;
+        settings.compactBackgroundPromptVersion = 1;
         saveSettingsDebounced();
     }
     if (settings.rawTailMode === undefined) {

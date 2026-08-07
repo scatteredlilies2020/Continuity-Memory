@@ -2,7 +2,7 @@
 
 Structured, revisable long-term memory for roleplay and simulations.
 
-Continuity extracts events, facts, relationships, character states, and open threads from a chat. It keeps those records tied to their source messages, builds a compact chronological history, and retrieves the parts that matter for the current scene.
+Continuity extracts events, facts, relationships, character states, open threads, and compact background developments from a chat. It keeps those records tied to their source messages, builds a compact chronological history, and retrieves the parts that matter for the current scene.
 
 Each chat has its own isolated memory. Continuity does not use, create, or modify SillyTavern Lorebooks or World Info, and it never edits chat messages.
 
@@ -18,7 +18,7 @@ A rolling summary helps with the first problem, but gradually loses detail. Vect
 Continuity combines several forms of memory instead:
 
 - Recent messages remain in their original form.
-- Structured records preserve facts, relationships, states, and events.
+- Structured records preserve facts, relationships, states, events, and compact background developments.
 - L1, L2, and L3 records maintain a chronological history.
 - Retrieval selects relevant older memories for each response.
 - Reviewed corrections remain authoritative when extraction gets something wrong.
@@ -36,9 +36,12 @@ Continuity maintains structured records for:
 - relationships
 - events
 - open threads
+- background developments outside the current focus
 - chronological L1, L2, and L3 history
 
 The built-in memory viewer lets you search and inspect these records, including the message ranges from which they were created.
+
+Extraction distinguishes the current focus from other continuity-bearing strands. Focused characters, goals, decisions, relationships, and directly consequential subplots receive normal detailed records. Each meaningful non-focused theater or process receives one compact, source-grounded background record with its current condition and certainty. This applies equally to simulation and ordinary roleplay; it does not assume that geographic or political material is background when it directly affects the active story.
 
 ## Corrections and revisions
 
@@ -75,6 +78,8 @@ Semantic vector retrieval is combined with local text matching. This works well 
 Embeddings are optional. The vector index is derived from canonical Continuity memory, stored separately, and never included in memory exports or portable chat snapshots. It can be deleted or rebuilt at any time. If indexing or retrieval fails, Continuity falls back to local matching.
 
 Existing records are embedded once. New and revised records are synchronized incrementally.
+
+Background developments are retrieved only when the current conversation matches their topic, participants, or meaning. They are not inserted into every response merely because they were retained.
 
 ## Chronological memory
 

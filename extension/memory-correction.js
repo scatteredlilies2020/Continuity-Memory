@@ -7,11 +7,12 @@ const COLLECTIONS = Object.freeze({
     relationships: ['from', 'to', 'kind', 'status', 'dynamic', 'importance'],
     events: ['title', 'summary', 'participants', 'location', 'storyTime', 'consequences', 'importance'],
     threads: ['title', 'detail', 'status', 'participants', 'importance'],
+    backgrounds: ['topic', 'summary', 'status', 'certainty', 'participants', 'importance'],
     capsules: ['title', 'storyTime', 'location', 'participants', 'opening', 'beats', 'emotionalArc', 'closing', 'importance'],
 });
 
 export const CORRECTABLE_CATEGORIES = Object.freeze(Object.keys(COLLECTIONS));
-const ID_PREFIXES = Object.freeze({ entities: 'entity', facts: 'fact', states: 'state', relationships: 'relationship', events: 'event', threads: 'thread', capsules: 'capsule' });
+const ID_PREFIXES = Object.freeze({ entities: 'entity', facts: 'fact', states: 'state', relationships: 'relationship', events: 'event', threads: 'thread', backgrounds: 'background', capsules: 'capsule' });
 
 const LIST_FIELDS = new Set(['aliases', 'participants', 'beats']);
 const STOP_WORDS = new Set('a an and are as at be been but by do for from had has have he her him his how i if in is it its me my not of on or our she that the their them then they this to was we were what when where which who why will with you your'.split(' '));
@@ -45,6 +46,10 @@ function publicRecord(category, item) {
         result.operation = 'set';
     }
     if (category === 'threads' && !['open', 'resolved', 'abandoned'].includes(result.status)) result.status = 'open';
+    if (category === 'backgrounds') {
+        if (!['active', 'resolved', 'dormant'].includes(result.status)) result.status = 'active';
+        if (!['confirmed', 'reported', 'rumored', 'uncertain'].includes(result.certainty)) result.certainty = 'uncertain';
+    }
     return result;
 }
 
@@ -55,6 +60,7 @@ function requiredIdentity(category, record) {
     if (category === 'relationships') return record.from && record.to;
     if (category === 'events') return record.title || record.summary;
     if (category === 'threads') return record.title;
+    if (category === 'backgrounds') return record.topic;
     if (category === 'capsules') return record.title || record.opening || record.closing || record.beats?.length;
     return false;
 }
@@ -120,6 +126,7 @@ export function correctionSelector(category, item, meta = {}) {
     if (category === 'states') return `${normalized(record.subject)}|${normalized(record.attribute)}`;
     if (category === 'relationships') return `${normalized(record.from)}|${normalized(record.to)}|${normalized(record.kind)}`;
     if (category === 'threads') return normalized(record.title);
+    if (category === 'backgrounds') return normalized(record.topic);
     if (category === 'events') return `${normalized(record.title)}|${normalized(record.summary).slice(0, 180)}`;
     if (category === 'capsules') return `${String(item?.chatKey || meta.chatKey || '')}|${Number(item?.from ?? meta.from)}|${Number(item?.to ?? meta.to)}`;
     return '';

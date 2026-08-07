@@ -4,7 +4,7 @@ import { sanitizeReconciliationMetadata } from '../extension/reconciliation-poli
 
 function extraction() {
     return {
-        entities: [], facts: [], states: [], relationships: [], events: [], threads: [],
+        entities: [], facts: [], states: [], relationships: [], events: [], threads: [], backgrounds: [],
         identityResolutions: [], recordMerges: [],
     };
 }
@@ -31,6 +31,17 @@ test('valid target IDs survive while unsafe semantic merge directives are discar
     assert.equal(result.facts[0].targetId, 'fact_real');
     assert.deepEqual(result.recordMerges, []);
     assert.equal(sanitized.ignored, 1);
+});
+
+test('background strands reuse only valid stable target IDs', () => {
+    const result = extraction();
+    result.backgrounds.push({ targetId: 'background_qing', topic: 'Qing White Lotus suppression' });
+    const sanitized = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [],
+        backgrounds: [{ id: 'background_qing' }],
+    });
+    assert.equal(result.backgrounds[0].targetId, 'background_qing');
+    assert.equal(sanitized.ignored, 0);
 });
 
 test('missing optional reconciliation arrays are restored for older or non-strict providers', () => {

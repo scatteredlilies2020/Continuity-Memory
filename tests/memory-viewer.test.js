@@ -5,6 +5,7 @@ import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from '../extension/memory-vi
 const world = {
     scene: { location: 'Music room', sources: [{ from: 10, to: 14 }, { from: 15, to: 20 }] },
     facts: [{ id: 'fact', subject: 'Naruto', predicate: 'rank', value: 'Genin', importance: 4, sources: [{ from: 4, to: 8 }] }],
+    backgrounds: [{ id: 'background', topic: 'Qing White Lotus suppression', summary: 'Militia reliance is increasing.', status: 'active', certainty: 'reported', participants: ['Qing China'], importance: 2, sources: [{ from: 12, to: 16 }] }],
     capsules: [
         { id: 'late', title: 'Later', opening: 'Second', from: 20, to: 29 },
         { id: 'early', title: 'Early', opening: 'First', from: 0, to: 9 },
@@ -34,4 +35,11 @@ test('viewer searches structured content and paginates safely', () => {
     assert.equal(result.page, 0);
     assert.equal(result.items[0].title, 'Naruto — rank');
     assert.deepEqual(result.items[0].sources, ['Messages 4–8']);
+});
+
+test('viewer exposes compact background status and certainty', () => {
+    const result = memoryViewerPage(world, 'backgrounds', 'White Lotus');
+    assert.equal(result.total, 1);
+    assert.equal(result.items[0].title, 'Qing White Lotus suppression');
+    assert.ok(result.items[0].fields.some(field => field.label === 'Certainty' && field.value === 'reported'));
 });

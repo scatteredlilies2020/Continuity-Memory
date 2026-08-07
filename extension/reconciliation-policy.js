@@ -1,4 +1,4 @@
-export const TARGET_RECORD_CATEGORIES = Object.freeze(['entities', 'facts', 'states', 'relationships', 'threads']);
+export const TARGET_RECORD_CATEGORIES = Object.freeze(['entities', 'facts', 'states', 'relationships', 'threads', 'backgrounds']);
 
 export function sanitizeReconciliationMetadata(result, world) {
     let ignored = 0;
@@ -23,7 +23,7 @@ export function sanitizeReconciliationMetadata(result, world) {
 
     result.recordMerges = result.recordMerges.filter(merge => {
         const category = String(merge?.category || '');
-        const allowedCategory = ['facts', 'states', 'relationships', 'threads'].includes(category);
+        const allowedCategory = ['facts', 'states', 'relationships', 'threads', 'backgrounds'].includes(category);
         const records = allowedCategory && Array.isArray(world?.[category]) ? world[category] : [];
         const validIds = new Set(records.map(item => String(item.id || '')).filter(Boolean));
         const canonicalId = String(merge?.canonicalId || '').trim();

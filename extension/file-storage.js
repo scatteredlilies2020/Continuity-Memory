@@ -1,11 +1,11 @@
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 const STORAGE_VERSION = 2;
 const SHARD_CHUNK_SIZE = 128;
 const INDEX_FILES = ['continuity-memory-index.json', 'continuity-memory-index-redundant.json'];
 const LEGACY_INDEX_FILE = 'continuity-memory-index-backup.json';
 const WORLD_ID_RE = /^[a-z0-9][a-z0-9_-]{0,79}$/;
 const FILE_RE = /^[a-z0-9][a-z0-9_.-]{0,220}\.json$/i;
-const ARRAY_SHARDS = ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'corrections'];
+const ARRAY_SHARDS = ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds', 'corrections'];
 const SINGLE_SHARDS = ['scene', 'sources'];
 const ALL_SHARDS = [...SINGLE_SHARDS, ...ARRAY_SHARDS];
 
@@ -68,6 +68,7 @@ function emptyWorld(id, name) {
         eras: [],
         extractions: [],
         threads: [],
+        backgrounds: [],
         corrections: [],
         sources: {},
     };
@@ -77,7 +78,7 @@ function normalizeWorld(input, expectedId) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw storageError('World payload must be an object', 400);
     const id = assertWorldId(expectedId || input.id);
     const base = emptyWorld(id, input.name);
-    for (const key of ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'corrections']) {
+    for (const key of ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds', 'corrections']) {
         base[key] = Array.isArray(input[key]) ? input[key].slice(0, 100000) : [];
     }
     base.scene = input.scene && typeof input.scene === 'object' ? input.scene : null;
@@ -100,6 +101,7 @@ function counts(world) {
         l3Eras: world.eras?.length || 0,
         retryableL1: world.extractions?.length || 0,
         threads: world.threads?.length || 0,
+        backgrounds: world.backgrounds?.length || 0,
         corrections: world.corrections?.length || 0,
         chats: Object.keys(world.sources || {}).length,
     };

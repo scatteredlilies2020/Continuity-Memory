@@ -23,6 +23,7 @@ function sampleWorld() {
             { id: 'thread-open', title: 'Recover the lantern', detail: 'Alice intends to retrieve it.', participants: ['Alice'], status: 'open', importance: 4 },
             { id: 'thread-resolved', title: 'Buy rope', detail: 'Already completed.', status: 'resolved', importance: 2 },
         ],
+        backgrounds: [{ id: 'background-qing', topic: 'Qing White Lotus suppression', summary: 'Provincial militias are expanding.', status: 'active', certainty: 'reported', participants: ['Qing China'], importance: 2 }],
         capsules: [],
         arcs: [],
         eras: [],
@@ -36,6 +37,7 @@ test('builds stable embedding documents from canonical structured records only',
     assert.deepEqual(first, second);
     assert.ok(first.some(document => document.key === 'event:event-lantern'));
     assert.ok(first.some(document => document.key === 'thread:thread-open'));
+    assert.ok(first.some(document => document.key === 'background:background-qing'));
     assert.ok(!first.some(document => document.key === 'thread:thread-resolved'));
     assert.ok(first.every(document => !document.text.includes('world-one')));
     assert.equal(stableEmbeddingHash('same text'), stableEmbeddingHash('same text'));

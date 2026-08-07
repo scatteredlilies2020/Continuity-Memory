@@ -8,7 +8,7 @@ import { buildMemoryPrompt } from '../extension/retrieval.js';
 function world() {
     return {
         id: 'test-world', name: 'Test', revision: 0, scene: null,
-        entities: [], facts: [], states: [], relationships: [], events: [], capsules: [], arcs: [], eras: [], extractions: [], threads: [], sources: {},
+        entities: [], facts: [], states: [], relationships: [], events: [], capsules: [], arcs: [], eras: [], extractions: [], threads: [], backgrounds: [], sources: {},
     };
 }
 
@@ -24,6 +24,7 @@ function extraction(overrides = {}) {
         relationships: [{ from: 'Yui', to: 'Mio', kind: 'friendship', status: 'Close friends', dynamic: 'Yui teases Mio gently.', importance: 4 }],
         events: [{ title: 'Practice session', summary: 'Yui and Mio practiced after school.', participants: ['Yui', 'Mio'], location: 'Music room', storyTime: 'Today', consequences: '', importance: 2, temporal: { frame: 'main narrative', relation: 'same-period', elapsed: '', certainty: 'implicit' } }],
         threads: [{ title: 'Weekend performance', detail: 'They plan to rehearse Saturday.', status: 'open', participants: ['Yui', 'Mio'], importance: 4 }],
+        backgrounds: [],
         ...overrides,
     };
 }
@@ -62,6 +63,36 @@ test('stable target IDs update semantically matching records across arbitrary sc
     assert.equal(target.facts[0].predicate, 'maintenance objective');
     assert.equal(target.facts[0].value, 'Leakage repairs are funded and must finish before planting season');
     assert.deepEqual(target.facts[0].sources.map(source => [source.from, source.to]), [[0, 7], [8, 15]]);
+});
+
+test('compact background strands update by stable topic and inject only when relevant', () => {
+    const target = world();
+    const first = extraction({
+        backgrounds: [{ targetId: '', topic: 'Qing White Lotus suppression', summary: 'White Lotus bands are weakening while locally funded militias strengthen provincial gentry.', status: 'active', certainty: 'reported', participants: ['Qing China', 'White Lotus bands'], importance: 2 }],
+    });
+    mergeExtraction(target, first, { chatKey: 'world-sim', from: 0, to: 7, allowStateUpdates: true });
+    const backgroundId = target.backgrounds[0].id;
+    assert.equal(first.backgrounds[0].targetId, backgroundId);
+
+    const update = extraction({
+        backgrounds: [{ targetId: backgroundId, topic: 'China rebellion', summary: 'The rebellion has lost mountain strongholds, but militia reliance leaves durable provincial militarization.', status: 'active', certainty: 'confirmed', participants: ['Qing China'], importance: 2 }],
+    });
+    mergeExtraction(target, update, { chatKey: 'world-sim', from: 8, to: 15, allowStateUpdates: true });
+
+    assert.equal(target.backgrounds.length, 1);
+    assert.equal(target.backgrounds[0].id, backgroundId);
+    assert.equal(target.backgrounds[0].topic, 'Qing White Lotus suppression');
+    assert.equal(target.backgrounds[0].certainty, 'confirmed');
+    assert.match(target.backgrounds[0].summary, /provincial militarization/);
+    assert.deepEqual(target.backgrounds[0].sources.map(source => [source.from, source.to]), [[0, 7], [8, 15]]);
+
+    const relevant = buildMemoryPrompt(target, [{ name: 'User', mes: 'What is happening with Qing China and the White Lotus?' }], 1800, 'world-sim');
+    assert.match(relevant.prompt, /Relevant background developments:/);
+    assert.match(relevant.prompt, /provincial militarization/);
+    assert.match(relevant.prompt, /confirmed/);
+
+    const unrelated = buildMemoryPrompt(target, [{ name: 'User', mes: 'Continue the French siege at Verona.' }], 1800, 'world-sim');
+    assert.doesNotMatch(unrelated.prompt, /provincial militarization/);
 });
 
 test('validated semantic merge instructions consolidate prior duplicates and preserve provenance', () => {
@@ -640,7 +671,7 @@ test('full reset erases every memory layer while preserving the bound world iden
 
     assert.deepEqual({ id: target.id, name: target.name, revision: target.revision }, identity);
     assert.equal(target.scene, null);
-    for (const category of ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'corrections']) {
+    for (const category of ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds', 'corrections']) {
         assert.deepEqual(target[category], []);
     }
     assert.deepEqual(target.sources, {});

@@ -71,7 +71,7 @@ function mergeArray(world, collection, target, incoming, identity, meta, prefix,
                 ? { ...normalized, ...target[index] }
                 : { ...target[index], ...normalized };
             if (collection === 'entities') merged.aliases = cleanList([...(target[index].aliases || []), ...(normalized.aliases || [])]);
-            if (collection === 'threads') merged.participants = cleanList([...(target[index].participants || []), ...(normalized.participants || [])]);
+            if (collection === 'threads' || collection === 'backgrounds') merged.participants = cleanList([...(target[index].participants || []), ...(normalized.participants || [])]);
             target[index] = common({ ...merged, id: target[index].id, createdAt: target[index].createdAt }, meta, prefix);
             raw.targetId = target[index].id;
         } else {
@@ -194,6 +194,7 @@ function applyIdentityResolution(world, raw, meta) {
     world.relationships = (world.relationships || []).map(item => updateRecord(item, { from: replace(item.from), to: replace(item.to) }));
     world.events = (world.events || []).map(item => updateRecord(item, { participants: replaceList(item.participants) }));
     world.threads = (world.threads || []).map(item => updateRecord(item, { participants: replaceList(item.participants) }));
+    world.backgrounds = (world.backgrounds || []).map(item => updateRecord(item, { participants: replaceList(item.participants) }));
     world.capsules = (world.capsules || []).map(item => updateParticipants(item));
     world.arcs = (world.arcs || []).map(item => updateParticipants(item));
     world.eras = (world.eras || []).map(item => updateParticipants(item, 40));
@@ -206,7 +207,7 @@ function applyIdentityResolution(world, raw, meta) {
 
 function applyRecordMerge(world, raw, meta) {
     const category = text(raw?.category);
-    if (!['facts', 'states', 'relationships', 'threads'].includes(category) || !text(raw?.evidence)) return false;
+    if (!['facts', 'states', 'relationships', 'threads', 'backgrounds'].includes(category) || !text(raw?.evidence)) return false;
     const records = world[category] || [];
     const canonicalId = text(raw.canonicalId);
     const duplicateIds = [...new Set(cleanList(raw.duplicateIds).filter(itemId => itemId !== canonicalId))];
@@ -215,7 +216,7 @@ function applyRecordMerge(world, raw, meta) {
     if (!canonical || !duplicates.length || duplicates.some(item => !item)) return false;
     if ([canonical, ...duplicates].some(item => item.correctionId || shouldPreserveHistoricalRecord(item, meta))) return false;
 
-    if (category === 'threads') {
+    if (category === 'threads' || category === 'backgrounds') {
         canonical.participants = cleanList([...(canonical.participants || []), ...duplicates.flatMap(item => item.participants || [])]);
     }
     const resolutionSource = sourceRef(meta);
@@ -238,6 +239,7 @@ export function mergeExtraction(world, result, meta) {
     world.eras ||= [];
     world.extractions ||= [];
     world.threads ||= [];
+    world.backgrounds ||= [];
     world.corrections ||= [];
     world.sources ||= {};
     const l1Temporal = buildL1TemporalAnchor(world, result.sceneCapsule?.temporal, meta);
@@ -370,6 +372,16 @@ export function mergeExtraction(world, result, meta) {
         temporalAnchorId: l1Temporal.anchorId,
     }), preserveHistoricalRecord);
 
+    mergeArray(world, 'backgrounds', world.backgrounds, result.backgrounds, item => key(item.topic), meta, 'background', (item, existing) => ({
+        topic: existing?.topic || clipped(item.topic, 120),
+        summary: clipped(item.summary, 400),
+        status: ['active', 'resolved', 'dormant'].includes(item.status) ? item.status : 'active',
+        certainty: ['confirmed', 'reported', 'rumored', 'uncertain'].includes(item.certainty) ? item.certainty : 'uncertain',
+        participants: canonicalList(world, item.participants, 12),
+        importance: clampImportance(item.importance),
+        temporalAnchorId: l1Temporal.anchorId,
+    }), preserveHistoricalRecord);
+
     for (const merge of result.recordMerges || []) applyRecordMerge(world, merge, meta);
 
     if (result.sceneCapsule && typeof result.sceneCapsule === 'object') {
@@ -449,7 +461,7 @@ export function replaceExtraction(world, result, meta) {
     world.eras ||= [];
     const removedCapsuleIds = new Set((world.capsules || []).filter(item => sameRange(item, meta)).map(item => item.id));
     const removedArcIds = new Set(world.arcs.filter(arc => (arc.capsuleIds || []).some(id => removedCapsuleIds.has(id))).map(arc => arc.id));
-    for (const category of ['entities', 'facts', 'states', 'relationships', 'events', 'threads']) {
+    for (const category of ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds']) {
         world[category] = (world[category] || []).flatMap(item => {
             const sources = (item.sources || []).filter(source => !sameRange(source, meta));
             return sources.length ? [{ ...item, sources }] : [];
@@ -469,7 +481,7 @@ export function replaceExtraction(world, result, meta) {
 export function removeChatContributions(world, chatKey) {
     const removedCapsuleIds = new Set((world.capsules || []).filter(item => item.chatKey === chatKey).map(item => item.id));
     const removedArcIds = new Set((world.arcs || []).filter(arc => arc.chatKey === chatKey || (arc.capsuleIds || []).some(id => removedCapsuleIds.has(id))).map(arc => arc.id));
-    for (const category of ['entities', 'facts', 'states', 'relationships', 'events', 'threads']) {
+    for (const category of ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds']) {
         world[category] = (world[category] || []).flatMap(item => {
             const sources = (item.sources || []).filter(source => source.chatKey !== chatKey);
             return sources.length ? [{ ...item, sources }] : [];
@@ -493,6 +505,7 @@ function replayIdentity(collection, item, chatKey) {
     if (collection === 'states') return stateIdentity(null, item);
     if (collection === 'relationships') return `${key(item.from)}|${key(item.to)}|${key(item.kind)}`;
     if (collection === 'threads') return key(item.title);
+    if (collection === 'backgrounds') return key(item.topic);
     if (collection === 'capsules' || collection === 'extractions') {
         return item.chatKey === chatKey ? `${item.chatKey}|${Number(item.from)}|${Number(item.to)}` : '';
     }
@@ -508,7 +521,7 @@ function replayIdentity(collection, item, chatKey) {
 }
 
 export function restoreRetainedReplayRecords(world, previousWorld, chatKey) {
-    for (const collection of ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'capsules', 'extractions']) {
+    for (const collection of ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds', 'capsules', 'extractions']) {
         const previousByIdentity = new Map();
         for (const item of previousWorld?.[collection] || []) {
             const identity = replayIdentity(collection, item, chatKey);
@@ -555,7 +568,7 @@ export function restoreRetainedReplayRecords(world, previousWorld, chatKey) {
 
 export function resetWorldMemory(world) {
     world.scene = null;
-    for (const category of ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'corrections']) {
+    for (const category of ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds', 'corrections']) {
         world[category] = [];
     }
     world.sources = {};
@@ -666,7 +679,7 @@ function clampImportance(value) {
 
 export function worldCounts(world) {
     if (!world) return {};
-    const counts = Object.fromEntries(['entities', 'facts', 'states', 'relationships', 'events', 'threads']
+    const counts = Object.fromEntries(['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds']
         .map(name => [name, world[name]?.length || 0]));
     counts.L1 = world.capsules?.length || 0;
     counts.L2 = world.arcs?.length || 0;

@@ -65,10 +65,12 @@ test('built-in SillyTavern file storage preserves worlds, revisions, import, and
     assert.equal((await api.listWorlds()).worlds[0].id, created.world.id);
 
     created.world.facts.push({ id: 'fact-1', subject: 'Yui', predicate: 'likes', value: 'cake' });
+    created.world.backgrounds.push({ id: 'background-1', topic: 'Distant election', summary: 'The result remains disputed.', status: 'active', certainty: 'reported' });
     created.world.corrections.push({ id: 'correction-1', instruction: 'Yui likes cake.', operations: [] });
     const saved = await api.saveWorld(created.world);
     assert.equal(saved.world.revision, 1);
     assert.equal((await api.getWorld(saved.world.id)).world.facts.length, 1);
+    assert.equal((await api.getWorld(saved.world.id)).world.backgrounds[0].topic, 'Distant election');
     assert.equal((await api.getWorld(saved.world.id)).world.corrections.length, 1);
 
     await assert.rejects(() => api.saveWorld(created.world), error => error.status === 409);
@@ -79,6 +81,7 @@ test('built-in SillyTavern file storage preserves worlds, revisions, import, and
     assert.equal(imported.world.id, 'imported-world');
     assert.equal(JSON.parse(server.files.get('continuity-memory-world-imported-world.json')).shardedStorage.version, 2);
     assert.equal((await api.getWorld('imported-world')).world.facts[0].id, 'fact-1');
+    assert.equal((await api.getWorld('imported-world')).world.backgrounds[0].id, 'background-1');
     assert.equal((await api.listWorlds()).worlds.length, 2);
 
     assert.equal((await api.deleteWorld(saved.world.id)).deleted, saved.world.id);

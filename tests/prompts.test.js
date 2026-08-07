@@ -47,7 +47,7 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /State holds replaceable conditions/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /durable, tense-neutral identity summaries/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /unfinished matters in atomic threads/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /exact supplied thread title/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /exact supplied thread titles and background topics/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /combine simultaneous values of one predicate/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Most retained items should be 2 or 3/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /reserve 5 for truly foundational continuity/);
@@ -56,9 +56,11 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Canonical memory context contains relevant existing mutable records/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Omit an existing record when the excerpt only repeats it unchanged/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Coverage and retrieval are separate concerns/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /silently inventory every distinct continuity-bearing strand/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /background coverage belongs in compact facts, states, relationships, events, or threads/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /When uncertain about future relevance, retain one compact low-importance record/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /silently inventory every distinct non-focal continuity-bearing strand/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /output exactly one compact backgrounds record/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Never group unrelated strands/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /confirmed, reported, rumored, or uncertain/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /When uncertain about future relevance, retain one compact low-importance background record/);
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(CONTINUITY_COVERAGE_RULES));
     assert.match(DEFAULT_RETRIEVAL_SYSTEM_PROMPT, /roleplay or simulation/);
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /participants need not be people/);

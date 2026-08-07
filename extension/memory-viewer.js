@@ -6,6 +6,7 @@ export const MEMORY_VIEW_CATEGORIES = Object.freeze([
     { key: 'relationships', label: 'Relationships' },
     { key: 'events', label: 'Events' },
     { key: 'threads', label: 'Open threads' },
+    { key: 'backgrounds', label: 'Background developments' },
     { key: 'corrections', label: 'Corrections' },
     { key: 'l1', label: 'L1' },
     { key: 'l2', label: 'L2' },
@@ -102,6 +103,13 @@ function entry(category, item, index) {
         add(fields, 'Status', item.status);
         add(fields, 'Details', item.detail);
         add(fields, 'Participants', item.participants);
+        addTemporal(fields, item);
+    } else if (category === 'backgrounds') {
+        title = item.topic || title;
+        add(fields, 'Summary', item.summary);
+        add(fields, 'Status', item.status);
+        add(fields, 'Certainty', item.certainty);
+        add(fields, 'Participants / subjects', item.participants);
         addTemporal(fields, item);
     } else if (category === 'corrections') {
         title = item.summary || 'Memory correction';

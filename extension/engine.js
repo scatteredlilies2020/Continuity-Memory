@@ -5,21 +5,21 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.56';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.57';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.56';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.57';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.56';
-import { buildExtractionSystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.56';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.57';
+import { buildExtractionSystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.57';
 import { sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.56';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.56';
-import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.56';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.57';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.57';
+import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.57';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
 
@@ -38,7 +38,7 @@ const temporalRelationSchema = {
 const extractionSchema = {
     type: 'object',
     additionalProperties: false,
-    required: ['scene', 'sceneCapsule', 'entities', 'identityResolutions', 'recordMerges', 'facts', 'states', 'relationships', 'events', 'threads'],
+    required: ['scene', 'sceneCapsule', 'entities', 'identityResolutions', 'recordMerges', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds'],
     properties: {
         scene: {
             type: 'object', additionalProperties: false,
@@ -84,7 +84,7 @@ const extractionSchema = {
                 type: 'object', additionalProperties: false,
                 required: ['category', 'canonicalId', 'duplicateIds', 'evidence'],
                 properties: {
-                    category: { type: 'string', enum: ['facts', 'states', 'relationships', 'threads'] },
+                    category: { type: 'string', enum: ['facts', 'states', 'relationships', 'threads', 'backgrounds'] },
                     canonicalId: { type: 'string' },
                     duplicateIds: { type: 'array', maxItems: 12, items: { type: 'string' } },
                     evidence: { type: 'string' },
@@ -142,6 +142,19 @@ const extractionSchema = {
                 properties: {
                     targetId: { type: 'string' }, title: { type: 'string' }, detail: { type: 'string' }, status: { type: 'string', enum: ['open', 'resolved', 'abandoned'] },
                     participants: { type: 'array', items: { type: 'string' } }, importance: { type: 'integer', minimum: 1, maximum: 5 },
+                },
+            },
+        },
+        backgrounds: {
+            type: 'array', items: {
+                type: 'object', additionalProperties: false,
+                required: ['targetId', 'topic', 'summary', 'status', 'certainty', 'participants', 'importance'],
+                properties: {
+                    targetId: { type: 'string' }, topic: { type: 'string' }, summary: { type: 'string' },
+                    status: { type: 'string', enum: ['active', 'resolved', 'dormant'] },
+                    certainty: { type: 'string', enum: ['confirmed', 'reported', 'rumored', 'uncertain'] },
+                    participants: { type: 'array', items: { type: 'string' } },
+                    importance: { type: 'integer', minimum: 1, maximum: 5 },
                 },
             },
         },
@@ -204,7 +217,7 @@ const correctionSchema = {
                 required: ['action', 'category', 'targetId', 'reason', 'recordJson'],
                 properties: {
                     action: { type: 'string', enum: ['add', 'update', 'delete'] },
-                    category: { type: 'string', enum: ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'capsules'] },
+                    category: { type: 'string', enum: ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds', 'capsules'] },
                     targetId: { type: 'string' },
                     reason: { type: 'string' },
                     recordJson: { type: 'string' },
@@ -244,6 +257,7 @@ const JSON_SHAPE_EXAMPLE = JSON.stringify({
     relationships: [{ targetId: '', from: '', to: '', kind: '', status: '', dynamic: '', importance: 3 }],
     events: [{ title: '', summary: '', participants: [], location: '', storyTime: '', consequences: '', importance: 3, temporal: { frame: 'main narrative', relation: 'same-period', elapsed: '', certainty: 'implicit' } }],
     threads: [{ targetId: '', title: '', detail: '', status: 'open', participants: [], importance: 3 }],
+    backgrounds: [{ targetId: '', topic: '', summary: '', status: 'active', certainty: 'reported', participants: [], importance: 2 }],
 });
 
 let activeExtractionThinkingMode = null;
@@ -322,7 +336,7 @@ function validateResult(result, world) {
     if (!result.sceneCapsule || typeof result.sceneCapsule !== 'object' || !Array.isArray(result.sceneCapsule.beats)) {
         throw new Error('Extractor returned no valid chronological scene capsule.');
     }
-    for (const key of ['entities', 'facts', 'states', 'relationships', 'events', 'threads']) {
+    for (const key of ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds']) {
         if (!Array.isArray(result[key])) throw new Error(`Extractor field "${key}" is not an array.`);
     }
     sanitizeReconciliationMetadata(result, world);
@@ -396,6 +410,15 @@ function extractionStateContext(world, messages) {
             detail: String(item.detail || '').replace(/\s+/g, ' ').trim().slice(0, 240),
             status: item.status,
         }));
+    const backgrounds = rankCanonical(world?.backgrounds,
+        item => `${item.topic || ''} ${item.summary || ''} ${(item.participants || []).join(' ')}`,
+        item => item.participants || [], 16).map(item => ({
+        targetId: item.id,
+        topic: item.topic,
+        summary: String(item.summary || '').replace(/\s+/g, ' ').trim().slice(0, 320),
+        status: item.status,
+        certainty: item.certainty,
+    }));
     const snapshot = {
         canonicalEntities: entities,
         activeStates: active.map(({ item }) => ({
@@ -408,8 +431,9 @@ function extractionStateContext(world, messages) {
         canonicalFacts: facts,
         canonicalRelationships: relationships,
         knownThreads: activeThreads,
+        knownBackgrounds: backgrounds,
     };
-    return `CANONICAL MEMORY CONTEXT (reference only; not source events):\n${JSON.stringify(snapshot)}\n\nFor entities, facts, states, relationships, and threads, set targetId to the supplied record ID when the new narrative updates the same underlying record even if its wording differs; preserve its canonical identity fields. Leave targetId empty only for genuinely new records. Do not output unchanged records. If multiple supplied facts, states, relationships, or threads are semantic duplicates of one durable item, add one recordMerges entry naming the canonical ID and duplicate IDs; never merge merely similar or recurring events. Clear an invalidated ongoing state with an empty value. Reuse exact canonical names, predicates, attributes, relationship kinds, and thread titles.`;
+    return `CANONICAL MEMORY CONTEXT (reference only; not source events):\n${JSON.stringify(snapshot)}\n\nFor entities, facts, states, relationships, threads, and backgrounds, set targetId to the supplied record ID when the new narrative updates the same underlying record even if its wording differs; preserve its canonical identity fields. Leave targetId empty only for genuinely new records. Do not output unchanged records. If multiple supplied facts, states, relationships, threads, or backgrounds are semantic duplicates of one durable item, add one recordMerges entry naming the canonical ID and duplicate IDs; never merge merely similar or recurring events. Clear an invalidated ongoing state with an empty value. Reuse exact canonical names, predicates, attributes, relationship kinds, thread titles, and background topics.`;
 }
 
 function extractionTemporalContext(world) {

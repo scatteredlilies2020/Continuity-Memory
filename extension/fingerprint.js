@@ -91,7 +91,7 @@ export function findInvalidExtractionRanges(world, currentMessages, chatKey) {
 
 function hasContinuityData(world) {
     if (world?.scene) return true;
-    return ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads']
+    return ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds']
         .some(key => Array.isArray(world?.[key]) && world[key].length > 0);
 }
 
@@ -147,7 +147,7 @@ function remapChatKey(world, from, to) {
         }
     };
     remapRefs(aligned.scene);
-    for (const key of ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads']) {
+    for (const key of ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds']) {
         for (const item of aligned[key] || []) remapRefs(item);
     }
     return aligned;
@@ -191,7 +191,7 @@ function consolidateSourceAliases(world, candidates, currentChatKey) {
         .map(item => item.id));
 
     consolidated.scene = filterSources(consolidated.scene);
-    for (const key of ['entities', 'facts', 'states', 'relationships', 'events', 'threads']) {
+    for (const key of ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds']) {
         consolidated[key] = (consolidated[key] || []).map(filterSources).filter(Boolean);
     }
     consolidated.capsules = (consolidated.capsules || [])
