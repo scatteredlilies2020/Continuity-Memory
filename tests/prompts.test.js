@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
     buildExtractionSystemPrompt,
+    buildHierarchySystemPrompt,
     CONTINUITY_COVERAGE_RULES,
     DEFAULT_ARC_SYSTEM_PROMPT,
     DEFAULT_ERA_SYSTEM_PROMPT,
     DEFAULT_EXTRACTION_SYSTEM_PROMPT,
     DEFAULT_JB_PROMPT,
     DEFAULT_RETRIEVAL_SYSTEM_PROMPT,
+    HIERARCHY_CONCISION_RULES,
     renderPromptTemplate,
 } from '../extension/prompts.js';
 
@@ -30,6 +32,13 @@ test('custom prompt templates cannot omit required payloads', () => {
     assert.match(rendered, /Custom instruction only\./);
     assert.match(rendered, /\{"required":true\}/);
     assert.match(rendered, /User: hello/);
+});
+
+test('hierarchy concision rules apply to defaults and custom instructions', () => {
+    assert.equal(buildHierarchySystemPrompt(DEFAULT_ARC_SYSTEM_PROMPT), DEFAULT_ARC_SYSTEM_PROMPT);
+    assert.equal(buildHierarchySystemPrompt(DEFAULT_ERA_SYSTEM_PROMPT), DEFAULT_ERA_SYSTEM_PROMPT);
+    assert.equal(buildHierarchySystemPrompt('Custom hierarchy instructions.'), `Custom hierarchy instructions.\n\n${HIERARCHY_CONCISION_RULES}`);
+    assert.match(HIERARCHY_CONCISION_RULES, /never use an ellipsis/i);
 });
 
 test('prompt templates replace optional and required placeholders', () => {

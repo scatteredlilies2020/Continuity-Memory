@@ -604,8 +604,8 @@ export function addDerivedArc(world, result, capsules) {
     const temporalFrames = [...new Set(capsules.map(item => item.temporal?.frame).filter(Boolean))];
     const arc = {
         id: id('arc'),
-        title: text(result.title) || `L2 covering ${capsules.length} L1 records`,
-        storyTime: text(result.storyTime),
+        title: clipped(result.title, 140) || `L2 covering ${capsules.length} L1 records`,
+        storyTime: clipped(result.storyTime, 180),
         participants: cleanList(result.participants, 30),
         summary: text(result.summary),
         turningPoints: cleanList(result.turningPoints, 8).map(text),
@@ -650,8 +650,8 @@ export function addDerivedEra(world, result, arcs) {
     const temporalFrames = [...new Set(arcs.flatMap(item => item.temporalFrames || []))];
     const era = {
         id: id('era'),
-        title: text(result.title) || `L3 covering ${arcs.length} L2 records`,
-        storyTime: text(result.storyTime),
+        title: clipped(result.title, 160) || `L3 covering ${arcs.length} L2 records`,
+        storyTime: clipped(result.storyTime, 220),
         participants: cleanList(result.participants, 40),
         summary: text(result.summary),
         turningPoints: cleanList(result.turningPoints, 12).map(text),

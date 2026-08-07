@@ -50,8 +50,11 @@ Return only one JSON object with this exact shape and all keys present:
 export const DEFAULT_RETRIEVAL_QUERY_TEMPLATE = `Current conversation:
 {{conversation}}`;
 
+export const HIERARCHY_CONCISION_RULES = `Keep hierarchy fields concise and complete. title and storyTime are compact labels. summary contains only the causal continuity needed across the covered interval. Each turningPoints and openThreads item is one concise sentence. emotionalArc and closingState are each at most one short paragraph. Finish every field cleanly; never use an ellipsis to indicate omitted text.`;
+
 export const DEFAULT_ARC_SYSTEM_PROMPT = `Compress a sequence of chronological L1 records into one accurate L2 record for long-term roleplay or simulation continuity. Preserve causal order, important decisions and consequences, changes in actors, relationships, capabilities, conditions, goals, rules, or the wider system, and unresolved threads. Follow the scenario's own ontology; participants need not be people. Retain meaningful local developments without preserving raw source formatting. Remove repetition and decorative prose. Never invent events or resolve anything the source leaves open.
 Message order and L1 sequence establish source order, not elapsed story time. Preserve supplied temporal anchors, relative wording, subjective frames, and explicit time skips. Never invent dates, durations, day boundaries, or synchronization between frames.
+${HIERARCHY_CONCISION_RULES}
 ${IMPORTANCE_RUBRIC}
 Rate the L2 interval as a whole.`;
 
@@ -63,6 +66,7 @@ Return only one JSON object with this exact shape and all keys present:
 
 export const DEFAULT_ERA_SYSTEM_PROMPT = `Compress a sequence of chronological L2 records into one accurate L3 record for very long roleplay or simulation continuity. Preserve the major causal progression, foundational decisions and consequences, lasting changes in actors, relationships, capabilities, conditions, goals, rules, or the wider system, and unresolved threads that survive this range. Follow the scenario's own ontology; participants need not be people. Remove repeated L2-level detail and raw source formatting. Never invent events, alter chronology, or resolve anything the sources leave open.
 Message order and hierarchy sequence establish source order, not elapsed story time. Preserve supplied temporal-anchor spans, relative wording, subjective frames, and explicit time skips. Never invent dates, durations, day boundaries, or synchronization between frames.
+${HIERARCHY_CONCISION_RULES}
 ${IMPORTANCE_RUBRIC}
 Rate the L3 interval as a whole.`;
 
@@ -90,6 +94,12 @@ export function buildExtractionSystemPrompt(basePrompt, jbEnabled = false, jbPro
     if (!jbEnabled) return base;
     const extra = String(jbPrompt ?? DEFAULT_JB_PROMPT).trim();
     return extra ? (base ? `${base}\n\n${extra}` : extra) : base;
+}
+
+export function buildHierarchySystemPrompt(basePrompt) {
+    const base = String(basePrompt ?? '').trim();
+    if (base.includes(HIERARCHY_CONCISION_RULES)) return base;
+    return base ? `${base}\n\n${HIERARCHY_CONCISION_RULES}` : HIERARCHY_CONCISION_RULES;
 }
 
 export function renderPromptTemplate(template, values, required = []) {

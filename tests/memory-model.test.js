@@ -557,6 +557,8 @@ test('L2 preserves a complete generated summary through storage and retrieval', 
     const completeTurningPoint = `${'A detailed causal turning point remained important. '.repeat(8)}FINAL_L2_TURN.`;
     const completeThread = `${'A detailed unresolved thread remained important. '.repeat(7)}FINAL_L2_THREAD.`;
     assert.ok(completeSummary.length > 1800);
+    assert.ok(completeTitle.length > 140);
+    assert.ok(completeStoryTime.length > 180);
 
     const completeProgression = `${'Trust changed through each major development. '.repeat(20)}FINAL_L2_PROGRESSION.`;
     const completeClosing = `${'The interval closed with a durable consequence. '.repeat(20)}FINAL_L2_CLOSING.`;
@@ -567,8 +569,10 @@ test('L2 preserves a complete generated summary through storage and retrieval', 
     }, [target.capsules[0]]);
 
     assert.equal(arc.summary, completeSummary);
-    assert.equal(arc.title, completeTitle);
-    assert.equal(arc.storyTime, completeStoryTime);
+    assert.ok(arc.title.length <= 140);
+    assert.ok(arc.storyTime.length <= 180);
+    assert.ok(arc.title.endsWith('…'));
+    assert.ok(arc.storyTime.endsWith('…'));
     assert.equal(arc.turningPoints[0], completeTurningPoint);
     assert.equal(arc.emotionalArc, completeProgression);
     assert.equal(arc.closingState, completeClosing);
@@ -646,6 +650,8 @@ test('L3 preserves a complete generated summary through storage and retrieval', 
     const completeTurningPoint = `${'A detailed long-range turning point remained important. '.repeat(9)}FINAL_L3_TURN.`;
     const completeThread = `${'A detailed long-range unresolved thread remained important. '.repeat(7)}FINAL_L3_THREAD.`;
     assert.ok(completeSummary.length > 2600);
+    assert.ok(completeTitle.length > 160);
+    assert.ok(completeStoryTime.length > 220);
 
     const completeProgression = `${'The long-range progression remained causally significant. '.repeat(20)}FINAL_L3_PROGRESSION.`;
     const completeClosing = `${'The era closed with a durable long-range consequence. '.repeat(20)}FINAL_L3_CLOSING.`;
@@ -656,8 +662,10 @@ test('L3 preserves a complete generated summary through storage and retrieval', 
     }, [arc]);
 
     assert.equal(era.summary, completeSummary);
-    assert.equal(era.title, completeTitle);
-    assert.equal(era.storyTime, completeStoryTime);
+    assert.ok(era.title.length <= 160);
+    assert.ok(era.storyTime.length <= 220);
+    assert.ok(era.title.endsWith('…'));
+    assert.ok(era.storyTime.endsWith('…'));
     assert.equal(era.turningPoints[0], completeTurningPoint);
     assert.equal(era.emotionalArc, completeProgression);
     assert.equal(era.closingState, completeClosing);
