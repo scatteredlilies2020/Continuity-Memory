@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
+import { canonicalFactReference, sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
 
 function extraction() {
     return {
@@ -8,6 +8,16 @@ function extraction() {
         identityResolutions: [], recordMerges: [],
     };
 }
+
+test('canonical fact references expose identity metadata needed for safe target reuse', () => {
+    assert.deepEqual(canonicalFactReference({
+        id: 'fact_schedule', subject: 'Team 7', predicate: 'training and service structure',
+        category: 'team operations', persistence: 'recurring', value: `  ${'schedule '.repeat(30)}  `,
+    }), {
+        targetId: 'fact_schedule', subject: 'Team 7', predicate: 'training and service structure',
+        category: 'team operations', persistence: 'recurring', value: 'schedule '.repeat(20),
+    });
+});
 
 test('unknown model-generated target IDs fail closed without blocking extraction', () => {
     const result = extraction();

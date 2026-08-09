@@ -5,7 +5,7 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.60';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.61';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
@@ -13,14 +13,14 @@ import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionC
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
 import { memoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.60';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.61';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.60';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.60';
-import { sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.60';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.60';
-import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.60';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.61';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.61';
+import { canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.61';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.61';
+import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.61';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
 
@@ -380,12 +380,7 @@ function extractionStateContext(world, messages) {
         .map(({ item }) => item);
     const facts = rankCanonical(world?.facts,
         item => `${item.subject || ''} ${item.predicate || ''} ${item.value || ''}`,
-        item => [item.subject], 18).map(item => ({
-        targetId: item.id,
-        subject: item.subject,
-        predicate: item.predicate,
-        value: String(item.value || '').replace(/\s+/g, ' ').trim().slice(0, 180),
-    }));
+        item => [item.subject], 18).map(canonicalFactReference);
     const relationships = rankCanonical(world?.relationships,
         item => `${item.from || ''} ${item.to || ''} ${item.kind || ''} ${item.status || ''} ${item.dynamic || ''}`,
         item => [item.from, item.to], 12).map(item => ({
@@ -434,7 +429,7 @@ function extractionStateContext(world, messages) {
         knownThreads: activeThreads,
         knownBackgrounds: backgrounds,
     };
-    return `CANONICAL MEMORY CONTEXT (reference only; not source events):\n${JSON.stringify(snapshot)}\n\nFor entities, facts, states, relationships, threads, and backgrounds, set targetId to the supplied record ID when the new narrative updates the same underlying record even if its wording differs; preserve its canonical identity fields. Leave targetId empty only for genuinely new records. Do not output unchanged records. If multiple supplied facts, states, relationships, threads, or backgrounds are semantic duplicates of one durable item, add one recordMerges entry naming the canonical ID and duplicate IDs; never merge merely similar or recurring events. Clear an invalidated ongoing state with an empty value. Reuse exact canonical names, predicates, attributes, relationship kinds, thread titles, and background topics.`;
+    return `CANONICAL MEMORY CONTEXT (reference only; not source events):\n${JSON.stringify(snapshot)}\n\nFor entities, facts, states, relationships, threads, and backgrounds, set targetId to the supplied record ID when the new narrative updates the same underlying record even if its wording differs; preserve its canonical identity fields. Leave targetId empty only for genuinely new records. Do not output unchanged records. If multiple supplied facts, states, relationships, threads, or backgrounds are semantic duplicates of one durable item, add one recordMerges entry naming the canonical ID and duplicate IDs; never merge merely similar or recurring events. Clear an invalidated ongoing state with an empty value. Reuse exact canonical names, predicates, fact categories, attributes, relationship kinds, thread titles, and background topics.`;
 }
 
 function extractionTemporalContext(world) {

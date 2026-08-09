@@ -1,5 +1,16 @@
 export const TARGET_RECORD_CATEGORIES = Object.freeze(['entities', 'facts', 'states', 'relationships', 'threads', 'backgrounds']);
 
+export function canonicalFactReference(item) {
+    return {
+        targetId: item?.id,
+        subject: item?.subject,
+        predicate: item?.predicate,
+        category: item?.category,
+        persistence: item?.persistence,
+        value: String(item?.value || '').replace(/\s+/g, ' ').trim().slice(0, 180),
+    };
+}
+
 function normalized(value) {
     return String(value || '').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
 }
