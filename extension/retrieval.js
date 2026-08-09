@@ -190,7 +190,79 @@ function eventSourcePosition(item, chatKey) {
     return first ? [first.chatKey === chatKey ? 0 : 1, first.from, first.to, first.chatKey] : [2, 0, 0, ''];
 }
 
-export function orderEventsChronologically(items, chatKey = '') {
+function addTemporalRelation(graph, subject, reference, relation) {
+    if (!subject || !reference || subject === reference) return;
+    const edge = (from, to) => {
+        if (!graph.has(from)) graph.set(from, new Set());
+        if (!graph.has(to)) graph.set(to, new Set());
+        graph.get(from).add(to);
+    };
+    if (relation === 'after') edge(reference, subject);
+    else if (relation === 'before') edge(subject, reference);
+    else if (relation === 'same-period' || relation === 'overlaps') {
+        edge(reference, subject);
+        edge(subject, reference);
+    }
+}
+
+function orderUndatedEventsByRelations(entries, capsules) {
+    if (entries.length < 2) return entries;
+    const graph = new Map();
+    for (const capsule of capsules || []) {
+        addTemporalRelation(
+            graph,
+            plain(capsule?.temporal?.anchorId),
+            plain(capsule?.temporal?.referenceId),
+            capsule?.temporal?.relation,
+        );
+    }
+    const eventNodes = entries.map((entry, index) => `selected-event:${index}`);
+    entries.forEach((entry, index) => addTemporalRelation(
+        graph,
+        eventNodes[index],
+        plain(entry.item?.temporal?.referenceId),
+        entry.item?.temporal?.relation,
+    ));
+    const reachable = eventNodes.map(start => {
+        const found = new Set();
+        const pending = [start];
+        while (pending.length) {
+            const current = pending.pop();
+            for (const next of graph.get(current) || []) {
+                if (found.has(next)) continue;
+                found.add(next);
+                pending.push(next);
+            }
+        }
+        return found;
+    });
+    const edges = entries.map(() => new Set());
+    const indegree = entries.map(() => 0);
+    for (let left = 0; left < entries.length; left++) {
+        for (let right = left + 1; right < entries.length; right++) {
+            const leftBefore = reachable[left].has(eventNodes[right]);
+            const rightBefore = reachable[right].has(eventNodes[left]);
+            if (leftBefore === rightBefore) continue;
+            const [from, to] = leftBefore ? [left, right] : [right, left];
+            edges[from].add(to);
+            indegree[to]++;
+        }
+    }
+    const remaining = new Set(entries.map((_, index) => index));
+    const result = [];
+    while (remaining.size) {
+        const next = [...remaining]
+            .filter(index => indegree[index] === 0)
+            .sort((a, b) => entries[a].sourceIndex - entries[b].sourceIndex)[0];
+        if (next === undefined) return entries;
+        remaining.delete(next);
+        result.push(entries[next]);
+        for (const target of edges[next]) indegree[target]--;
+    }
+    return result;
+}
+
+export function orderEventsChronologically(items, chatKey = '', capsules = []) {
     const ordered = (items || []).map((item, selectionIndex) => ({ item, selectionIndex, date: storyDateKey(item) }))
         .sort((left, right) => {
             const a = eventSourcePosition(left.item, chatKey);
@@ -201,6 +273,13 @@ export function orderEventsChronologically(items, chatKey = '') {
                 || left.selectionIndex - right.selectionIndex;
         });
     ordered.forEach((entry, sourceIndex) => { entry.sourceIndex = sourceIndex; });
+    // The extractor already records each event relative to its containing L1,
+    // and each L1 relative to the previous anchor. Use that partial order for
+    // undated events; unknown, detached, and contradictory relations retain
+    // their source-message order.
+    const undatedSlots = ordered.map((entry, index) => entry.date ? null : index).filter(index => index !== null);
+    const temporallyOrdered = orderUndatedEventsByRelations(undatedSlots.map(index => ordered[index]), capsules);
+    undatedSlots.forEach((slot, index) => { ordered[slot] = temporallyOrdered[index]; });
     // Dated records reorder only the slots occupied by comparable dated records.
     // This keeps undated events anchored to their reliable source-message order.
     const families = new Map();
@@ -402,7 +481,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
 
     const selectedEvents = matching((world.events || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)), queryTerms, undefined, 'event', semanticRanks)
         .slice(0, 12).map(({ item }) => item);
-    const events = orderEventsChronologically(selectedEvents, chatKey)
+    const events = orderEventsChronologically(selectedEvents, chatKey, world.capsules || [])
         .map(item => {
             const storyTime = anchoredStoryTime(item);
             const storyTimeAnchored = storyTime !== plain(item.storyTime);
@@ -416,5 +495,5 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity_memory>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value) };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.58';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.59';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';

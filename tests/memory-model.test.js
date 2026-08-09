@@ -525,6 +525,49 @@ test('chronological event ordering recognizes stored numeric, placeholder-year, 
     assert.deepEqual(numbered.map(item => item.id), ['day-one', 'day-two']);
 });
 
+test('undated events follow stored narrative relations across later flashbacks', () => {
+    const source = (from) => [{ chatKey: 'chat', from, to: from }];
+    const presentAnchor = 'L1-chat-0-7';
+    const flashbackAnchor = 'L1-chat-8-15';
+    const capsules = [
+        { chatKey: 'chat', from: 0, to: 7, temporal: { anchorId: presentAnchor, referenceId: '', relation: 'unknown' } },
+        { chatKey: 'chat', from: 8, to: 15, temporal: { anchorId: flashbackAnchor, referenceId: presentAnchor, relation: 'before' } },
+    ];
+    const ordered = orderEventsChronologically([
+        { id: 'present', sources: source(1), temporal: { referenceId: presentAnchor, relation: 'same-period' } },
+        { id: 'flashback', sources: source(9), temporal: { referenceId: flashbackAnchor, relation: 'same-period' } },
+    ], 'chat', capsules);
+
+    assert.deepEqual(ordered.map(item => item.id), ['flashback', 'present']);
+});
+
+test('undated events use before and after positions within one L1 anchor', () => {
+    const anchorId = 'L1-chat-0-7';
+    const source = [{ chatKey: 'chat', from: 0, to: 7 }];
+    const ordered = orderEventsChronologically([
+        { id: 'after', sources: source, temporal: { referenceId: anchorId, relation: 'after' } },
+        { id: 'same', sources: source, temporal: { referenceId: anchorId, relation: 'same-period' } },
+        { id: 'before', sources: source, temporal: { referenceId: anchorId, relation: 'before' } },
+    ], 'chat', [{ chatKey: 'chat', from: 0, to: 7, temporal: { anchorId, referenceId: '', relation: 'unknown' } }]);
+
+    assert.deepEqual(ordered.map(item => item.id), ['before', 'same', 'after']);
+});
+
+test('contradictory undated temporal relations fail closed to source order', () => {
+    const firstAnchor = 'L1-chat-0-7';
+    const secondAnchor = 'L1-chat-8-15';
+    const capsules = [
+        { temporal: { anchorId: firstAnchor, referenceId: secondAnchor, relation: 'after' } },
+        { temporal: { anchorId: secondAnchor, referenceId: firstAnchor, relation: 'after' } },
+    ];
+    const ordered = orderEventsChronologically([
+        { id: 'first', sources: [{ chatKey: 'chat', from: 1, to: 1 }], temporal: { referenceId: firstAnchor, relation: 'same-period' } },
+        { id: 'second', sources: [{ chatKey: 'chat', from: 9, to: 9 }], temporal: { referenceId: secondAnchor, relation: 'same-period' } },
+    ], 'chat', capsules);
+
+    assert.deepEqual(ordered.map(item => item.id), ['first', 'second']);
+});
+
 test('retrieval supports short identifiers and CJK names', () => {
     const target = world();
     target.entities.push(
