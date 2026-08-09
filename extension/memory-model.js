@@ -1,5 +1,6 @@
 import { EXTRACTION_VERSION } from './coverage.js';
 import { isSuppressedByCorrection } from './memory-correction.js';
+import { reconciliationTargetIsCompatible } from './reconciliation-policy.js';
 import { canonicalMemorySubject, canonicalStateAttribute, stateIdentity, stateScope } from './state-lifecycle.js';
 import { buildL1TemporalAnchor, buildRelativeTemporalAnchor } from './temporal-anchors.js';
 import { randomUuid } from './uuid.js';
@@ -55,8 +56,13 @@ function shouldPreserveHistoricalRecord(item, meta) {
 function mergeArray(world, collection, target, incoming, identity, meta, prefix, combine, preserveExisting = false) {
     for (const raw of incoming || []) {
         if (!raw || typeof raw !== 'object') continue;
-        const requestedTargetId = text(raw.targetId);
-        const requestedIndex = requestedTargetId ? target.findIndex(item => item.id === requestedTargetId) : -1;
+        let requestedTargetId = text(raw.targetId);
+        let requestedIndex = requestedTargetId ? target.findIndex(item => item.id === requestedTargetId) : -1;
+        if (requestedIndex >= 0 && !reconciliationTargetIsCompatible(collection, raw, target[requestedIndex])) {
+            requestedTargetId = '';
+            requestedIndex = -1;
+            raw.targetId = '';
+        }
         const requestedTarget = requestedIndex >= 0 ? target[requestedIndex] : null;
         const normalized = combine ? combine(raw, requestedTarget) : raw;
         if (isSuppressedByCorrection(world, collection, normalized, meta)) continue;

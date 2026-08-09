@@ -1,5 +1,21 @@
 export const TARGET_RECORD_CATEGORIES = Object.freeze(['entities', 'facts', 'states', 'relationships', 'threads', 'backgrounds']);
 
+function normalized(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+}
+
+export function reconciliationTargetIsCompatible(category, incoming, existing) {
+    if (!existing) return false;
+    if (category !== 'facts') return true;
+    const incomingPredicate = normalized(incoming?.predicate);
+    const existingPredicate = normalized(existing?.predicate);
+    const incomingCategory = normalized(incoming?.category);
+    const existingCategory = normalized(existing?.category);
+    const predicateChanged = incomingPredicate && existingPredicate && incomingPredicate !== existingPredicate;
+    const categoryChanged = incomingCategory && existingCategory && incomingCategory !== existingCategory;
+    return !(predicateChanged && categoryChanged);
+}
+
 export function sanitizeReconciliationMetadata(result, world) {
     let ignored = 0;
     if (!Array.isArray(result.identityResolutions)) {
@@ -12,12 +28,16 @@ export function sanitizeReconciliationMetadata(result, world) {
     }
 
     for (const category of TARGET_RECORD_CATEGORIES) {
-        const validIds = new Set((world?.[category] || []).map(item => String(item.id || '')).filter(Boolean));
+        const recordsById = new Map((world?.[category] || [])
+            .map(item => [String(item.id || ''), item])
+            .filter(([itemId]) => itemId));
         for (const item of result[category] || []) {
             if (!item || typeof item !== 'object') continue;
             const targetId = String(item.targetId || '').trim();
-            if (targetId && !validIds.has(targetId)) ignored++;
-            item.targetId = validIds.has(targetId) ? targetId : '';
+            const compatible = targetId
+                && reconciliationTargetIsCompatible(category, item, recordsById.get(targetId));
+            if (targetId && !compatible) ignored++;
+            item.targetId = compatible ? targetId : '';
         }
     }
 

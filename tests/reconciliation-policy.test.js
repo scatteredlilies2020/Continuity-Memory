@@ -33,6 +33,30 @@ test('valid target IDs survive while unsafe semantic merge directives are discar
     assert.equal(sanitized.ignored, 1);
 });
 
+test('fact target IDs fail closed when both predicate and category change', () => {
+    const result = extraction();
+    result.facts.push({
+        targetId: 'fact_cleanup', subject: 'Team 7', predicate: 'training and service structure', category: 'team operations',
+    });
+    const sanitized = sanitizeReconciliationMetadata(result, {
+        entities: [], states: [], relationships: [], threads: [], backgrounds: [],
+        facts: [{ id: 'fact_cleanup', subject: 'Team 7', predicate: 'cleanup responsibility', category: 'accountability' }],
+    });
+    assert.equal(result.facts[0].targetId, '');
+    assert.equal(sanitized.ignored, 1);
+});
+
+test('fact target IDs may update wording while retaining the same category', () => {
+    const result = extraction();
+    result.facts.push({ targetId: 'fact_canal', subject: 'Canal', predicate: 'priority', category: 'infrastructure' });
+    const sanitized = sanitizeReconciliationMetadata(result, {
+        entities: [], states: [], relationships: [], threads: [], backgrounds: [],
+        facts: [{ id: 'fact_canal', subject: 'North Canal', predicate: 'maintenance objective', category: 'infrastructure' }],
+    });
+    assert.equal(result.facts[0].targetId, 'fact_canal');
+    assert.equal(sanitized.ignored, 0);
+});
+
 test('background strands reuse only valid stable target IDs', () => {
     const result = extraction();
     result.backgrounds.push({ targetId: 'background_qing', topic: 'Qing White Lotus suppression' });

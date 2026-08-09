@@ -65,6 +65,31 @@ test('stable target IDs update semantically matching records across arbitrary sc
     assert.deepEqual(target.facts[0].sources.map(source => [source.from, source.to]), [[0, 7], [8, 15]]);
 });
 
+test('an unrelated fact target ID cannot overwrite a canonical fact', () => {
+    const target = world();
+    const cleanup = extraction({
+        facts: [{ targetId: '', subject: 'Team 7', predicate: 'cleanup responsibility', value: 'Repair Training Ground Three.', category: 'accountability', importance: 3, persistence: 'persistent' }],
+        events: [],
+    });
+    mergeExtraction(target, cleanup, { chatKey: 'chat', from: 104, to: 111, allowStateUpdates: true });
+    const cleanupId = target.facts[0].id;
+    const schedule = extraction({
+        facts: [{
+            targetId: cleanupId, subject: 'Team 7', predicate: 'training and service structure',
+            value: 'Training occurs MWF; missions occur TTHS.', category: 'team operations', importance: 4, persistence: 'recurring',
+        }],
+        events: [],
+    });
+    mergeExtraction(target, schedule, { chatKey: 'chat', from: 120, to: 127, allowStateUpdates: true });
+
+    assert.equal(target.facts.length, 2);
+    assert.equal(target.facts[0].id, cleanupId);
+    assert.equal(target.facts[0].predicate, 'cleanup responsibility');
+    assert.equal(target.facts[0].value, 'Repair Training Ground Three.');
+    assert.equal(target.facts[1].predicate, 'training and service structure');
+    assert.equal(schedule.facts[0].targetId, target.facts[1].id);
+});
+
 test('compact background strands update by stable topic and inject only when relevant', () => {
     const target = world();
     const first = extraction({
