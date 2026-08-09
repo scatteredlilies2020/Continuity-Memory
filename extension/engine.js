@@ -5,22 +5,22 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.62';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.63';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
-import { completeL1Messages, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
+import { completeL1Messages, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
 import { memoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.62';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.63';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.62';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.62';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.63';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.63';
 import { canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.62';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.62';
-import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.62';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.63';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.63';
+import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.63';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
 
@@ -1411,9 +1411,14 @@ export async function repairDivergedBranch({ sourceMessages = null } = {}) {
     const messages = Array.isArray(sourceMessages) ? sourceMessages : collectMemoryEligibleMessages(getContext().chat || []);
     let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
     const divergence = getBranchRepairStatus(world, messages);
-    if (!divergence.detected) return { repaired: false, repairFrom: null, retained: 0 };
+    const stabilityRepairFrom = l1StabilityRepairFrom(messages, world.extractions, chatKey);
+    if (!divergence.detected && stabilityRepairFrom === null) return { repaired: false, repairFrom: null, retained: 0 };
 
-    let repairFrom = divergence.repairFrom;
+    const repairStarts = [divergence.detected ? divergence.repairFrom : null, stabilityRepairFrom]
+        .filter(value => value !== null && value !== undefined)
+        .map(Number)
+        .filter(Number.isFinite);
+    let repairFrom = Math.min(...repairStarts);
     let retained = (world.extractions || [])
         .filter(item => item.chatKey === chatKey && Number(item.to) < repairFrom)
         .sort((a, b) => Number(a.from) - Number(b.from));
@@ -1436,7 +1441,11 @@ export async function repairDivergedBranch({ sourceMessages = null } = {}) {
         restoreRetainedReplayRecords(targetWorld, previousWorld, chatKey);
     };
 
-    updateRuntime({ processing: true, status: 'repairing', lastError: '', retryStatus: `Removing stale memory from message ${repairFrom} onward before rebuilding the active branch…` });
+    const stabilityRewound = stabilityRepairFrom !== null;
+    const repairLabel = divergence.detected
+        ? `Removing stale memory from message ${repairFrom} onward${stabilityRewound ? ' and restoring the two-message stability buffer' : ''}…`
+        : `Rewinding memory from message ${repairFrom} onward to restore the two-message stability buffer…`;
+    updateRuntime({ processing: true, status: 'repairing', lastError: '', retryStatus: repairLabel });
     try {
         replay(world);
         try {
@@ -1447,9 +1456,19 @@ export async function repairDivergedBranch({ sourceMessages = null } = {}) {
             replay(world);
             world = (await api.saveWorld(world)).world;
         }
-        updateRuntime({ world, status: 'idle', progress: null, retryStatus: `Stale branch memory removed from message ${repairFrom} onward. Rebuilding from active messages…` });
+        const completedLabel = divergence.detected
+            ? `Stale branch memory removed from message ${repairFrom} onward. Rebuilding from active messages…`
+            : `Two-message stability buffer restored by rewinding memory from message ${repairFrom} onward.`;
+        updateRuntime({ world, status: 'idle', progress: null, retryStatus: completedLabel });
         await embedWorldInChat(world);
-        return { repaired: true, repairFrom, retained: retained.length, divergentIndexes: divergence.divergentIndexes };
+        return {
+            repaired: true,
+            repairFrom,
+            retained: retained.length,
+            divergenceDetected: divergence.detected,
+            stabilityRewound,
+            divergentIndexes: divergence.divergentIndexes || [],
+        };
     } catch (error) {
         updateRuntime({ status: 'error', progress: null, lastError: error.message, retryStatus: `Branch repair failed: ${error.message}` });
         throw error;

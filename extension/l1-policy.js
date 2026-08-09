@@ -55,6 +55,27 @@ export function isL1StabilityProtectedMessage(allMessages, eligibleMessages, mes
         || (Array.isArray(allMessages) && allMessages.some(message => Number(message?.index) === target && !eligibleIndexes.has(target)));
 }
 
+export function l1StabilityRepairFrom(messages, extractions, chatKey, bufferMessages = L1_STABILITY_BUFFER_MESSAGES) {
+    const bufferedIndexes = partitionL1StabilityBuffer(messages, bufferMessages).buffered
+        .map(message => Number(message?.index))
+        .filter(Number.isFinite);
+    if (!bufferedIndexes.length) return null;
+    const starts = (Array.isArray(extractions) ? extractions : [])
+        .filter(extraction => extraction?.chatKey === chatKey)
+        .filter(extraction => {
+            const from = Number(extraction?.from);
+            const to = Number(extraction?.to);
+            const sourceIndexes = new Set((extraction?.messageFingerprints || [])
+                .map(record => Number(record?.index))
+                .filter(Number.isFinite));
+            return bufferedIndexes.some(index => sourceIndexes.has(index)
+                || (Number.isFinite(from) && Number.isFinite(to) && index >= from && index <= to));
+        })
+        .map(extraction => Number(extraction?.from))
+        .filter(Number.isFinite);
+    return starts.length ? Math.min(...starts) : null;
+}
+
 export function selectAutomaticL1Messages(messages, groupSize = DEFAULT_L1_GROUP_SIZE, bootstrap = false) {
     const size = resolveL1GroupSize(groupSize);
     const source = Array.isArray(messages) ? messages : [];

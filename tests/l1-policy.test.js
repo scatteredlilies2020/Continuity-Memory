@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { completeL1MessageCount, completeL1Messages, isL1StabilityProtectedMessage, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages, validateL1GroupSize } from '../extension/l1-policy.js';
+import { completeL1MessageCount, completeL1Messages, isL1StabilityProtectedMessage, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages, validateL1GroupSize } from '../extension/l1-policy.js';
 
 test('L1 defaults to complete groups of eight messages', () => {
     assert.equal(resolveL1GroupSize(), 8);
@@ -56,6 +56,23 @@ test('L1 mutation protection includes the buffer and a separately provisional re
     assert.equal(isL1StabilityProtectedMessage(allMessages, eligibleMessages, 3), true);
     assert.equal(isL1StabilityProtectedMessage(allMessages, eligibleMessages, 4), true);
     assert.equal(isL1StabilityProtectedMessage(allMessages, eligibleMessages, undefined), false);
+});
+
+test('tail deletion rewinds the processed L1 range that enters the stability buffer', () => {
+    const messages = Array.from({ length: 16 }, (_, index) => ({ index }));
+    const extractions = [
+        { chatKey: 'chat', from: 0, to: 7, messageFingerprints: [] },
+        { chatKey: 'chat', from: 8, to: 15, messageFingerprints: [] },
+    ];
+    assert.equal(l1StabilityRepairFrom(messages, extractions, 'chat'), 8);
+    assert.equal(l1StabilityRepairFrom(messages.slice(0, 8), extractions, 'chat'), 0);
+    assert.equal(l1StabilityRepairFrom(messages, extractions, 'other-chat'), null);
+});
+
+test('unprocessed stability messages require no stored L1 rewind', () => {
+    const messages = Array.from({ length: 10 }, (_, index) => ({ index }));
+    const extractions = [{ chatKey: 'chat', from: 0, to: 7, messageFingerprints: [] }];
+    assert.equal(l1StabilityRepairFrom(messages, extractions, 'chat'), null);
 });
 
 test('automatic L1 selection consumes complete eligible groups', () => {
