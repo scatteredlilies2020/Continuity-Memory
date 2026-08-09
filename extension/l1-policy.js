@@ -1,4 +1,5 @@
 export const DEFAULT_L1_GROUP_SIZE = 8;
+export const L1_STABILITY_BUFFER_MESSAGES = 2;
 
 export function resolveL1GroupSize(value) {
     return Math.min(50, Math.max(2, Math.round(Number(value) || DEFAULT_L1_GROUP_SIZE)));
@@ -20,6 +21,38 @@ export function completeL1MessageCount(count, groupSize = DEFAULT_L1_GROUP_SIZE)
 export function completeL1Messages(messages, groupSize = DEFAULT_L1_GROUP_SIZE) {
     const source = Array.isArray(messages) ? messages : [];
     return source.slice(0, completeL1MessageCount(source.length, groupSize));
+}
+
+export function partitionL1StabilityBuffer(messages, bufferMessages = L1_STABILITY_BUFFER_MESSAGES) {
+    const source = Array.isArray(messages) ? messages : [];
+    const requested = Math.max(0, Math.round(Number(bufferMessages) || 0));
+    const bufferedCount = Math.min(source.length, requested);
+    const boundary = source.length - bufferedCount;
+    return {
+        extractable: source.slice(0, boundary),
+        buffered: source.slice(boundary),
+    };
+}
+
+export function partitionPendingL1Messages(messages, pendingMessages, bufferMessages = L1_STABILITY_BUFFER_MESSAGES) {
+    const pending = Array.isArray(pendingMessages) ? pendingMessages : [];
+    const stability = partitionL1StabilityBuffer(messages, bufferMessages);
+    const bufferedIndexes = new Set(stability.buffered.map(message => Number(message?.index)));
+    const buffered = pending.filter(message => bufferedIndexes.has(Number(message?.index)));
+    return {
+        extractable: pending.filter(message => !bufferedIndexes.has(Number(message?.index))),
+        buffered,
+    };
+}
+
+export function isL1StabilityProtectedMessage(allMessages, eligibleMessages, messageIndex, bufferMessages = L1_STABILITY_BUFFER_MESSAGES) {
+    if (messageIndex === null || messageIndex === undefined || !Number.isFinite(Number(messageIndex))) return false;
+    const target = Number(messageIndex);
+    const eligible = Array.isArray(eligibleMessages) ? eligibleMessages : [];
+    const eligibleIndexes = new Set(eligible.map(message => Number(message?.index)));
+    const buffered = partitionL1StabilityBuffer(eligible, bufferMessages).buffered;
+    return buffered.some(message => Number(message?.index) === target)
+        || (Array.isArray(allMessages) && allMessages.some(message => Number(message?.index) === target && !eligibleIndexes.has(target)));
 }
 
 export function selectAutomaticL1Messages(messages, groupSize = DEFAULT_L1_GROUP_SIZE, bootstrap = false) {

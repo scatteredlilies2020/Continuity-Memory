@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { completeL1MessageCount, completeL1Messages, resolveL1GroupSize, selectAutomaticL1Messages, validateL1GroupSize } from '../extension/l1-policy.js';
+import { completeL1MessageCount, completeL1Messages, isL1StabilityProtectedMessage, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages, validateL1GroupSize } from '../extension/l1-policy.js';
 
 test('L1 defaults to complete groups of eight messages', () => {
     assert.equal(resolveL1GroupSize(), 8);
@@ -12,6 +12,50 @@ test('L1 defaults to complete groups of eight messages', () => {
 test('L1 leaves an incomplete recent tail unselected', () => {
     const messages = Array.from({ length: 18 }, (_, index) => ({ index }));
     assert.deepEqual(completeL1Messages(messages).map(item => item.index), Array.from({ length: 16 }, (_, index) => index));
+});
+
+test('L1 stability keeps the latest two eligible messages out of extraction', () => {
+    const messages = Array.from({ length: 10 }, (_, index) => ({ index }));
+    const result = partitionL1StabilityBuffer(messages);
+    assert.equal(L1_STABILITY_BUFFER_MESSAGES, 2);
+    assert.deepEqual(result.extractable.map(item => item.index), [0, 1, 2, 3, 4, 5, 6, 7]);
+    assert.deepEqual(result.buffered.map(item => item.index), [8, 9]);
+});
+
+test('L1 stability is based on message order and handles short chats', () => {
+    assert.deepEqual(partitionL1StabilityBuffer([{ index: 4 }]), {
+        extractable: [],
+        buffered: [{ index: 4 }],
+    });
+    assert.deepEqual(partitionL1StabilityBuffer([{ index: 4 }, { index: 9 }, { index: 15 }]).buffered.map(item => item.index), [9, 15]);
+});
+
+test('L1 rebuild preserves two messages before forming complete extraction groups', () => {
+    const messages = Array.from({ length: 128 }, (_, index) => ({ index }));
+    const stability = partitionL1StabilityBuffer(messages);
+    const selected = completeL1Messages(stability.extractable, 8);
+    assert.equal(selected.length, 120);
+    assert.equal(messages.length - selected.length, 8);
+    assert.deepEqual(stability.buffered.map(item => item.index), [126, 127]);
+});
+
+test('L1 buffer protects only pending records at the actual chat tail', () => {
+    const messages = Array.from({ length: 10 }, (_, index) => ({ index }));
+    const pending = [messages[2], messages[8], messages[9]];
+    const result = partitionPendingL1Messages(messages, pending);
+    assert.deepEqual(result.extractable.map(item => item.index), [2]);
+    assert.deepEqual(result.buffered.map(item => item.index), [8, 9]);
+    assert.deepEqual(partitionPendingL1Messages(messages, [messages[2]]).buffered, []);
+});
+
+test('L1 mutation protection includes the buffer and a separately provisional reply', () => {
+    const allMessages = Array.from({ length: 5 }, (_, index) => ({ index }));
+    const eligibleMessages = allMessages.slice(0, -1);
+    assert.equal(isL1StabilityProtectedMessage(allMessages, eligibleMessages, 1), false);
+    assert.equal(isL1StabilityProtectedMessage(allMessages, eligibleMessages, 2), true);
+    assert.equal(isL1StabilityProtectedMessage(allMessages, eligibleMessages, 3), true);
+    assert.equal(isL1StabilityProtectedMessage(allMessages, eligibleMessages, 4), true);
+    assert.equal(isL1StabilityProtectedMessage(allMessages, eligibleMessages, undefined), false);
 });
 
 test('automatic L1 selection consumes complete eligible groups', () => {

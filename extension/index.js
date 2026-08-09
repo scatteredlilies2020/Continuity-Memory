@@ -1,22 +1,22 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.14.0-standalone.61';
+import { api } from './api.js?v=0.14.0-standalone.62';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.61';
+import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.62';
 import { buildMemoryPrompt } from './retrieval.js';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.61';
-import { invalidateRuntimeWork, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.61';
-import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.61';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds } from './ui.js?v=0.14.0-standalone.61';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.62';
+import { invalidateRuntimeWork, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.62';
+import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.62';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds } from './ui.js?v=0.14.0-standalone.62';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.61';
-import { collectMemoryEligibleMessages, findInvalidExtractionRanges } from './fingerprint.js?v=0.14.0-standalone.61';
-import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.61';
-import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration } from './generation-policy.js?v=0.14.0-standalone.61';
-import { completeL1MessageCount, resolveL1GroupSize } from './l1-policy.js';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.62';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './fingerprint.js?v=0.14.0-standalone.62';
+import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.62';
+import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration } from './generation-policy.js?v=0.14.0-standalone.62';
+import { completeL1MessageCount, isL1StabilityProtectedMessage, resolveL1GroupSize } from './l1-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
 
 const PROMPT_KEY = 'continuity_memory_context';
@@ -91,15 +91,15 @@ async function completeL1ForGeneration(sourceMessages) {
     await waitForActiveMemoryWork();
     while (true) {
         const coverage = getProcessingCoverage(runtime.world, sourceMessages);
-        if (!coverage.pending) return coverage;
+        if (!coverage.extractable) return coverage;
         const groupSize = resolveL1GroupSize(getSettings().extractionBatchMessages);
-        if (!completeL1MessageCount(coverage.pending, groupSize)) return coverage;
+        if (!completeL1MessageCount(coverage.extractable, groupSize)) return coverage;
         if (runtime.paused) resumeRuntime();
-        updateRuntime({ status: 'preparing-roleplay', retryStatus: `Roleplay is waiting while Continuity processes ${coverage.pending} pending message(s)…` });
+        updateRuntime({ status: 'preparing-roleplay', retryStatus: `Roleplay is waiting while Continuity processes ${coverage.extractable} stable pending message(s)…` });
         const result = await maybeAutoExtract(true, sourceMessages);
-        if (!result) throw new Error(`${coverage.pending} memory message(s) remain pending and could not be started.`);
+        if (!result) throw new Error(`${coverage.extractable} stable memory message(s) remain pending and could not be started.`);
         const updated = getProcessingCoverage(runtime.world, sourceMessages);
-        if (updated.pending >= coverage.pending) throw new Error(`Memory processing made no progress; ${updated.pending} message(s) remain pending.`);
+        if (updated.extractable >= coverage.extractable) throw new Error(`Memory processing made no progress; ${updated.extractable} stable message(s) remain pending.`);
     }
 }
 
@@ -151,7 +151,7 @@ async function prepareRoleplayGeneration(type) {
     const waitingMessages = collectMemoryEligibleMessages(waitingChat);
     const waitingCoverage = getProcessingCoverage(runtime.world, waitingMessages);
     const groupSize = resolveL1GroupSize(getSettings().extractionBatchMessages);
-    const waitingBacklog = roleplayBacklogPolicy(waitingCoverage.pending, groupSize);
+    const waitingBacklog = roleplayBacklogPolicy(waitingCoverage.extractable, groupSize);
     const activeWorkAtStart = runtime.processing || runtime.queue.length > 0;
     const waitingNotification = activeWorkAtStart || waitingBacklog.shouldCatchUp
         ? roleplayWaitNotification(runtime, waitingBacklog.shouldCatchUp ? waitingBacklog.eligible : 0)
@@ -179,7 +179,7 @@ async function prepareRoleplayGeneration(type) {
     const repair = await repairDivergedBranch({ sourceMessages });
     if (repair.repaired) updates.push(`repaired changed memory from message ${repair.repairFrom} onward`);
     const initialCoverage = getProcessingCoverage(runtime.world, sourceMessages);
-    const initialBacklog = roleplayBacklogPolicy(initialCoverage.pending, groupSize);
+    const initialBacklog = roleplayBacklogPolicy(initialCoverage.extractable, groupSize);
     let hierarchy = { arcs: 0, eras: 0 };
     let vectors = null;
     let caughtUp = false;
@@ -190,7 +190,7 @@ async function prepareRoleplayGeneration(type) {
         caughtUp = true;
     }
     const coverage = getProcessingCoverage(runtime.world, sourceMessages);
-    const remainingBacklog = roleplayBacklogPolicy(coverage.pending, groupSize);
+    const remainingBacklog = roleplayBacklogPolicy(coverage.extractable, groupSize);
     if (remainingBacklog.shouldCatchUp) {
         throw new Error(`${remainingBacklog.eligible} L1 message(s) remain beyond the safe background limit.`);
     }
@@ -206,7 +206,7 @@ async function prepareRoleplayGeneration(type) {
     }
     const retainedError = backgroundError || (runtime.paused ? runtime.lastError : '');
     const retryStatus = coverage.pending
-        ? `Continuity is ready with ${coverage.pending} recent message(s) protected as raw chat; background L1 may trail safely up to ${remainingBacklog.hardLimit - 1}.`
+        ? `Continuity is ready with ${coverage.pending} recent message(s) raw (${coverage.buffered} protected by the stability buffer); background L1 may trail safely up to ${remainingBacklog.hardLimit - 1} additional stable messages.`
         : 'Continuity is fully ready. Starting roleplay generation…';
     updateRuntime(retainedError
         ? { status: runtime.paused ? 'paused' : 'error', lastError: retainedError, retryStatus }
@@ -308,6 +308,13 @@ function scheduleInjectionRefresh() {
         injectionRefresh = null;
         refreshInjection().catch(error => updateRuntime({ lastError: `Injection failed: ${error.message}` }));
     }, 100);
+}
+
+function mutationTouchesProtectedTail(messageIndex) {
+    const chat = getContext().chat || [];
+    const allMessages = collectFingerprintMessages(chat);
+    const eligibleMessages = collectMemoryEligibleMessages(chat);
+    return isL1StabilityProtectedMessage(allMessages, eligibleMessages, messageIndex);
 }
 
 function scheduleMutationSync(delay = 350, requireDivergenceRepair = false) {
@@ -454,8 +461,10 @@ async function init() {
         clearPromptManagerInjection(promptManager);
     });
     for (const eventName of [event_types.MESSAGE_SWIPED, event_types.MESSAGE_EDITED, event_types.MESSAGE_UPDATED].filter(Boolean)) {
-        eventSource.on(eventName, () => {
-            if (runtime.processing || runtime.queue.length) {
+        eventSource.on(eventName, messageIndex => {
+            // Changes inside the stability tail cannot overlap newly queued L1
+            // work, so let older safe extraction finish instead of wasting it.
+            if ((runtime.processing || runtime.queue.length) && !mutationTouchesProtectedTail(messageIndex)) {
                 invalidateRuntimeWork('A source message changed; discarded memory work based on its previous content.');
             }
             scheduleInjectionRefresh();

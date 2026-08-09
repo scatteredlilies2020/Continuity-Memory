@@ -5,22 +5,22 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.61';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.62';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
-import { completeL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
+import { completeL1Messages, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
 import { memoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.61';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.62';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.61';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.61';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.62';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.62';
 import { canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.61';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.61';
-import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.61';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.62';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.62';
+import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.62';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
 
@@ -1161,9 +1161,10 @@ export async function restartL1FromScratch() {
     const allMessages = collectMemoryEligibleMessages(chat);
     if (!allMessages.length) throw new Error('This chat has no processable messages.');
     const groupSize = resolveL1GroupSize(getSettings().extractionBatchMessages);
-    const messages = completeL1Messages(allMessages, groupSize);
+    const stability = partitionL1StabilityBuffer(allMessages);
+    const messages = completeL1Messages(stability.extractable, groupSize);
     const pendingTail = allMessages.length - messages.length;
-    if (!messages.length) throw new Error(`At least ${groupSize} processable messages are required for the first L1 record.`);
+    if (!messages.length) throw new Error(`At least ${groupSize + L1_STABILITY_BUFFER_MESSAGES} processable messages are required for the first L1 record while preserving the ${L1_STABILITY_BUFFER_MESSAGES}-message stability buffer.`);
     runtime.generation++;
     const queued = runtime.queue.splice(0);
     for (const job of queued) job.reject?.(new Error('Start Over cleared the processing queue.'));
@@ -1207,9 +1208,9 @@ export async function restartL1FromScratch() {
         updateRuntime({
             status: 'idle',
             progress: null,
-            retryStatus: `Fresh L1 build complete: ${messages.length} messages in ${chunks.length} saved chunk(s)${pendingTail ? `; ${pendingTail} recent message(s) remain raw until the next complete group` : ''}.`,
+            retryStatus: `Fresh L1 build complete: ${messages.length} messages in ${chunks.length} saved chunk(s)${pendingTail ? `; ${pendingTail} recent message(s) remain raw, including the ${stability.buffered.length}-message stability buffer` : ''}.`,
         });
-        return { messages: messages.length, chunks: chunks.length, completedChunks, pendingTail };
+        return { messages: messages.length, chunks: chunks.length, completedChunks, pendingTail, bufferedMessages: stability.buffered.length };
     } catch (error) {
         const paused = runtime.paused || isRateLimitError(error) || /stopped/i.test(error.message);
         updateRuntime({
@@ -1373,10 +1374,20 @@ export function getProcessingCoverage(world = runtime.world, sourceMessages = nu
     const chatKey = getChatKey();
     const chat = Array.isArray(sourceMessages) ? sourceMessages : (getContext().chat || []);
     if (!chatKey || !chat.length) {
-        return { total: 0, latestIndex: -1, processed: 0, pending: 0, changed: 0, outdated: 0, neverProcessed: 0, pendingMessages: [], pendingRanges: [] };
+        return { total: 0, latestIndex: -1, latestExtractableIndex: -1, processed: 0, pending: 0, extractable: 0, buffered: 0, changed: 0, outdated: 0, neverProcessed: 0, pendingMessages: [], extractableMessages: [], bufferedMessages: [], pendingRanges: [] };
     }
     const messages = Array.isArray(sourceMessages) ? sourceMessages : collectMemoryEligibleMessages(chat);
-    return analyzeCoverage(messages, world?.sources?.[chatKey]?.processedMessages || []);
+    const coverage = analyzeCoverage(messages, world?.sources?.[chatKey]?.processedMessages || []);
+    const stability = partitionL1StabilityBuffer(messages);
+    const pending = partitionPendingL1Messages(messages, coverage.pendingMessages);
+    return {
+        ...coverage,
+        latestExtractableIndex: stability.extractable.at(-1)?.index ?? -1,
+        extractable: pending.extractable.length,
+        buffered: pending.buffered.length,
+        extractableMessages: pending.extractable,
+        bufferedMessages: pending.buffered,
+    };
 }
 
 export function getBranchRepairStatus(world = runtime.world, sourceMessages = null) {
@@ -1550,7 +1561,7 @@ export async function maybeAutoExtract(force = false, sourceMessages = null) {
     const source = world.sources?.[chatKey];
     const coverage = getProcessingCoverage(world, activeMessages);
     const groupSize = resolveL1GroupSize(settings.extractionBatchMessages);
-    let pending = coverage.pendingMessages;
+    let pending = coverage.extractableMessages;
     if (!force) {
         if (source) {
             const processedIndexes = new Set((source.processedMessages || [])
@@ -1573,7 +1584,7 @@ export async function maybeAutoExtract(force = false, sourceMessages = null) {
         from: pending[0].index,
         to: pending.at(-1).index,
         worldId,
-        allowStateUpdates: pending.at(-1).index >= coverage.latestIndex,
+        allowStateUpdates: pending.at(-1).index >= coverage.latestExtractableIndex,
         reason: force ? 'pending' : 'auto',
         messageIndexes: pending.map(message => message.index),
         sourceMessages: activeMessages,
