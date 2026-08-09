@@ -25,6 +25,13 @@ export function roleplaySourceMessages(messages, type) {
     return active;
 }
 
+export function sourceMutationPolicy(protectedTail = false) {
+    return {
+        invalidateActiveWork: !protectedTail,
+        repairSuffix: true,
+    };
+}
+
 export function roleplayWaitNotification(state, eligiblePending = 0) {
     const queueLength = Math.max(0, Number(state?.queue?.length) || 0);
     const pending = Math.max(0, Number(eligiblePending) || 0);

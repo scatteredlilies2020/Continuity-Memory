@@ -1,21 +1,21 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.14.0-standalone.63';
+import { api } from './api.js?v=0.14.0-standalone.64';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.63';
+import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.64';
 import { buildMemoryPrompt } from './retrieval.js';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.63';
-import { invalidateRuntimeWork, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.63';
-import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.63';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds } from './ui.js?v=0.14.0-standalone.63';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.64';
+import { invalidateRuntimeWork, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.64';
+import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.64';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds } from './ui.js?v=0.14.0-standalone.64';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.63';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './fingerprint.js?v=0.14.0-standalone.63';
-import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.63';
-import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration } from './generation-policy.js?v=0.14.0-standalone.63';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.64';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './fingerprint.js?v=0.14.0-standalone.64';
+import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.64';
+import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.64';
 import { completeL1MessageCount, isL1StabilityProtectedMessage, resolveL1GroupSize } from './l1-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
 
@@ -336,9 +336,9 @@ function scheduleMutationSync(delay = 350, requireDivergenceRepair = false) {
         const repairRequested = divergenceRepairRequested;
         divergenceRepairRequested = false;
         try {
-            // A deletion shifts later message indexes, so exact-range replacement
-            // is unsafe. Remove the divergent suffix first; ordinary edits and
-            // swipes retain the cheaper exact extraction replacement path.
+            // User-visible source mutations can change the meaning of every
+            // later turn. Remove and replay the divergent suffix instead of
+            // replacing only the extraction range containing the changed text.
             const rollback = getTailRollbackStatus();
             const result = repairRequested || rollback.detected
                 ? await repairDivergedBranch()
@@ -467,11 +467,12 @@ async function init() {
         eventSource.on(eventName, messageIndex => {
             // Changes inside the stability tail cannot overlap newly queued L1
             // work, so let older safe extraction finish instead of wasting it.
-            if ((runtime.processing || runtime.queue.length) && !mutationTouchesProtectedTail(messageIndex)) {
+            const policy = sourceMutationPolicy(mutationTouchesProtectedTail(messageIndex));
+            if ((runtime.processing || runtime.queue.length) && policy.invalidateActiveWork) {
                 invalidateRuntimeWork('A source message changed; discarded memory work based on its previous content.');
             }
             scheduleInjectionRefresh();
-            scheduleMutationSync();
+            scheduleMutationSync(350, policy.repairSuffix);
         });
     }
     if (event_types.MESSAGE_DELETED) {

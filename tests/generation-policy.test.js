@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { collectMemoryEligibleMessages } from '../extension/fingerprint.js';
-import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration } from '../extension/generation-policy.js';
+import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from '../extension/generation-policy.js';
 
 const chat = [{ index: 0, mes: 'Hello' }];
 
@@ -24,6 +24,17 @@ test('temporarily excludes the reply being replaced during swipe generation', ()
     const messages = [{ index: 0 }, { index: 1 }, { index: 2 }];
     assert.deepEqual(roleplaySourceMessages(messages, 'swipe'), [{ index: 0 }, { index: 1 }]);
     assert.deepEqual(roleplaySourceMessages(messages, 'regenerate'), messages);
+});
+
+test('old source mutations cancel overlapping work and always repair their suffix', () => {
+    assert.deepEqual(sourceMutationPolicy(false), {
+        invalidateActiveWork: true,
+        repairSuffix: true,
+    });
+    assert.deepEqual(sourceMutationPolicy(true), {
+        invalidateActiveWork: false,
+        repairSuffix: true,
+    });
 });
 
 test('allows one background L1 batch of headroom before roleplay must catch up', () => {
