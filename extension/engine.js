@@ -5,22 +5,22 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.64';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.66';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
-import { memoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.64';
+import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.66';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.64';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.64';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.66';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.66';
 import { canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.64';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.64';
-import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.64';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.66';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.66';
+import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.66';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
 
@@ -272,7 +272,7 @@ export function applyExtractionRequestSettings(data) {
         model: data.model,
         url: data.custom_url || data.reverse_proxy,
     });
-    Object.assign(data, control.payload);
+    Object.assign(data, outputTokenPayload(data.model, resolveMemoryResponseTokens(data.max_tokens ?? data.max_completion_tokens, control.adapter)), control.payload);
     if (!shouldSendStructuredSchema(control.adapter, data.json_schema)) delete data.json_schema;
     updateRuntime({ thinkingControl: { mode: activeExtractionThinkingMode, adapter: control.adapter, fallback: false } });
 }
@@ -507,7 +507,7 @@ async function requestDirectStructured(prompt, systemPrompt, jsonSchema, respons
         model: config.model,
         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }],
         stream: false,
-        ...outputTokenPayload(config.model, responseLength),
+        ...outputTokenPayload(config.model, resolveMemoryResponseTokens(responseLength, thinking.adapter)),
         ...(config.provider === 'openrouter' ? { api_url: config.url } : { custom_url: config.url, secret_id: config.secretId || undefined }),
         ...(withSchema && shouldSendStructuredSchema(thinking.adapter, jsonSchema) ? { json_schema: jsonSchema } : {}),
         ...thinking.payload,
@@ -559,7 +559,6 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
 
     const profile = ConnectionManagerRequestService.getProfile(profileId);
     const apiMap = ConnectionManagerRequestService.validateProfile(profile);
-    const profileResponseLength = responseLength ?? undefined;
     const messages = [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: prompt },
@@ -572,6 +571,7 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
         url: profile['api-url'],
         profileName: profile.name,
     });
+    const profileResponseLength = resolveMemoryResponseTokens(responseLength, thinking.adapter) ?? undefined;
     let thinkingPayload = thinking.payload;
     updateRuntime({ thinkingControl: { mode: getSettings().thinkingMode, adapter: thinking.adapter, fallback: false } });
     const compatibilityPayload = () => isolatedProfilePayload({

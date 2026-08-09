@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { memoryResponseTokens, PROVIDER_MANAGED_MEMORY_RESPONSE_TOKENS } from '../extension/memory-response-policy.js';
+import { GEMINI_MEMORY_RESPONSE_TOKENS, memoryResponseTokens, PROVIDER_MANAGED_MEMORY_RESPONSE_TOKENS, resolveMemoryResponseTokens } from '../extension/memory-response-policy.js';
 
 test('L1, L2, and L3 delegate output length to SillyTavern and the provider', () => {
     assert.equal(PROVIDER_MANAGED_MEMORY_RESPONSE_TOKENS, null);
@@ -9,4 +9,11 @@ test('L1, L2, and L3 delegate output length to SillyTavern and the provider', ()
 
 test('memory response policy rejects unknown layers', () => {
     assert.throws(() => memoryResponseTokens('l4'), /Unknown memory layer/);
+});
+
+test('Gemini receives a safe fallback when provider-managed length produces empty candidates', () => {
+    assert.equal(resolveMemoryResponseTokens(null, 'gemini'), GEMINI_MEMORY_RESPONSE_TOKENS);
+    assert.equal(resolveMemoryResponseTokens(undefined, 'gemini-provider-default'), GEMINI_MEMORY_RESPONSE_TOKENS);
+    assert.equal(resolveMemoryResponseTokens(null, 'openai'), null);
+    assert.equal(resolveMemoryResponseTokens(2400, 'gemini'), 2400);
 });

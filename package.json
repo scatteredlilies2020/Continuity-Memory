@@ -1,6 +1,6 @@
 {
   "name": "sillytavern-continuity",
-  "version": "0.14.0-standalone.64",
+  "version": "0.14.0-standalone.66",
   "description": "Standalone structured continuity for SillyTavern; does not use Lorebooks or World Info.",
   "private": true,
   "type": "module",
@@ -10,6 +10,7 @@
     "url": "git+https://github.com/scatteredlilies2020/Continuity-Memory.git"
   },
   "homepage": "https://github.com/scatteredlilies2020/Continuity-Memory#readme",
+  "license": "AGPL-3.0-only",
   "scripts": {
     "check": "node --experimental-vm-modules scripts/check.js",
     "test": "npm run check && node --test"

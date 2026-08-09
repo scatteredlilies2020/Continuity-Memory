@@ -1,5 +1,5 @@
 import { getRequestHeaders } from '/script.js';
-import { createFileStorageApi } from './file-storage.js?v=0.14.0-standalone.64';
+import { createFileStorageApi } from './file-storage.js?v=0.14.0-standalone.66';
 
 const BASE = '/api/plugins/continuity-memory';
 const fileApi = createFileStorageApi({ requestHeaders: getRequestHeaders });

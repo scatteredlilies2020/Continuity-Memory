@@ -1,4 +1,4 @@
-import { minimumReasoningEffort } from './model-compatibility.js?v=0.14.0-standalone.64';
+import { minimumReasoningEffort } from './model-compatibility.js?v=0.14.0-standalone.66';
 
 function normalizedMode(mode) {
     return ['off', 'minimum', 'default'].includes(mode) ? mode : 'off';
@@ -19,6 +19,7 @@ function identifyGemini({ source = '', model = '', url = '', profileName = '' } 
     return {
         knownThinkingModel: major > 2 || (major === 2 && minor >= 5),
         canDisableThinking: major === 2 && minor === 5 && /flash/.test(identity) && !/pro/.test(identity),
+        supportsMinimalThinking: major >= 3 && /flash/.test(identity) && !/pro/.test(identity),
     };
 }
 
@@ -68,8 +69,12 @@ export function buildThinkingRequest({ mode, source = '', model = '', url = '', 
         return { adapter: 'gemini-provider-default', payload: {}, controlled: false };
     }
 
+    const nativeGoogleSource = /^(?:google|makersuite|vertexai|vertex-ai)$/i.test(String(source));
+    const minimalGeminiEffort = nativeGoogleSource ? 'min' : 'minimal';
     const reasoningEffort = gemini
-        ? (mode === 'off' && gemini.canDisableThinking ? 'none' : 'low')
+        ? (mode === 'off' && gemini.canDisableThinking
+            ? 'none'
+            : gemini.supportsMinimalThinking ? minimalGeminiEffort : 'low')
         : (mode === 'off' ? 'none' : minimumReasoningEffort(model));
 
     const normalized = {

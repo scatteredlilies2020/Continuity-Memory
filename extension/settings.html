@@ -81,12 +81,12 @@
                     <summary>Advanced extraction options</summary>
                     <label>Reasoning / thinking
                         <select id="continuity_thinking" class="text_pole">
-                            <option value="off">Off (default)</option>
+                            <option value="off">Off / lowest supported (default)</option>
                             <option value="minimum">Minimum</option>
                             <option value="default">Provider default</option>
                         </select>
                     </label>
-                    <small>Continuity always removes reasoning from stored memory, even when the model cannot disable it.</small>
+                    <small>Continuity requests no thinking when supported, otherwise the provider's lowest level (for Gemini 3 Flash, minimal). Reasoning is never stored in memory.</small>
                     <div class="continuity-grid">
                         <label>Detail
                             <select id="continuity_detail" class="text_pole">

@@ -29,10 +29,15 @@ test('uses GPT-5.6 supported minimum reasoning effort', () => {
 });
 
 test('uses valid thinking controls for Gemini 2.5 and Gemini 3+ models', () => {
-    for (const model of ['gemini-3.1-pro-preview', 'gemini-3.5-flash', 'gemini-3.6-flash']) {
+    const pro31 = buildThinkingRequest({ mode: 'off', source: 'google', model: 'gemini-3.1-pro-preview' });
+    assert.equal(pro31.adapter, 'gemini');
+    assert.deepEqual(pro31.payload, { include_reasoning: false, reasoning_effort: 'low' });
+
+    for (const model of ['gemini-3-flash-preview', 'gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite']) {
         const result = buildThinkingRequest({ mode: 'off', source: 'google', model });
         assert.equal(result.adapter, 'gemini');
-        assert.deepEqual(result.payload, { include_reasoning: false, reasoning_effort: 'low' });
+        assert.deepEqual(result.payload, { include_reasoning: false, reasoning_effort: 'min' });
+        assert.equal(buildThinkingRequest({ mode: 'minimum', source: 'google', model }).payload.reasoning_effort, 'min');
     }
 
     const pro25 = buildThinkingRequest({ mode: 'off', source: 'makersuite', model: 'gemini-2.5-pro' });
@@ -55,6 +60,15 @@ test('detects Gemini through custom endpoints, profiles, and model names', () =>
     assert.equal(direct.payload.reasoning_effort, 'low');
     assert.deepEqual(JSON.parse(direct.payload.custom_include_body), { reasoning_effort: 'low' });
 
+    const directFlash = buildThinkingRequest({
+        mode: 'off',
+        source: 'custom',
+        url: 'https://generativelanguage.googleapis.com/v1beta/openai',
+        model: 'gemini-3.6-flash',
+    });
+    assert.equal(directFlash.payload.reasoning_effort, 'minimal');
+    assert.deepEqual(JSON.parse(directFlash.payload.custom_include_body), { reasoning_effort: 'minimal' });
+
     const openrouter = buildThinkingRequest({
         mode: 'off',
         source: 'custom',
@@ -62,8 +76,8 @@ test('detects Gemini through custom endpoints, profiles, and model names', () =>
         model: 'google/gemini-3.6-flash',
     });
     assert.equal(openrouter.adapter, 'gemini-openrouter');
-    assert.equal(openrouter.payload.reasoning_effort, 'low');
-    assert.deepEqual(JSON.parse(openrouter.payload.custom_include_body), { reasoning: { effort: 'low', exclude: true } });
+    assert.equal(openrouter.payload.reasoning_effort, 'minimal');
+    assert.deepEqual(JSON.parse(openrouter.payload.custom_include_body), { reasoning: { effort: 'minimal', exclude: true } });
 
     const profile = buildThinkingRequest({ mode: 'minimum', source: 'custom', profileName: 'Gemini 2.5 Pro' });
     assert.equal(profile.payload.reasoning_effort, 'low');
