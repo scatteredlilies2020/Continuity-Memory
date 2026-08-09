@@ -125,6 +125,100 @@ function recordSourceRanges(item) {
         .map(source => ({ chatKey: source.chatKey, from: Number(source.from), to: Number(source.to) }));
 }
 
+const STORY_MONTHS = new Map([
+    ['january', 1], ['february', 2], ['march', 3], ['april', 4], ['may', 5], ['june', 6],
+    ['july', 7], ['august', 8], ['september', 9], ['october', 10], ['november', 11], ['december', 12],
+]);
+const STORY_MONTH_PATTERN = [...STORY_MONTHS.keys()].join('|');
+
+function storyTimeMinutes(value) {
+    const match = String(value || '').match(/\b(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\b/i);
+    if (match) {
+        let hour = Number(match[1]) % 12;
+        if (match[3].toLocaleLowerCase() === 'pm') hour += 12;
+        return hour * 60 + Number(match[2] || 0);
+    }
+    const periods = [['dawn', 360], ['morning', 540], ['noon', 720], ['afternoon', 900], ['evening', 1080], ['night', 1200]];
+    return periods.find(([period]) => new RegExp(`\\b${period}\\b`, 'i').test(value))?.[1] || 0;
+}
+
+function storyDateKey(item) {
+    // Parse only date forms Continuity already stores; ambiguous prose stays on
+    // the source-order fallback instead of pretending to know its story time.
+    const source = plain(item?.storyTime).toLocaleLowerCase().replace(/[—–]/g, '-');
+    if (!source) return null;
+    const frame = plain(item?.temporal?.frame || 'main narrative').toLocaleLowerCase();
+    const minutes = storyTimeMinutes(source);
+    const key = (year, month = 1, day = 1) => year * 372 * 1440 + month * 31 * 1440 + day * 1440 + minutes;
+    let match = source.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+    if (match) return { family: `${frame}|calendar`, value: key(Number(match[1]), Number(match[2]), Number(match[3])) };
+    match = source.match(/\b(\d{1,2})([./])(\d{1,2})\2(\d{4}|xxxx)\b/i);
+    if (match) {
+        const dotted = match[2] === '.';
+        const month = Number(match[dotted ? 3 : 1]);
+        const day = Number(match[dotted ? 1 : 3]);
+        if (match[4].toLocaleLowerCase() === 'xxxx') return { family: `${frame}|yearless-calendar`, value: key(0, month, day) };
+        return { family: `${frame}|calendar`, value: key(Number(match[4]), month, day) };
+    }
+    match = source.match(new RegExp(`\\b(\\d{1,2})\\s+(${STORY_MONTH_PATTERN})\\s*-\\s*(?:early|mid|late)?\\s*(${STORY_MONTH_PATTERN})\\s+(\\d{4})\\b`, 'i'));
+    if (match) return { family: `${frame}|calendar`, value: key(Number(match[4]), STORY_MONTHS.get(match[2]), Number(match[1])) };
+    match = source.match(new RegExp(`\\b(\\d{1,2})(?:\\s*-\\s*\\d{1,2})?\\s+(${STORY_MONTH_PATTERN})\\s+(\\d{4})\\b`, 'i'));
+    if (match) return { family: `${frame}|calendar`, value: key(Number(match[3]), STORY_MONTHS.get(match[2]), Number(match[1])) };
+    match = source.match(new RegExp(`\\b(?:early|mid|late)?\\s*(${STORY_MONTH_PATTERN})\\s*-\\s*(?:early|mid|late)?\\s*(${STORY_MONTH_PATTERN})\\s+(\\d{4})\\b`, 'i'));
+    if (match) return { family: `${frame}|calendar`, value: key(Number(match[3]), STORY_MONTHS.get(match[1])) };
+    match = source.match(new RegExp(`\\b(${STORY_MONTH_PATTERN})(?:\\s+(\\d{1,2})(?:st|nd|rd|th)?)?(?:,)?\\s+(\\d{4})\\b`, 'i'));
+    if (match) return { family: `${frame}|calendar`, value: key(Number(match[3]), STORY_MONTHS.get(match[1]), Number(match[2] || 1)) };
+    match = source.match(/\b(?:rp\s*)?day\s+(\d+)\b/i);
+    if (match) return { family: `${frame}|numbered-day`, value: Number(match[1]) * 1440 + minutes };
+    match = source.match(/\b(spring|summer|autumn|fall|winter)\s+(\d{4})\b/i);
+    if (match) {
+        const seasonMonth = { spring: 3, summer: 6, autumn: 9, fall: 9, winter: 12 }[match[1]];
+        return { family: `${frame}|calendar`, value: key(Number(match[2]), seasonMonth) };
+    }
+    match = source.match(new RegExp(`\\b(\\d{1,2})\\s+(${STORY_MONTH_PATTERN})\\b`, 'i'));
+    if (match) return { family: `${frame}|yearless-calendar`, value: key(0, STORY_MONTHS.get(match[2]), Number(match[1])) };
+    match = source.match(/\b(\d{4})\b/);
+    if (match) return { family: `${frame}|calendar`, value: key(Number(match[1])) };
+    return null;
+}
+
+function eventSourcePosition(item, chatKey) {
+    const ranges = recordSourceRanges(item);
+    const preferred = chatKey ? ranges.filter(source => source.chatKey === chatKey) : ranges;
+    const candidates = preferred.length ? preferred : ranges;
+    const first = candidates.sort((a, b) => a.from - b.from || a.to - b.to || a.chatKey.localeCompare(b.chatKey))[0];
+    return first ? [first.chatKey === chatKey ? 0 : 1, first.from, first.to, first.chatKey] : [2, 0, 0, ''];
+}
+
+export function orderEventsChronologically(items, chatKey = '') {
+    const ordered = (items || []).map((item, selectionIndex) => ({ item, selectionIndex, date: storyDateKey(item) }))
+        .sort((left, right) => {
+            const a = eventSourcePosition(left.item, chatKey);
+            const b = eventSourcePosition(right.item, chatKey);
+            return a[0] - b[0] || a[1] - b[1] || a[2] - b[2] || a[3].localeCompare(b[3])
+                || String(left.item.createdAt || '').localeCompare(String(right.item.createdAt || ''))
+                || String(left.item.id || '').localeCompare(String(right.item.id || ''))
+                || left.selectionIndex - right.selectionIndex;
+        });
+    ordered.forEach((entry, sourceIndex) => { entry.sourceIndex = sourceIndex; });
+    // Dated records reorder only the slots occupied by comparable dated records.
+    // This keeps undated events anchored to their reliable source-message order.
+    const families = new Map();
+    for (let index = 0; index < ordered.length; index++) {
+        const date = ordered[index].date;
+        if (!date) continue;
+        const entries = families.get(date.family) || [];
+        entries.push({ index, record: ordered[index] });
+        families.set(date.family, entries);
+    }
+    for (const entries of families.values()) {
+        const records = entries.map(entry => entry.record)
+            .sort((a, b) => a.date.value - b.date.value || a.sourceIndex - b.sourceIndex);
+        entries.forEach((entry, index) => { ordered[entry.index] = records[index]; });
+    }
+    return ordered.map(entry => entry.item);
+}
+
 function sourcedFromInvalidExtraction(item, invalidRanges) {
     // Reviewed corrections remain authoritative even when their historical
     // source range is awaiting repair.
@@ -306,8 +400,10 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         });
     addSection('Established facts', facts);
 
-    const events = matching((world.events || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)), queryTerms, undefined, 'event', semanticRanks).slice(0, 12)
-        .map(({ item }) => {
+    const selectedEvents = matching((world.events || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)), queryTerms, undefined, 'event', semanticRanks)
+        .slice(0, 12).map(({ item }) => item);
+    const events = orderEventsChronologically(selectedEvents, chatKey)
+        .map(item => {
             const storyTime = anchoredStoryTime(item);
             const storyTimeAnchored = storyTime !== plain(item.storyTime);
             const detail = `${item.summary}${item.consequences ? ` Consequence: ${item.consequences}` : ''}`;
@@ -320,5 +416,5 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity_memory>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value) };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.57';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.58';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';

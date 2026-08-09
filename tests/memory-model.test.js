@@ -3,7 +3,7 @@ import test from 'node:test';
 import { buildEmbeddingDocuments } from '../extension/embedding-index.js';
 import { EXTRACTION_VERSION } from '../extension/coverage.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from '../extension/memory-model.js';
-import { buildMemoryPrompt } from '../extension/retrieval.js';
+import { buildMemoryPrompt, orderEventsChronologically } from '../extension/retrieval.js';
 
 function world() {
     return {
@@ -475,6 +475,54 @@ test('retrieval suppresses records from invalid extraction ranges before repair 
     assert.doesNotMatch(result.prompt, /Abandoned observatory|Obsolete observatory plan/i);
     assert.match(result.prompt, /Harbor/);
     assert.match(result.prompt, /Lighthouse if the harbor closes/);
+});
+
+test('relevant past events are sent chronologically after relevance selection', () => {
+    const target = world();
+    target.events = [
+        { id: 'latest', title: 'Festival closes', summary: 'The festival closes in the capital.', storyTime: '14 June 1803', importance: 5, sources: [{ chatKey: 'chat', from: 10, to: 11 }] },
+        { id: 'earliest', title: 'Festival opens', summary: 'The festival opens in the capital.', storyTime: 'January 1801', importance: 3, sources: [{ chatKey: 'chat', from: 30, to: 31 }] },
+        { id: 'middle', title: 'Festival expands', summary: 'The festival expands through the capital.', storyTime: 'February 1802', importance: 4, sources: [{ chatKey: 'chat', from: 20, to: 21 }] },
+        { id: 'undated-later-source', title: 'Festival rumor', summary: 'A festival rumor spreads in the capital.', storyTime: '', importance: 5, sources: [{ chatKey: 'chat', from: 25, to: 26 }] },
+    ];
+
+    const result = buildMemoryPrompt(target, [{ name: 'User', mes: 'What happened at the festival in the capital?' }], 3000, 'chat');
+    const rows = result.prompt.slice(result.prompt.indexOf('Relevant past events:')).split('\n').filter(row => row.startsWith('- '));
+    assert.deepEqual(rows.map(row => row.match(/Festival (?:opens|expands|rumor|closes)/)?.[0]), [
+        'Festival opens', 'Festival expands', 'Festival rumor', 'Festival closes',
+    ]);
+});
+
+test('undated relevant events fall back to source message order', () => {
+    const target = world();
+    target.events = [
+        { id: 'second', title: 'Harbor alarm ends', summary: 'The harbor alarm ends.', importance: 5, sources: [{ chatKey: 'chat', from: 40, to: 41 }] },
+        { id: 'first', title: 'Harbor alarm begins', summary: 'The harbor alarm begins.', importance: 2, sources: [{ chatKey: 'chat', from: 12, to: 13 }] },
+    ];
+
+    const result = buildMemoryPrompt(target, [{ name: 'User', mes: 'What happened with the harbor alarm?' }], 3000, 'chat');
+    assert.ok(result.prompt.indexOf('Harbor alarm begins') < result.prompt.indexOf('Harbor alarm ends'));
+});
+
+test('chronological event ordering recognizes stored numeric, placeholder-year, and numbered-day dates', () => {
+    const source = (from) => [{ chatKey: 'chat', from, to: from }];
+    const numeric = orderEventsChronologically([
+        { id: 'numeric-late', storyTime: '12/14/1829', sources: source(1) },
+        { id: 'numeric-early', storyTime: '03/14/1821', sources: source(2) },
+    ], 'chat');
+    const placeholder = orderEventsChronologically([
+        { id: 'same-day-late', storyTime: '04.03.XXXX, Friday evening', sources: source(3) },
+        { id: 'next-day', storyTime: '04.04.XXXX, morning', sources: source(1) },
+        { id: 'same-day-early', storyTime: '04.03.XXXX, noon', sources: source(2) },
+    ], 'chat');
+    const numbered = orderEventsChronologically([
+        { id: 'day-two', storyTime: 'RP Day 2, morning', sources: source(1) },
+        { id: 'day-one', storyTime: 'RP Day 1, evening', sources: source(2) },
+    ], 'chat');
+
+    assert.deepEqual(numeric.map(item => item.id), ['numeric-early', 'numeric-late']);
+    assert.deepEqual(placeholder.map(item => item.id), ['same-day-early', 'same-day-late', 'next-day']);
+    assert.deepEqual(numbered.map(item => item.id), ['day-one', 'day-two']);
 });
 
 test('retrieval supports short identifiers and CJK names', () => {
