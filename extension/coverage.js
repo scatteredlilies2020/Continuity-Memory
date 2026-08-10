@@ -1,6 +1,6 @@
-import { fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.73';
+import { fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.75';
 
-export const EXTRACTION_VERSION = 5;
+export const EXTRACTION_VERSION = 7;
 
 function ranges(indexes) {
     const result = [];

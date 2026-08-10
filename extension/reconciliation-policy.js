@@ -17,6 +17,8 @@ function normalized(value) {
 
 const ADDRESS_PLACEHOLDER = /(?:\[\s*(?:canonical\s+)?(?:speaker|addressee)(?:\s+unavailable)?\s*\]|canonical\s+addressee|actual[_\s-]+canonical[_\s-]+name)/iu;
 const ADDRESS_ABSENCE = /^(?:\[\s*)?(?:addressee\s+)?(?:unavailable|not established|none|n\/a|no (?:direct )?address(?: is)? established)(?:\s*\])?$/iu;
+const ADDRESS_BRACKET = /[\[\]]/u;
+const ADDRESS_MEANINGFUL = /[\p{L}\p{N}\p{Extended_Pictographic}]/u;
 
 export function isAddressFact(item) {
     const category = normalized(item?.category);
@@ -138,7 +140,10 @@ export function removeInvalidAddressFacts(container) {
     container.facts = container.facts.filter(item => {
         if (!isAddressFact(item)) return true;
         const fields = [item?.subject, item?.predicate, item?.value, addressFactAddressee(item)];
-        const invalid = fields.some(value => !String(value || '').trim() || ADDRESS_PLACEHOLDER.test(String(value)))
+        const invalid = fields.some(value => !String(value || '').trim()
+            || !ADDRESS_MEANINGFUL.test(String(value))
+            || ADDRESS_PLACEHOLDER.test(String(value))
+            || ADDRESS_BRACKET.test(String(value)))
             || ADDRESS_ABSENCE.test(String(item?.value || '').trim());
         if (invalid) removed++;
         return !invalid;

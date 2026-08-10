@@ -124,6 +124,25 @@ test('stored malformed address placeholders can be removed without touching vali
     assert.equal(world.facts[0].value, 'Uzumaki-kun');
 });
 
+test('symbol-only model output cannot become an address form', () => {
+    const result = extraction();
+    for (const value of ['[', ']', '...', '*', '{}', '""', '—']) result.facts.push({
+        subject: 'Kakashi Hatake', predicate: 'calls Setsuko Uchiha', value, category: 'form of address',
+    });
+    result.facts.push(
+        { subject: 'Kakashi Hatake', predicate: 'calls Setsuko Uchiha', value: 'Setsuko', category: 'form of address' },
+        { subject: 'Kakashi Hatake', predicate: 'calls Naruto Uzumaki', value: 'ナルト', category: 'form of address' },
+        { subject: 'Kakashi Hatake', predicate: 'calls Kurama', value: '🦊', category: 'form of address' },
+    );
+
+    const sanitized = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    });
+
+    assert.equal(sanitized.ignored, 7);
+    assert.deepEqual(result.facts.map(item => item.value), ['Setsuko', 'ナルト', '🦊']);
+});
+
 test('stored malformed address placeholders are also removed from replay history', () => {
     const malformed = { subject: 'Setsuko Uchiha', predicate: 'calls [canonical addressee]', value: '[canonical addressee unavailable]', category: 'form of address' };
     const world = { facts: [structuredClone(malformed)], extractions: [{ result: { facts: [structuredClone(malformed)] } }] };
