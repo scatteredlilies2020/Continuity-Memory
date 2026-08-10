@@ -1,4 +1,4 @@
-import { fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.71';
+import { fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.72';
 
 export const EXTRACTION_VERSION = 4;
 

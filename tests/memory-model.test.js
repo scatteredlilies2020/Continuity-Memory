@@ -42,6 +42,49 @@ test('merges durable records and updates matching facts instead of duplicating t
     assert.deepEqual(target.sources[meta.chatKey].processedMessages, [{ index: 0, fingerprint: 'first', version: EXTRACTION_VERSION }]);
 });
 
+test('address facts merge by direction and retain concurrent exact forms', () => {
+    const target = world();
+    target.entities.push(
+        { id: 'naruto', name: 'Naruto Uzumaki', aliases: ['Naruto'] },
+        { id: 'setsuko', name: 'Setsuko Uchiha', aliases: ['Setsuko'] },
+    );
+    mergeExtraction(target, extraction({
+        facts: [{
+            subject: 'Setsuko Uchiha', predicate: 'form of address for Naruto Uzumaki', value: 'Uzumaki-kun',
+            category: 'social address', importance: 2, persistence: 'persistent',
+        }],
+        events: [],
+    }), { chatKey: 'chat', from: 0, to: 7, allowStateUpdates: true });
+    const factId = target.facts[0].id;
+    mergeExtraction(target, extraction({
+        facts: [{
+            targetId: factId, subject: 'Setsuko', predicate: 'calls Naruto.', value: 'Uzumaki-san; dead last',
+            category: 'forms of address', importance: 2, persistence: 'persistent',
+        }],
+        events: [],
+    }), { chatKey: 'chat', from: 8, to: 15, allowStateUpdates: true });
+
+    assert.equal(target.facts.length, 1);
+    assert.equal(target.facts[0].id, factId);
+    assert.equal(target.facts[0].subject, 'Setsuko Uchiha');
+    assert.equal(target.facts[0].predicate, 'calls Naruto Uzumaki');
+    assert.equal(target.facts[0].value, 'Uzumaki-kun; Uzumaki-san; dead last');
+    assert.equal(target.facts[0].category, 'form of address');
+});
+
+test('replay drops malformed address placeholders before canonical merge', () => {
+    const target = world();
+    mergeExtraction(target, extraction({
+        facts: [{
+            subject: 'Setsuko Uchiha', predicate: 'calls [canonical addressee]',
+            value: '[canonical addressee unavailable]', category: 'form of address', importance: 2, persistence: 'persistent',
+        }],
+        events: [],
+    }), { chatKey: 'chat', from: 192, to: 199, allowStateUpdates: true });
+    assert.deepEqual(target.facts, []);
+    assert.deepEqual(target.extractions[0].result.facts, []);
+});
+
 test('stable target IDs update semantically matching records across arbitrary scenarios', () => {
     const target = world();
     const first = extraction({

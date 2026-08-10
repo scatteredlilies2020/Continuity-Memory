@@ -5,7 +5,7 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.71';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.72';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
@@ -13,14 +13,15 @@ import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionC
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.71';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.72';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.72';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.71';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.71';
-import { canonicalFactReference, removeInvalidAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.71';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.71';
-import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.71';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.72';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.72';
+import { canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.72';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.72';
+import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.72';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
 
@@ -295,7 +296,7 @@ export async function generateWithThinkingPolicy(options) {
 }
 
 function formatMessages(messages) {
-    return messages.map(message => `[message ${message.index}] [${message.name}]: ${message.text}`).join('\n\n');
+    return formatExtractionMessages(messages);
 }
 
 function collectMessages(from, to) {
@@ -450,9 +451,10 @@ async function extractChunk(messages, world = runtime.world) {
     const profileId = settings.memoryProfileId;
     const usesStructuredSchema = requestSupportsStructuredSchema(extractionJsonSchema, profileId, 'extraction');
     const taskTemplate = settings.extractionTaskTemplate ?? DEFAULT_EXTRACTION_TASK_TEMPLATE;
+    const attributionContext = precedingUserAttributionContext(getContext().chat || [], messages);
     const taskValues = {
         detail: detailInstruction,
-        messages: formatMessages(messages),
+        messages: formatExtractionMessages(messages, attributionContext),
         active_states: extractionStateContext(world, messages),
         temporal_context: extractionTemporalContext(world),
     };
@@ -1675,7 +1677,7 @@ export async function loadBoundWorld() {
         return null;
     }
     let world = (await api.getWorld(worldId)).world;
-    if (removeInvalidAddressFacts(world) > 0) world = (await api.saveWorld(world)).world;
+    if (removeInvalidStoredAddressFacts(world) > 0) world = (await api.saveWorld(world)).world;
     updateRuntime({ world });
     await embedWorldInChat(world);
     return world;
