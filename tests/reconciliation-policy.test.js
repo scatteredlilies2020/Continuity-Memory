@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canonicalFactReference, sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
+import { canonicalFactReference, removeInvalidAddressFacts, sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
 
 function extraction() {
     return {
@@ -85,4 +85,29 @@ test('missing optional reconciliation arrays are restored for older or non-stric
     sanitizeReconciliationMetadata(result, { entities: [], facts: [], states: [], relationships: [], threads: [] });
     assert.deepEqual(result.identityResolutions, []);
     assert.deepEqual(result.recordMerges, []);
+});
+
+test('invalid address placeholders are rejected while concurrent forms remain', () => {
+    const result = extraction();
+    result.facts.push(
+        { subject: 'Setsuko Uchiha', predicate: 'calls [canonical addressee]', value: '[canonical addressee unavailable]', category: 'form of address' },
+        { subject: 'Setsuko Uchiha', predicate: 'calls Naruto Uzumaki.', value: 'dead last; Uzumaki-kun', category: 'form of address' },
+        { subject: 'Archive', predicate: 'display label', value: '[REDACTED]', category: 'metadata' },
+    );
+    const sanitized = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    });
+    assert.equal(sanitized.ignored, 1);
+    assert.deepEqual(result.facts.map(item => item.value), ['dead last; Uzumaki-kun', '[REDACTED]']);
+});
+
+test('stored malformed address placeholders can be removed without touching valid facts', () => {
+    const world = {
+        facts: [
+            { subject: 'Setsuko Uchiha', predicate: 'calls [canonical addressee]', value: '[canonical addressee unavailable]', category: 'form of address' },
+            { subject: 'Setsuko Uchiha', predicate: 'calls Naruto Uzumaki.', value: 'Uzumaki-kun', category: 'form of address' },
+        ],
+    };
+    assert.equal(removeInvalidAddressFacts(world), 1);
+    assert.equal(world.facts[0].value, 'Uzumaki-kun');
 });

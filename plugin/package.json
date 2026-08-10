@@ -1,6 +1,6 @@
 {
   "name": "continuity-memory",
-  "version": "0.14.0-standalone.69.1",
+  "version": "0.14.0-standalone.69.2",
   "description": "Standalone structured continuity for SillyTavern; does not use Lorebooks or World Info.",
   "type": "module",
   "main": "index.js",
