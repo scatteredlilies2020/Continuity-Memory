@@ -1,4 +1,5 @@
 import { randomUuid } from './uuid.js';
+import { addressFactIdentity } from './reconciliation-policy.js';
 
 const COLLECTIONS = Object.freeze({
     entities: ['name', 'type', 'aliases', 'description', 'importance'],
@@ -122,7 +123,7 @@ function parseRecord(value) {
 export function correctionSelector(category, item, meta = {}) {
     const record = publicRecord(category, item);
     if (category === 'entities') return normalized(record.name);
-    if (category === 'facts') return `${normalized(record.subject)}|${normalized(record.predicate)}`;
+    if (category === 'facts') return addressFactIdentity(record) || `${normalized(record.subject)}|${normalized(record.predicate)}`;
     if (category === 'states') return `${normalized(record.subject)}|${normalized(record.attribute)}`;
     if (category === 'relationships') return `${normalized(record.from)}|${normalized(record.to)}|${normalized(record.kind)}`;
     if (category === 'threads') return normalized(record.title);

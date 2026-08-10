@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canonicalFactReference, removeInvalidAddressFacts, sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
+import { addressFactIdentity, canonicalFactReference, mergeAddressValues, removeInvalidAddressFacts, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
 
 function extraction() {
     return {
@@ -90,13 +90,24 @@ test('missing optional reconciliation arrays are restored for older or non-stric
 test('invalid address placeholders are rejected while concurrent forms remain', () => {
     const result = extraction();
     result.facts.push(
-        { subject: 'Setsuko Uchiha', predicate: 'calls [canonical addressee]', value: '[canonical addressee unavailable]', category: 'form of address' },
-        { subject: 'Setsuko Uchiha', predicate: 'calls Naruto Uzumaki.', value: 'dead last; Uzumaki-kun', category: 'form of address' },
-        { subject: 'Archive', predicate: 'display label', value: '[REDACTED]', category: 'metadata' },
+        {
+            subject: 'Setsuko Uchiha', predicate: 'calls [canonical addressee]',
+            value: '[canonical addressee unavailable]', category: 'form of address',
+        },
+        {
+            subject: 'Setsuko Uchiha', predicate: 'calls Naruto Uzumaki.',
+            value: 'dead last; Uzumaki-kun', category: 'form of address',
+        },
+        {
+            subject: 'Archive', predicate: 'display label',
+            value: '[REDACTED]', category: 'metadata',
+        },
     );
+
     const sanitized = sanitizeReconciliationMetadata(result, {
         entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
     });
+
     assert.equal(sanitized.ignored, 1);
     assert.deepEqual(result.facts.map(item => item.value), ['dead last; Uzumaki-kun', '[REDACTED]']);
 });
@@ -108,6 +119,40 @@ test('stored malformed address placeholders can be removed without touching vali
             { subject: 'Setsuko Uchiha', predicate: 'calls Naruto Uzumaki.', value: 'Uzumaki-kun', category: 'form of address' },
         ],
     };
+
     assert.equal(removeInvalidAddressFacts(world), 1);
     assert.equal(world.facts[0].value, 'Uzumaki-kun');
+});
+
+test('stored malformed address placeholders are also removed from replay history', () => {
+    const malformed = { subject: 'Setsuko Uchiha', predicate: 'calls [canonical addressee]', value: '[canonical addressee unavailable]', category: 'form of address' };
+    const world = { facts: [structuredClone(malformed)], extractions: [{ result: { facts: [structuredClone(malformed)] } }] };
+    assert.equal(removeInvalidStoredAddressFacts(world), 2);
+    assert.deepEqual(world.facts, []);
+    assert.deepEqual(world.extractions[0].result.facts, []);
+});
+
+test('legacy and current address predicates share one directional identity', () => {
+    assert.equal(
+        addressFactIdentity({ subject: 'Setsuko Uchiha', predicate: 'form of address for Naruto Uzumaki', category: 'social address' }),
+        addressFactIdentity({ subject: 'Setsuko Uchiha', predicate: 'calls Naruto Uzumaki.', category: 'forms of address' }),
+    );
+    assert.equal(mergeAddressValues('Uzumaki-kun; Uzumaki-san', '“dead last”; Uzumaki-kun'), 'Uzumaki-kun; Uzumaki-san; dead last');
+});
+
+test('address target IDs cannot reverse the speaker and addressee', () => {
+    const result = extraction();
+    result.facts.push({
+        targetId: 'fact_suki', subject: 'Setsuko Uchiha', predicate: 'calls Naruto Uzumaki',
+        value: 'dead last', category: 'form of address',
+    });
+    const sanitized = sanitizeReconciliationMetadata(result, {
+        entities: [], states: [], relationships: [], threads: [], backgrounds: [],
+        facts: [{
+            id: 'fact_suki', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha',
+            value: 'Suki-chan', category: 'form of address',
+        }],
+    });
+    assert.equal(result.facts[0].targetId, '');
+    assert.equal(sanitized.ignored, 1);
 });

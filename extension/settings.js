@@ -1,7 +1,7 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, IDENTITY_RESOLUTION_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.69.2';
+import { CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, IDENTITY_RESOLUTION_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.72';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
 
@@ -59,6 +59,26 @@ const DEFAULTS = Object.freeze({
     chatWorlds: {},
     deletedWorldIds: [],
 });
+
+const TOKEN_EFFICIENT_LEGACY_DEFAULTS = Object.freeze({
+    extractionSystemPrompt: '39312ecc',
+    extractionTaskTemplate: '0873e1f3',
+    retrievalSystemPrompt: 'b78f11b4',
+    injectionInstruction: 'fb79e92a',
+    arcSystemPrompt: '054e60fd',
+    arcTaskTemplate: 'c8c25343',
+    eraSystemPrompt: '3e6d1634',
+    eraTaskTemplate: '83dc1d5a',
+});
+
+function promptFingerprint(value) {
+    let hash = 0x811c9dc5;
+    for (const character of String(value || '')) {
+        hash ^= character.codePointAt(0);
+        hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0');
+}
 
 export function getSettings() {
     if (!extension_settings[EXTENSION_NAME]) extension_settings[EXTENSION_NAME] = {};
@@ -276,12 +296,20 @@ export function getSettings() {
         settings.compactBackgroundPromptVersion = 1;
         saveSettingsDebounced();
     }
-    if (Number(settings.relationalAddressPromptVersion || 0) < 5) {
+    if (Number(settings.tokenEfficientPromptVersion || 0) < 1) {
+        for (const [key, legacyFingerprint] of Object.entries(TOKEN_EFFICIENT_LEGACY_DEFAULTS)) {
+            if (promptFingerprint(settings[key]) === legacyFingerprint) settings[key] = PROMPT_DEFAULTS[key];
+        }
+        settings.tokenEfficientPromptVersion = 1;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.relationalAddressPromptVersion || 0) < 6) {
         let prompt = String(settings.extractionSystemPrompt || PROMPT_DEFAULTS.extractionSystemPrompt);
         if (!prompt.includes(RELATIONAL_ADDRESS_RULE)) {
             const previousRules = [
-                'When actors communicate, store socially meaningful address wording (honorifics, titles, nicknames, callsigns, or first-name use) as one fact per speaker-addressee pair. Require exact wording used or explicitly established; omit absence, silence, indirect replies, and claims that no address is established. A meaningful shift counts even if seen once. Subject: canonical speaker. Predicate: "calls [canonical addressee]." Value: list all exact current forms and meaningful former forms only; keep coexisting forms together, without commentary. Update relationships only if a shift signals changed familiarity, distance, respect, or hierarchy. Ignore ordinary one-offs.',
-                'When actors communicate, store socially meaningful address wording (honorifics, titles, nicknames, callsigns, or first-name use) as one fact per speaker-addressee pair. Require exact wording used or explicitly established; omit absence, silence, indirect replies, and claims that no address is established. A meaningful shift counts even if seen once. Subject: canonical speaker. Predicate: "calls [canonical addressee]." Value: exact current and meaningful former forms only, without commentary. Update relationships only if a shift signals changed familiarity, distance, respect, or hierarchy. Ignore ordinary one-offs.',
+                'Store socially meaningful address wording (honorifics, titles, nicknames, callsigns, or first-name use) as one fact per speaker-addressee pair. Require exact wording used or explicitly established; omit absence, silence, indirect replies, and claims that no address is established. One meaningful shift is enough. Subject: canonical speaker. Predicate: "calls ACTUAL_CANONICAL_NAME." Never output placeholder text or brackets. Value: list all exact current forms and meaningful former forms only; keep coexisting forms together, without commentary. Update relationships only if a shift signals changed familiarity, distance, respect, or hierarchy. Ignore ordinary one-offs.',
+                'Store socially meaningful address wording (honorifics, titles, nicknames, callsigns, or first-name use) as one fact per speaker-addressee pair. Require exact wording used or explicitly established; omit absence, silence, indirect replies, and claims that no address is established. One meaningful shift is enough. Subject: canonical speaker. Predicate: "calls [canonical addressee]." Value: list all exact current forms and meaningful former forms only; keep coexisting forms together, without commentary. Update relationships only if a shift signals changed familiarity, distance, respect, or hierarchy. Ignore ordinary one-offs.',
+                'Store socially meaningful address wording (honorifics, titles, nicknames, callsigns, or first-name use) as one fact per speaker-addressee pair. Require exact wording used or explicitly established; omit absence, silence, indirect replies, and claims that no address is established. One meaningful shift is enough. Subject: canonical speaker. Predicate: "calls [canonical addressee]." Value: exact current and meaningful former forms only, without commentary. Update relationships only if a shift signals changed familiarity, distance, respect, or hierarchy. Ignore ordinary one-offs.',
                 'Store distinctive forms of address, including honorifics, titles, nicknames, and first-name use, in the speaker-to-addressee relationship when repeated, explicitly noticed, or socially meaningful. Preserve exact forms and meaningful shifts as familiarity or distance changes; ignore ordinary one-off usage.',
                 'Preserve recurring forms of address, including culturally meaningful honorifics, titles, and nicknames, in the relationship dynamic when they subtly signal familiarity, respect, hierarchy, distance, or change; ignore incidental usage.',
             ];
@@ -298,7 +326,7 @@ export function getSettings() {
         if (settings.injectionInstruction === previousInjection) {
             settings.injectionInstruction = PROMPT_DEFAULTS.injectionInstruction;
         }
-        settings.relationalAddressPromptVersion = 5;
+        settings.relationalAddressPromptVersion = 6;
         saveSettingsDebounced();
     }
     if (settings.rawTailMode === undefined) {

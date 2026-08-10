@@ -18,10 +18,48 @@ function normalized(value) {
 const ADDRESS_PLACEHOLDER = /(?:\[\s*(?:canonical\s+)?(?:speaker|addressee)(?:\s+unavailable)?\s*\]|canonical\s+addressee|actual[_\s-]+canonical[_\s-]+name)/iu;
 const ADDRESS_ABSENCE = /^(?:\[\s*)?(?:addressee\s+)?(?:unavailable|not established|none|n\/a|no (?:direct )?address(?: is)? established)(?:\s*\])?$/iu;
 
-function isAddressFact(item) {
+export function isAddressFact(item) {
     const category = normalized(item?.category);
     const predicate = normalized(item?.predicate);
-    return category === 'form of address' || predicate.startsWith('calls ');
+    return /^forms? of address$/u.test(category)
+        || predicate.startsWith('calls ')
+        || predicate.startsWith('form of address for ');
+}
+
+export function addressFactAddressee(item) {
+    if (!isAddressFact(item)) return '';
+    const predicate = String(item?.predicate || '').replace(/\s+/g, ' ').trim();
+    const match = predicate.match(/^(?:calls|form of address for)\s+(.+?)\s*[.!?]?$/iu);
+    return String(match?.[1] || '').trim();
+}
+
+function canonicalAddressName(world, value) {
+    const requested = normalized(value);
+    if (!requested) return '';
+    const matches = (world?.entities || []).filter(entity => [entity?.name, ...(entity?.aliases || [])]
+        .some(name => normalized(name) === requested));
+    return normalized(matches.length === 1 ? matches[0].name : value);
+}
+
+export function addressFactIdentity(item, world = null) {
+    const speaker = canonicalAddressName(world, item?.subject);
+    const addressee = canonicalAddressName(world, addressFactAddressee(item));
+    return speaker && addressee ? `${speaker}|${addressee}` : '';
+}
+
+export function mergeAddressValues(...values) {
+    const forms = [];
+    const seen = new Set();
+    for (const value of values) {
+        for (const raw of String(value || '').split(/\s*;\s*/u)) {
+            const form = raw.replace(/\s+/g, ' ').trim().replace(/^[“”"']+|[“”"']+$/gu, '');
+            const identity = normalized(form);
+            if (!identity || seen.has(identity)) continue;
+            seen.add(identity);
+            forms.push(form);
+        }
+    }
+    return forms.join('; ');
 }
 
 export function removeInvalidAddressFacts(container) {
@@ -29,7 +67,7 @@ export function removeInvalidAddressFacts(container) {
     let removed = 0;
     container.facts = container.facts.filter(item => {
         if (!isAddressFact(item)) return true;
-        const fields = [item?.subject, item?.predicate, item?.value];
+        const fields = [item?.subject, item?.predicate, item?.value, addressFactAddressee(item)];
         const invalid = fields.some(value => !String(value || '').trim() || ADDRESS_PLACEHOLDER.test(String(value)))
             || ADDRESS_ABSENCE.test(String(item?.value || '').trim());
         if (invalid) removed++;
@@ -38,9 +76,19 @@ export function removeInvalidAddressFacts(container) {
     return removed;
 }
 
-export function reconciliationTargetIsCompatible(category, incoming, existing) {
+export function removeInvalidStoredAddressFacts(world) {
+    let removed = removeInvalidAddressFacts(world);
+    for (const extraction of world?.extractions || []) removed += removeInvalidAddressFacts(extraction?.result);
+    return removed;
+}
+
+export function reconciliationTargetIsCompatible(category, incoming, existing, world = null) {
     if (!existing) return false;
     if (category !== 'facts') return true;
+    if (isAddressFact(incoming) || isAddressFact(existing)) {
+        const incomingIdentity = addressFactIdentity(incoming, world);
+        return Boolean(incomingIdentity && incomingIdentity === addressFactIdentity(existing, world));
+    }
     const incomingPredicate = normalized(incoming?.predicate);
     const existingPredicate = normalized(existing?.predicate);
     const incomingCategory = normalized(incoming?.category);
@@ -69,7 +117,7 @@ export function sanitizeReconciliationMetadata(result, world) {
             if (!item || typeof item !== 'object') continue;
             const targetId = String(item.targetId || '').trim();
             const compatible = targetId
-                && reconciliationTargetIsCompatible(category, item, recordsById.get(targetId));
+                && reconciliationTargetIsCompatible(category, item, recordsById.get(targetId), world);
             if (targetId && !compatible) ignored++;
             item.targetId = compatible ? targetId : '';
         }

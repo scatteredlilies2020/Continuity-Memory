@@ -1,6 +1,6 @@
 import { EXTRACTION_VERSION } from './coverage.js';
 import { isSuppressedByCorrection } from './memory-correction.js';
-import { reconciliationTargetIsCompatible } from './reconciliation-policy.js';
+import { addressFactAddressee, addressFactIdentity, isAddressFact, mergeAddressValues, reconciliationTargetIsCompatible, removeInvalidAddressFacts } from './reconciliation-policy.js';
 import { canonicalMemorySubject, canonicalStateAttribute, stateIdentity, stateScope } from './state-lifecycle.js';
 import { buildL1TemporalAnchor, buildRelativeTemporalAnchor } from './temporal-anchors.js';
 import { randomUuid } from './uuid.js';
@@ -58,7 +58,7 @@ function mergeArray(world, collection, target, incoming, identity, meta, prefix,
         if (!raw || typeof raw !== 'object') continue;
         let requestedTargetId = text(raw.targetId);
         let requestedIndex = requestedTargetId ? target.findIndex(item => item.id === requestedTargetId) : -1;
-        if (requestedIndex >= 0 && !reconciliationTargetIsCompatible(collection, raw, target[requestedIndex])) {
+        if (requestedIndex >= 0 && !reconciliationTargetIsCompatible(collection, raw, target[requestedIndex], world)) {
             requestedTargetId = '';
             requestedIndex = -1;
             raw.targetId = '';
@@ -90,6 +90,37 @@ function mergeArray(world, collection, target, incoming, identity, meta, prefix,
 
 function cleanList(value, max = 30) {
     return [...new Set((Array.isArray(value) ? value : []).map(text).filter(Boolean))].slice(0, max);
+}
+
+function exactTextKey(value) {
+    return text(value).toLocaleLowerCase().replace(/[.!?]+$/u, '');
+}
+
+export function compactHierarchyFields(result, turningPointLimit = 8, openThreadLimit = 12) {
+    const seen = new Set();
+    const take = value => {
+        const cleaned = text(value);
+        const key = exactTextKey(cleaned);
+        if (!key || seen.has(key)) return '';
+        seen.add(key);
+        return cleaned;
+    };
+    const takeList = (value, limit) => {
+        const output = [];
+        for (const item of Array.isArray(value) ? value : []) {
+            const cleaned = take(item);
+            if (cleaned) output.push(cleaned);
+            if (output.length >= limit) break;
+        }
+        return output;
+    };
+    return {
+        summary: take(result?.summary),
+        turningPoints: takeList(result?.turningPoints, turningPointLimit),
+        emotionalArc: take(result?.emotionalArc),
+        closingState: take(result?.closingState),
+        openThreads: takeList(result?.openThreads, openThreadLimit),
+    };
 }
 
 function canonicalList(world, value, max = 30) {
@@ -143,6 +174,50 @@ function deduplicateCanonicalRecords(items, identity) {
         result[index] = mergeCanonicalDuplicates(result[index], item);
     }
     return result;
+}
+
+export function normalizeAddressFacts(world) {
+    removeInvalidAddressFacts(world);
+    const normalized = [];
+    const indexes = new Map();
+    for (const item of world?.facts || []) {
+        const identity = addressFactIdentity(item, world);
+        if (!identity) {
+            normalized.push(item);
+            continue;
+        }
+        const speaker = canonicalMemorySubject(world, item.subject);
+        const addressee = canonicalMemorySubject(world, addressFactAddressee(item));
+        const record = {
+            ...item,
+            subject: speaker,
+            predicate: `calls ${addressee}`,
+            value: mergeAddressValues(item.value),
+            category: 'form of address',
+        };
+        if (!indexes.has(identity)) {
+            indexes.set(identity, normalized.length);
+            normalized.push(record);
+            continue;
+        }
+        const index = indexes.get(identity);
+        const existing = normalized[index];
+        const preferred = existing.correctionId
+            ? existing
+            : record.correctionId || recordTimestamp(record) >= recordTimestamp(existing)
+                ? record
+                : existing;
+        const other = preferred === existing ? record : existing;
+        normalized[index] = {
+            ...other,
+            ...preferred,
+            value: preferred.correctionId ? preferred.value : mergeAddressValues(existing.value, record.value),
+            sources: mergedSources(existing.sources || [], record.sources || []),
+            createdAt: existing.createdAt || record.createdAt,
+        };
+    }
+    world.facts = normalized;
+    return world;
 }
 
 function exactEntityNames(entity) {
@@ -248,6 +323,8 @@ export function mergeExtraction(world, result, meta) {
     world.backgrounds ||= [];
     world.corrections ||= [];
     world.sources ||= {};
+    removeInvalidAddressFacts(result);
+    normalizeAddressFacts(world);
     const l1Temporal = buildL1TemporalAnchor(world, result.sceneCapsule?.temporal, meta);
 
     if (meta.allowStateUpdates !== false && result.scene && typeof result.scene === 'object') {
@@ -281,15 +358,22 @@ export function mergeExtraction(world, result, meta) {
 
     for (const resolution of result.identityResolutions || []) applyIdentityResolution(world, resolution, meta);
 
-    mergeArray(world, 'facts', world.facts, result.facts, item => `${key(item.subject)}|${key(item.predicate)}`, meta, 'fact', (item, existing) => ({
-        subject: existing?.subject || canonicalMemorySubject(world, item.subject),
-        predicate: existing?.predicate || text(item.predicate),
-        value: text(item.value),
-        category: text(item.category),
-        importance: clampImportance(item.importance),
-        persistence: ['temporary', 'recurring', 'persistent'].includes(item.persistence) ? item.persistence : 'persistent',
-        temporalAnchorId: l1Temporal.anchorId,
-    }), preserveHistoricalRecord);
+    mergeArray(world, 'facts', world.facts, result.facts, item => addressFactIdentity(item, world) || `${key(item.subject)}|${key(item.predicate)}`, meta, 'fact', (item, existing) => {
+        const address = isAddressFact(item);
+        const subject = existing?.subject || canonicalMemorySubject(world, item.subject);
+        const addressee = address
+            ? canonicalMemorySubject(world, addressFactAddressee(existing || item))
+            : '';
+        return {
+            subject,
+            predicate: address ? `calls ${addressee}` : existing?.predicate || text(item.predicate),
+            value: address ? mergeAddressValues(existing?.value, item.value) : text(item.value),
+            category: address ? 'form of address' : text(item.category),
+            importance: clampImportance(item.importance),
+            persistence: ['temporary', 'recurring', 'persistent'].includes(item.persistence) ? item.persistence : 'persistent',
+            temporalAnchorId: l1Temporal.anchorId,
+        };
+    }, preserveHistoricalRecord);
 
     if (meta.allowStateUpdates !== false) {
         // Scene state is a replaceable snapshot, not historical memory. Advancing
@@ -608,16 +692,13 @@ export function addDerivedArc(world, result, capsules) {
     const rangeEnds = capsules.map(item => Number(item.to)).filter(Number.isFinite);
     const temporalAnchorIds = [...new Set(capsules.map(item => item.temporal?.anchorId).filter(Boolean))];
     const temporalFrames = [...new Set(capsules.map(item => item.temporal?.frame).filter(Boolean))];
+    const hierarchy = compactHierarchyFields(result, 8, 12);
     const arc = {
         id: id('arc'),
         title: clipped(result.title, 140) || `L2 covering ${capsules.length} L1 records`,
         storyTime: clipped(result.storyTime, 180),
         participants: cleanList(result.participants, 30),
-        summary: text(result.summary),
-        turningPoints: cleanList(result.turningPoints, 8).map(text),
-        emotionalArc: text(result.emotionalArc),
-        closingState: text(result.closingState),
-        openThreads: cleanList(result.openThreads, 12).map(text),
+        ...hierarchy,
         importance: clampImportance(result.importance),
         capsuleIds,
         temporalAnchorIds,
@@ -654,16 +735,13 @@ export function addDerivedEra(world, result, arcs) {
     const rangeEnds = arcs.map(item => Number(item.to)).filter(Number.isFinite);
     const temporalAnchorIds = [...new Set(arcs.flatMap(item => item.temporalAnchorIds || []))];
     const temporalFrames = [...new Set(arcs.flatMap(item => item.temporalFrames || []))];
+    const hierarchy = compactHierarchyFields(result, 12, 16);
     const era = {
         id: id('era'),
         title: clipped(result.title, 160) || `L3 covering ${arcs.length} L2 records`,
         storyTime: clipped(result.storyTime, 220),
         participants: cleanList(result.participants, 40),
-        summary: text(result.summary),
-        turningPoints: cleanList(result.turningPoints, 12).map(text),
-        emotionalArc: text(result.emotionalArc),
-        closingState: text(result.closingState),
-        openThreads: cleanList(result.openThreads, 16).map(text),
+        ...hierarchy,
         importance: clampImportance(result.importance),
         arcIds,
         capsuleIds,

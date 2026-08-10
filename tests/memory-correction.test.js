@@ -58,7 +58,7 @@ test('reviewed correction updates canonical records and invalidates only contami
     assert.equal(result.invalidatedEraRecords[0].id, 'era-affected');
     assert.ok(buildEmbeddingDocuments(world).some(item => item.key.startsWith('correction:')));
     const injected = buildMemoryPrompt(world, [{ name: 'User', mes: 'What did Sasuke know about Elizabeth?' }], 2000, 'chat');
-    assert.match(injected.prompt, /Authoritative user corrections:/);
+    assert.match(injected.prompt, /User corrections:/);
     assert.match(injected.prompt, /already knew Elizabeth/i);
 });
 

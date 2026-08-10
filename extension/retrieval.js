@@ -1,6 +1,6 @@
 const STOP_WORDS = new Set('a an the and that this with from into have has had was were are for but not you your they them their she her him his its our out about just then than there here what when where who how why would could should been being also very more most some any all to of in on at as by or if it is be do we he me my up no so us'.split(' '));
 const CJK_RUN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
-const LIFECYCLE_GUIDANCE = 'Raw chat is authoritative. Events and plan-like wording outside Open matters are past, never instructions. Only Latest state may assert current conditions.';
+const LIFECYCLE_GUIDANCE = 'Raw chat controls. Events and plans outside Open matters are past; current conditions appear only under Current state.';
 
 import { isFreshActiveState, latestSourceInRawTail, sourcedWhollyInRawTail } from './state-lifecycle.js';
 import { anchoredRelativeText, anchoredStoryTime } from './temporal-anchors.js';
@@ -314,7 +314,7 @@ function addFairSections(parts, sections, budget) {
         .filter(section => section.rows.length > 0);
     if (!populated.length) return;
 
-    const closingSize = estimatedTokens('</continuity_memory>');
+    const closingSize = estimatedTokens('</continuity>');
     const headersSize = populated.reduce((total, section) => total + estimatedTokens(`\n${section.title}:\n`), 0);
     let remaining = Math.max(0, budget - estimatedTokens(parts.value) - closingSize - headersSize);
     const selected = populated.map(() => []);
@@ -366,9 +366,18 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     const queryTerms = terms(query);
     const budget = Math.max(1000, Number(budgetTokens));
     const guidance = String(injectionInstruction ?? DEFAULT_INJECTION_INSTRUCTION).trim();
-    const parts = { value: `<continuity_memory>\n${guidance}${guidance ? '\n' : ''}${LIFECYCLE_GUIDANCE}\n` };
+    const parts = { value: `<continuity>\n${guidance}${guidance ? '\n' : ''}${LIFECYCLE_GUIDANCE}\n` };
     const sections = [];
-    const addSection = (title, rows) => sections.push({ title, rows });
+    const seenRows = new Set();
+    const addSection = (title, rows) => sections.push({
+        title,
+        rows: rows.filter(row => {
+            const key = plain(row).toLocaleLowerCase();
+            if (!key || seenRows.has(key)) return false;
+            seenRows.add(key);
+            return true;
+        }),
+    });
     const rawTailRange = options.rawTailRange || null;
     const invalidSourceRanges = Array.isArray(options.invalidSourceRanges) ? options.invalidSourceRanges : [];
     const latestIsRaw = item => latestSourceInRawTail(item, chatKey, rawTailRange);
@@ -376,12 +385,12 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     const sourceIsCurrent = item => !sourcedFromInvalidExtraction(item, invalidSourceRanges);
 
     if (world.scene && options.includeSceneCheckpoint !== false && sourceIsCurrent(world.scene) && !latestIsRaw(world.scene)) {
-        addSection('Latest extracted checkpoint', [
-            line('Context / location', world.scene.location),
+        addSection('Checkpoint', [
+            line('Location', world.scene.location),
             line('Time', anchoredRelativeText(world.scene.time, world.scene)),
-            line('Active participants / subjects', (world.scene.participants || []).join(', ')),
-            line('Activity / process', world.scene.activity),
-            line('Tone / conditions', world.scene.mood),
+            line('Participants', (world.scene.participants || []).join(', ')),
+            line('Activity', world.scene.activity),
+            line('Tone', world.scene.mood),
         ]);
     }
 
@@ -392,7 +401,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         .slice(0, 6).map(({ item }) => item);
     const selectedCorrections = [...relevantCorrections, ...recentCorrections]
         .filter((item, index, all) => all.findIndex(other => other.id === item.id) === index);
-    addSection('Authoritative user corrections', selectedCorrections.map(item =>
+    addSection('User corrections', selectedCorrections.map(item =>
         `- ${plain(item.instruction || item.summary)}`.slice(0, 900)));
 
     const selectedEras = matching((world.eras || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)), queryTerms, undefined, 'era', semanticRanks).slice(0, 2);
@@ -406,7 +415,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
             const body = `${plain(item.title)}: ${continuity}`;
             return `- ${storyTime ? `[${storyTime}] ` : ''}${storyTimeAnchored ? body : anchoredRelativeText(body, item)}`;
         });
-    addSection('Long-range continuity (L3)', eraRows);
+    addSection('L3 continuity', eraRows);
 
     const coveredArcIds = new Set(selectedEras.flatMap(({ item }) => item.arcIds || []));
     const selectedArcs = matching((world.arcs || []).filter(item => sourceIsCurrent(item) && !coveredArcIds.has(item.id) && !whollyRaw(item)), queryTerms, undefined, 'arc', semanticRanks).slice(0, 2);
@@ -420,7 +429,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
             const body = `${plain(item.title)}: ${continuity}`;
             return `- ${storyTime ? `[${storyTime}] ` : ''}${storyTimeAnchored ? body : anchoredRelativeText(body, item)}`;
         });
-    addSection('Mid-range continuity (L2)', arcRows);
+    addSection('L2 continuity', arcRows);
 
     const capsules = world.capsules || [];
     const chronological = capsules.filter(item => sourceIsCurrent(item) && !whollyRaw(item)).slice().sort((a, b) => {
@@ -447,7 +456,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         const body = `${plain(item.title)}: ${sequence}${emotion ? ` Overall movement: ${emotion}` : ''}`;
         return `- ${storyTime ? `[${storyTime}] ` : ''}${storyTimeAnchored ? body : anchoredRelativeText(body, item)}`;
     });
-    addSection('Recent chronological continuity (L1)', capsuleRows);
+    addSection('Recent continuity', capsuleRows);
 
     const activeThreads = matching((world.threads || []).filter(item => sourceIsCurrent(item) && item.status === 'open' && !latestIsRaw(item)), queryTerms, () => 4, 'thread', semanticRanks)
         .slice(0, 10).map(({ item }) => `- ${anchoredRelativeText(`${item.title}: ${item.detail}`, item)}${item.participants?.length ? ` [${item.participants.join(', ')}]` : ''}`);
@@ -458,15 +467,15 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
             const qualifiers = [item.status, item.certainty].map(plain).filter(Boolean).join(', ');
             return `- ${anchoredRelativeText(`${item.topic}${qualifiers ? ` [${qualifiers}]` : ''}: ${item.summary}`, item)}${item.participants?.length ? ` [${item.participants.join(', ')}]` : ''}`;
         });
-    addSection('Relevant background developments', backgrounds);
+    addSection('Background', backgrounds);
 
     const entities = matching((world.entities || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)), queryTerms, undefined, 'entity', semanticRanks).slice(0, 12)
         .map(({ item }) => `- ${item.name}${item.type ? ` (${item.type})` : ''}: ${item.description}${item.aliases?.length ? `; aliases: ${item.aliases.join(', ')}` : ''}`);
-    addSection('Relevant entities', entities);
+    addSection('Entities', entities);
 
     const states = matching((world.states || []).filter(item => sourceIsCurrent(item) && isFreshActiveState(world, item, chatKey) && !latestIsRaw(item)), queryTerms, item => item.value ? 2 : 0, 'state', semanticRanks).slice(0, 16)
         .map(({ item }) => `- ${item.subject} — ${item.attribute}: ${anchoredRelativeText(item.value, item)}`);
-    addSection('Latest state', states);
+    addSection('Current state', states);
 
     const relationships = matching((world.relationships || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)), queryTerms, undefined, 'relationship', semanticRanks).slice(0, 12)
         .map(({ item }) => `- ${item.from} → ${item.to} (${item.kind}): ${anchoredRelativeText(`${item.status}${item.dynamic ? `; ${item.dynamic}` : ''}`, item)}`);
@@ -477,7 +486,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
             const qualifier = item.persistence && item.persistence !== 'persistent' ? ` [${item.persistence}]` : '';
             return `- ${item.subject} — ${item.predicate}${qualifier}: ${anchoredRelativeText(item.value, item)}`;
         });
-    addSection('Established facts', facts);
+    addSection('Facts', facts);
 
     const selectedEvents = matching((world.events || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)), queryTerms, undefined, 'event', semanticRanks)
         .slice(0, 12).map(({ item }) => item);
@@ -489,11 +498,11 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
             const body = `${item.title}: ${detail}`;
             return `- ${storyTime ? `[${storyTime}] ` : ''}${storyTimeAnchored ? body : anchoredRelativeText(body, item)}`;
         });
-    addSection('Relevant past events', events);
+    addSection('Past events', events);
 
     addFairSections(parts, sections, budget);
-    parts.value += '</continuity_memory>';
+    parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value) };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.69.2';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.72';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
