@@ -1,7 +1,7 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, IDENTITY_RESOLUTION_RULES, PROMPT_DEFAULTS, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.66';
+import { CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, IDENTITY_RESOLUTION_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.69';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
 
@@ -274,6 +274,29 @@ export function getSettings() {
         }
         settings.extractionSystemPrompt = prompt;
         settings.compactBackgroundPromptVersion = 1;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.relationalAddressPromptVersion || 0) < 3) {
+        let prompt = String(settings.extractionSystemPrompt || PROMPT_DEFAULTS.extractionSystemPrompt);
+        if (!prompt.includes(RELATIONAL_ADDRESS_RULE)) {
+            const previousRules = [
+                'Store distinctive forms of address, including honorifics, titles, nicknames, and first-name use, in the speaker-to-addressee relationship when repeated, explicitly noticed, or socially meaningful. Preserve exact forms and meaningful shifts as familiarity or distance changes; ignore ordinary one-off usage.',
+                'Preserve recurring forms of address, including culturally meaningful honorifics, titles, and nicknames, in the relationship dynamic when they subtly signal familiarity, respect, hierarchy, distance, or change; ignore incidental usage.',
+            ];
+            const previousRule = previousRules.find(rule => prompt.includes(rule));
+            const marker = 'Relationships hold meaningful connections or dependencies.';
+            prompt = previousRule
+                ? prompt.replace(previousRule, RELATIONAL_ADDRESS_RULE)
+                : prompt.includes(marker)
+                ? prompt.replace(marker, `${marker} ${RELATIONAL_ADDRESS_RULE}`)
+                : `${prompt}\n${RELATIONAL_ADDRESS_RULE}`;
+        }
+        settings.extractionSystemPrompt = prompt;
+        const previousInjection = 'Use this as relevant background continuity. Live conversation and explicit user corrections take priority. Do not mention this block.';
+        if (settings.injectionInstruction === previousInjection) {
+            settings.injectionInstruction = PROMPT_DEFAULTS.injectionInstruction;
+        }
+        settings.relationalAddressPromptVersion = 3;
         saveSettingsDebounced();
     }
     if (settings.rawTailMode === undefined) {

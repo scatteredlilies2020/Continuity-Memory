@@ -7,6 +7,7 @@ import {
     DEFAULT_ARC_SYSTEM_PROMPT,
     DEFAULT_ERA_SYSTEM_PROMPT,
     DEFAULT_EXTRACTION_SYSTEM_PROMPT,
+    DEFAULT_INJECTION_INSTRUCTION,
     DEFAULT_JB_PROMPT,
     DEFAULT_RETRIEVAL_SYSTEM_PROMPT,
     HIERARCHY_CONCISION_RULES,
@@ -70,6 +71,11 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Never group unrelated strands/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /confirmed, reported, rumored, or uncertain/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /When uncertain about future relevance, retain one compact low-importance background record/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /separate persistent fact for each established speaker-to-addressee pattern/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /honorifics, titles, nicknames, callsigns, and first-name use/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /form of address for \[canonical addressee\]/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /address shift signals changed familiarity, distance, respect, or hierarchy/);
+    assert.match(DEFAULT_INJECTION_INSTRUCTION, /without emphasizing or explaining them/);
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(CONTINUITY_COVERAGE_RULES));
     assert.match(DEFAULT_RETRIEVAL_SYSTEM_PROMPT, /roleplay or simulation/);
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /participants need not be people/);
