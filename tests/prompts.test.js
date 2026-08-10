@@ -75,7 +75,8 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /If future relevance is uncertain, retain at most one compact low-importance background record/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /one fact per speaker-addressee pair/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /honorifics, titles, nicknames, callsigns, or first-name use/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /calls \[canonical addressee\]/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /calls ACTUAL_CANONICAL_NAME/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Never output placeholder text or brackets/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /omit absence, silence, indirect replies, and claims that no address is established/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /One meaningful shift is enough/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Value: list all exact current forms and meaningful former forms only/);

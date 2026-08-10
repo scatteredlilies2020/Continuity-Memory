@@ -1,7 +1,7 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, IDENTITY_RESOLUTION_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.70';
+import { CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, IDENTITY_RESOLUTION_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.71';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
 
@@ -303,10 +303,11 @@ export function getSettings() {
         settings.tokenEfficientPromptVersion = 1;
         saveSettingsDebounced();
     }
-    if (Number(settings.relationalAddressPromptVersion || 0) < 4) {
+    if (Number(settings.relationalAddressPromptVersion || 0) < 5) {
         let prompt = String(settings.extractionSystemPrompt || PROMPT_DEFAULTS.extractionSystemPrompt);
         if (!prompt.includes(RELATIONAL_ADDRESS_RULE)) {
             const previousRules = [
+                'Store socially meaningful address wording (honorifics, titles, nicknames, callsigns, or first-name use) as one fact per speaker-addressee pair. Require exact wording used or explicitly established; omit absence, silence, indirect replies, and claims that no address is established. One meaningful shift is enough. Subject: canonical speaker. Predicate: "calls [canonical addressee]." Value: list all exact current forms and meaningful former forms only; keep coexisting forms together, without commentary. Update relationships only if a shift signals changed familiarity, distance, respect, or hierarchy. Ignore ordinary one-offs.',
                 'Store socially meaningful address wording (honorifics, titles, nicknames, callsigns, or first-name use) as one fact per speaker-addressee pair. Require exact wording used or explicitly established; omit absence, silence, indirect replies, and claims that no address is established. One meaningful shift is enough. Subject: canonical speaker. Predicate: "calls [canonical addressee]." Value: exact current and meaningful former forms only, without commentary. Update relationships only if a shift signals changed familiarity, distance, respect, or hierarchy. Ignore ordinary one-offs.',
                 'Store distinctive forms of address, including honorifics, titles, nicknames, and first-name use, in the speaker-to-addressee relationship when repeated, explicitly noticed, or socially meaningful. Preserve exact forms and meaningful shifts as familiarity or distance changes; ignore ordinary one-off usage.',
                 'Preserve recurring forms of address, including culturally meaningful honorifics, titles, and nicknames, in the relationship dynamic when they subtly signal familiarity, respect, hierarchy, distance, or change; ignore incidental usage.',
@@ -324,7 +325,7 @@ export function getSettings() {
         if (settings.injectionInstruction === previousInjection) {
             settings.injectionInstruction = PROMPT_DEFAULTS.injectionInstruction;
         }
-        settings.relationalAddressPromptVersion = 4;
+        settings.relationalAddressPromptVersion = 5;
         saveSettingsDebounced();
     }
     if (settings.rawTailMode === undefined) {

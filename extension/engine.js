@@ -5,7 +5,7 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.70';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.71';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
@@ -13,14 +13,14 @@ import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionC
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.70';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.71';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.70';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.70';
-import { canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.70';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.70';
-import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.70';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.71';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.71';
+import { canonicalFactReference, removeInvalidAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.71';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.71';
+import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.71';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
 
@@ -1674,7 +1674,8 @@ export async function loadBoundWorld() {
         updateRuntime({ world: null });
         return null;
     }
-    const world = (await api.getWorld(worldId)).world;
+    let world = (await api.getWorld(worldId)).world;
+    if (removeInvalidAddressFacts(world) > 0) world = (await api.saveWorld(world)).world;
     updateRuntime({ world });
     await embedWorldInChat(world);
     return world;

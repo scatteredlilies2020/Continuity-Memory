@@ -15,6 +15,29 @@ function normalized(value) {
     return String(value || '').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
 }
 
+const ADDRESS_PLACEHOLDER = /(?:\[\s*(?:canonical\s+)?(?:speaker|addressee)(?:\s+unavailable)?\s*\]|canonical\s+addressee|actual[_\s-]+canonical[_\s-]+name)/iu;
+const ADDRESS_ABSENCE = /^(?:\[\s*)?(?:addressee\s+)?(?:unavailable|not established|none|n\/a|no (?:direct )?address(?: is)? established)(?:\s*\])?$/iu;
+
+function isAddressFact(item) {
+    const category = normalized(item?.category);
+    const predicate = normalized(item?.predicate);
+    return category === 'form of address' || predicate.startsWith('calls ');
+}
+
+export function removeInvalidAddressFacts(container) {
+    if (!Array.isArray(container?.facts)) return 0;
+    let removed = 0;
+    container.facts = container.facts.filter(item => {
+        if (!isAddressFact(item)) return true;
+        const fields = [item?.subject, item?.predicate, item?.value];
+        const invalid = fields.some(value => !String(value || '').trim() || ADDRESS_PLACEHOLDER.test(String(value)))
+            || ADDRESS_ABSENCE.test(String(item?.value || '').trim());
+        if (invalid) removed++;
+        return !invalid;
+    });
+    return removed;
+}
+
 export function reconciliationTargetIsCompatible(category, incoming, existing) {
     if (!existing) return false;
     if (category !== 'facts') return true;
@@ -28,7 +51,7 @@ export function reconciliationTargetIsCompatible(category, incoming, existing) {
 }
 
 export function sanitizeReconciliationMetadata(result, world) {
-    let ignored = 0;
+    let ignored = removeInvalidAddressFacts(result);
     if (!Array.isArray(result.identityResolutions)) {
         result.identityResolutions = [];
         ignored++;
