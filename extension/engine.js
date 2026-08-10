@@ -5,7 +5,7 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.69';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.70';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
@@ -13,14 +13,14 @@ import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionC
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.69';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.70';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.69';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.69';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.70';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.70';
 import { canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.69';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.69';
-import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.69';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.70';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.70';
+import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.70';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
 
@@ -415,7 +415,7 @@ function extractionStateContext(world, messages) {
         status: item.status,
         certainty: item.certainty,
     }));
-    const snapshot = {
+    const snapshot = Object.fromEntries(Object.entries({
         canonicalEntities: entities,
         activeStates: active.map(({ item }) => ({
             targetId: item.id,
@@ -428,13 +428,15 @@ function extractionStateContext(world, messages) {
         canonicalRelationships: relationships,
         knownThreads: activeThreads,
         knownBackgrounds: backgrounds,
-    };
-    return `CANONICAL MEMORY CONTEXT (reference only; not source events):\n${JSON.stringify(snapshot)}\n\nFor entities, facts, states, relationships, threads, and backgrounds, set targetId to the supplied record ID when the new narrative updates the same underlying record even if its wording differs; preserve its canonical identity fields. Leave targetId empty only for genuinely new records. Do not output unchanged records. If multiple supplied facts, states, relationships, threads, or backgrounds are semantic duplicates of one durable item, add one recordMerges entry naming the canonical ID and duplicate IDs; never merge merely similar or recurring events. Clear an invalidated ongoing state with an empty value. Reuse exact canonical names, predicates, fact categories, attributes, relationship kinds, thread titles, and background topics.`;
+    }).filter(([, records]) => records.length));
+    if (!Object.keys(snapshot).length) return '';
+    return `CANONICAL RECORDS:\n${JSON.stringify(snapshot)}\nUse targetId for updates, omit unchanged records, and preserve canonical identity fields.`;
 }
 
 function extractionTemporalContext(world) {
     const anchors = temporalContext(world, getChatKey());
-    return `IMMUTABLE NARRATIVE-TIME CONTEXT:\n${JSON.stringify(anchors)}\n\nTemporal output rules:\n- Message count, token count, L1 boundaries, extraction time, and real-world time never imply elapsed story time.\n- frame identifies the local subjective timeline or clock. Reuse an exact prior frame name when it is the same timeline; use a distinct frame for dreams, flashbacks, time-dilated locations, alternate timelines, or other unsynchronized clocks.\n- For sceneCapsule, relation is relative to the most recent earlier L1 in the same frame. For each event, relation is relative to the containing sceneCapsule: same-period, after, before, overlaps, detached, or unknown. Ordering does not imply a duration.\n- elapsed contains only an explicitly stated narrative interval such as "three years"; otherwise leave it empty. Perceived duration is not elapsed time.\n- certainty is explicit only when narration or dialogue establishes the timing, implicit for a clear qualitative sequence without a duration, and unknown otherwise.\n- Preserve phrases such as yesterday, tomorrow, last year, or the last 300 days in storyTime when no calendar exists. They will be bound to this immutable L1 anchor and must never float relative to a later current scene.\n- A time skip changes narrative time only when the source establishes it. Never invent dates or synchronize separate frames.`;
+    if (!anchors.length) return '';
+    return `TEMPORAL ANCHORS:\n${JSON.stringify(anchors)}\nUse only these anchors; never infer elapsed time from message or extraction order.`;
 }
 
 async function extractChunk(messages, world = runtime.world) {
@@ -445,18 +447,24 @@ async function extractChunk(messages, world = runtime.world) {
         : detail === 'detailed'
             ? 'Capture subtle recurring details, conditions, relationships, routines, rules, resources, and small changes as well as major developments, using whatever categories fit this scenario.'
             : 'Capture major developments and useful recurring or persistent details without recording filler.';
-    const prompt = renderPromptTemplate(settings.extractionTaskTemplate ?? DEFAULT_EXTRACTION_TASK_TEMPLATE, {
+    const profileId = settings.memoryProfileId;
+    const usesStructuredSchema = requestSupportsStructuredSchema(extractionJsonSchema, profileId, 'extraction');
+    const taskTemplate = settings.extractionTaskTemplate ?? DEFAULT_EXTRACTION_TASK_TEMPLATE;
+    const taskValues = {
         detail: detailInstruction,
-        schema: JSON_SHAPE_EXAMPLE,
         messages: formatMessages(messages),
         active_states: extractionStateContext(world, messages),
         temporal_context: extractionTemporalContext(world),
-    }, ['schema', 'messages', 'active_states', 'temporal_context']);
+    };
+    const prompt = renderStructuredTaskPrompt(taskTemplate, DEFAULT_EXTRACTION_TASK_TEMPLATE, taskValues, JSON_SHAPE_EXAMPLE, usesStructuredSchema, ['messages', 'active_states', 'temporal_context']);
+    const fallbackPrompt = usesStructuredSchema
+        ? renderStructuredTaskPrompt(taskTemplate, DEFAULT_EXTRACTION_TASK_TEMPLATE, taskValues, JSON_SHAPE_EXAMPLE, false, ['messages', 'active_states', 'temporal_context'])
+        : prompt;
     let lastError;
     for (let attempt = 1; attempt <= 2; attempt++) {
         try {
             const systemPrompt = buildExtractionSystemPrompt(settings.extractionSystemPrompt, settings.jbEnabled, settings.jbPrompt);
-            const raw = await requestExtraction(prompt, systemPrompt);
+            const raw = await requestExtraction(prompt, systemPrompt, fallbackPrompt);
             updateRuntime({ lastRawResponse: String(raw).slice(0, 30000) });
             const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
             const result = validateResult(parsed, world);
@@ -471,8 +479,8 @@ async function extractChunk(messages, world = runtime.world) {
     throw new Error(`Structured extraction failed twice: ${lastError?.message || 'unknown error'}`);
 }
 
-async function requestExtraction(prompt, systemPrompt) {
-    return requestStructured(prompt, systemPrompt, extractionJsonSchema, memoryResponseTokens('l1'));
+async function requestExtraction(prompt, systemPrompt, fallbackPrompt = prompt) {
+    return requestStructured(prompt, systemPrompt, extractionJsonSchema, memoryResponseTokens('l1'), undefined, 'extraction', fallbackPrompt);
 }
 
 function directRequestConfig(kind) {
@@ -492,6 +500,45 @@ function directRequestConfig(kind) {
     if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('Direct API URLs must use HTTP or HTTPS.');
     if (!String(model || '').trim()) throw new Error(`Enter a ${summary ? 'summarizer' : 'extraction'} model ID.`);
     return { provider, url: parsed.toString().replace(/\/$/, ''), model: String(model).trim(), secretId };
+}
+
+function requestSupportsStructuredSchema(jsonSchema, profileId = getSettings().memoryProfileId, directKind = 'extraction') {
+    if (!profileId) return false;
+    const settings = getSettings();
+    if (profileId === DIRECT_PROFILE_ID) {
+        const config = directRequestConfig(directKind);
+        const thinking = buildThinkingRequest({
+            mode: settings.thinkingMode,
+            source: config.provider === 'openrouter' ? 'openrouter' : 'custom',
+            model: config.model,
+            url: config.url,
+        });
+        return shouldSendStructuredSchema(thinking.adapter, jsonSchema);
+    }
+    const profile = ConnectionManagerRequestService.getProfile(profileId);
+    const apiMap = ConnectionManagerRequestService.validateProfile(profile);
+    const thinking = buildThinkingRequest({
+        mode: settings.thinkingMode,
+        source: apiMap.source,
+        model: profile.model,
+        url: profile['api-url'],
+        profileName: profile.name,
+    });
+    return shouldSendStructuredSchema(thinking.adapter, jsonSchema);
+}
+
+function renderStructuredTaskPrompt(template, defaultTemplate, values, schemaExample, usesStructuredSchema, required = []) {
+    const source = String(template ?? defaultTemplate);
+    const usesFormatPlaceholder = source.includes('{{format}}');
+    const format = usesStructuredSchema
+        ? 'Return one schema-valid JSON object with all required keys.'
+        : `Return one JSON object with this exact shape and all keys:\n${schemaExample}`;
+    return renderPromptTemplate(source, {
+        ...values,
+        format,
+        // Preserve custom legacy templates that explicitly use {{schema}}.
+        schema: schemaExample,
+    }, [usesFormatPlaceholder ? 'format' : 'schema', ...required]);
 }
 
 async function requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, kind, withSchema = true) {
@@ -536,14 +583,14 @@ export async function requestDirectText(prompt, systemPrompt, responseLength = 3
     return requestDirectStructured(prompt, systemPrompt, null, responseLength, kind, false);
 }
 
-async function requestStructured(prompt, systemPrompt, jsonSchema, responseLength = null, profileId = getSettings().memoryProfileId, directKind = 'extraction') {
+async function requestStructured(prompt, systemPrompt, jsonSchema, responseLength = null, profileId = getSettings().memoryProfileId, directKind = 'extraction', fallbackPrompt = prompt) {
     if (profileId === DIRECT_PROFILE_ID) {
         try {
             return await requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, directKind, true);
         } catch (error) {
             if (!shouldRetryWithoutSchema(error)) throw error;
             updateRuntime({ lastValidation: `Direct API JSON mode unavailable; using compatible plain mode: ${rootErrorMessage(error)}` });
-            return requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, directKind, false);
+            return requestDirectStructured(fallbackPrompt, systemPrompt, jsonSchema, responseLength, directKind, false);
         }
     }
     if (!profileId) {
@@ -553,16 +600,17 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
             if (!shouldRetryWithoutSchema(error)) throw error;
             console.warn('[Continuity] Native structured output failed; retrying with plain JSON prompting.', error);
             updateRuntime({ lastValidation: `Native JSON mode unavailable; using compatible plain mode: ${rootErrorMessage(error)}` });
-            return await generateWithThinkingPolicy({ prompt, systemPrompt, responseLength });
+            return await generateWithThinkingPolicy({ prompt: fallbackPrompt, systemPrompt, responseLength });
         }
     }
 
     const profile = ConnectionManagerRequestService.getProfile(profileId);
     const apiMap = ConnectionManagerRequestService.validateProfile(profile);
-    const messages = [
+    const messagesFor = userPrompt => [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: prompt },
+        { role: 'user', content: userPrompt },
     ];
+    const messages = messagesFor(prompt);
     const options = isolatedProfileOptions();
     const thinking = buildThinkingRequest({
         mode: getSettings().thinkingMode,
@@ -583,14 +631,14 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
         updateRuntime({ lastValidation: 'Gemini native schema omitted; using compatible exact-shape JSON prompting.' });
         try {
             response = await ConnectionManagerRequestService.sendRequest(
-                profileId, messages, profileResponseLength, options, compatibilityPayload(),
+                profileId, messagesFor(fallbackPrompt), profileResponseLength, options, compatibilityPayload(),
             );
         } catch (error) {
             if (!thinking.controlled || !isThinkingControlError(error)) throw error;
             thinkingPayload = {};
             updateRuntime({ thinkingControl: { mode: getSettings().thinkingMode, adapter: thinking.adapter, fallback: true } });
             response = await ConnectionManagerRequestService.sendRequest(
-                profileId, messages, profileResponseLength, options, compatibilityPayload(),
+                profileId, messagesFor(fallbackPrompt), profileResponseLength, options, compatibilityPayload(),
             );
         }
         const result = extractMessageFromData(response, apiMap.selected);
@@ -624,14 +672,14 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
         updateRuntime({ lastValidation: `Profile JSON mode unavailable; using compatible plain mode: ${rootErrorMessage(error)}` });
         try {
             response = await ConnectionManagerRequestService.sendRequest(
-                profileId, messages, profileResponseLength, options, compatibilityPayload(),
+                profileId, messagesFor(fallbackPrompt), profileResponseLength, options, compatibilityPayload(),
             );
         } catch (plainError) {
             if (!Object.keys(thinkingPayload).length || !isThinkingControlError(plainError)) throw plainError;
             thinkingPayload = {};
             updateRuntime({ thinkingControl: { mode: getSettings().thinkingMode, adapter: thinking.adapter, fallback: true } });
             response = await ConnectionManagerRequestService.sendRequest(
-                profileId, messages, profileResponseLength, options, compatibilityPayload(),
+                profileId, messagesFor(fallbackPrompt), profileResponseLength, options, compatibilityPayload(),
             );
         }
     }
@@ -879,13 +927,18 @@ function validateArcResult(result, layer = 'L2') {
 
 async function generateArc(capsules) {
     const settings = getSettings();
-    const prompt = renderPromptTemplate(settings.arcTaskTemplate ?? DEFAULT_ARC_TASK_TEMPLATE, {
-        schema: ARC_JSON_SHAPE_EXAMPLE,
-        capsules: formatCapsules(capsules),
-    }, ['schema', 'capsules']);
     const profileId = settings.arcProfileId || settings.memoryProfileId;
     const directKind = settings.arcProfileId === DIRECT_PROFILE_ID ? 'summary' : 'extraction';
-    const raw = await requestStructured(prompt, buildHierarchySystemPrompt(settings.arcSystemPrompt ?? DEFAULT_ARC_SYSTEM_PROMPT), arcJsonSchema, memoryResponseTokens('l2'), profileId, directKind);
+    const usesStructuredSchema = requestSupportsStructuredSchema(arcJsonSchema, profileId, directKind);
+    const taskTemplate = settings.arcTaskTemplate ?? DEFAULT_ARC_TASK_TEMPLATE;
+    const taskValues = {
+        capsules: formatCapsules(capsules),
+    };
+    const prompt = renderStructuredTaskPrompt(taskTemplate, DEFAULT_ARC_TASK_TEMPLATE, taskValues, ARC_JSON_SHAPE_EXAMPLE, usesStructuredSchema, ['capsules']);
+    const fallbackPrompt = usesStructuredSchema
+        ? renderStructuredTaskPrompt(taskTemplate, DEFAULT_ARC_TASK_TEMPLATE, taskValues, ARC_JSON_SHAPE_EXAMPLE, false, ['capsules'])
+        : prompt;
+    const raw = await requestStructured(prompt, buildHierarchySystemPrompt(settings.arcSystemPrompt ?? DEFAULT_ARC_SYSTEM_PROMPT), arcJsonSchema, memoryResponseTokens('l2'), profileId, directKind, fallbackPrompt);
     updateRuntime({ lastArcResponse: String(raw).slice(0, 20000) });
     return validateArcResult(typeof raw === 'string' ? parseJsonResponse(raw) : raw, 'L2');
 }
@@ -1077,13 +1130,18 @@ export async function retryMemoryLayer({ layer, targetId = 'latest', all = false
 
 async function generateEra(arcs) {
     const settings = getSettings();
-    const prompt = renderPromptTemplate(settings.eraTaskTemplate ?? DEFAULT_ERA_TASK_TEMPLATE, {
-        schema: ARC_JSON_SHAPE_EXAMPLE,
-        arcs: formatArcs(arcs),
-    }, ['schema', 'arcs']);
     const profileId = settings.arcProfileId || settings.memoryProfileId;
     const directKind = settings.arcProfileId === DIRECT_PROFILE_ID ? 'summary' : 'extraction';
-    const raw = await requestStructured(prompt, buildHierarchySystemPrompt(settings.eraSystemPrompt ?? DEFAULT_ERA_SYSTEM_PROMPT), eraJsonSchema, memoryResponseTokens('l3'), profileId, directKind);
+    const usesStructuredSchema = requestSupportsStructuredSchema(eraJsonSchema, profileId, directKind);
+    const taskTemplate = settings.eraTaskTemplate ?? DEFAULT_ERA_TASK_TEMPLATE;
+    const taskValues = {
+        arcs: formatArcs(arcs),
+    };
+    const prompt = renderStructuredTaskPrompt(taskTemplate, DEFAULT_ERA_TASK_TEMPLATE, taskValues, ARC_JSON_SHAPE_EXAMPLE, usesStructuredSchema, ['arcs']);
+    const fallbackPrompt = usesStructuredSchema
+        ? renderStructuredTaskPrompt(taskTemplate, DEFAULT_ERA_TASK_TEMPLATE, taskValues, ARC_JSON_SHAPE_EXAMPLE, false, ['arcs'])
+        : prompt;
+    const raw = await requestStructured(prompt, buildHierarchySystemPrompt(settings.eraSystemPrompt ?? DEFAULT_ERA_SYSTEM_PROMPT), eraJsonSchema, memoryResponseTokens('l3'), profileId, directKind, fallbackPrompt);
     updateRuntime({ lastEraResponse: String(raw).slice(0, 20000) });
     return validateArcResult(typeof raw === 'string' ? parseJsonResponse(raw) : raw, 'L3');
 }

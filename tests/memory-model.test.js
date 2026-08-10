@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildEmbeddingDocuments } from '../extension/embedding-index.js';
 import { EXTRACTION_VERSION } from '../extension/coverage.js';
-import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from '../extension/memory-model.js';
+import { addDerivedArc, addDerivedEra, compactHierarchyFields, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from '../extension/memory-model.js';
 import { buildMemoryPrompt, orderEventsChronologically } from '../extension/retrieval.js';
 
 function world() {
@@ -112,7 +112,7 @@ test('compact background strands update by stable topic and inject only when rel
     assert.deepEqual(target.backgrounds[0].sources.map(source => [source.from, source.to]), [[0, 7], [8, 15]]);
 
     const relevant = buildMemoryPrompt(target, [{ name: 'User', mes: 'What is happening with Qing China and the White Lotus?' }], 1800, 'world-sim');
-    assert.match(relevant.prompt, /Relevant background developments:/);
+    assert.match(relevant.prompt, /Background:/);
     assert.match(relevant.prompt, /provincial militarization/);
     assert.match(relevant.prompt, /confirmed/);
 
@@ -379,7 +379,7 @@ test('raw chat tail suppresses overlapping extracted memory while retaining hidd
     assert.match(prompt.prompt, /Hidden rehearsal/);
     assert.doesNotMatch(prompt.prompt, /Visible raw-tail scene/);
     assert.doesNotMatch(prompt.prompt, /Visible raw-tail room/);
-    assert.doesNotMatch(prompt.prompt, /Latest extracted checkpoint:/);
+    assert.doesNotMatch(prompt.prompt, /Checkpoint:/);
 });
 
 test('whole-token retrieval does not confuse contractions with substrings', () => {
@@ -407,7 +407,7 @@ test('retrieval prioritizes matching buried character memory within its budget',
     assert.match(result.prompt, /Yui/);
     assert.match(result.prompt, /cake/);
     assert.match(result.prompt, /Weekend performance/);
-    assert.match(result.prompt, /Recent chronological continuity \(L1\)/);
+    assert.match(result.prompt, /Recent continuity:/);
     assert.ok(result.estimatedTokens <= 1200);
 });
 
@@ -416,14 +416,14 @@ test('retrieval reserves room for every populated memory category', () => {
     mergeExtraction(target, extraction(), { chatKey: 'chat', from: 0, to: 4, allowStateUpdates: true });
     const result = buildMemoryPrompt(target, [{ name: 'User', mes: 'Yui and Mio continue their music practice, friendship, cake, and weekend performance plans.' }], 1000, 'chat');
     for (const heading of [
-        'Latest extracted checkpoint',
-        'Recent chronological continuity (L1)',
+        'Checkpoint',
+        'Recent continuity',
         'Open matters',
-        'Relevant entities',
-        'Latest state',
+        'Entities',
+        'Current state',
         'Relationships',
-        'Established facts',
-        'Relevant past events',
+        'Facts',
+        'Past events',
     ]) assert.match(result.prompt, new RegExp(`${heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:`));
     assert.ok(result.estimatedTokens <= 1000);
 });
@@ -432,10 +432,10 @@ test('retrieval does not fill category space with unrelated memories', () => {
     const target = world();
     mergeExtraction(target, extraction(), { chatKey: 'chat', from: 0, to: 4, allowStateUpdates: true });
     const result = buildMemoryPrompt(target, [{ name: 'User', mes: 'A distant storm approaches the harbor.' }], 3000, 'chat');
-    assert.match(result.prompt, /Latest extracted checkpoint:/);
-    assert.match(result.prompt, /Recent chronological continuity \(L1\):/);
-    assert.doesNotMatch(result.prompt, /Established facts:/);
-    assert.doesNotMatch(result.prompt, /Relevant past events:/);
+    assert.match(result.prompt, /Checkpoint:/);
+    assert.match(result.prompt, /Recent continuity:/);
+    assert.doesNotMatch(result.prompt, /Facts:/);
+    assert.doesNotMatch(result.prompt, /Past events:/);
     assert.doesNotMatch(result.prompt, /favorite snack/);
 });
 
@@ -465,9 +465,9 @@ test('retrieval omits a stale scene checkpoint while preserving durable memory',
         new Map(),
         { includeSceneCheckpoint: false },
     );
-    assert.doesNotMatch(result.prompt, /Latest extracted checkpoint:/);
+    assert.doesNotMatch(result.prompt, /Checkpoint:/);
     assert.match(result.prompt, /favorite snack/);
-    assert.match(result.prompt, /Recent chronological continuity \(L1\):/);
+    assert.match(result.prompt, /Recent continuity:/);
 });
 
 test('retrieval suppresses records from invalid extraction ranges before repair completes', () => {
@@ -512,7 +512,7 @@ test('relevant past events are sent chronologically after relevance selection', 
     ];
 
     const result = buildMemoryPrompt(target, [{ name: 'User', mes: 'What happened at the festival in the capital?' }], 3000, 'chat');
-    const rows = result.prompt.slice(result.prompt.indexOf('Relevant past events:')).split('\n').filter(row => row.startsWith('- '));
+    const rows = result.prompt.slice(result.prompt.indexOf('Past events:')).split('\n').filter(row => row.startsWith('- '));
     assert.deepEqual(rows.map(row => row.match(/Festival (?:opens|expands|rumor|closes)/)?.[0]), [
         'Festival opens', 'Festival expands', 'Festival rumor', 'Festival closes',
     ]);
@@ -655,7 +655,7 @@ test('L2 records are non-destructive derivatives and become stale when an L1 sou
     assert.equal(target.capsules.length, 1);
     assert.equal(target.arcs.length, 1);
     const prompt = buildMemoryPrompt(target, [{ name: 'User', mes: 'What happened with the music club?' }], 2000);
-    assert.match(prompt.prompt, /Mid-range continuity \(L2\)/);
+    assert.match(prompt.prompt, /L2 continuity:/);
     assert.match(prompt.prompt, /Music club beginnings/);
 
     mergeExtraction(target, extraction({ sceneCapsule: { ...extraction().sceneCapsule, closing: 'The rehearsal plan was cancelled.' } }), meta);
@@ -701,6 +701,22 @@ test('L2 preserves a complete generated summary through storage and retrieval', 
     assert.match(prompt.prompt, /FINAL_L2_CLOSING\./);
 });
 
+test('hierarchy compaction removes only exact repeated field text', () => {
+    const compact = compactHierarchyFields({
+        summary: 'Setsuko called Naruto Suki-chan.',
+        turningPoints: ['Setsuko called Naruto Suki-chan', 'Setsuko began using his first name.'],
+        emotionalArc: 'Setsuko began using his first name.',
+        closingState: 'Their familiarity increased.',
+        openThreads: ['Their familiarity increased', 'Whether the new address will persist.'],
+    });
+
+    assert.equal(compact.summary, 'Setsuko called Naruto Suki-chan.');
+    assert.deepEqual(compact.turningPoints, ['Setsuko began using his first name.']);
+    assert.equal(compact.emotionalArc, '');
+    assert.equal(compact.closingState, 'Their familiarity increased.');
+    assert.deepEqual(compact.openThreads, ['Whether the new address will persist.']);
+});
+
 test('L1 retrieval preserves the complete bounded capsule', () => {
     const target = world();
     const chatKey = 'complete-l1-chat';
@@ -743,7 +759,7 @@ test('L3 records retain L2 and L1 sources and invalidate when a source changes',
     assert.equal(target.arcs.length, 1);
     assert.equal(target.capsules.length, 1);
     const prompt = buildMemoryPrompt(target, [{ name: 'User', mes: 'Remember the music club foundation era and first concert.' }], 3000, 'chat');
-    assert.match(prompt.prompt, /Long-range continuity \(L3\):/);
+    assert.match(prompt.prompt, /L3 continuity:/);
     assert.match(prompt.prompt, /The club foundation era/);
 
     replaceExtraction(target, extraction({ sceneCapsule: { ...extraction().sceneCapsule, closing: 'The club disbanded.' } }), meta);

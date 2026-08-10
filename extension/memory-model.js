@@ -92,6 +92,37 @@ function cleanList(value, max = 30) {
     return [...new Set((Array.isArray(value) ? value : []).map(text).filter(Boolean))].slice(0, max);
 }
 
+function exactTextKey(value) {
+    return text(value).toLocaleLowerCase().replace(/[.!?]+$/u, '');
+}
+
+export function compactHierarchyFields(result, turningPointLimit = 8, openThreadLimit = 12) {
+    const seen = new Set();
+    const take = value => {
+        const cleaned = text(value);
+        const key = exactTextKey(cleaned);
+        if (!key || seen.has(key)) return '';
+        seen.add(key);
+        return cleaned;
+    };
+    const takeList = (value, limit) => {
+        const output = [];
+        for (const item of Array.isArray(value) ? value : []) {
+            const cleaned = take(item);
+            if (cleaned) output.push(cleaned);
+            if (output.length >= limit) break;
+        }
+        return output;
+    };
+    return {
+        summary: take(result?.summary),
+        turningPoints: takeList(result?.turningPoints, turningPointLimit),
+        emotionalArc: take(result?.emotionalArc),
+        closingState: take(result?.closingState),
+        openThreads: takeList(result?.openThreads, openThreadLimit),
+    };
+}
+
 function canonicalList(world, value, max = 30) {
     return [...new Set(cleanList(value, max).map(item => canonicalMemorySubject(world, item)).filter(Boolean))].slice(0, max);
 }
@@ -608,16 +639,13 @@ export function addDerivedArc(world, result, capsules) {
     const rangeEnds = capsules.map(item => Number(item.to)).filter(Number.isFinite);
     const temporalAnchorIds = [...new Set(capsules.map(item => item.temporal?.anchorId).filter(Boolean))];
     const temporalFrames = [...new Set(capsules.map(item => item.temporal?.frame).filter(Boolean))];
+    const hierarchy = compactHierarchyFields(result, 8, 12);
     const arc = {
         id: id('arc'),
         title: clipped(result.title, 140) || `L2 covering ${capsules.length} L1 records`,
         storyTime: clipped(result.storyTime, 180),
         participants: cleanList(result.participants, 30),
-        summary: text(result.summary),
-        turningPoints: cleanList(result.turningPoints, 8).map(text),
-        emotionalArc: text(result.emotionalArc),
-        closingState: text(result.closingState),
-        openThreads: cleanList(result.openThreads, 12).map(text),
+        ...hierarchy,
         importance: clampImportance(result.importance),
         capsuleIds,
         temporalAnchorIds,
@@ -654,16 +682,13 @@ export function addDerivedEra(world, result, arcs) {
     const rangeEnds = arcs.map(item => Number(item.to)).filter(Number.isFinite);
     const temporalAnchorIds = [...new Set(arcs.flatMap(item => item.temporalAnchorIds || []))];
     const temporalFrames = [...new Set(arcs.flatMap(item => item.temporalFrames || []))];
+    const hierarchy = compactHierarchyFields(result, 12, 16);
     const era = {
         id: id('era'),
         title: clipped(result.title, 160) || `L3 covering ${arcs.length} L2 records`,
         storyTime: clipped(result.storyTime, 220),
         participants: cleanList(result.participants, 40),
-        summary: text(result.summary),
-        turningPoints: cleanList(result.turningPoints, 12).map(text),
-        emotionalArc: text(result.emotionalArc),
-        closingState: text(result.closingState),
-        openThreads: cleanList(result.openThreads, 16).map(text),
+        ...hierarchy,
         importance: clampImportance(result.importance),
         arcIds,
         capsuleIds,
