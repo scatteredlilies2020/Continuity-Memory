@@ -80,6 +80,8 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /omit absence, silence, indirect replies, and claims that no address is established/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /One meaningful shift is enough/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /message author is not automatically the speaker/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Self-directed facts require explicit self-use of the form/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /never infer self-address from another speaker/i);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Value: list all exact current forms and meaningful former forms only/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /keep coexisting forms together/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /shift signals changed familiarity, distance, respect, or hierarchy/);

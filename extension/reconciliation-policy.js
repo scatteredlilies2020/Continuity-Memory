@@ -41,10 +41,80 @@ function canonicalAddressName(world, value) {
     return normalized(matches.length === 1 ? matches[0].name : value);
 }
 
+function addressNameVariants(world, value) {
+    const requested = normalized(value);
+    if (!requested) return [];
+    const entity = (world?.entities || []).find(item => [item?.name, ...(item?.aliases || [])]
+        .some(name => normalized(name) === requested));
+    return [...new Set([value, entity?.name, ...(entity?.aliases || [])]
+        .map(name => String(name || '').replace(/\s+/g, ' ').trim())
+        .filter(Boolean))];
+}
+
+function escaped(value) {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function containsAddressForm(text, form) {
+    return normalized(text).includes(normalized(form));
+}
+
+function explicitlyAttributesSpeech(text, speakerNames, form) {
+    const formPattern = escaped(form);
+    if (!formPattern) return false;
+    const speechVerb = '(?:says?|said|asks?|asked|replies?|replied|calls?|called|introduces?|introduced|identifies?|identified)';
+    return speakerNames.some(name => {
+        const speaker = escaped(name);
+        if (!speaker) return false;
+        return [
+            new RegExp(`(?:^|[\\n\\r])\\s*(?:[*_]{1,2})?${speaker}(?:[*_]{1,2})?\\s*:\\s*[^\\n\\r]{0,240}${formPattern}`, 'iu'),
+            new RegExp(`\\b${speaker}\\b\\s+(?:\\w+\\s+){0,3}${speechVerb}\\b[^\\n\\r]{0,200}${formPattern}`, 'iu'),
+            new RegExp(`${formPattern}[^\\n\\r]{0,120}\\b${speechVerb}\\s+\\b${speaker}\\b`, 'iu'),
+            new RegExp(`${formPattern}[^\\n\\r]{0,120}\\b${speaker}\\b\\s+(?:\\w+\\s+){0,3}${speechVerb}\\b`, 'iu'),
+            new RegExp(`\\b${speaker}\\b[^\\n\\r]{0,60}\\b(?:calls?|called|refers?|referred|introduces?|introduced|identifies?|identified)\\s+(?:herself|himself|themself|themselves)\\b[^\\n\\r]{0,160}${formPattern}`, 'iu'),
+        ].some(pattern => pattern.test(text));
+    });
+}
+
+function explicitlyUsesFirstPersonSelfAddress(text, form) {
+    const formPattern = escaped(form);
+    if (!formPattern) return false;
+    const selfVerb = '(?:say|said|call|called|refer|referred|introduce|introduced|identify|identified)';
+    return [
+        new RegExp(`\\bI\\b\\s+(?:\\w+\\s+){0,3}${selfVerb}\\b[^\\n\\r]{0,160}${formPattern}`, 'iu'),
+        new RegExp(`${formPattern}[^\\n\\r]{0,120}\\bI\\b\\s+(?:\\w+\\s+){0,3}${selfVerb}\\b`, 'iu'),
+        new RegExp(`\\b(?:call me|my name is|refer to me as|introduce myself as|identify myself as)\\b[^\\n\\r]{0,120}${formPattern}`, 'iu'),
+        new RegExp(`${formPattern}[^\\n\\r]{0,120}\\b(?:me|myself|my name)\\b`, 'iu'),
+    ].some(pattern => pattern.test(text));
+}
+
 export function addressFactIdentity(item, world = null) {
     const speaker = canonicalAddressName(world, item?.subject);
     const addressee = canonicalAddressName(world, addressFactAddressee(item));
     return speaker && addressee ? `${speaker}|${addressee}` : '';
+}
+
+export function isSelfAddressFact(item, world = null) {
+    if (!isAddressFact(item)) return false;
+    const speaker = canonicalAddressName(world, item?.subject);
+    const addressee = canonicalAddressName(world, addressFactAddressee(item));
+    return Boolean(speaker && speaker === addressee);
+}
+
+export function hasSelfAddressEvidence(item, messages, world = null) {
+    if (!isSelfAddressFact(item, world)) return true;
+    const speaker = canonicalAddressName(world, item?.subject);
+    const names = addressNameVariants(world, item?.subject);
+    const forms = String(item?.value || '').split(/\s*;\s*/u).map(value => value.trim()).filter(Boolean);
+    if (!forms.length) return false;
+    return (messages || []).some(message => {
+        const text = String(message?.text ?? message?.mes ?? '');
+        const presentForms = forms.filter(form => containsAddressForm(text, form));
+        if (!presentForms.length) return false;
+        const authoredBySpeaker = canonicalAddressName(world, message?.name) === speaker;
+        return presentForms.some(form => explicitlyAttributesSpeech(text, names, form)
+            || (authoredBySpeaker && explicitlyUsesFirstPersonSelfAddress(text, form)));
+    });
 }
 
 export function mergeAddressValues(...values) {
@@ -76,6 +146,17 @@ export function removeInvalidAddressFacts(container) {
     return removed;
 }
 
+export function removeUnsupportedSelfAddressFacts(container, messages, world = null) {
+    if (!Array.isArray(container?.facts) || !Array.isArray(messages) || !messages.length) return 0;
+    let removed = 0;
+    container.facts = container.facts.filter(item => {
+        const unsupported = isSelfAddressFact(item, world) && !hasSelfAddressEvidence(item, messages, world);
+        if (unsupported) removed++;
+        return !unsupported;
+    });
+    return removed;
+}
+
 export function removeInvalidStoredAddressFacts(world) {
     let removed = removeInvalidAddressFacts(world);
     for (const extraction of world?.extractions || []) removed += removeInvalidAddressFacts(extraction?.result);
@@ -98,8 +179,9 @@ export function reconciliationTargetIsCompatible(category, incoming, existing, w
     return !(predicateChanged && categoryChanged);
 }
 
-export function sanitizeReconciliationMetadata(result, world) {
+export function sanitizeReconciliationMetadata(result, world, messages = null) {
     let ignored = removeInvalidAddressFacts(result);
+    ignored += removeUnsupportedSelfAddressFacts(result, messages, world);
     if (!Array.isArray(result.identityResolutions)) {
         result.identityResolutions = [];
         ignored++;

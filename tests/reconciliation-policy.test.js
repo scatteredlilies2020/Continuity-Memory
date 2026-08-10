@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { addressFactIdentity, canonicalFactReference, mergeAddressValues, removeInvalidAddressFacts, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
+import { addressFactIdentity, canonicalFactReference, hasSelfAddressEvidence, mergeAddressValues, removeInvalidAddressFacts, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
 
 function extraction() {
     return {
@@ -155,4 +155,68 @@ test('address target IDs cannot reverse the speaker and addressee', () => {
     });
     assert.equal(result.facts[0].targetId, '');
     assert.equal(sanitized.ignored, 1);
+});
+
+test('self-address falsely inferred from another speaker is rejected', () => {
+    const result = extraction();
+    result.facts.push({
+        targetId: '', subject: 'Setsuko Uchiha', predicate: 'calls Setsuko Uchiha',
+        value: 'Suki-chan', category: 'form of address',
+    });
+    const world = {
+        entities: [
+            { name: 'Setsuko Uchiha', aliases: ['Setsuko'] },
+            { name: 'Naruto Uzumaki', aliases: ['Naruto'] },
+        ],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    };
+    const messages = [{
+        index: 7,
+        name: 'Naruto Uzumaki',
+        text: 'Naruto grins. “Suki-chan!” he calls while Setsuko Uchiha rolls her eyes.',
+    }];
+
+    const sanitized = sanitizeReconciliationMetadata(result, world, messages);
+
+    assert.deepEqual(result.facts, []);
+    assert.equal(sanitized.ignored, 1);
+});
+
+test('legitimate first-person self-address remains valid', () => {
+    const authored = {
+        subject: 'Setsuko Uchiha', predicate: 'calls Setsuko Uchiha',
+        value: 'Suki-chan', category: 'form of address',
+    };
+    const narrated = {
+        subject: 'Setsuko Uchiha', predicate: 'calls Setsuko Uchiha',
+        value: 'Suki', category: 'form of address',
+    };
+    const world = {
+        entities: [{ name: 'Setsuko Uchiha', aliases: ['Setsuko'] }],
+    };
+
+    assert.equal(hasSelfAddressEvidence(authored, [{
+        name: 'Setsuko', text: '“Suki-chan will handle it,” I say, referring to myself.',
+    }], world), true);
+    assert.equal(hasSelfAddressEvidence(narrated, [{
+        name: 'Narrator', text: 'Setsuko Uchiha says, “Suki will take the first watch.”',
+    }], world), true);
+    assert.equal(hasSelfAddressEvidence(authored, [{
+        name: 'Setsuko', text: 'I watch Naruto grin. “Suki-chan!” he calls from the doorway.',
+    }], world), false);
+});
+
+test('normal speaker-to-addressee address remains unaffected by self-address validation', () => {
+    const result = extraction();
+    result.facts.push({
+        targetId: '', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha',
+        value: 'Suki-chan', category: 'form of address',
+    });
+
+    const sanitized = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Narrator', text: 'No dialogue appears here.' }]);
+
+    assert.equal(result.facts.length, 1);
+    assert.equal(sanitized.ignored, 0);
 });
