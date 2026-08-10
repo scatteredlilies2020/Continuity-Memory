@@ -76,7 +76,8 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /calls \[canonical addressee\]/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /omit absence, silence, indirect replies, and claims that no address is established/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /A meaningful shift counts even if seen once/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Value: exact current and meaningful former forms only, without commentary/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Value: list all exact current forms and meaningful former forms only/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /keep coexisting forms together/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /shift signals changed familiarity, distance, respect, or hierarchy/);
     assert.match(DEFAULT_INJECTION_INSTRUCTION, /without emphasizing or explaining them/);
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(CONTINUITY_COVERAGE_RULES));

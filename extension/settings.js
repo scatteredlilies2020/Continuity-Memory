@@ -1,7 +1,7 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, IDENTITY_RESOLUTION_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.69';
+import { CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, IDENTITY_RESOLUTION_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.69.1';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
 
@@ -276,10 +276,11 @@ export function getSettings() {
         settings.compactBackgroundPromptVersion = 1;
         saveSettingsDebounced();
     }
-    if (Number(settings.relationalAddressPromptVersion || 0) < 3) {
+    if (Number(settings.relationalAddressPromptVersion || 0) < 4) {
         let prompt = String(settings.extractionSystemPrompt || PROMPT_DEFAULTS.extractionSystemPrompt);
         if (!prompt.includes(RELATIONAL_ADDRESS_RULE)) {
             const previousRules = [
+                'When actors communicate, store socially meaningful address wording (honorifics, titles, nicknames, callsigns, or first-name use) as one fact per speaker-addressee pair. Require exact wording used or explicitly established; omit absence, silence, indirect replies, and claims that no address is established. A meaningful shift counts even if seen once. Subject: canonical speaker. Predicate: "calls [canonical addressee]." Value: exact current and meaningful former forms only, without commentary. Update relationships only if a shift signals changed familiarity, distance, respect, or hierarchy. Ignore ordinary one-offs.',
                 'Store distinctive forms of address, including honorifics, titles, nicknames, and first-name use, in the speaker-to-addressee relationship when repeated, explicitly noticed, or socially meaningful. Preserve exact forms and meaningful shifts as familiarity or distance changes; ignore ordinary one-off usage.',
                 'Preserve recurring forms of address, including culturally meaningful honorifics, titles, and nicknames, in the relationship dynamic when they subtly signal familiarity, respect, hierarchy, distance, or change; ignore incidental usage.',
             ];
@@ -296,7 +297,7 @@ export function getSettings() {
         if (settings.injectionInstruction === previousInjection) {
             settings.injectionInstruction = PROMPT_DEFAULTS.injectionInstruction;
         }
-        settings.relationalAddressPromptVersion = 3;
+        settings.relationalAddressPromptVersion = 4;
         saveSettingsDebounced();
     }
     if (settings.rawTailMode === undefined) {
