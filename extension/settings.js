@@ -1,7 +1,7 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.84';
+import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.86';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
 
@@ -330,26 +330,37 @@ export function getSettings() {
         settings.relationalAddressPromptVersion = 6;
         saveSettingsDebounced();
     }
-    if (Number(settings.epistemicPromptVersion || 0) < 3) {
+    if (Number(settings.epistemicPromptVersion || 0) < 4) {
         let extractionPrompt = String(settings.extractionSystemPrompt || PROMPT_DEFAULTS.extractionSystemPrompt);
-        if (extractionPrompt.includes(LEGACY_EPISTEMIC_MEMORY_RULES)) {
+        if (extractionPrompt.includes(EPISTEMIC_MEMORY_RULES)) {
+            // Already current, including on a new installation.
+        } else if (extractionPrompt.includes(LEGACY_EPISTEMIC_MEMORY_RULES)) {
             extractionPrompt = extractionPrompt.replace(LEGACY_EPISTEMIC_MEMORY_RULES, EPISTEMIC_MEMORY_RULES);
         } else if (extractionPrompt.includes(CANONICAL_EPISTEMIC_MEMORY_RULES)) {
             extractionPrompt = extractionPrompt.replace(CANONICAL_EPISTEMIC_MEMORY_RULES, EPISTEMIC_MEMORY_RULES);
+        } else if (extractionPrompt.includes(PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES)) {
+            extractionPrompt = extractionPrompt.replace(PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, EPISTEMIC_MEMORY_RULES);
         } else if (!extractionPrompt.includes(EPISTEMIC_MEMORY_RULES)) {
             extractionPrompt = `${extractionPrompt}\n${EPISTEMIC_MEMORY_RULES}`;
         }
         settings.extractionSystemPrompt = extractionPrompt;
         for (const key of ['arcSystemPrompt', 'eraSystemPrompt']) {
             let prompt = String(settings[key] || PROMPT_DEFAULTS[key]);
-            if (prompt.includes(LEGACY_HIERARCHY_ATTRIBUTION_RULE)) {
+            if (prompt.includes(HIERARCHY_ATTRIBUTION_RULE)) {
+                // Already current, including on a new installation.
+            } else if (prompt.includes(LEGACY_HIERARCHY_ATTRIBUTION_RULE)) {
                 prompt = prompt.replace(LEGACY_HIERARCHY_ATTRIBUTION_RULE, HIERARCHY_ATTRIBUTION_RULE);
+            } else if (prompt.includes(PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE)) {
+                prompt = prompt.replace(PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, HIERARCHY_ATTRIBUTION_RULE);
             } else if (!prompt.includes(HIERARCHY_ATTRIBUTION_RULE)) {
                 prompt = `${prompt}\n${HIERARCHY_ATTRIBUTION_RULE}`;
             }
             settings[key] = prompt;
         }
-        settings.epistemicPromptVersion = 3;
+        if (settings.injectionInstruction === PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION) {
+            settings.injectionInstruction = PROMPT_DEFAULTS.injectionInstruction;
+        }
+        settings.epistemicPromptVersion = 4;
         saveSettingsDebounced();
     }
     if (settings.rawTailMode === undefined) {
