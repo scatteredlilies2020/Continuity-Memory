@@ -1,3 +1,5 @@
+import { canonicalMemorySubject, stateIdentity } from './state-lifecycle.js';
+
 export const TARGET_RECORD_CATEGORIES = Object.freeze(['entities', 'facts', 'states', 'relationships', 'threads', 'backgrounds']);
 
 export function canonicalFactReference(item) {
@@ -804,18 +806,35 @@ export function removeInvalidStoredAddressFacts(world, messages = null) {
 
 export function reconciliationTargetIsCompatible(category, incoming, existing, world = null) {
     if (!existing) return false;
-    if (category !== 'facts') return true;
-    if (isAddressFact(incoming) || isAddressFact(existing)) {
-        const incomingIdentity = addressFactIdentity(incoming, world);
-        return Boolean(incomingIdentity && incomingIdentity === addressFactIdentity(existing, world));
+    const same = (left, right) => Boolean(normalized(left) && normalized(left) === normalized(right));
+    const sameSubject = (left, right) => same(canonicalMemorySubject(world, left), canonicalMemorySubject(world, right));
+    if (category === 'entities') return sameSubject(incoming?.name, existing?.name);
+    if (category === 'facts') {
+        if (isAddressFact(incoming) || isAddressFact(existing)) {
+            const incomingIdentity = addressFactIdentity(incoming, world);
+            return Boolean(incomingIdentity && incomingIdentity === addressFactIdentity(existing, world));
+        }
+        return sameSubject(incoming?.subject, existing?.subject)
+            && same(incoming?.predicate, existing?.predicate)
+            && same(incoming?.category, existing?.category);
     }
-    const incomingPredicate = normalized(incoming?.predicate);
-    const existingPredicate = normalized(existing?.predicate);
-    const incomingCategory = normalized(incoming?.category);
-    const existingCategory = normalized(existing?.category);
-    const predicateChanged = incomingPredicate && existingPredicate && incomingPredicate !== existingPredicate;
-    const categoryChanged = incomingCategory && existingCategory && incomingCategory !== existingCategory;
-    return !(predicateChanged && categoryChanged);
+    if (category === 'states') {
+        const incomingIdentity = stateIdentity(world, incoming);
+        return Boolean(normalized(incoming?.subject) && normalized(incoming?.attribute)
+            && incomingIdentity === stateIdentity(world, existing));
+    }
+    if (category === 'relationships') {
+        return sameSubject(incoming?.from, existing?.from)
+            && sameSubject(incoming?.to, existing?.to)
+            && same(incoming?.kind, existing?.kind);
+    }
+    if (category === 'threads') return same(incoming?.title, existing?.title);
+    if (category === 'backgrounds') return same(incoming?.topic, existing?.topic);
+    return false;
+}
+
+export function reconciliationMergeIsCompatible(category, canonical, duplicate, world = null) {
+    return reconciliationTargetIsCompatible(category, duplicate, canonical, world);
 }
 
 export function sanitizeReconciliationMetadata(result, world, messages = null) {
@@ -855,6 +874,7 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
         const category = String(merge?.category || '');
         const allowedCategory = ['facts', 'states', 'relationships', 'threads', 'backgrounds'].includes(category);
         const records = allowedCategory && Array.isArray(world?.[category]) ? world[category] : [];
+        const recordsById = new Map(records.map(item => [String(item.id || ''), item]).filter(([itemId]) => itemId));
         const validIds = new Set(records.map(item => String(item.id || '')).filter(Boolean));
         const canonicalId = String(merge?.canonicalId || '').trim();
         const duplicateIds = [...new Set((merge?.duplicateIds || []).map(value => String(value || '').trim()).filter(Boolean))];
@@ -863,7 +883,13 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
             && validIds.has(canonicalId)
             && duplicateIds.length > 0
             && !duplicateIds.includes(canonicalId)
-            && duplicateIds.every(itemId => validIds.has(itemId));
+            && duplicateIds.every(itemId => validIds.has(itemId))
+            && duplicateIds.every(itemId => reconciliationMergeIsCompatible(
+                category,
+                recordsById.get(canonicalId),
+                recordsById.get(itemId),
+                world,
+            ));
         if (!valid) ignored++;
         else merge.duplicateIds = duplicateIds;
         return valid;

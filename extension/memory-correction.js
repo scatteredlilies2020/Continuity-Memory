@@ -125,7 +125,8 @@ function parseRecord(value) {
 export function correctionSelector(category, item, meta = {}) {
     const record = publicRecord(category, item);
     if (category === 'entities') return normalized(record.name);
-    if (category === 'facts') return addressFactIdentity(record) || `${normalized(record.subject)}|${normalized(record.predicate)}`;
+    if (category === 'facts') return addressFactIdentity(record)
+        || `${normalized(record.subject)}|${normalized(record.predicate)}|${normalized(record.category)}`;
     if (category === 'states') return `${normalized(record.subject)}|${normalized(record.attribute)}`;
     if (category === 'relationships') return `${normalized(record.from)}|${normalized(record.to)}|${normalized(record.kind)}`;
     if (category === 'threads') return normalized(record.title);
@@ -138,10 +139,13 @@ export function correctionSelector(category, item, meta = {}) {
 export function isSuppressedByCorrection(world, category, item, meta = {}) {
     const selector = correctionSelector(category, item, meta);
     if (!selector) return false;
+    const legacyFactSelector = category === 'facts' && !addressFactIdentity(item)
+        ? `${normalized(item?.subject)}|${normalized(item?.predicate)}`
+        : '';
     return (world?.corrections || []).some(correction => (correction.operations || []).some(operation =>
         operation.category === category
         && ['delete', 'update'].includes(operation.action)
-        && operation.beforeSelector === selector));
+        && (operation.beforeSelector === selector || (legacyFactSelector && operation.beforeSelector === legacyFactSelector))));
 }
 
 export function validateCorrectionProposal(world, proposal, instruction = '') {

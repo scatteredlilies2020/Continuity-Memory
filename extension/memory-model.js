@@ -1,6 +1,6 @@
 import { EXTRACTION_VERSION } from './coverage.js';
 import { isSuppressedByCorrection } from './memory-correction.js';
-import { addressFactAddressee, addressFactIdentity, isAddressFact, mergeAddressValues, reconcileGenericAddressDuplicates, reconciliationTargetIsCompatible, removeInvalidAddressFacts } from './reconciliation-policy.js';
+import { addressFactAddressee, addressFactIdentity, isAddressFact, mergeAddressValues, reconcileGenericAddressDuplicates, reconciliationMergeIsCompatible, reconciliationTargetIsCompatible, removeInvalidAddressFacts } from './reconciliation-policy.js';
 import { canonicalMemorySubject, canonicalStateAttribute, stateIdentity, stateScope } from './state-lifecycle.js';
 import { buildL1TemporalAnchor, buildRelativeTemporalAnchor } from './temporal-anchors.js';
 import { randomUuid } from './uuid.js';
@@ -59,7 +59,9 @@ function mergeArray(world, collection, target, incoming, identity, meta, prefix,
         if (!raw || typeof raw !== 'object') continue;
         let requestedTargetId = text(raw.targetId);
         let requestedIndex = requestedTargetId ? target.findIndex(item => item.id === requestedTargetId) : -1;
-        if (requestedIndex >= 0 && !reconciliationTargetIsCompatible(collection, raw, target[requestedIndex], world)) {
+        const missingUntrustedTarget = requestedIndex < 0 && !meta.replayStoredExtraction;
+        if (requestedTargetId && (missingUntrustedTarget
+            || (requestedIndex >= 0 && !reconciliationTargetIsCompatible(collection, raw, target[requestedIndex], world)))) {
             requestedTargetId = '';
             requestedIndex = -1;
             raw.targetId = '';
@@ -287,7 +289,8 @@ function applyIdentityResolution(world, raw, meta) {
     world.arcs = (world.arcs || []).map(item => updateParticipants(item));
     world.eras = (world.eras || []).map(item => updateParticipants(item, 40));
 
-    world.facts = deduplicateCanonicalRecords(world.facts, item => `${key(item.subject)}|${key(item.predicate)}`);
+    world.facts = deduplicateCanonicalRecords(world.facts, item => addressFactIdentity(item, world)
+        || `${key(item.subject)}|${key(item.predicate)}|${key(item.category)}`);
     world.states = deduplicateCanonicalRecords(world.states, item => stateIdentity(world, item));
     world.relationships = deduplicateCanonicalRecords(world.relationships, item => `${key(item.from)}|${key(item.to)}|${key(item.kind)}`);
     return true;
@@ -302,6 +305,7 @@ function applyRecordMerge(world, raw, meta) {
     const canonical = records.find(item => item.id === canonicalId);
     const duplicates = duplicateIds.map(itemId => records.find(item => item.id === itemId));
     if (!canonical || !duplicates.length || duplicates.some(item => !item)) return false;
+    if (duplicates.some(item => !reconciliationMergeIsCompatible(category, canonical, item, world))) return false;
     if ([canonical, ...duplicates].some(item => item.correctionId || shouldPreserveHistoricalRecord(item, meta))) return false;
 
     if (category === 'threads' || category === 'backgrounds') {
@@ -367,7 +371,7 @@ export function mergeExtraction(world, result, meta) {
 
     for (const resolution of result.identityResolutions || []) applyIdentityResolution(world, resolution, meta);
 
-    mergeArray(world, 'facts', world.facts, result.facts, item => addressFactIdentity(item, world) || `${key(item.subject)}|${key(item.predicate)}`, meta, 'fact', (item, existing) => {
+    mergeArray(world, 'facts', world.facts, result.facts, item => addressFactIdentity(item, world) || `${key(item.subject)}|${key(item.predicate)}|${key(item.category)}`, meta, 'fact', (item, existing) => {
         const address = isAddressFact(item);
         const subject = existing?.subject || canonicalMemorySubject(world, item.subject);
         const addressee = address
@@ -392,8 +396,15 @@ export function mergeExtraction(world, result, meta) {
         world.states = world.states.filter(item => item.correctionId || item.scope === 'ongoing');
         for (const raw of result.states || []) {
             if (!raw || typeof raw !== 'object') continue;
-            const requestedTargetId = text(raw.targetId);
-            const requestedIndex = requestedTargetId ? world.states.findIndex(item => item.id === requestedTargetId) : -1;
+            let requestedTargetId = text(raw.targetId);
+            let requestedIndex = requestedTargetId ? world.states.findIndex(item => item.id === requestedTargetId) : -1;
+            const missingUntrustedTarget = requestedIndex < 0 && !meta.replayStoredExtraction;
+            if (requestedTargetId && (missingUntrustedTarget
+                || (requestedIndex >= 0 && !reconciliationTargetIsCompatible('states', raw, world.states[requestedIndex], world)))) {
+                requestedTargetId = '';
+                requestedIndex = -1;
+                raw.targetId = '';
+            }
             const requestedTarget = requestedIndex >= 0 ? world.states[requestedIndex] : null;
             const normalized = {
                 subject: requestedTarget?.subject || canonicalMemorySubject(world, raw.subject),
@@ -603,7 +614,7 @@ export function removeChatContributions(world, chatKey) {
 
 function replayIdentity(collection, item, chatKey) {
     if (collection === 'entities') return key(item.name);
-    if (collection === 'facts') return `${key(item.subject)}|${key(item.predicate)}`;
+    if (collection === 'facts') return addressFactIdentity(item) || `${key(item.subject)}|${key(item.predicate)}|${key(item.category)}`;
     if (collection === 'states') return stateIdentity(null, item);
     if (collection === 'relationships') return `${key(item.from)}|${key(item.to)}|${key(item.kind)}`;
     if (collection === 'threads') return key(item.title);

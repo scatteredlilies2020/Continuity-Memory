@@ -139,7 +139,7 @@ test('replay drops malformed address placeholders before canonical merge', () =>
     assert.deepEqual(target.extractions[0].result.facts, []);
 });
 
-test('stable target IDs update semantically matching records across arbitrary scenarios', () => {
+test('stable target IDs update values while preserving canonical fact identity', () => {
     const target = world();
     const first = extraction({
         facts: [{ targetId: '', subject: 'North Canal', predicate: 'maintenance objective', value: 'Reduce leakage before planting season', category: 'infrastructure', importance: 4, persistence: 'persistent' }],
@@ -150,7 +150,7 @@ test('stable target IDs update semantically matching records across arbitrary sc
     assert.equal(first.facts[0].targetId, factId);
 
     const update = extraction({
-        facts: [{ targetId: factId, subject: 'the canal', predicate: 'priority', value: 'Leakage repairs are funded and must finish before planting season', category: 'infrastructure', importance: 4, persistence: 'persistent' }],
+        facts: [{ targetId: factId, subject: 'North Canal', predicate: 'maintenance objective', value: 'Leakage repairs are funded and must finish before planting season', category: 'infrastructure', importance: 4, persistence: 'persistent' }],
         events: [],
     });
     mergeExtraction(target, update, { chatKey: 'simulation', from: 8, to: 15, allowStateUpdates: true });
@@ -197,7 +197,7 @@ test('compact background strands update by stable topic and inject only when rel
     assert.equal(first.backgrounds[0].targetId, backgroundId);
 
     const update = extraction({
-        backgrounds: [{ targetId: backgroundId, topic: 'China rebellion', summary: 'The rebellion has lost mountain strongholds, but militia reliance leaves durable provincial militarization.', status: 'active', certainty: 'confirmed', participants: ['Qing China'], importance: 2 }],
+        backgrounds: [{ targetId: backgroundId, topic: 'Qing White Lotus suppression', summary: 'The rebellion has lost mountain strongholds, but militia reliance leaves durable provincial militarization.', status: 'active', certainty: 'confirmed', participants: ['Qing China'], importance: 2 }],
     });
     mergeExtraction(target, update, { chatKey: 'world-sim', from: 8, to: 15, allowStateUpdates: true });
 
@@ -217,16 +217,56 @@ test('compact background strands update by stable topic and inject only when rel
     assert.doesNotMatch(unrelated.prompt, /provincial militarization/);
 });
 
-test('validated semantic merge instructions consolidate prior duplicates and preserve provenance', () => {
+test('an unrelated background target ID cannot fuse separate strands', () => {
     const target = world();
-    mergeExtraction(target, extraction({
-        facts: [
-            { targetId: '', subject: 'Mara', predicate: 'long-term goal', value: 'Open a neighborhood bakery', category: 'goal', importance: 4, persistence: 'persistent' },
-            { targetId: '', subject: 'Mara', predicate: 'dreams of', value: 'Running her own bakery for the neighborhood', category: 'goal', importance: 4, persistence: 'persistent' },
-        ],
-        events: [],
-    }), { chatKey: 'life-sim', from: 0, to: 7, allowStateUpdates: true });
-    const [canonical, duplicate] = target.facts;
+    const first = extraction({
+        backgrounds: [{ targetId: '', topic: 'Courier collapse after the mountain crossing', summary: 'The exhausted courier fell asleep at a roadside shelter.', status: 'active', certainty: 'confirmed', participants: ['Courier', 'Traveler'], importance: 2 }],
+    });
+    mergeExtraction(target, first, { chatKey: 'simulation', from: 0, to: 7, allowStateUpdates: true });
+    const originalId = target.backgrounds[0].id;
+
+    const unrelated = extraction({
+        backgrounds: [{ targetId: originalId, topic: 'Council response to the warehouse incident', summary: 'A council member heard a report and plans to question the inspectors.', status: 'active', certainty: 'reported', participants: ['Council member', 'Inspectors'], importance: 2 }],
+    });
+    mergeExtraction(target, unrelated, { chatKey: 'simulation', from: 8, to: 15, allowStateUpdates: true });
+
+    assert.equal(target.backgrounds.length, 2);
+    assert.equal(target.backgrounds[0].id, originalId);
+    assert.match(target.backgrounds[0].summary, /roadside shelter/);
+    assert.deepEqual(target.backgrounds[0].sources.map(source => [source.from, source.to]), [[0, 7]]);
+    assert.equal(target.backgrounds[1].topic, 'Council response to the warehouse incident');
+    assert.deepEqual(target.backgrounds[1].sources.map(source => [source.from, source.to]), [[8, 15]]);
+    assert.notEqual(unrelated.backgrounds[0].targetId, originalId);
+});
+
+test('an unrelated state target ID cannot overwrite another subject or attribute', () => {
+    const target = world();
+    target.entities.push(
+        { id: 'entity_alpha', name: 'Alpha', aliases: [] },
+        { id: 'entity_beta', name: 'Beta', aliases: [] },
+    );
+    const first = extraction({
+        states: [{ targetId: '', subject: 'Alpha', attribute: 'location', value: 'North gate', scope: 'ongoing', operation: 'set', importance: 2 }],
+    });
+    mergeExtraction(target, first, { chatKey: 'simulation', from: 0, to: 7, allowStateUpdates: true });
+    const originalId = target.states[0].id;
+
+    const unrelated = extraction({
+        states: [{ targetId: originalId, subject: 'Beta', attribute: 'injury', value: 'Bandaged hand', scope: 'ongoing', operation: 'set', importance: 2 }],
+    });
+    mergeExtraction(target, unrelated, { chatKey: 'simulation', from: 8, to: 15, allowStateUpdates: true });
+
+    assert.equal(target.states.length, 2);
+    assert.equal(target.states.find(item => item.id === originalId).value, 'North gate');
+    assert.equal(target.states.find(item => item.subject === 'Beta').value, 'Bandaged hand');
+});
+
+test('validated exact-identity merge instructions consolidate prior duplicates and preserve provenance', () => {
+    const target = world();
+    const source = { chatKey: 'life-sim', from: 0, to: 7, capturedAt: new Date().toISOString() };
+    const canonical = { id: 'fact_goal_a', subject: 'Mara', predicate: 'long-term goal', value: 'Open a neighborhood bakery', category: 'goal', sources: [source] };
+    const duplicate = { id: 'fact_goal_b', subject: 'Mara', predicate: 'long-term goal', value: 'Run a bakery for the neighborhood', category: 'goal', sources: [source] };
+    target.facts.push(canonical, duplicate);
 
     mergeExtraction(target, extraction({
         facts: [],
@@ -244,6 +284,44 @@ test('validated semantic merge instructions consolidate prior duplicates and pre
     assert.deepEqual(target.facts[0].sources.map(source => [source.from, source.to]), [[0, 7], [8, 15]]);
 });
 
+test('an explicit merge cannot fuse unrelated background strands', () => {
+    const target = world();
+    target.backgrounds.push(
+        { id: 'background_a', topic: 'Courier collapse after the mountain crossing', summary: 'A courier collapsed.', sources: [] },
+        { id: 'background_b', topic: 'Council response to the warehouse incident', summary: 'A council member heard a report.', sources: [] },
+    );
+
+    mergeExtraction(target, extraction({
+        recordMerges: [{ category: 'backgrounds', canonicalId: 'background_a', duplicateIds: ['background_b'], evidence: 'Both involve an incident.' }],
+    }), { chatKey: 'simulation', from: 8, to: 15, allowStateUpdates: true });
+
+    assert.equal(target.backgrounds.length, 2);
+});
+
+test('unknown target IDs are never adopted from ordinary incoming extraction', () => {
+    const target = world();
+    const result = extraction({
+        backgrounds: [{ targetId: 'background_invented', topic: 'Northern bridge repairs', summary: 'Repairs started.', status: 'active', certainty: 'confirmed', participants: [], importance: 2 }],
+    });
+    mergeExtraction(target, result, { chatKey: 'simulation', from: 0, to: 7, allowStateUpdates: true });
+
+    assert.equal(target.backgrounds.length, 1);
+    assert.notEqual(target.backgrounds[0].id, 'background_invented');
+    assert.equal(result.backgrounds[0].targetId, target.backgrounds[0].id);
+});
+
+test('facts with matching subject and predicate but different categories remain separate', () => {
+    const target = world();
+    mergeExtraction(target, extraction({
+        facts: [{ targetId: '', subject: 'North gate', predicate: 'status', value: 'Closed', category: 'access', importance: 2, persistence: 'temporary' }],
+    }), { chatKey: 'simulation', from: 0, to: 7, allowStateUpdates: true });
+    mergeExtraction(target, extraction({
+        facts: [{ targetId: '', subject: 'North gate', predicate: 'status', value: 'Guard rotation delayed', category: 'staffing', importance: 2, persistence: 'temporary' }],
+    }), { chatKey: 'simulation', from: 8, to: 15, allowStateUpdates: true });
+
+    assert.equal(target.facts.length, 2);
+});
+
 test('stored target IDs remain replay-safe after records are rebuilt from extraction results', () => {
     const original = world();
     const first = extraction({
@@ -253,14 +331,14 @@ test('stored target IDs remain replay-safe after records are rebuilt from extrac
     mergeExtraction(original, first, { chatKey: 'management', from: 0, to: 7, allowStateUpdates: true });
     const stableId = original.facts[0].id;
     const second = extraction({
-        facts: [{ targetId: stableId, subject: 'Lab', predicate: 'electricity', value: 'Grid power restored; generator retained for emergencies', category: 'resource', importance: 3, persistence: 'persistent' }],
+        facts: [{ targetId: stableId, subject: 'Research Lab', predicate: 'power source', value: 'Grid power restored; generator retained for emergencies', category: 'resource', importance: 3, persistence: 'persistent' }],
         events: [],
     });
     mergeExtraction(original, second, { chatKey: 'management', from: 8, to: 15, allowStateUpdates: true });
 
     const replayed = world();
-    mergeExtraction(replayed, structuredClone(first), { chatKey: 'management', from: 0, to: 7, allowStateUpdates: true });
-    mergeExtraction(replayed, structuredClone(second), { chatKey: 'management', from: 8, to: 15, allowStateUpdates: true });
+    mergeExtraction(replayed, structuredClone(first), { chatKey: 'management', from: 0, to: 7, allowStateUpdates: true, replayStoredExtraction: true });
+    mergeExtraction(replayed, structuredClone(second), { chatKey: 'management', from: 8, to: 15, allowStateUpdates: true, replayStoredExtraction: true });
     assert.equal(replayed.facts.length, 1);
     assert.equal(replayed.facts[0].id, stableId);
     assert.equal(replayed.facts[0].value, 'Grid power restored; generator retained for emergencies');

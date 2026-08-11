@@ -39,7 +39,7 @@ test('migrates legacy belief records, replay data, and corrections into attribut
     assert.equal(world.extractions[0].result.recordMerges[0].category, 'facts');
     assert.equal(world.corrections[0].operations[0].category, 'facts');
     assert.equal(world.corrections[0].operations[0].before.subject, 'Alice');
-    assert.equal(world.corrections[0].operations[0].beforeSelector, 'alice|belief about masked visitor — identity');
+    assert.equal(world.corrections[0].operations[0].beforeSelector, 'alice|belief about masked visitor — identity|character belief');
     assert.equal(migrateLegacyBeliefs(world), 0);
 });
 

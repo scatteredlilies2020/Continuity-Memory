@@ -32,11 +32,11 @@ test('unknown model-generated target IDs fail closed without blocking extraction
 
 test('valid target IDs survive while unsafe semantic merge directives are discarded', () => {
     const result = extraction();
-    result.facts.push({ targetId: 'fact_real', subject: 'Canal', predicate: 'status' });
+    result.facts.push({ targetId: 'fact_real', subject: 'Canal', predicate: 'status', category: 'operations' });
     result.recordMerges.push({ category: 'facts', canonicalId: 'fact_real', duplicateIds: ['fact_missing'], evidence: 'Same status.' });
     const sanitized = sanitizeReconciliationMetadata(result, {
         entities: [], states: [], relationships: [], threads: [],
-        facts: [{ id: 'fact_real' }],
+        facts: [{ id: 'fact_real', subject: 'Canal', predicate: 'status', category: 'operations' }],
     });
     assert.equal(result.facts[0].targetId, 'fact_real');
     assert.deepEqual(result.recordMerges, []);
@@ -56,15 +56,15 @@ test('fact target IDs fail closed when both predicate and category change', () =
     assert.equal(sanitized.ignored, 1);
 });
 
-test('fact target IDs may update wording while retaining the same category', () => {
+test('fact target IDs preserve subject, predicate, and category identity', () => {
     const result = extraction();
     result.facts.push({ targetId: 'fact_canal', subject: 'Canal', predicate: 'priority', category: 'infrastructure' });
     const sanitized = sanitizeReconciliationMetadata(result, {
         entities: [], states: [], relationships: [], threads: [], backgrounds: [],
         facts: [{ id: 'fact_canal', subject: 'North Canal', predicate: 'maintenance objective', category: 'infrastructure' }],
     });
-    assert.equal(result.facts[0].targetId, 'fact_canal');
-    assert.equal(sanitized.ignored, 0);
+    assert.equal(result.facts[0].targetId, '');
+    assert.equal(sanitized.ignored, 1);
 });
 
 test('background strands reuse only valid stable target IDs', () => {
@@ -72,10 +72,71 @@ test('background strands reuse only valid stable target IDs', () => {
     result.backgrounds.push({ targetId: 'background_qing', topic: 'Qing White Lotus suppression' });
     const sanitized = sanitizeReconciliationMetadata(result, {
         entities: [], facts: [], states: [], relationships: [], threads: [],
-        backgrounds: [{ id: 'background_qing' }],
+        backgrounds: [{ id: 'background_qing', topic: 'Qing White Lotus suppression' }],
     });
     assert.equal(result.backgrounds[0].targetId, 'background_qing');
     assert.equal(sanitized.ignored, 0);
+});
+
+test('target IDs fail closed across every mutable record identity', () => {
+    const result = extraction();
+    result.entities.push({ targetId: 'entity_alpha', name: 'Beta' });
+    result.states.push({ targetId: 'state_alpha', subject: 'Beta', attribute: 'location' });
+    result.relationships.push({ targetId: 'relationship_alpha', from: 'Alpha', to: 'Gamma', kind: 'rivalry' });
+    result.threads.push({ targetId: 'thread_alpha', title: 'Investigate the western gate' });
+    result.backgrounds.push({ targetId: 'background_alpha', topic: 'Council response to the warehouse incident' });
+    const sanitized = sanitizeReconciliationMetadata(result, {
+        entities: [{ id: 'entity_alpha', name: 'Alpha', aliases: [] }],
+        facts: [],
+        states: [{ id: 'state_alpha', subject: 'Alpha', attribute: 'location' }],
+        relationships: [{ id: 'relationship_alpha', from: 'Alpha', to: 'Beta', kind: 'rivalry' }],
+        threads: [{ id: 'thread_alpha', title: 'Repair the northern bridge' }],
+        backgrounds: [{ id: 'background_alpha', topic: 'Courier collapse after the mountain crossing' }],
+    });
+
+    assert.equal(sanitized.ignored, 5);
+    for (const category of ['entities', 'states', 'relationships', 'threads', 'backgrounds']) {
+        assert.equal(result[category][0].targetId, '');
+    }
+});
+
+test('canonical aliases remain compatible with stable entity and subject IDs', () => {
+    const result = extraction();
+    result.entities.push({ targetId: 'entity_alpha', name: 'Alpha' });
+    result.states.push({ targetId: 'state_alpha', subject: 'Alpha', attribute: 'location' });
+    result.relationships.push({ targetId: 'relationship_alpha', from: 'Alpha', to: 'Beta', kind: 'alliance' });
+    const sanitized = sanitizeReconciliationMetadata(result, {
+        entities: [
+            { id: 'entity_alpha', name: 'Alpha Carter', aliases: ['Alpha'] },
+            { id: 'entity_beta', name: 'Beta Evans', aliases: ['Beta'] },
+        ],
+        facts: [],
+        states: [{ id: 'state_alpha', subject: 'Alpha Carter', attribute: 'location' }],
+        relationships: [{ id: 'relationship_alpha', from: 'Alpha Carter', to: 'Beta Evans', kind: 'alliance' }],
+        threads: [], backgrounds: [],
+    });
+
+    assert.equal(sanitized.ignored, 0);
+    assert.equal(result.entities[0].targetId, 'entity_alpha');
+    assert.equal(result.states[0].targetId, 'state_alpha');
+    assert.equal(result.relationships[0].targetId, 'relationship_alpha');
+});
+
+test('explicit duplicate merges also require matching canonical identity', () => {
+    const result = extraction();
+    result.recordMerges.push({
+        category: 'backgrounds', canonicalId: 'background_alpha', duplicateIds: ['background_beta'], evidence: 'Both mention an incident.',
+    });
+    const sanitized = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [],
+        backgrounds: [
+            { id: 'background_alpha', topic: 'Courier collapse after the mountain crossing' },
+            { id: 'background_beta', topic: 'Council response to the warehouse incident' },
+        ],
+    });
+
+    assert.deepEqual(result.recordMerges, []);
+    assert.equal(sanitized.ignored, 1);
 });
 
 test('missing optional reconciliation arrays are restored for older or non-strict providers', () => {

@@ -1,7 +1,7 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.96';
+import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.97';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
 
@@ -254,15 +254,18 @@ export function getSettings() {
         settings.canonicalRecordPromptVersion = 1;
         saveSettingsDebounced();
     }
-    if (Number(settings.targetIdSafetyPromptVersion || 0) < 1) {
-        const prompt = String(settings.extractionSystemPrompt || '');
+    if (Number(settings.targetIdSafetyPromptVersion || 0) < 2) {
+        const legacyRule = 'For facts using targetId, preserve the canonical predicate and category. A different predicate and category requires a new fact with empty targetId.';
+        let prompt = String(settings.extractionSystemPrompt || '');
+        if (prompt.includes(legacyRule)) prompt = prompt.replaceAll(legacyRule, TARGET_ID_SAFETY_RULE);
         if (prompt && !prompt.includes(TARGET_ID_SAFETY_RULE)) {
             const marker = 'Omit an existing record when the excerpt only repeats it unchanged.';
-            settings.extractionSystemPrompt = prompt.includes(marker)
+            prompt = prompt.includes(marker)
                 ? prompt.replace(marker, `${TARGET_ID_SAFETY_RULE} ${marker}`)
                 : `${prompt}\n${TARGET_ID_SAFETY_RULE}`;
         }
-        settings.targetIdSafetyPromptVersion = 1;
+        settings.extractionSystemPrompt = prompt || PROMPT_DEFAULTS.extractionSystemPrompt;
+        settings.targetIdSafetyPromptVersion = 2;
         saveSettingsDebounced();
     }
     if (Number(settings.continuityCoveragePromptVersion || 0) < 1) {

@@ -156,7 +156,26 @@ test('stored correction suppresses replay of the prior fact and preserves correc
     assert.equal(world.facts.length, 2);
     assert.equal(world.facts.find(item => item.id === 'fact-knowledge').value, 'Already knew her identity');
     assert.equal(world.capsules[0].beats[0], 'Sasuke speaks with Elizabeth as an existing acquaintance.');
-    assert.equal(isSuppressedByCorrection(world, 'facts', { subject: 'Sasuke', predicate: 'knowledge of Elizabeth' }), true);
+    assert.equal(isSuppressedByCorrection(world, 'facts', { subject: 'Sasuke', predicate: 'knowledge of Elizabeth', category: 'knowledge' }), true);
+});
+
+test('a fact correction does not suppress a different category with the same wording', () => {
+    const world = memoryWorld();
+    const proposal = validateCorrectionProposal(world, {
+        summary: 'Correct the access status only.',
+        operations: [{
+            action: 'update', category: 'facts', targetId: 'fact-knowledge', reason: 'Correct one categorized fact.',
+            recordJson: JSON.stringify({ subject: 'Sasuke', predicate: 'knowledge of Elizabeth', value: 'Corrected access record', category: 'knowledge', persistence: 'persistent', importance: 4 }),
+        }],
+    }, 'Correct this knowledge record.');
+    applyCorrectionProposal(world, proposal);
+
+    assert.equal(isSuppressedByCorrection(world, 'facts', {
+        subject: 'Sasuke', predicate: 'knowledge of Elizabeth', category: 'knowledge',
+    }), true);
+    assert.equal(isSuppressedByCorrection(world, 'facts', {
+        subject: 'Sasuke', predicate: 'knowledge of Elizabeth', category: 'security report',
+    }), false);
 });
 
 test('correction review rejects missing targets instead of guessing', () => {

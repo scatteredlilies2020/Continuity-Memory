@@ -67,18 +67,18 @@ function publicLegacyFact(item) {
 
 function factSelector(item) {
     const fact = legacyBeliefToFact(item);
-    return `${normalized(fact.subject)}|${normalized(fact.predicate)}`;
+    return `${normalized(fact.subject)}|${normalized(fact.predicate)}|${normalized(fact.category)}`;
 }
 
 function migrateResult(result) {
     if (!result || typeof result !== 'object' || Array.isArray(result)) return 0;
     result.facts = Array.isArray(result.facts) ? result.facts : [];
     const beliefs = Array.isArray(result.beliefs) ? result.beliefs : [];
-    const identities = new Set(result.facts.map(item => `${normalized(item?.subject)}|${normalized(item?.predicate)}`));
+    const identities = new Set(result.facts.map(item => `${normalized(item?.subject)}|${normalized(item?.predicate)}|${normalized(item?.category)}`));
     let migrated = 0;
     for (const belief of beliefs) {
         const fact = legacyBeliefToFact(belief);
-        const identity = `${normalized(fact.subject)}|${normalized(fact.predicate)}`;
+        const identity = `${normalized(fact.subject)}|${normalized(fact.predicate)}|${normalized(fact.category)}`;
         if (identities.has(identity)) continue;
         result.facts.push(fact);
         identities.add(identity);
@@ -100,12 +100,12 @@ export function migrateLegacyBeliefs(world) {
     if (!world || typeof world !== 'object' || Array.isArray(world)) return 0;
     world.facts = Array.isArray(world.facts) ? world.facts : [];
     const beliefs = Array.isArray(world.beliefs) ? world.beliefs : [];
-    const identities = new Set(world.facts.map(item => `${normalized(item?.subject)}|${normalized(item?.predicate)}`));
+    const identities = new Set(world.facts.map(item => `${normalized(item?.subject)}|${normalized(item?.predicate)}|${normalized(item?.category)}`));
     const ids = new Set(world.facts.map(item => clean(item?.id)).filter(Boolean));
     let migrated = 0;
     for (const belief of beliefs) {
         const fact = legacyBeliefToFact(belief);
-        const identity = `${normalized(fact.subject)}|${normalized(fact.predicate)}`;
+        const identity = `${normalized(fact.subject)}|${normalized(fact.predicate)}|${normalized(fact.category)}`;
         if (identities.has(identity)) continue;
         if (fact.id && ids.has(fact.id)) fact.id = `legacy_${fact.id}`.slice(0, 200);
         world.facts.push(fact);

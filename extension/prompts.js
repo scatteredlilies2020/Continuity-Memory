@@ -21,7 +21,7 @@ export const HIERARCHY_ATTRIBUTION_RULE = `${PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBU
 
 export const IDENTITY_RESOLUTION_RULES = `Use identityResolutions only when the narrative establishes that an earlier descriptive, unknown, disguised, or aliased reference is a canonical entity present in context. Give one short evidence sentence. Never resolve from outside knowledge, genre convention, resemblance, suspicion, prediction, or an unconfirmed claim; retain useful uncertainty as a claim, belief, or thread. Otherwise leave identityResolutions empty.`;
 
-export const TARGET_ID_SAFETY_RULE = `For facts using targetId, preserve the canonical predicate and category. A different predicate and category requires a new fact with empty targetId.`;
+export const TARGET_ID_SAFETY_RULE = `For facts using targetId, preserve canonical subject, predicate, and category. Any identity-field change requires a new fact with empty targetId.`;
 
 export const CANONICAL_RECORD_RULES = `When canonical context supplies targetId, use it only to update that same entity, fact, state, relationship, thread, or background; preserve its canonical identity fields. ${TARGET_ID_SAFETY_RULE} Omit unchanged records; empty targetId means genuinely new. Use recordMerges only for clear duplicates of one durable item: choose canonicalId, list duplicateIds, and give one short evidence sentence. Never merge distinct goals, simultaneous values, merely similar relationships, recurring actions, unrelated strands, or separate events.`;
 
