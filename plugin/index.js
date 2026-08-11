@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { migrateLegacyBeliefs } from '../extension/attributed-beliefs.js';
 
 const PLUGIN = 'continuity-memory';
-const VERSION = '0.14.0-standalone.86';
+const VERSION = '0.14.0-standalone.87';
 const SCHEMA_VERSION = 10;
 const STORAGE_VERSION = 2;
 const SHARD_CHUNK_SIZE = 128;

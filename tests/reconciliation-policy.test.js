@@ -349,6 +349,84 @@ test('a later range cannot copy an opposite-direction address value', () => {
     assert.equal(result.facts[0].targetId, 'fact_suki');
 });
 
+test('the first range cannot create the same address form in both directions from an echoed nickname', () => {
+    const result = extraction();
+    result.facts.push(
+        {
+            targetId: '', subject: 'Sakura Haruno', predicate: 'calls Setsuko Uchiha',
+            value: 'Pinky', category: 'form of address', importance: 2, persistence: 'recurring',
+        },
+        {
+            targetId: '', subject: 'Setsuko Uchiha', predicate: 'calls Sakura Haruno',
+            value: 'Pinky', category: 'form of address', importance: 2, persistence: 'recurring',
+        },
+    );
+    const world = {
+        entities: [
+            { name: 'Sakura Haruno', aliases: ['Sakura'] },
+            { name: 'Setsuko Uchiha', aliases: ['Setsuko'] },
+        ],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    };
+    const sanitized = sanitizeReconciliationMetadata(result, world, [
+        {
+            index: 20,
+            name: 'Setsuko',
+            text: '"Hmph, as if test scores matter. Pinky." I then look at Kakashi.',
+        },
+        {
+            index: 21,
+            name: 'Naruto',
+            text: 'Setsuko dismisses Sakura with a derisive sound. “Hmph, as if test scores matter. Pinky.” Sakura gasps. “P-Pinky?!”',
+        },
+    ]);
+
+    assert.equal(sanitized.repairedAddresses, 1);
+    assert.equal(sanitized.discardedAddressValues, 0);
+    assert.deepEqual(result.facts.map(item => [item.subject, item.predicate, item.value]), [
+        ['Setsuko Uchiha', 'calls Sakura Haruno', 'Pinky'],
+    ]);
+});
+
+test('same-range contamination filtering compares opposite directions emitted together', () => {
+    const result = extraction();
+    result.facts.push(
+        {
+            targetId: '', subject: 'Sakura Haruno', predicate: 'calls Setsuko Uchiha',
+            value: 'Pinky', category: 'form of address', importance: 2, persistence: 'recurring',
+        },
+        {
+            targetId: '', subject: 'Setsuko Uchiha', predicate: 'calls Sakura Haruno',
+            value: 'Pinky', category: 'form of address', importance: 2, persistence: 'recurring',
+        },
+    );
+    const world = {
+        entities: [
+            { name: 'Sakura Haruno', aliases: ['Sakura'] },
+            { name: 'Setsuko Uchiha', aliases: ['Setsuko'] },
+        ],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    };
+    const sanitized = sanitizeReconciliationMetadata(result, world, [
+        {
+            index: 20,
+            name: 'Setsuko',
+            text: '"Hmph, as if test scores matter. Pinky." I then look away.',
+        },
+        {
+            index: 21,
+            name: 'Narrator',
+            text: 'Sakura says “Pinky?” in disbelief.',
+        },
+    ]);
+
+    assert.equal(sanitized.repairedAddresses, 0);
+    assert.equal(sanitized.discardedAddressValues, 1);
+    assert.deepEqual(result.facts.map(item => [item.subject, item.predicate, item.value]), [
+        ['Setsuko Uchiha', 'calls Sakura Haruno', 'Pinky'],
+    ]);
+});
+
 test('direct new speech may establish the same form in both directions', () => {
     const result = extraction();
     result.facts.push({

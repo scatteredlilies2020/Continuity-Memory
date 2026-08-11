@@ -262,7 +262,8 @@ function directlyVoicesFirstPersonSpeech(text, form) {
     if (!formPattern) return false;
     const quoted = new RegExp(`[“\"][^”\"\n\r]{0,240}${formPattern}[^”\"\n\r]{0,240}[”\"]`, 'iu').test(text);
     const firstPersonSpeech = /\bI\b[^\n\r]{0,100}\b(?:say|said|ask|asked|reply|replied|shout|shouted|yell|yelled|call|called)\b|\b(?:say|said|ask|asked|reply|replied|shout|shouted|yell|yelled|call|called)\b[^\n\r]{0,100}\bI\b/iu.test(text);
-    return quoted && firstPersonSpeech;
+    const firstPersonActionAfterQuote = new RegExp(`[“"][^”"\n\r]{0,240}${formPattern}[^”"\n\r]{0,240}[”"]\\s{0,20}\\bI\\b`, 'iu').test(text);
+    return quoted && (firstPersonSpeech || firstPersonActionAfterQuote);
 }
 
 function hasAddressSpeechEvidence(messages, world, speaker, form) {
@@ -278,13 +279,22 @@ function hasAddressSpeechEvidence(messages, world, speaker, form) {
 }
 
 function hasDirectionalAddressSpeechEvidence(messages, world, speaker, addressee, form) {
+    const canonicalSpeaker = canonicalAddressName(world, speaker);
     const speakerNames = addressNameVariants(world, speaker);
     const addresseeNames = addressNameVariants(world, addressee);
     const formPattern = escaped(form);
     if (!formPattern) return false;
+    const addresseeContext = (messages || []).some(message => {
+        const text = String(message?.text ?? message?.mes ?? '');
+        return containsAddressForm(text, form)
+            && addresseeNames.some(name => new RegExp(`\\b${escaped(name)}\\b`, 'iu').test(text));
+    });
     return (messages || []).some(message => {
         const text = String(message?.text ?? message?.mes ?? '');
         if (!containsAddressForm(text, form)) return false;
+        const authoredDirectly = canonicalAddressName(world, message?.name) === canonicalSpeaker
+            && directlyVoicesFirstPersonSpeech(text, form);
+        if (authoredDirectly && addresseeContext) return true;
         const explicitlyDirectional = speakerNames.some(speakerName => addresseeNames.some(addresseeName =>
             new RegExp(`\\b${escaped(speakerName)}\\b[^\\n\\r]{0,100}\\b(?:calls?|called|addresses?|addressed|nicknames?|nicknamed)\\s+\\b${escaped(addresseeName)}\\b[^\\n\\r]{0,100}${formPattern}`, 'iu').test(text)));
         if (explicitlyDirectional) return true;
@@ -344,6 +354,15 @@ export function repairReversedAddressFacts(result, world, messages) {
 
 export function removeCrossDirectionAddressContamination(result, world, messages) {
     if (!Array.isArray(result?.facts) || !Array.isArray(world?.facts)) return 0;
+    const incomingValuesByDirection = new Map();
+    for (const item of result.facts) {
+        if (!isAddressFact(item) || isSelfAddressFact(item, world)) continue;
+        const identity = addressFactIdentity(item, world);
+        if (!identity) continue;
+        const values = incomingValuesByDirection.get(identity) || new Set();
+        for (const form of addressValueSet(item.value)) values.add(form);
+        incomingValuesByDirection.set(identity, values);
+    }
     const empty = new Set();
     let discarded = 0;
     for (const item of result.facts) {
@@ -366,6 +385,9 @@ export function removeCrossDirectionAddressContamination(result, world, messages
                 : storedIdentity === oppositeIdentity ? oppositeDirection : null;
             if (!target) continue;
             for (const form of addressValueSet(stored.value)) target.add(form);
+        }
+        for (const form of incomingValuesByDirection.get(oppositeIdentity) || []) {
+            oppositeDirection.add(form);
         }
         if (!oppositeDirection.size) continue;
         const retained = [];
