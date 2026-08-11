@@ -3,7 +3,7 @@ import { getContext } from '/scripts/st-context.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor } from './engine.js?v=0.14.0-standalone.95';
+import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor } from './engine.js?v=0.14.0-standalone.96';
 import { worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
 import { buildMemoryPrompt } from './retrieval.js';
@@ -14,14 +14,14 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, cancelExtractionReview } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages } from './fingerprint.js?v=0.14.0-standalone.95';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.95';
-import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.95';
+import { alignWorldToChat, collectFingerprintMessages } from './fingerprint.js?v=0.14.0-standalone.96';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.96';
+import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.96';
 import { completeL1MessageCount, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.95';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.95';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.95';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.96';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.96';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.96';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -592,7 +592,11 @@ export function renderRuntime() {
     $('#continuity_extraction_review_panel').prop('hidden', !extractionReview);
     if (extractionReview && renderedExtractionReviewId !== extractionReview.id) {
         renderedExtractionReviewId = extractionReview.id;
-        $('#continuity_extraction_review_title').text(`Review messages ${extractionReview.from}–${extractionReview.to}`);
+        const sourceLayer = extractionReview.layer === 'L3' ? 'L2' : 'L1';
+        const title = extractionReview.layer === 'L1'
+            ? `Review L1 · messages ${extractionReview.from}–${extractionReview.to}`
+            : `Review ${extractionReview.layer} · ${extractionReview.sourceCount} ${sourceLayer} record(s)`;
+        $('#continuity_extraction_review_title').text(title);
         $('#continuity_extraction_review_json').val(extractionReview.json);
     } else if (!extractionReview) {
         renderedExtractionReviewId = '';
@@ -1082,14 +1086,14 @@ export function initUI() {
         try {
             const review = runtime.pendingExtractionReview;
             approveExtractionReview(String($('#continuity_extraction_review_json').val() || ''), review?.id);
-            toast('success', 'Reviewed extraction approved and queued for saving.');
+            toast('success', `Reviewed ${review?.layer || 'memory'} approved and queued for saving.`);
         } catch (error) {
             toast('error', error.message);
         }
     });
     $('#continuity_extraction_review_discard').on('click', () => {
         const discarded = cancelExtractionReview(undefined, runtime.pendingExtractionReview?.id);
-        if (discarded) toast('info', 'Extraction discarded. Its source messages remain pending.');
+        if (discarded) toast('info', 'Memory result discarded. Its source remains available for another build.');
     });
     $('#continuity_build').on('click', () => buildMemory()
         .then(result => !result.cancelled && toast(result.continued || result.arcs || result.eras ? 'success' : 'info', result.continued || result.arcs || result.eras ? 'Memory build completed.' : 'Memory is already up to date.'))

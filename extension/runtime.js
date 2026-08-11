@@ -48,7 +48,7 @@ function notifyStopHandlers(reason) {
 }
 
 export function stopRuntime() {
-    const reason = 'Processing stopped; the reviewed extraction was not saved.';
+    const reason = 'Processing stopped; the reviewed memory was not saved.';
     cancelExtractionReview(reason);
     notifyStopHandlers(reason);
     runtime.generation++;
@@ -58,7 +58,7 @@ export function stopRuntime() {
 }
 
 export function pauseRuntime() {
-    const reason = 'Processing paused; the reviewed extraction was not saved.';
+    const reason = 'Processing paused; the reviewed memory was not saved.';
     cancelExtractionReview(reason);
     notifyStopHandlers(reason);
     runtime.generation++;

@@ -6,26 +6,26 @@ import { proxies } from '/scripts/openai.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.95';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.96';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.95';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.96';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.95';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.95';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.96';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.96';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.95';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.95';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.96';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.96';
 import { canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.95';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.95';
-import { onRuntimeStop, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.95';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.96';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.96';
+import { onRuntimeStop, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.96';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
 
@@ -621,19 +621,40 @@ async function requestDirectStructured(prompt, systemPrompt, jsonSchema, respons
     return String(result);
 }
 
-async function reviewExtractionBeforeSave(result, world, messages, meta = {}) {
+function reviewStatus(review) {
+    if (review.layer === 'L1') return `Review L1 extracted memory for messages ${review.from}–${review.to} before it is saved.`;
+    const sourceLayer = review.layer === 'L3' ? 'L2' : 'L1';
+    return `Review ${review.layer} summary from ${review.sourceCount} ${sourceLayer} record(s) before it is saved.`;
+}
+
+async function reviewMemoryBeforeSave(result, meta, validate) {
     if (!getSettings().reviewBeforeCommit) return result;
     return await requestExtractionReview({
         result,
         meta,
-        validate: candidate => validateResult(candidate, world, messages).result,
+        validate,
         onPending: review => updateRuntime({
             pendingExtractionReview: review,
             status: 'awaiting-review',
-            retryStatus: `Review extracted memory for messages ${review.from}–${review.to} before it is saved.`,
+            retryStatus: reviewStatus(review),
         }),
         onSettled: () => updateRuntime({ pendingExtractionReview: null }),
     });
+}
+
+async function reviewExtractionBeforeSave(result, world, messages, meta = {}) {
+    return reviewMemoryBeforeSave(result, { ...meta, layer: 'L1' }, candidate => validateResult(candidate, world, messages).result);
+}
+
+async function reviewHierarchyBeforeSave(result, layer, sources, reason = 'hierarchy') {
+    const ranges = (sources || []).flatMap(item => [Number(item?.from), Number(item?.to)]).filter(Number.isFinite);
+    return reviewMemoryBeforeSave(result, {
+        layer,
+        reason,
+        sourceCount: sources?.length || 0,
+        from: ranges.length ? Math.min(...ranges) : 0,
+        to: ranges.length ? Math.max(...ranges) : 0,
+    }, candidate => validateArcResult(candidate, layer));
 }
 
 function completionFinishReason(payload) {
@@ -1328,7 +1349,9 @@ export async function buildNextArc(worldId = getBoundWorldId(), expectedEpoch = 
     const capsules = nextArcCapsules(world, getSettings());
     if (!capsules) return null;
     updateRuntime({ arcStatus: `Building L2 from ${capsules.length} L1 records…`, arcError: '' });
-    const result = await generateArc(capsules);
+    let result = await generateArc(capsules);
+    if (expectedEpoch !== null && runtime.generation !== expectedEpoch) throw new Error('Processing stopped; pending L2 result was discarded.');
+    result = await reviewHierarchyBeforeSave(result, 'L2', capsules);
     if (expectedEpoch !== null && runtime.generation !== expectedEpoch) throw new Error('Processing stopped; pending L2 result was discarded.');
     return saveDerivedArc(world, result, capsules);
 }
@@ -1363,7 +1386,9 @@ export async function buildNextEra(worldId = getBoundWorldId(), expectedEpoch = 
     const arcs = nextEraArcs(world);
     if (!arcs) return null;
     updateRuntime({ arcStatus: `Building L3 from ${arcs.length} L2 records…`, arcError: '' });
-    const result = await generateEra(arcs);
+    let result = await generateEra(arcs);
+    if (expectedEpoch !== null && runtime.generation !== expectedEpoch) throw new Error('Processing stopped; pending L3 result was discarded.');
+    result = await reviewHierarchyBeforeSave(result, 'L3', arcs);
     if (expectedEpoch !== null && runtime.generation !== expectedEpoch) throw new Error('Processing stopped; pending L3 result was discarded.');
     return saveDerivedEra(world, result, arcs);
 }
@@ -1467,7 +1492,9 @@ export async function retryMemoryLayer({ layer, targetId = 'latest', all = false
                 world = runtime.world?.id === worldId ? runtime.world : (await api.getWorld(worldId)).world;
                 const capsules = (target.capsuleIds || []).map(id => (world.capsules || []).find(item => item.id === id)).filter(Boolean);
                 if (capsules.length !== (target.capsuleIds || []).length) throw new Error(`Cannot rebuild “${target.title}”; its source L1 records changed.`);
-                const result = await generateArc(capsules);
+                let result = await generateArc(capsules);
+                if (runtime.generation !== epoch) throw new Error('Retry stopped; the current generated result was discarded.');
+                result = await reviewHierarchyBeforeSave(result, 'L2', capsules, 'retry');
                 if (runtime.generation !== epoch) throw new Error('Retry stopped; the current generated result was discarded.');
                 await saveRetriedL2(worldId, target, result);
             }

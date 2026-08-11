@@ -78,8 +78,8 @@
                     </label>
                 </div>
                 <label class="checkbox_label"><input id="continuity_auto" type="checkbox"><span>Process automatically in the background</span></label>
-                <label class="checkbox_label"><input id="continuity_review_extractions" type="checkbox"><span>Review each L1 extraction before saving</span></label>
-                <small>Off by default. When enabled, processing waits and displays editable structured memory before it is committed. Discarding leaves the source messages pending.</small>
+                <label class="checkbox_label"><input id="continuity_review_extractions" type="checkbox"><span>Review every L1, L2, and L3 result before saving</span></label>
+                <small>Off by default. When enabled, processing waits and displays each editable result before it is committed. Discarding L1 leaves its messages pending; discarding L2 or L3 leaves its source records available for another build.</small>
                 <label class="checkbox_label"><input id="continuity_jb_enabled" type="checkbox"><span>JB for extraction / L1</span></label>
                 <small>When enabled, appends the editable JB prompt below to extraction and L1 requests only. Off by default.</small>
                 <details>
@@ -397,10 +397,10 @@
                 <div id="continuity_arc_status" class="continuity-progress"></div>
                 <div id="continuity_retry_status" class="continuity-progress"></div>
                 <div id="continuity_extraction_review_panel" class="continuity-card-inset" hidden>
-                    <b id="continuity_extraction_review_title">Review extracted memory</b>
+                    <b id="continuity_extraction_review_title">Review generated memory</b>
                     <textarea id="continuity_extraction_review_json" class="text_pole continuity-prompt-editor" rows="18" spellcheck="false"></textarea>
                     <div class="continuity-button-row">
-                        <button id="continuity_extraction_review_apply" class="menu_button"><i class="fa-solid fa-check"></i> Save reviewed extraction</button>
+                        <button id="continuity_extraction_review_apply" class="menu_button"><i class="fa-solid fa-check"></i> Save reviewed memory</button>
                         <button id="continuity_extraction_review_discard" class="menu_button redWarningBG"><i class="fa-solid fa-xmark"></i> Discard</button>
                     </div>
                     <small>You may edit the JSON. Continuity validates it again before saving.</small>
