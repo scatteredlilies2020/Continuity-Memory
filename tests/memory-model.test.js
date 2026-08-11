@@ -278,6 +278,7 @@ test('L1 records retain up to ten expanded chronological beats', () => {
             beats: Array.from({ length: 12 }, (_, index) => `${index}-${long}`),
             emotionalArc: long,
             closing: long,
+            coverageWarnings: ['Potential durable detail remains only in L1: Yui vowed to return.'],
         },
     }), { chatKey: 'chat', from: 0, to: 9, allowStateUpdates: true });
 
@@ -287,6 +288,7 @@ test('L1 records retain up to ten expanded chronological beats', () => {
     assert.ok(capsule.beats.every(beat => beat.length === 400));
     assert.equal(capsule.emotionalArc.length, 320);
     assert.equal(capsule.closing.length, 320);
+    assert.deepEqual(capsule.coverageWarnings, ['Potential durable detail remains only in L1: Yui vowed to return.']);
 });
 
 test('historical partial imports do not replace current mutable continuity', () => {

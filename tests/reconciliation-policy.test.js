@@ -284,3 +284,35 @@ test('uncorroborated quoted wording is not promoted into an address fact', () =>
     assert.equal(sanitized.recovered, 0);
     assert.deepEqual(result.facts, []);
 });
+
+test('corroborated explicit aliases are recovered without another model call', () => {
+    const result = extraction();
+    result.entities.push({ name: 'Kakashi Hatake', aliases: [] });
+    result.sceneCapsule = { beats: ['Kakashi Hatake is also known as “Copy Ninja.”'] };
+    result.backgrounds.push({ summary: 'Kakashi’s “Copy Ninja” alias remains widely recognized.' });
+
+    const sanitized = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Narrator', text: 'Kakashi is known throughout the nations as the Copy Ninja.' }]);
+
+    assert.equal(sanitized.recoveredAliases, 1);
+    assert.deepEqual(result.entities[0].aliases, ['Copy Ninja']);
+});
+
+test('source-supported durable L1 beats warn when no structured record covers them', () => {
+    const result = extraction();
+    result.sceneCapsule = { beats: ['Alice vows to protect the northern bridge permanently.'] };
+    const messages = [{ name: 'Alice', text: 'I vow to protect the northern bridge permanently.' }];
+
+    const missing = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, messages);
+    assert.equal(missing.warnings.length, 1);
+    assert.match(result.sceneCapsule.coverageWarnings[0], /northern bridge/);
+
+    result.threads.push({ title: 'Protect the northern bridge', detail: 'Alice vows to protect the northern bridge permanently.' });
+    const covered = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, messages);
+    assert.deepEqual(covered.warnings, []);
+});

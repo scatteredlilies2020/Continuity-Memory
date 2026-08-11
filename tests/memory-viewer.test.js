@@ -8,7 +8,7 @@ const world = {
     backgrounds: [{ id: 'background', topic: 'Qing White Lotus suppression', summary: 'Militia reliance is increasing.', status: 'active', certainty: 'reported', participants: ['Qing China'], importance: 2, sources: [{ from: 12, to: 16 }] }],
     capsules: [
         { id: 'late', title: 'Later', opening: 'Second', from: 20, to: 29 },
-        { id: 'early', title: 'Early', opening: 'First', from: 0, to: 9 },
+        { id: 'early', title: 'Early', opening: 'First', coverageWarnings: ['A durable vow remains only in L1.'], from: 0, to: 9 },
     ],
     arcs: [{ id: 'l2', title: 'Team trial', summary: 'The team learns cooperation.', from: 0, to: 59 }],
     eras: [{ id: 'l3', title: 'Academy transition', summary: 'A major phase.', from: 0, to: 200 }],
@@ -27,6 +27,7 @@ test('viewer orders hierarchy records chronologically and exposes message ranges
     const page = memoryViewerPage(world, 'l1');
     assert.deepEqual(page.items.map(item => item.title), ['Early', 'Later']);
     assert.deepEqual(page.items[0].sources, ['Messages 0–9']);
+    assert.ok(page.items[0].fields.some(field => field.label === 'Coverage warnings' && field.value.includes('durable vow')));
 });
 
 test('viewer searches structured content and paginates safely', () => {

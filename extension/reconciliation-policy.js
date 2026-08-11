@@ -143,6 +143,71 @@ export function recoverExplicitAddressFacts(result, world, messages) {
     return recovered;
 }
 
+export function recoverExplicitEntityAliases(result, messages) {
+    if (!Array.isArray(result?.entities) || !Array.isArray(messages) || !messages.length) return 0;
+    const strings = narrativeStrings(result);
+    let recovered = 0;
+    for (const entity of result.entities) {
+        const name = String(entity?.name || '').replace(/\s+/g, ' ').trim();
+        if (!name) continue;
+        const knownAliases = new Set((entity.aliases || []).map(normalized).filter(Boolean));
+        const variants = [name, name.split(/\s+/u)[0]].filter(Boolean);
+        for (const variant of variants) {
+            const pattern = new RegExp(`\\b${escaped(variant)}\\b[^\\n\\r]{0,80}\\b(?:is|was|became|becomes)\\s+(?:also\\s+)?(?:known as|called|nicknamed)\\s+[“\"']([^”\"'\\n\\r]{1,80})[”\"']`, 'iu');
+            for (const text of strings) {
+                const alias = String(text.match(pattern)?.[1] || '')
+                    .replace(/\s+/g, ' ').trim().replace(/[.!?]+$/u, '');
+                if (!alias || normalized(alias) === normalized(name)
+                    || knownAliases.has(normalized(alias))
+                    || !ADDRESS_MEANINGFUL.test(alias) || ADDRESS_BRACKET.test(alias)) continue;
+                const corroborated = strings.filter(value => containsAddressForm(value, alias)).length >= 2;
+                const sourced = messages.some(message => containsAddressForm(message?.text ?? message?.mes, alias));
+                if (!corroborated || !sourced) continue;
+                entity.aliases = [...new Set([...(entity.aliases || []), alias]
+                    .map(value => String(value || '').replace(/\s+/g, ' ').trim()).filter(Boolean))];
+                knownAliases.add(normalized(alias));
+                recovered++;
+            }
+        }
+    }
+    return recovered;
+}
+
+const COVERAGE_CUE = /\b(?:agrees?|appoints?|assigned|becomes?|called|calls?|decides?|discovers?|injured|intends?|learns?|loses?|named|plans?|promises?|receives?|remains?|reveals?|suffers?|vows?|wounded)\b/iu;
+const COVERAGE_STOP_WORDS = new Set('a an and are as at be been being but by for from had has have he her hers him his i in into is it its of on or our she that the their them they this to was were will with you your'.split(' '));
+
+function coverageTerms(value) {
+    return new Set((String(value || '').toLocaleLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || [])
+        .filter(term => term.length > 1 && !COVERAGE_STOP_WORDS.has(term)));
+}
+
+function coverageOverlap(left, right) {
+    const rightTerms = coverageTerms(right);
+    let matches = 0;
+    for (const term of coverageTerms(left)) if (rightTerms.has(term)) matches++;
+    return matches;
+}
+
+export function findCoverageWarnings(result, messages) {
+    if (!Array.isArray(result?.sceneCapsule?.beats) || !Array.isArray(messages) || !messages.length) return [];
+    const source = messages.map(message => String(message?.text ?? message?.mes ?? '')).join('\n');
+    const records = ['facts', 'states', 'relationships', 'events', 'threads', 'backgrounds']
+        .flatMap(key => Array.isArray(result?.[key]) ? result[key] : [])
+        .map(item => JSON.stringify(item));
+    const warnings = [];
+    for (const raw of result.sceneCapsule.beats) {
+        const beat = String(raw || '').replace(/\s+/g, ' ').trim();
+        const terms = coverageTerms(beat);
+        if (!beat || !COVERAGE_CUE.test(beat) || terms.size < 3) continue;
+        const threshold = terms.size >= 5 ? 3 : 2;
+        const sourced = coverageOverlap(beat, source) >= threshold;
+        const covered = records.some(record => coverageOverlap(beat, record) >= threshold);
+        if (sourced && !covered) warnings.push(`Potential durable detail remains only in L1: ${beat}`);
+        if (warnings.length >= 8) break;
+    }
+    return warnings;
+}
+
 function explicitlyAttributesSpeech(text, speakerNames, form) {
     const formPattern = escaped(form);
     if (!formPattern) return false;
@@ -268,6 +333,7 @@ export function reconciliationTargetIsCompatible(category, incoming, existing, w
 
 export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const recovered = recoverExplicitAddressFacts(result, world, messages);
+    const recoveredAliases = recoverExplicitEntityAliases(result, messages);
     let ignored = removeInvalidAddressFacts(result);
     ignored += removeUnsupportedSelfAddressFacts(result, messages, world);
     if (!Array.isArray(result.identityResolutions)) {
@@ -310,5 +376,7 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
         else merge.duplicateIds = duplicateIds;
         return valid;
     });
-    return { ignored, recovered };
+    const warnings = findCoverageWarnings(result, messages);
+    if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
+    return { ignored, recovered, recoveredAliases, warnings };
 }

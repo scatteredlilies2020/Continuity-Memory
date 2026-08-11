@@ -123,6 +123,7 @@ function entry(category, item, index) {
         add(fields, 'Key progression', item.beats);
         add(fields, 'Overall progression', item.emotionalArc);
         add(fields, 'Closing', item.closing);
+        add(fields, 'Coverage warnings', item.coverageWarnings);
         addTemporal(fields, item);
     } else {
         add(fields, 'Story time', item.storyTime);

@@ -486,6 +486,7 @@ export function mergeExtraction(world, result, meta) {
             beats: cleanList(raw.beats, 10).map(item => clipped(item, 400)),
             emotionalArc: clipped(raw.emotionalArc, 320),
             closing: clipped(raw.closing, 320),
+            coverageWarnings: cleanList(raw.coverageWarnings, 8).map(item => clipped(item, 440)),
             importance: clampImportance(raw.importance),
             chatKey: meta.chatKey,
             from: meta.from,
