@@ -487,11 +487,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         .map(({ item }) => `- ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)} [subjective; not an established fact]`);
     addSection('Character perspectives (not established facts)', perspectives);
 
-    const secretKnowledge = matching(availableFacts.filter(isCharacterKnowledgeFact), queryTerms, item => item.persistence === 'persistent' ? 3 : 0, 'fact', semanticRanks).slice(0, 16)
-        .map(({ item }) => `- ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)} [restricted to this knower unless separately established]`);
-    addSection('Secret knowledge boundaries', secretKnowledge);
-
-    const facts = matching(availableFacts.filter(item => !isKnowledgeBoundedFact(item)), queryTerms, item => item.persistence === 'persistent' ? 2 : 0, 'fact', semanticRanks).slice(0, 18)
+    const facts = matching(availableFacts.filter(item => !isAttributedBeliefFact(item)), queryTerms, item => item.persistence === 'persistent' ? 2 : 0, 'fact', semanticRanks).slice(0, 18)
         .map(({ item }) => {
             const qualifier = item.persistence && item.persistence !== 'persistent' ? ` [${item.persistence}]` : '';
             return `- ${item.subject} — ${item.predicate}${qualifier}: ${anchoredRelativeText(item.value, item)}`;
@@ -514,6 +510,6 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value) };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.85';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.84';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
-import { isAttributedBeliefFact, isCharacterKnowledgeFact, isKnowledgeBoundedFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
+import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';

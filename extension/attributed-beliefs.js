@@ -1,6 +1,5 @@
 export const CHARACTER_BELIEF_CATEGORY = 'character belief';
 export const FORMER_CHARACTER_BELIEF_CATEGORY = 'former character belief';
-export const CHARACTER_KNOWLEDGE_CATEGORY = 'character knowledge';
 
 function clean(value, fallback = '') {
     return String(value ?? '').replace(/\s+/g, ' ').trim() || fallback;
@@ -33,15 +32,6 @@ export function isAttributedBeliefFact(item) {
     return category === CHARACTER_BELIEF_CATEGORY
         || category === FORMER_CHARACTER_BELIEF_CATEGORY
         || normalized(item?.predicate).startsWith('belief about ');
-}
-
-export function isCharacterKnowledgeFact(item) {
-    return normalized(item?.category) === CHARACTER_KNOWLEDGE_CATEGORY
-        || normalized(item?.predicate).startsWith('knows secret about ');
-}
-
-export function isKnowledgeBoundedFact(item) {
-    return isAttributedBeliefFact(item) || isCharacterKnowledgeFact(item);
 }
 
 export function legacyBeliefToFact(item = {}) {
