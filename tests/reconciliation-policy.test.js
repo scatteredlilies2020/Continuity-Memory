@@ -239,3 +239,48 @@ test('normal speaker-to-addressee address remains unaffected by self-address val
     assert.equal(result.facts.length, 1);
     assert.equal(sanitized.ignored, 0);
 });
+
+test('corroborated explicit address omitted from facts is recovered from structured continuity', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Setsuko Uchiha', aliases: [] },
+        { name: 'Sakura Haruno', aliases: [] },
+    );
+    result.sceneCapsule = {
+        beats: ['Setsuko dismisses Sakura as “Pinky” and declares that she will pass.'],
+    };
+    result.relationships.push({
+        from: 'Sakura Haruno', to: 'Setsuko Uchiha',
+        dynamic: 'Sakura resents Setsuko after being called “Pinky.”',
+    });
+    const messages = [{
+        index: 19, name: 'Setsuko',
+        text: '“Hmph, as if test scores matter. Pinky.” I then look at Kakashi.',
+    }];
+
+    const sanitized = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, messages);
+
+    assert.equal(sanitized.recovered, 1);
+    assert.deepEqual(result.facts, [{
+        targetId: '', subject: 'Setsuko Uchiha', predicate: 'calls Sakura Haruno',
+        value: 'Pinky', category: 'form of address', importance: 2, persistence: 'recurring',
+    }]);
+});
+
+test('uncorroborated quoted wording is not promoted into an address fact', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Setsuko Uchiha', aliases: [] },
+        { name: 'Sakura Haruno', aliases: [] },
+    );
+    result.sceneCapsule = { beats: ['Setsuko dismisses Sakura as “Pinky” and leaves.'] };
+
+    const sanitized = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Setsuko', text: 'Pinky.' }]);
+
+    assert.equal(sanitized.recovered, 0);
+    assert.deepEqual(result.facts, []);
+});

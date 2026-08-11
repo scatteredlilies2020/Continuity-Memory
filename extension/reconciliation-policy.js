@@ -61,6 +61,88 @@ function containsAddressForm(text, form) {
     return normalized(text).includes(normalized(form));
 }
 
+function narrativeStrings(result) {
+    const strings = [];
+    const visit = value => {
+        if (typeof value === 'string') strings.push(value);
+        else if (Array.isArray(value)) value.forEach(visit);
+        else if (value && typeof value === 'object') Object.values(value).forEach(visit);
+    };
+    for (const key of ['scene', 'sceneCapsule', 'states', 'relationships', 'events', 'threads', 'backgrounds']) visit(result?.[key]);
+    return strings;
+}
+
+function recoveryEntities(result, world) {
+    const entities = new Map();
+    for (const item of [...(world?.entities || []), ...(result?.entities || [])]) {
+        const name = String(item?.name || '').replace(/\s+/g, ' ').trim();
+        if (!name) continue;
+        const identity = normalized(name);
+        const existing = entities.get(identity);
+        entities.set(identity, {
+            name: existing?.name || name,
+            aliases: [...new Set([...(existing?.aliases || []), ...(item?.aliases || [])]
+                .map(value => String(value || '').replace(/\s+/g, ' ').trim()).filter(Boolean))],
+        });
+    }
+    const records = [...entities.values()];
+    const shortCounts = new Map();
+    for (const item of records) {
+        const short = normalized(item.name.split(/\s+/u)[0]);
+        if (short) shortCounts.set(short, (shortCounts.get(short) || 0) + 1);
+    }
+    return records.map(item => {
+        const short = item.name.split(/\s+/u)[0];
+        const variants = [item.name, ...item.aliases];
+        if (short && shortCounts.get(normalized(short)) === 1) variants.push(short);
+        return { ...item, variants: [...new Set(variants)] };
+    });
+}
+
+export function recoverExplicitAddressFacts(result, world, messages) {
+    if (!Array.isArray(result?.facts) || !Array.isArray(messages) || !messages.length) return 0;
+    const entities = recoveryEntities(result, world);
+    const evidenceWorld = { ...(world || {}), entities };
+    const strings = narrativeStrings(result);
+    let recovered = 0;
+    for (const speaker of entities) {
+        for (const addressee of entities) {
+            if (normalized(speaker.name) === normalized(addressee.name)) continue;
+            for (const speakerName of speaker.variants) {
+                for (const addresseeName of addressee.variants) {
+                    const pattern = new RegExp(`\\b${escaped(speakerName)}\\b[^\\n\\r]{0,80}\\b(?:calls?|called|nicknames?|nicknamed|dubs?|dubbed|addresses?|addressed|dismisses?|dismissed)\\s+\\b${escaped(addresseeName)}\\b\\s+(?:as\\s+)?[“\"']([^”\"'\\n\\r]{1,80})[”\"']`, 'iu');
+                    for (const text of strings) {
+                        const form = String(text.match(pattern)?.[1] || '').replace(/\s+/g, ' ').trim();
+                        if (!form || !ADDRESS_MEANINGFUL.test(form) || ADDRESS_BRACKET.test(form)) continue;
+                        const corroborated = strings.filter(value => containsAddressForm(value, form)).length >= 2;
+                        const sourced = messages.some(message => containsAddressForm(message?.text ?? message?.mes, form));
+                        if (!corroborated || !sourced) continue;
+                        const candidate = { subject: speaker.name, predicate: `calls ${addressee.name}`, category: 'form of address' };
+                        const identity = addressFactIdentity(candidate, evidenceWorld);
+                        const existing = result.facts.find(item => addressFactIdentity(item, evidenceWorld) === identity);
+                        if (existing) {
+                            existing.value = mergeAddressValues(existing.value, form);
+                        } else {
+                            const stored = (world?.facts || []).find(item => addressFactIdentity(item, evidenceWorld) === identity);
+                            result.facts.push({
+                                targetId: stored?.id || '',
+                                subject: speaker.name,
+                                predicate: `calls ${addressee.name}`,
+                                value: form,
+                                category: 'form of address',
+                                importance: 2,
+                                persistence: 'recurring',
+                            });
+                            recovered++;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return recovered;
+}
+
 function explicitlyAttributesSpeech(text, speakerNames, form) {
     const formPattern = escaped(form);
     if (!formPattern) return false;
@@ -185,6 +267,7 @@ export function reconciliationTargetIsCompatible(category, incoming, existing, w
 }
 
 export function sanitizeReconciliationMetadata(result, world, messages = null) {
+    const recovered = recoverExplicitAddressFacts(result, world, messages);
     let ignored = removeInvalidAddressFacts(result);
     ignored += removeUnsupportedSelfAddressFacts(result, messages, world);
     if (!Array.isArray(result.identityResolutions)) {
@@ -227,5 +310,5 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
         else merge.duplicateIds = duplicateIds;
         return valid;
     });
-    return { ignored };
+    return { ignored, recovered };
 }
