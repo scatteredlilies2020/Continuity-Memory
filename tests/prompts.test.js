@@ -13,6 +13,7 @@ import {
     DEFAULT_INJECTION_INSTRUCTION,
     DEFAULT_JB_PROMPT,
     DEFAULT_RETRIEVAL_SYSTEM_PROMPT,
+    EPISTEMIC_MEMORY_RULES,
     HIERARCHY_CONCISION_RULES,
     renderPromptTemplate,
 } from '../extension/prompts.js';
@@ -87,14 +88,16 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /shift signals changed familiarity, distance, respect, or hierarchy/);
     assert.match(DEFAULT_INJECTION_INSTRUCTION, /without explanation/);
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(CONTINUITY_COVERAGE_RULES));
+    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(EPISTEMIC_MEMORY_RULES));
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /truthStatus.*unknown/);
     assert.match(DEFAULT_RETRIEVAL_SYSTEM_PROMPT, /roleplay or simulation/);
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /participants need not be people/);
     assert.match(DEFAULT_ERA_SYSTEM_PROMPT, /participants need not be people/);
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /Most items are 2 or 3/);
     assert.match(DEFAULT_ERA_SYSTEM_PROMPT, /Most items are 2 or 3/);
-    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 6800);
-    assert.ok(DEFAULT_ARC_SYSTEM_PROMPT.length < 1600);
-    assert.ok(DEFAULT_ERA_SYSTEM_PROMPT.length < 1600);
+    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 8200);
+    assert.ok(DEFAULT_ARC_SYSTEM_PROMPT.length < 1800);
+    assert.ok(DEFAULT_ERA_SYSTEM_PROMPT.length < 1800);
 });
 
 test('default structured task prompts avoid repeating full schemas', () => {

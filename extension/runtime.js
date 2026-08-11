@@ -1,3 +1,5 @@
+import { cancelExtractionReview } from './extraction-review.js';
+
 const listeners = new Set();
 
 export const runtime = {
@@ -16,6 +18,7 @@ export const runtime = {
     injectionStatus: 'Checking memory injection…',
     contextReduction: { mode: 'waiting', hiddenMessages: 0, hiddenTokens: 0, tailMessages: 0, tailTurns: 0, tailTokens: 0, tailBudget: 0, fixedPromptTokens: null, totalPromptTokens: null, safetyTokens: 0 },
     progress: null,
+    pendingExtractionReview: null,
     world: null,
     health: null,
 };
@@ -33,6 +36,7 @@ export function onRuntimeChange(listener) {
 }
 
 export function stopRuntime() {
+    cancelExtractionReview('Processing stopped; the reviewed extraction was not saved.');
     runtime.generation++;
     const queued = runtime.queue.splice(0);
     for (const job of queued) job.reject?.(new Error('Processing stopped and the queue was cleared.'));
@@ -40,6 +44,7 @@ export function stopRuntime() {
 }
 
 export function pauseRuntime() {
+    cancelExtractionReview('Processing paused; the reviewed extraction was not saved.');
     runtime.generation++;
     updateRuntime({ paused: true, status: 'paused', progress: null });
 }
@@ -49,6 +54,7 @@ export function resumeRuntime() {
 }
 
 export function invalidateRuntimeWork(reason = 'Chat changed while memory processing was active.') {
+    cancelExtractionReview(reason);
     runtime.generation++;
     const queued = runtime.queue.splice(0);
     for (const job of queued) job.reject?.(new Error(reason));

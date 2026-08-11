@@ -3,6 +3,7 @@ import { isFreshActiveState } from './state-lifecycle.js';
 const INDEXED_CATEGORIES = Object.freeze([
     ['entity', 'entities', ['name', 'type', 'aliases', 'description']],
     ['fact', 'facts', ['subject', 'predicate', 'value', 'category', 'persistence']],
+    ['belief', 'beliefs', ['holder', 'subject', 'predicate', 'value', 'confidence', 'status', 'truthStatus']],
     ['state', 'states', ['subject', 'attribute', 'value', 'previous', 'scope']],
     ['relationship', 'relationships', ['from', 'to', 'kind', 'status', 'dynamic']],
     ['event', 'events', ['title', 'summary', 'participants', 'location', 'storyTime', 'consequences']],

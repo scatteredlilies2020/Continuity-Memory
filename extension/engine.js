@@ -5,24 +5,25 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.79';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.80';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.79';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.80';
+import { requestExtractionReview } from './extraction-review.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.79';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.79';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.80';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.80';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.79';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.79';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.80';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.80';
 import { canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.79';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.79';
-import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.79';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.80';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.80';
+import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.80';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
 
@@ -41,7 +42,7 @@ const temporalRelationSchema = {
 const extractionSchema = {
     type: 'object',
     additionalProperties: false,
-    required: ['scene', 'sceneCapsule', 'entities', 'identityResolutions', 'recordMerges', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds'],
+    required: ['scene', 'sceneCapsule', 'entities', 'identityResolutions', 'recordMerges', 'facts', 'beliefs', 'states', 'relationships', 'events', 'threads', 'backgrounds'],
     properties: {
         scene: {
             type: 'object', additionalProperties: false,
@@ -87,7 +88,7 @@ const extractionSchema = {
                 type: 'object', additionalProperties: false,
                 required: ['category', 'canonicalId', 'duplicateIds', 'evidence'],
                 properties: {
-                    category: { type: 'string', enum: ['facts', 'states', 'relationships', 'threads', 'backgrounds'] },
+                    category: { type: 'string', enum: ['facts', 'beliefs', 'states', 'relationships', 'threads', 'backgrounds'] },
                     canonicalId: { type: 'string' },
                     duplicateIds: { type: 'array', maxItems: 12, items: { type: 'string' } },
                     evidence: { type: 'string' },
@@ -101,6 +102,19 @@ const extractionSchema = {
                 properties: {
                     targetId: { type: 'string' }, subject: { type: 'string' }, predicate: { type: 'string' }, value: { type: 'string' }, category: { type: 'string' },
                     importance: { type: 'integer', minimum: 1, maximum: 5 }, persistence: { type: 'string', enum: ['temporary', 'recurring', 'persistent'] },
+                },
+            },
+        },
+        beliefs: {
+            type: 'array', items: {
+                type: 'object', additionalProperties: false,
+                required: ['targetId', 'holder', 'subject', 'predicate', 'value', 'confidence', 'status', 'truthStatus', 'importance'],
+                properties: {
+                    targetId: { type: 'string' }, holder: { type: 'string' }, subject: { type: 'string' }, predicate: { type: 'string' }, value: { type: 'string' },
+                    confidence: { type: 'string', enum: ['certain', 'likely', 'suspected', 'doubted'] },
+                    status: { type: 'string', enum: ['held', 'revised', 'rejected'] },
+                    truthStatus: { type: 'string', enum: ['confirmed', 'contradicted', 'unknown'] },
+                    importance: { type: 'integer', minimum: 1, maximum: 5 },
                 },
             },
         },
@@ -220,7 +234,7 @@ const correctionSchema = {
                 required: ['action', 'category', 'targetId', 'reason', 'recordJson'],
                 properties: {
                     action: { type: 'string', enum: ['add', 'update', 'delete'] },
-                    category: { type: 'string', enum: ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds', 'capsules'] },
+                    category: { type: 'string', enum: ['entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'threads', 'backgrounds', 'capsules'] },
                     targetId: { type: 'string' },
                     reason: { type: 'string' },
                     recordJson: { type: 'string' },
@@ -239,7 +253,8 @@ const correctionJsonSchema = Object.freeze({
 });
 
 const CORRECTION_SYSTEM_PROMPT = `You repair structured roleplay continuity memory from an explicit user correction.
-The correction is authoritative. Change only records that conflict with it or are necessary to preserve it.
+The correction is authoritative only for the scope it states. Distinguish objective canon from a character's subjective belief. "That never happened" can change facts, events, and chronology; "Alice was wrong about it" changes Alice's belief without deciding what objectively happened. If canonical truth remains hidden or unknown, preserve truthStatus "unknown" and do not invent a fact or event.
+Change only records that conflict with the correction or are necessary to preserve it.
 Use exact category names and target IDs from the supplied candidate records. For update, return the complete corrected public record as JSON encoded inside recordJson. For delete, use "{}". For add, leave targetId empty and return the complete new record.
 Check every relevant representation of the mistake. In particular, update or remove an L1 capsule when it repeats the incorrect event; otherwise derived summaries can relearn the error.
 Do not alter unrelated details, invent unsupported events, create new L1 capsules, or edit chat messages. Return JSON only.`;
@@ -256,6 +271,7 @@ const JSON_SHAPE_EXAMPLE = JSON.stringify({
     identityResolutions: [{ reference: '', canonical: '', evidence: '' }],
     recordMerges: [{ category: 'facts', canonicalId: '', duplicateIds: [], evidence: '' }],
     facts: [{ targetId: '', subject: '', predicate: '', value: '', category: '', importance: 3, persistence: 'persistent' }],
+    beliefs: [{ targetId: '', holder: '', subject: '', predicate: '', value: '', confidence: 'certain', status: 'held', truthStatus: 'unknown', importance: 3 }],
     states: [{ targetId: '', subject: '', attribute: '', value: '', previous: '', importance: 3, scope: 'scene', operation: 'set' }],
     relationships: [{ targetId: '', from: '', to: '', kind: '', status: '', dynamic: '', importance: 3 }],
     events: [{ title: '', summary: '', participants: [], location: '', storyTime: '', consequences: '', importance: 3, temporal: { frame: 'main narrative', relation: 'same-period', elapsed: '', certainty: 'implicit' } }],
@@ -339,7 +355,7 @@ function validateResult(result, world, messages) {
     if (!result.sceneCapsule || typeof result.sceneCapsule !== 'object' || !Array.isArray(result.sceneCapsule.beats)) {
         throw new Error('Extractor returned no valid chronological scene capsule.');
     }
-    for (const key of ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds']) {
+    for (const key of ['entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'threads', 'backgrounds']) {
         if (!Array.isArray(result[key])) throw new Error(`Extractor field "${key}" is not an array.`);
     }
     const validation = sanitizeReconciliationMetadata(result, world, messages);
@@ -383,6 +399,18 @@ function extractionStateContext(world, messages) {
     const facts = rankCanonical(world?.facts,
         item => `${item.subject || ''} ${item.predicate || ''} ${item.value || ''}`,
         item => [item.subject], 18).map(canonicalFactReference);
+    const beliefs = rankCanonical(world?.beliefs,
+        item => `${item.holder || ''} ${item.subject || ''} ${item.predicate || ''} ${item.value || ''}`,
+        item => [item.holder, item.subject], 18).map(item => ({
+        targetId: item.id,
+        holder: item.holder,
+        subject: item.subject,
+        predicate: item.predicate,
+        value: String(item.value || '').replace(/\s+/g, ' ').trim().slice(0, 220),
+        confidence: item.confidence,
+        status: item.status,
+        truthStatus: item.truthStatus,
+    }));
     const relationships = rankCanonical(world?.relationships,
         item => `${item.from || ''} ${item.to || ''} ${item.kind || ''} ${item.status || ''} ${item.dynamic || ''}`,
         item => [item.from, item.to], 12).map(item => ({
@@ -427,6 +455,7 @@ function extractionStateContext(world, messages) {
             scope: item.scope,
         })),
         canonicalFacts: facts,
+        knownBeliefs: beliefs,
         canonicalRelationships: relationships,
         knownThreads: activeThreads,
         knownBackgrounds: backgrounds,
@@ -587,6 +616,21 @@ async function requestDirectStructured(prompt, systemPrompt, jsonSchema, respons
     const result = Array.isArray(content) ? content.map(item => item?.text || '').join('') : content;
     if (!String(result || '').trim()) throw new Error(`Direct ${kind} API returned no text.`);
     return String(result);
+}
+
+async function reviewExtractionBeforeSave(result, world, messages, meta = {}) {
+    if (!getSettings().reviewBeforeCommit) return result;
+    return await requestExtractionReview({
+        result,
+        meta,
+        validate: candidate => validateResult(candidate, world, messages).result,
+        onPending: review => updateRuntime({
+            pendingExtractionReview: review,
+            status: 'awaiting-review',
+            retryStatus: `Review extracted memory for messages ${review.from}–${review.to} before it is saved.`,
+        }),
+        onSettled: () => updateRuntime({ pendingExtractionReview: null }),
+    });
 }
 
 function completionFinishReason(payload) {
@@ -1130,7 +1174,8 @@ export async function retryMemoryLayer({ layer, targetId = 'latest', all = false
             if (layer === 'l1') {
                 const messages = collectMessages(target.from, target.to);
                 if (!messages.length) throw new Error(`Source messages ${target.from}–${target.to} are unavailable in this chat.`);
-                const result = await extractChunk(messages);
+                let result = await extractChunk(messages);
+                result = await reviewExtractionBeforeSave(result, runtime.world, messages, { from: target.from, to: target.to, reason: 'retry' });
                 if (runtime.generation !== epoch) throw new Error('Retry stopped; the current generated result was discarded.');
                 await saveRetriedL1(worldId, target, result, messages);
             } else {
@@ -1198,7 +1243,8 @@ export async function syncChangedExtractions(force = false) {
                 progress: { current: index + 1, total: targets.length, from: target.from, to: target.to },
                 retryStatus: `Updating changed memory section ${index + 1}/${targets.length}…`,
             });
-            const result = await extractChunk(messages);
+            let result = await extractChunk(messages);
+            result = await reviewExtractionBeforeSave(result, world, messages, { from: target.from, to: target.to, reason: 'changed-source' });
             if (runtime.generation !== epoch) throw new Error('Live memory update stopped; existing memory was left unchanged.');
             staged.push({ target, messages, result });
         }
@@ -1279,7 +1325,8 @@ export async function restartL1FromScratch() {
                 progress: { current: index + 1, total: chunks.length, from: chunk[0].index, to: chunk.at(-1).index, inputTokens: chunks[index].tokens },
                 retryStatus: `Rebuilding fresh L1 chunk ${index + 1}/${chunks.length}; each completed chunk is saved.`,
             });
-            const result = await extractChunk(chunk);
+            let result = await extractChunk(chunk);
+            result = await reviewExtractionBeforeSave(result, runtime.world, chunk, { from: chunk[0].index, to: chunk.at(-1).index, reason: 'fresh-rebuild' });
             if (runtime.paused || runtime.generation !== epoch) throw new Error('Fresh rebuild stopped. Completed chunks remain saved; use Build to resume.');
             await saveExtraction(worldId, result, {
                 chatKey,
@@ -1400,7 +1447,8 @@ async function processRange(job, epoch) {
             });
         },
         extract: async chunk => {
-            const result = await extractChunk(chunk);
+            let result = await extractChunk(chunk);
+            result = await reviewExtractionBeforeSave(result, runtime.world, chunk, { from: chunk[0].index, to: chunk.at(-1).index, reason: job.reason });
             if (runtime.paused || runtime.generation !== epoch) throw new Error('Processing stopped; pending results were discarded.');
             return result;
         },
@@ -1447,14 +1495,16 @@ async function processQueue() {
     } catch (error) {
         const stopped = /Processing stopped/.test(error.message);
         const rateLimited = isRateLimitError(error);
+        const reviewCancelled = error?.code === 'EXTRACTION_REVIEW_CANCELLED';
         updateRuntime({
             paused: runtime.paused || rateLimited,
-            status: runtime.paused || rateLimited ? 'paused' : 'error',
-            lastError: error.message,
+            status: reviewCancelled ? 'idle' : runtime.paused || rateLimited ? 'paused' : 'error',
+            lastError: reviewCancelled ? '' : error.message,
             progress: null,
-            lastValidation: stopped ? 'Stopped' : rateLimited ? 'Paused after rate limit; no failed messages were marked processed.' : `Failed: ${error.message}`,
+            lastValidation: reviewCancelled ? 'Review discarded; source messages remain pending.' : stopped ? 'Stopped' : rateLimited ? 'Paused after rate limit; no failed messages were marked processed.' : `Failed: ${error.message}`,
         });
-        job.reject(error);
+        if (reviewCancelled) job.resolve({ cancelled: true, messages: 0, chunks: 0 });
+        else job.reject(error);
     } finally {
         updateRuntime({ processing: false });
         if (!runtime.paused) queueMicrotask(processQueue);
@@ -1620,7 +1670,8 @@ export async function repairTailRollback({ allowChanged = false } = {}) {
                 progress: { current: index + 1, total: crossing.length, from: messages[0].index, to: messages.at(-1).index },
                 retryStatus: `Re-extracting the retained edge of rollback range ${index + 1}/${crossing.length}…`,
             });
-            const result = await extractChunk(messages);
+            let result = await extractChunk(messages);
+            result = await reviewExtractionBeforeSave(result, sourceWorld, messages, { from: messages[0].index, to: messages.at(-1).index, reason: 'rollback-repair' });
             if (runtime.generation !== epoch) throw new Error('Rollback repair stopped; existing memory was left unchanged.');
             partial.push({
                 result,

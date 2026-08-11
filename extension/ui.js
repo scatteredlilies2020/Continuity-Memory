@@ -3,7 +3,7 @@ import { getContext } from '/scripts/st-context.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor } from './engine.js?v=0.14.0-standalone.79';
+import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor } from './engine.js?v=0.14.0-standalone.80';
 import { worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
 import { buildMemoryPrompt } from './retrieval.js';
@@ -12,14 +12,16 @@ import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
 import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { alignWorldToChat, collectFingerprintMessages } from './fingerprint.js?v=0.14.0-standalone.79';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.79';
-import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.79';
+import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
+import { approveExtractionReview, cancelExtractionReview } from './extraction-review.js';
+import { alignWorldToChat, collectFingerprintMessages } from './fingerprint.js?v=0.14.0-standalone.80';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.80';
+import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.80';
 import { completeL1MessageCount, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.79';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.79';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.79';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.80';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.80';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.80';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -28,6 +30,7 @@ let viewerCategory = 'l1';
 let viewerSearch = '';
 let viewerPage = 0;
 let viewerSignature = '';
+let renderedExtractionReviewId = '';
 const DIRECT_PROFILE_ID = '__direct__';
 
 function verifyMemoryAlignment(world) {
@@ -521,6 +524,7 @@ export function renderRuntime() {
     $('#continuity_embedding_stop').toggle(embeddingActive);
     $('#continuity_embedding_auto_sync').prop('checked', settings.embeddingAutoSync);
     $('#continuity_auto').prop('checked', settings.autoExtract);
+    $('#continuity_review_extractions').prop('checked', settings.reviewBeforeCommit);
     $('#continuity_jb_enabled').prop('checked', settings.jbEnabled);
     const rollback = getTailRollbackStatus();
     $('#continuity_repair_rollback')
@@ -584,6 +588,15 @@ export function renderRuntime() {
     $('#continuity_progress').text(progress
         ? `Processing chunk ${progress.current}/${progress.total} · messages ${progress.from}–${progress.to} · ~${progress.inputTokens || '?'} source tokens`
         : runtime.lastError ? `Last error: ${runtime.lastError}` : runtime.lastCompletedAt ? `Last completed: ${new Date(runtime.lastCompletedAt).toLocaleString()}` : 'Idle');
+    const extractionReview = runtime.pendingExtractionReview;
+    $('#continuity_extraction_review_panel').prop('hidden', !extractionReview);
+    if (extractionReview && renderedExtractionReviewId !== extractionReview.id) {
+        renderedExtractionReviewId = extractionReview.id;
+        $('#continuity_extraction_review_title').text(`Review messages ${extractionReview.from}–${extractionReview.to}`);
+        $('#continuity_extraction_review_json').val(extractionReview.json);
+    } else if (!extractionReview) {
+        renderedExtractionReviewId = '';
+    }
     $('#continuity_arc_status').text(runtime.arcError ? `Hierarchy deferred: ${runtime.arcError}` : runtime.arcStatus || 'L2 and L3 are derived non-destructively when eligible.');
     $('#continuity_retry_status').text(runtime.retryStatus || 'No manual build running.');
     const coverage = getProcessingCoverage();
@@ -669,6 +682,23 @@ async function exportWorld() {
     setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 }
 
+function downloadJson(value, filename) {
+    const blob = new Blob([`${JSON.stringify(value, null, 2)}\n`], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
+async function exportContinuationArc() {
+    if (!runtime.world) throw new Error('Open a chat and prepare its memory first.');
+    verifySnapshotAlignment(runtime.world, 'create a continuation arc');
+    const value = createContinuationPackage(runtime.world);
+    downloadJson(value, `continuity-continuation-${runtime.world.id}.json`);
+    return value;
+}
+
 function verifySnapshotAlignment(world, action) {
     const alignment = alignWorldToChat(world, collectFingerprintMessages(getContext().chat || []), getChatKey());
     if (alignment.ok) return alignment;
@@ -693,6 +723,42 @@ async function importWorld(file) {
     }
     await refreshWorlds();
     toast('success', `Imported “${response.world.name}”. ${alignment.message}`);
+    return response.world;
+}
+
+async function startContinuationArc(file) {
+    const chatKey = getChatKey();
+    if (!chatKey) throw new Error('Open the destination chat before starting a continuation arc.');
+    if (runtime.processing || runtime.queue.length) throw new Error('Stop or finish current memory processing first.');
+    const parsed = JSON.parse(await file.text());
+    if (parsed?.source?.worldId && parsed.source.worldId === getBoundWorldId()) {
+        throw new Error('This is still the source chat. Open or create the new destination chat, then select Start continuation arc there.');
+    }
+    const prepared = prepareContinuationWorld(parsed, { chatKey });
+    const inherited = [
+        prepared.entities, prepared.facts, prepared.beliefs, prepared.states,
+        prepared.relationships, prepared.events, prepared.threads, prepared.backgrounds,
+    ].reduce((total, records) => total + (records?.length || 0), 0);
+    const warning = getBoundWorldId()
+        ? '\n\nThis destination chat already has Continuity memory. Starting the arc will replace that destination memory after importing the continuation.'
+        : '';
+    if (!window.confirm(`Start a new continuation arc from “${prepared.continuation.originName}”?\n\n${inherited} structured record(s), plus its L1/L2/L3 chronology, will be inherited. Old source messages will not be treated as messages in this new chat.${warning}`)) return null;
+
+    const previousWorldId = getBoundWorldId();
+    const previousSharedElsewhere = previousWorldId && Object.entries(getSettings().chatWorlds || {})
+        .some(([boundChatKey, worldId]) => boundChatKey !== chatKey && worldId === previousWorldId);
+    const response = await api.importWorld(prepared);
+    bindCurrentChat(response.world.id);
+    updateRuntime({ world: response.world, importAlignment: { code: 'continuation-baseline', matched: 0, pending: (getContext().chat || []).length } });
+    await embedWorldInChat(response.world, { force: true });
+    if (previousWorldId && previousWorldId !== response.world.id && !previousSharedElsewhere) {
+        try { await purgeEmbeddingIndex(previousWorldId); }
+        catch (error) { console.warn('[Continuity] Could not remove the replaced destination memory’s derived embedding index.', error); }
+        await api.deleteWorld(previousWorldId);
+        markWorldDeleted(previousWorldId);
+    }
+    await refreshWorlds();
+    toast('success', `Started a continuation arc from “${prepared.continuation.originName}”. New chat messages remain pending for normal extraction.`);
     return response.world;
 }
 
@@ -740,6 +806,7 @@ async function continueFailedL1() {
     if (runtime.paused) resumeRuntime();
     const result = await maybeAutoExtract(true);
     if (!result) throw new Error('No pending L1 messages could be started. Open a populated chat and refresh Continuity.');
+    if (result.cancelled) return { cancelled: true, continued: 0, pendingMessages: coverage.pending, pendingTail, bufferedMessages: coverage.buffered };
     return { continued: result.chunks || 1, pendingMessages: result.messages || 0, pendingTail, bufferedMessages: coverage.buffered };
 }
 
@@ -908,6 +975,7 @@ export function initUI() {
             });
     });
     setSetting('#continuity_auto', 'autoExtract', Boolean);
+    setSetting('#continuity_review_extractions', 'reviewBeforeCommit', Boolean);
     setSetting('#continuity_jb_enabled', 'jbEnabled', Boolean);
     $('#continuity_embed_chat').on('change', async function () {
         const enabled = $(this).prop('checked');
@@ -1004,6 +1072,19 @@ export function initUI() {
         renderRuntime();
     });
     $('#continuity_stop').on('click', () => { stopRuntime(); toast('info', 'Processing stopped and the queue was cleared.'); });
+    $('#continuity_extraction_review_apply').on('click', () => {
+        try {
+            const review = runtime.pendingExtractionReview;
+            approveExtractionReview(String($('#continuity_extraction_review_json').val() || ''), review?.id);
+            toast('success', 'Reviewed extraction approved and queued for saving.');
+        } catch (error) {
+            toast('error', error.message);
+        }
+    });
+    $('#continuity_extraction_review_discard').on('click', () => {
+        const discarded = cancelExtractionReview(undefined, runtime.pendingExtractionReview?.id);
+        if (discarded) toast('info', 'Extraction discarded. Its source messages remain pending.');
+    });
     $('#continuity_build').on('click', () => buildMemory()
         .then(result => !result.cancelled && toast(result.continued || result.arcs || result.eras ? 'success' : 'info', result.continued || result.arcs || result.eras ? 'Memory build completed.' : 'Memory is already up to date.'))
         .catch(error => toast('error', error.message)));
@@ -1064,6 +1145,8 @@ export function initUI() {
     });
     $('#continuity_export').on('click', () => exportWorld().catch(error => toast('error', error.message)));
     $('#continuity_import').on('change', function () { const file = this.files?.[0]; if (file) importWorld(file).catch(error => toast('error', error.message)); this.value = ''; });
+    $('#continuity_export_continuation').on('click', () => exportContinuationArc().then(() => toast('success', 'Continuation-arc file downloaded. Open the destination chat and select Start continuation arc.')).catch(error => toast('error', error.message)));
+    $('#continuity_import_continuation').on('change', function () { const file = this.files?.[0]; if (file) startContinuationArc(file).catch(error => toast('error', error.message)); this.value = ''; });
     $('#continuity_clean_chat').on('change', function () { const file = this.files?.[0]; if (file) cleanChatExport(file).then(count => toast('success', `Downloaded a clean chat copy with ${count} embedded Continuity block(s) removed.`)).catch(error => toast('error', error.message)); this.value = ''; });
     $('#continuity_viewer_category').on('change', function () { viewerCategory = String($(this).val() || 'l1'); viewerPage = 0; renderMemoryViewer(true); });
     $('#continuity_viewer_search').on('input', function () { viewerSearch = String($(this).val() || ''); viewerPage = 0; renderMemoryViewer(true); });

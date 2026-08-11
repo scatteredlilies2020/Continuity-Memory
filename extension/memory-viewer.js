@@ -2,6 +2,7 @@ export const MEMORY_VIEW_CATEGORIES = Object.freeze([
     { key: 'scene', label: 'Latest extracted checkpoint' },
     { key: 'entities', label: 'Entities' },
     { key: 'facts', label: 'Facts' },
+    { key: 'beliefs', label: 'Character beliefs' },
     { key: 'states', label: 'States' },
     { key: 'relationships', label: 'Relationships' },
     { key: 'events', label: 'Events' },
@@ -79,6 +80,13 @@ function entry(category, item, index) {
         add(fields, 'Value', item.value);
         add(fields, 'Category', item.category);
         add(fields, 'Persistence', item.persistence);
+        addTemporal(fields, item);
+    } else if (category === 'beliefs') {
+        title = `${item.holder || 'Unknown holder'} believes: ${[item.subject, item.predicate].filter(Boolean).join(' — ')}`;
+        add(fields, 'Believed value', item.value);
+        add(fields, 'Holder confidence', item.confidence);
+        add(fields, 'Belief lifecycle', item.status);
+        add(fields, 'Relation to established canon', item.truthStatus);
         addTemporal(fields, item);
     } else if (category === 'states') {
         title = [item.subject, item.attribute].filter(Boolean).join(' — ') || title;

@@ -1,4 +1,4 @@
-export const TARGET_RECORD_CATEGORIES = Object.freeze(['entities', 'facts', 'states', 'relationships', 'threads', 'backgrounds']);
+export const TARGET_RECORD_CATEGORIES = Object.freeze(['entities', 'facts', 'beliefs', 'states', 'relationships', 'threads', 'backgrounds']);
 
 export function canonicalFactReference(item) {
     return {
@@ -198,7 +198,7 @@ function coverageOverlap(left, right) {
 export function findCoverageWarnings(result, messages) {
     if (!Array.isArray(result?.sceneCapsule?.beats) || !Array.isArray(messages) || !messages.length) return [];
     const source = messages.map(message => String(message?.text ?? message?.mes ?? '')).join('\n');
-    const records = ['facts', 'states', 'relationships', 'events', 'threads', 'backgrounds']
+    const records = ['facts', 'beliefs', 'states', 'relationships', 'events', 'threads', 'backgrounds']
         .flatMap(key => Array.isArray(result?.[key]) ? result[key] : [])
         .map(item => JSON.stringify(item));
     const warnings = [];
@@ -435,7 +435,7 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
 
     result.recordMerges = result.recordMerges.filter(merge => {
         const category = String(merge?.category || '');
-        const allowedCategory = ['facts', 'states', 'relationships', 'threads', 'backgrounds'].includes(category);
+        const allowedCategory = ['facts', 'beliefs', 'states', 'relationships', 'threads', 'backgrounds'].includes(category);
         const records = allowedCategory && Array.isArray(world?.[category]) ? world[category] : [];
         const validIds = new Set(records.map(item => String(item.id || '')).filter(Boolean));
         const canonicalId = String(merge?.canonicalId || '').trim();

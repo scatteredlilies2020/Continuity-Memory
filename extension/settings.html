@@ -33,9 +33,12 @@
                     <div class="continuity-button-row">
                         <button id="continuity_export" class="menu_button"><i class="fa-solid fa-file-export"></i> Export memory</button>
                         <label class="menu_button continuity-file-label"><i class="fa-solid fa-file-import"></i> Import memory<input id="continuity_import" type="file" accept="application/json,.json"></label>
+                        <button id="continuity_export_continuation" class="menu_button"><i class="fa-solid fa-arrow-right"></i> Continue in new chat</button>
+                        <label class="menu_button continuity-file-label"><i class="fa-solid fa-book-open"></i> Start continuation arc<input id="continuity_import_continuation" type="file" accept="application/json,.json"></label>
                         <label class="menu_button continuity-file-label"><i class="fa-solid fa-broom"></i> Clean exported chat<input id="continuity_clean_chat" type="file" accept="application/json,.json,.jsonl"></label>
                     </div>
                     <small>Import accepts only the same conversation history, verified by message fingerprints. Use it for a copied chat or transfer to another device; unrelated chats and changed branches are blocked.</small>
+                    <small>Continue in new chat downloads one ordinary JSON file containing a portable copy of this memory. In the destination chat, choose Start continuation arc and select it. Old message fingerprints are detached while inherited facts, perspectives, chronology, relationships, and open threads remain available.</small>
                     <small>The cleaner removes embedded Continuity data locally and downloads a replacement chat file. Your original export is not modified.</small>
                 </details>
             </div>
@@ -75,6 +78,8 @@
                     </label>
                 </div>
                 <label class="checkbox_label"><input id="continuity_auto" type="checkbox"><span>Process automatically in the background</span></label>
+                <label class="checkbox_label"><input id="continuity_review_extractions" type="checkbox"><span>Review each L1 extraction before saving</span></label>
+                <small>Off by default. When enabled, processing waits and displays editable structured memory before it is committed. Discarding leaves the source messages pending.</small>
                 <label class="checkbox_label"><input id="continuity_jb_enabled" type="checkbox"><span>JB for extraction / L1</span></label>
                 <small>When enabled, appends the editable JB prompt below to extraction and L1 requests only. Off by default.</small>
                 <details>
@@ -391,6 +396,15 @@
                 <div id="continuity_progress" class="continuity-progress"></div>
                 <div id="continuity_arc_status" class="continuity-progress"></div>
                 <div id="continuity_retry_status" class="continuity-progress"></div>
+                <div id="continuity_extraction_review_panel" class="continuity-card-inset" hidden>
+                    <b id="continuity_extraction_review_title">Review extracted memory</b>
+                    <textarea id="continuity_extraction_review_json" class="text_pole continuity-prompt-editor" rows="18" spellcheck="false"></textarea>
+                    <div class="continuity-button-row">
+                        <button id="continuity_extraction_review_apply" class="menu_button"><i class="fa-solid fa-check"></i> Save reviewed extraction</button>
+                        <button id="continuity_extraction_review_discard" class="menu_button redWarningBG"><i class="fa-solid fa-xmark"></i> Discard</button>
+                    </div>
+                    <small>You may edit the JSON. Continuity validates it again before saving.</small>
+                </div>
                 <details>
                     <summary>Start over from scratch…</summary>
                     <button id="continuity_rebuild_hierarchy" class="menu_button"><i class="fa-solid fa-layer-group"></i> Rebuild L2 & L3 only</button>
@@ -411,6 +425,7 @@
                             <option value="scene">Latest extracted checkpoint</option>
                             <option value="entities">Entities</option>
                             <option value="facts">Facts</option>
+                            <option value="beliefs">Character beliefs</option>
                             <option value="states">States</option>
                             <option value="relationships">Relationships</option>
                             <option value="events">Events</option>
@@ -439,7 +454,7 @@
             <div class="continuity-card">
                 <details>
                     <summary>Correct memory</summary>
-                    <small>Describe a factual correction in plain language. Continuity uses the extraction model to find matching stored records and shows every proposed change before anything is saved. Historical events enter L1 and rebuild affected L2/L3 summaries. Chat messages are never edited.</small>
+                    <small>Describe a correction in plain language, including whether it changes objective canon or only one character's belief. Continuity finds matching stored records and shows every proposed change before anything is saved. Historical events enter L1 and rebuild affected L2/L3 summaries. Chat messages are never edited.</small>
                     <textarea id="continuity_correction_input" class="text_pole" rows="4" placeholder="Example: [Character] already knew [information] before [scene]. Remove memories claiming they learned it there."></textarea>
                     <label>Maximum correction output tokens
                         <input id="continuity_correction_tokens" class="text_pole" type="number" min="1000" max="32000" step="1000">

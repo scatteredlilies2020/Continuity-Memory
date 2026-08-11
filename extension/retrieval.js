@@ -481,6 +481,13 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         .map(({ item }) => `- ${item.from} → ${item.to} (${item.kind}): ${anchoredRelativeText(`${item.status}${item.dynamic ? `; ${item.dynamic}` : ''}`, item)}`);
     addSection('Relationships', relationships);
 
+    const beliefs = matching((world.beliefs || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)), queryTerms, item => item.status === 'held' ? 2 : 0, 'belief', semanticRanks).slice(0, 16)
+        .map(({ item }) => {
+            const qualifiers = [item.confidence, item.status, `canon: ${item.truthStatus || 'unknown'}`].map(plain).filter(Boolean).join(', ');
+            return `- ${item.holder} believes ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)}${qualifiers ? ` [${qualifiers}]` : ''}`;
+        });
+    addSection('Character perspectives (not automatically canon)', beliefs);
+
     const facts = matching((world.facts || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)), queryTerms, item => item.persistence === 'persistent' ? 2 : 0, 'fact', semanticRanks).slice(0, 18)
         .map(({ item }) => {
             const qualifier = item.persistence && item.persistence !== 'persistent' ? ` [${item.persistence}]` : '';
@@ -504,5 +511,5 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value) };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.79';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.80';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';

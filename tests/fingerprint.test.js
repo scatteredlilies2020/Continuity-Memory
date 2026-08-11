@@ -64,6 +64,26 @@ test('CM eligibility excludes only the provisional newest AI output', () => {
     ]);
 });
 
+test('uses an InlineSummary replacement as the visible source without reading hidden originals', () => {
+    const chat = [{
+        mes: 'Alice and Bob argued over the sealed letter.',
+        name: 'Inline Summary',
+        extra: {
+            inline_summary: {
+                original_messages: [
+                    { mes: 'Alice accused Bob.', name: 'Alice' },
+                    { mes: 'Bob denied it.', name: 'Bob' },
+                ],
+            },
+        },
+    }];
+    assert.deepEqual(collectFingerprintMessages(chat), [{
+        index: 0,
+        name: 'Inline Summary',
+        text: 'Alice and Bob argued over the sealed letter.',
+    }]);
+});
+
 test('accepts an imported source when the current chat is one message ahead', () => {
     const current = [...messages(), { index: 2, name: 'User', text: 'What kind of cake?' }];
     const result = alignWorldToChat(worldFor(), current, newKey);
@@ -99,6 +119,23 @@ test('blocks populated legacy memory without fingerprints but permits empty memo
     const result = alignWorldToChat(empty, messages(), newKey);
     assert.equal(result.ok, true);
     assert.equal(result.code, 'empty');
+});
+
+test('accepts only the explicitly attached continuation chat as a fresh baseline', () => {
+    const continued = worldFor();
+    continued.sources = {};
+    continued.continuation = {
+        originWorldId: 'origin-world',
+        attachedChatKey: newKey,
+    };
+    const aligned = alignWorldToChat(continued, messages(), newKey);
+    assert.equal(aligned.ok, true);
+    assert.equal(aligned.code, 'continuation-baseline');
+    assert.equal(aligned.pending, 2);
+
+    const wrongChat = alignWorldToChat(continued, messages(), oldKey);
+    assert.equal(wrongChat.ok, false);
+    assert.equal(wrongChat.code, 'unverifiable');
 });
 test('blocks memories that combine more than one source conversation', () => {
     const mixed = worldFor();

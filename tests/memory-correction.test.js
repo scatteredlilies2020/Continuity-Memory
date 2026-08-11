@@ -8,7 +8,7 @@ import { buildMemoryPrompt } from '../extension/retrieval.js';
 function memoryWorld() {
     return {
         id: 'world', revision: 3, scene: null,
-        entities: [], states: [], relationships: [], threads: [], extractions: [], corrections: [], sources: {},
+        entities: [], beliefs: [], states: [], relationships: [], threads: [], extractions: [], corrections: [], sources: {},
         facts: [{
             id: 'fact-knowledge', subject: 'Sasuke', predicate: 'knowledge of Elizabeth', value: 'Learned her identity during the tower meeting',
             category: 'knowledge', persistence: 'persistent', importance: 4, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
@@ -30,6 +30,32 @@ test('correction context selects matching records without dumping unrelated memo
     assert.ok(selected.some(item => item.id === 'fact-knowledge'));
     assert.ok(selected.some(item => item.id === 'capsule-tower'));
     assert.equal(selected.some(item => item.id === 'fact-unrelated'), false);
+});
+
+test('scopes a character correction to that belief without rewriting canon', () => {
+    const world = memoryWorld();
+    world.beliefs = [{
+        id: 'belief-alice-mask', holder: 'Alice', subject: 'masked visitor', predicate: 'identity', value: 'the prince',
+        confidence: 'certain', status: 'held', truthStatus: 'unknown', importance: 4,
+        sources: [{ chatKey: 'chat', from: 20, to: 23 }],
+    }];
+    const originalFacts = structuredClone(world.facts);
+    const proposal = validateCorrectionProposal(world, {
+        summary: 'Alice was wrong about the masked visitor; objective truth remains unrevealed.',
+        operations: [{
+            action: 'update', category: 'beliefs', targetId: 'belief-alice-mask', reason: 'Change only Alice’s perspective.',
+            recordJson: JSON.stringify({
+                holder: 'Alice', subject: 'masked visitor', predicate: 'identity', value: 'not the prince',
+                confidence: 'doubted', status: 'revised', truthStatus: 'unknown', importance: 4,
+            }),
+        }],
+    }, 'Alice was wrong about the masked visitor, but the truth is not known yet.');
+
+    applyCorrectionProposal(world, proposal);
+    assert.deepEqual(world.facts, originalFacts);
+    assert.equal(world.beliefs[0].holder, 'Alice');
+    assert.equal(world.beliefs[0].status, 'revised');
+    assert.equal(world.beliefs[0].truthStatus, 'unknown');
 });
 
 test('reviewed correction updates canonical records and invalidates only contaminated hierarchy', () => {

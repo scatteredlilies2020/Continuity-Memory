@@ -1,7 +1,7 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, IDENTITY_RESOLUTION_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.79';
+import { CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, IDENTITY_RESOLUTION_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.80';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
 
@@ -22,6 +22,7 @@ const DEFAULTS = Object.freeze({
     embeddingOpenRouterModel: 'openai/text-embedding-3-large',
     embeddingAutoSync: true,
     autoExtract: true,
+    reviewBeforeCommit: false,
     jbEnabled: false,
     embedMemoryInChat: true,
     detail: 'balanced',
@@ -327,6 +328,19 @@ export function getSettings() {
             settings.injectionInstruction = PROMPT_DEFAULTS.injectionInstruction;
         }
         settings.relationalAddressPromptVersion = 6;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.epistemicPromptVersion || 0) < 1) {
+        const extractionPrompt = String(settings.extractionSystemPrompt || PROMPT_DEFAULTS.extractionSystemPrompt);
+        if (!extractionPrompt.includes('Keep objective canon separate from subjective perspective.')) {
+            settings.extractionSystemPrompt = `${extractionPrompt}\n${EPISTEMIC_MEMORY_RULES}`;
+        }
+        const hierarchyRule = 'Preserve who believed, reported, suspected, or knew each uncertain claim. Never turn an unresolved or subjective claim into objective canon.';
+        for (const key of ['arcSystemPrompt', 'eraSystemPrompt']) {
+            const prompt = String(settings[key] || PROMPT_DEFAULTS[key]);
+            if (!prompt.includes(hierarchyRule)) settings[key] = `${prompt}\n${hierarchyRule}`;
+        }
+        settings.epistemicPromptVersion = 1;
         saveSettingsDebounced();
     }
     if (settings.rawTailMode === undefined) {

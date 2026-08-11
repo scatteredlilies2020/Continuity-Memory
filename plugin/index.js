@@ -4,12 +4,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PLUGIN = 'continuity-memory';
-const VERSION = '0.14.0-standalone.79';
-const SCHEMA_VERSION = 8;
+const VERSION = '0.14.0-standalone.80';
+const SCHEMA_VERSION = 9;
 const STORAGE_VERSION = 2;
 const SHARD_CHUNK_SIZE = 128;
-const ARRAY_SHARDS = ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds', 'corrections'];
-const SINGLE_SHARDS = ['scene', 'sources'];
+const ARRAY_SHARDS = ['entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds', 'corrections'];
+const SINGLE_SHARDS = ['scene', 'sources', 'continuation'];
 const ALL_SHARDS = [...SINGLE_SHARDS, ...ARRAY_SHARDS];
 const WORLD_ID_RE = /^[a-z0-9][a-z0-9_-]{0,79}$/;
 const MANAGED_MARKER = '.continuity-memory-managed';
@@ -149,6 +149,7 @@ function isShardManifest(value) {
 function splitShardValue(world, category) {
     if (category === 'scene') return world.scene ? [world.scene] : [];
     if (category === 'sources') return Object.keys(world.sources || {}).length ? [world.sources] : [];
+    if (category === 'continuation') return world.continuation ? [world.continuation] : [];
     if (!ARRAY_SHARDS.includes(category)) return [world[category]];
     const values = world[category] || [];
     const parts = [];
@@ -170,6 +171,7 @@ function emptyWorld(id, name) {
         scene: null,
         entities: [],
         facts: [],
+        beliefs: [],
         states: [],
         relationships: [],
         events: [],
@@ -181,6 +183,7 @@ function emptyWorld(id, name) {
         backgrounds: [],
         corrections: [],
         sources: {},
+        continuation: null,
     };
 }
 
@@ -190,7 +193,7 @@ function normalizeWorld(input, expectedId) {
     }
     const id = assertWorldId(expectedId || input.id);
     const base = emptyWorld(id, input.name);
-    const arrays = ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds', 'corrections'];
+    const arrays = ['entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds', 'corrections'];
     for (const key of arrays) {
         base[key] = Array.isArray(input[key]) ? input[key].slice(0, 100000) : [];
     }
@@ -198,6 +201,9 @@ function normalizeWorld(input, expectedId) {
     base.sources = input.sources && typeof input.sources === 'object' && !Array.isArray(input.sources)
         ? input.sources
         : {};
+    base.continuation = input.continuation && typeof input.continuation === 'object' && !Array.isArray(input.continuation)
+        ? input.continuation
+        : null;
     base.createdAt = input.createdAt || base.createdAt;
     base.updatedAt = now();
     base.revision = Math.max(0, Number(input.revision) || 0) + 1;
@@ -249,7 +255,7 @@ async function materializeStoredWorld(dirs, id, stored) {
             return shard.data;
         }));
         if (ARRAY_SHARDS.includes(category)) world[category] = parts.flat();
-        else world[category] = parts.length ? parts[0] : (category === 'scene' ? null : {});
+        else world[category] = parts.length ? parts[0] : (category === 'sources' ? {} : null);
     }
     return world;
 }
@@ -338,6 +344,7 @@ function counts(world) {
     const result = {
         entities: world.entities?.length || 0,
         facts: world.facts?.length || 0,
+        beliefs: world.beliefs?.length || 0,
         states: world.states?.length || 0,
         relationships: world.relationships?.length || 0,
         events: world.events?.length || 0,

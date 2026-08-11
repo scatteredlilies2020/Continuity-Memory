@@ -91,7 +91,7 @@ export function findInvalidExtractionRanges(world, currentMessages, chatKey) {
 
 function hasContinuityData(world) {
     if (world?.scene) return true;
-    return ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds']
+    return ['entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds']
         .some(key => Array.isArray(world?.[key]) && world[key].length > 0);
 }
 
@@ -147,7 +147,7 @@ function remapChatKey(world, from, to) {
         }
     };
     remapRefs(aligned.scene);
-    for (const key of ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds']) {
+    for (const key of ['entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds']) {
         for (const item of aligned[key] || []) remapRefs(item);
     }
     return aligned;
@@ -191,7 +191,7 @@ function consolidateSourceAliases(world, candidates, currentChatKey) {
         .map(item => item.id));
 
     consolidated.scene = filterSources(consolidated.scene);
-    for (const key of ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds']) {
+    for (const key of ['entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'threads', 'backgrounds']) {
         consolidated[key] = (consolidated[key] || []).map(filterSources).filter(Boolean);
     }
     consolidated.capsules = (consolidated.capsules || [])
@@ -240,6 +240,21 @@ export function alignWorldToChat(world, currentMessages, currentChatKey) {
             if (b.chatKey === currentChatKey && a.chatKey !== currentChatKey) return 1;
             return b.matched - a.matched || b.records - a.records;
         });
+
+    if (!candidates.length
+        && world.continuation?.attachedChatKey === currentChatKey
+        && world.continuation?.originWorldId) {
+        return {
+            ok: true,
+            code: 'continuation-baseline',
+            message: 'Verified this continuation arc before its first destination extraction.',
+            matched: 0,
+            pending: current.length,
+            sourceChatKey: currentChatKey,
+            changed: false,
+            world: structuredClone(world),
+        };
+    }
 
     if (!hasContinuityData(world) && !candidates.length) {
         return {
