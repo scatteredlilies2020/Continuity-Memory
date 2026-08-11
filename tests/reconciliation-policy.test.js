@@ -170,6 +170,23 @@ test('stored generic address duplicates are removed from canonical and replay me
     assert.deepEqual(world.extractions[0].result.facts, [directional]);
 });
 
+test('authoritative address corrections purge superseded replay facts', () => {
+    const bad = {
+        targetId: 'fact_suki', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha',
+        value: 'dead last', category: 'addressing',
+    };
+    const world = {
+        entities: [],
+        facts: [{ id: 'fact_suki', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha', value: 'Suki-chan', category: 'form of address' }],
+        corrections: [{ operations: [{ action: 'update', category: 'facts', beforeSelector: 'naruto uzumaki|setsuko uchiha' }] }],
+        extractions: [{ result: { facts: [structuredClone(bad)] } }],
+    };
+
+    assert.equal(removeInvalidStoredAddressFacts(world), 1);
+    assert.deepEqual(world.extractions[0].result.facts, []);
+    assert.equal(world.facts[0].value, 'Suki-chan');
+});
+
 test('legacy and current address predicates share one directional identity', () => {
     assert.equal(
         addressFactIdentity({ subject: 'Setsuko Uchiha', predicate: 'form of address for Naruto Uzumaki', category: 'social address' }),
@@ -225,6 +242,83 @@ test('address target IDs cannot reverse the speaker and addressee', () => {
     });
     assert.equal(result.facts[0].targetId, '');
     assert.equal(sanitized.ignored, 1);
+});
+
+test('direct source speech repairs a cross-person address reversal', () => {
+    const result = extraction();
+    result.facts.push({
+        targetId: 'fact_suki', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha',
+        value: 'dead last', category: 'addressing', importance: 2, persistence: 'recurring',
+    });
+    const world = {
+        entities: [
+            { name: 'Setsuko Uchiha', aliases: ['Setsuko'] },
+            { name: 'Naruto Uzumaki', aliases: ['Naruto'] },
+        ],
+        facts: [
+            { id: 'fact_suki', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha', value: 'Suki-chan', category: 'form of address' },
+            { id: 'fact_dead_last', subject: 'Setsuko Uchiha', predicate: 'calls Naruto Uzumaki', value: 'Uzumaki-san', category: 'form of address' },
+        ],
+        states: [], relationships: [], threads: [], backgrounds: [],
+    };
+    const sanitized = sanitizeReconciliationMetadata(result, world, [{
+        index: 239,
+        name: 'Setsuko',
+        text: 'I elbow him. "G-go buy your own, dead last." I say and protect the sweets.',
+    }]);
+
+    assert.equal(sanitized.repairedAddresses, 1);
+    assert.deepEqual(result.facts, [{
+        targetId: 'fact_dead_last', subject: 'Setsuko Uchiha', predicate: 'calls Naruto Uzumaki',
+        value: 'dead last', category: 'form of address', importance: 2, persistence: 'recurring',
+    }]);
+});
+
+test('explicit attribution preserves a correctly directed address fact', () => {
+    const result = extraction();
+    result.facts.push({
+        targetId: '', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha',
+        value: 'Suki-chan', category: 'form of address', importance: 2, persistence: 'recurring',
+    });
+    const world = {
+        entities: [
+            { name: 'Setsuko Uchiha', aliases: ['Setsuko'] },
+            { name: 'Naruto Uzumaki', aliases: ['Naruto'] },
+        ],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    };
+    const sanitized = sanitizeReconciliationMetadata(result, world, [{
+        index: 7,
+        name: 'Setsuko Uchiha',
+        text: 'Naruto Uzumaki calls Setsuko "Suki-chan," and she objects.',
+    }]);
+
+    assert.equal(sanitized.repairedAddresses, 0);
+    assert.equal(result.facts[0].subject, 'Naruto Uzumaki');
+});
+
+test('ambiguous short speaker names do not trigger an address reversal', () => {
+    const result = extraction();
+    result.facts.push({
+        targetId: '', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha',
+        value: 'dead last', category: 'form of address', importance: 2, persistence: 'recurring',
+    });
+    const world = {
+        entities: [
+            { name: 'Setsuko Uchiha', aliases: [] },
+            { name: 'Setsuko Senju', aliases: [] },
+            { name: 'Naruto Uzumaki', aliases: ['Naruto'] },
+        ],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    };
+    const sanitized = sanitizeReconciliationMetadata(result, world, [{
+        index: 9,
+        name: 'Setsuko',
+        text: '"Buy your own, dead last," I say.',
+    }]);
+
+    assert.equal(sanitized.repairedAddresses, 0);
+    assert.equal(result.facts[0].subject, 'Naruto Uzumaki');
 });
 
 test('self-address falsely inferred from another speaker is rejected', () => {

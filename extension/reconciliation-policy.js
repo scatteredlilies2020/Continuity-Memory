@@ -45,9 +45,22 @@ export function addressFactAddressee(item) {
 function canonicalAddressName(world, value) {
     const requested = normalized(value);
     if (!requested) return '';
+    const entities = world?.entities || [];
+    const matches = entities.filter(entity => [entity?.name, ...(entity?.aliases || [])]
+        .some(name => normalized(name) === requested));
+    if (matches.length === 1) return normalized(matches[0].name);
+    if (!matches.length && !requested.includes(' ')) {
+        const shortMatches = entities.filter(entity => normalized(String(entity?.name || '').split(/\s+/u)[0]) === requested);
+        if (shortMatches.length === 1) return normalized(shortMatches[0].name);
+    }
+    return normalized(value);
+}
+
+function canonicalAddressDisplayName(world, value) {
+    const requested = normalized(value);
     const matches = (world?.entities || []).filter(entity => [entity?.name, ...(entity?.aliases || [])]
         .some(name => normalized(name) === requested));
-    return normalized(matches.length === 1 ? matches[0].name : value);
+    return String(matches.length === 1 ? matches[0].name : value || '').replace(/\s+/g, ' ').trim();
 }
 
 function addressNameVariants(world, value) {
@@ -244,6 +257,71 @@ function explicitlyUsesFirstPersonSelfAddress(text, form) {
     ].some(pattern => pattern.test(text));
 }
 
+function directlyVoicesFirstPersonSpeech(text, form) {
+    const formPattern = escaped(form);
+    if (!formPattern) return false;
+    const quoted = new RegExp(`[“\"][^”\"\n\r]{0,240}${formPattern}[^”\"\n\r]{0,240}[”\"]`, 'iu').test(text);
+    const firstPersonSpeech = /\bI\b[^\n\r]{0,100}\b(?:say|said|ask|asked|reply|replied|shout|shouted|yell|yelled|call|called)\b|\b(?:say|said|ask|asked|reply|replied|shout|shouted|yell|yelled|call|called)\b[^\n\r]{0,100}\bI\b/iu.test(text);
+    return quoted && firstPersonSpeech;
+}
+
+function hasAddressSpeechEvidence(messages, world, speaker, form) {
+    const canonicalSpeaker = canonicalAddressName(world, speaker);
+    const speakerNames = addressNameVariants(world, speaker);
+    return (messages || []).some(message => {
+        const text = String(message?.text ?? message?.mes ?? '');
+        if (!containsAddressForm(text, form)) return false;
+        const authoredDirectly = canonicalAddressName(world, message?.name) === canonicalSpeaker
+            && directlyVoicesFirstPersonSpeech(text, form);
+        return authoredDirectly || explicitlyAttributesSpeech(text, speakerNames, form);
+    });
+}
+
+export function repairReversedAddressFacts(result, world, messages) {
+    if (!Array.isArray(result?.facts) || !Array.isArray(messages) || !messages.length) return 0;
+    const originalFacts = [...result.facts];
+    const empty = new Set();
+    let repaired = 0;
+    for (const item of originalFacts) {
+        if (!isAddressFact(item) || isSelfAddressFact(item, world)) continue;
+        const speaker = canonicalAddressDisplayName(world, item.subject);
+        const addressee = canonicalAddressDisplayName(world, addressFactAddressee(item));
+        if (!speaker || !addressee) continue;
+        const retained = [];
+        const reversed = [];
+        for (const form of mergeAddressValues(item.value).split(/\s*;\s*/u).filter(Boolean)) {
+            const forwardEvidence = hasAddressSpeechEvidence(messages, world, speaker, form);
+            const reverseEvidence = hasAddressSpeechEvidence(messages, world, addressee, form);
+            if (reverseEvidence && !forwardEvidence) reversed.push(form);
+            else retained.push(form);
+        }
+        if (!reversed.length) continue;
+        item.value = mergeAddressValues(...retained);
+        if (!item.value) empty.add(item);
+        const reverseCandidate = { subject: addressee, predicate: `calls ${speaker}`, category: 'form of address' };
+        const reverseIdentity = addressFactIdentity(reverseCandidate, world);
+        const existing = result.facts.find(candidate => candidate !== item
+            && addressFactIdentity(candidate, world) === reverseIdentity);
+        if (existing) {
+            existing.value = mergeAddressValues(existing.value, ...reversed);
+        } else {
+            const stored = (world?.facts || []).find(candidate => addressFactIdentity(candidate, world) === reverseIdentity);
+            result.facts.push({
+                targetId: stored?.id || '',
+                subject: addressee,
+                predicate: `calls ${speaker}`,
+                value: mergeAddressValues(...reversed),
+                category: 'form of address',
+                importance: Number(item.importance || 2),
+                persistence: ['temporary', 'recurring', 'persistent'].includes(item.persistence) ? item.persistence : 'recurring',
+            });
+        }
+        repaired += reversed.length;
+    }
+    result.facts = result.facts.filter(item => !empty.has(item));
+    return repaired;
+}
+
 export function addressFactIdentity(item, world = null) {
     const speaker = canonicalAddressName(world, item?.subject);
     const addressee = canonicalAddressName(world, addressFactAddressee(item));
@@ -381,9 +459,19 @@ export function removeUnsupportedSelfAddressFacts(container, messages, world = n
 export function removeInvalidStoredAddressFacts(world) {
     let changed = reconcileGenericAddressDuplicates(world, world);
     changed += removeInvalidAddressFacts(world);
+    const correctedAddressSelectors = new Set((world?.corrections || [])
+        .flatMap(correction => correction?.operations || [])
+        .filter(operation => operation?.category === 'facts' && ['update', 'delete'].includes(operation?.action))
+        .map(operation => String(operation?.beforeSelector || ''))
+        .filter(Boolean));
     for (const extraction of world?.extractions || []) {
         changed += reconcileGenericAddressDuplicates(extraction?.result, world);
         changed += removeInvalidAddressFacts(extraction?.result);
+        if (!Array.isArray(extraction?.result?.facts) || !correctedAddressSelectors.size) continue;
+        const retained = extraction.result.facts.filter(item => !isAddressFact(item)
+            || !correctedAddressSelectors.has(addressFactIdentity(item)));
+        changed += extraction.result.facts.length - retained.length;
+        extraction.result.facts = retained;
     }
     return changed;
 }
@@ -405,6 +493,7 @@ export function reconciliationTargetIsCompatible(category, incoming, existing, w
 }
 
 export function sanitizeReconciliationMetadata(result, world, messages = null) {
+    const repairedAddresses = repairReversedAddressFacts(result, world, messages);
     const recovered = recoverExplicitAddressFacts(result, world, messages);
     const recoveredAliases = recoverExplicitEntityAliases(result, messages);
     const reconciledAddresses = reconcileGenericAddressDuplicates(result, world);
@@ -452,5 +541,5 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     });
     const warnings = findCoverageWarnings(result, messages);
     if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
-    return { ignored, recovered, recoveredAliases, reconciledAddresses, warnings };
+    return { ignored, recovered, recoveredAliases, repairedAddresses, reconciledAddresses, warnings };
 }
