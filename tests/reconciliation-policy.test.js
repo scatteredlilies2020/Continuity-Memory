@@ -166,6 +166,7 @@ test('ordinary pronouns cannot become address forms or displace a stored nicknam
     const sanitized = sanitizeReconciliationMetadata(result, world, [
         { index: 246, name: 'Naruto', text: '"You reacted, so I kept teasing. Sorry," Naruto says before changing the subject.' },
         { index: 247, name: 'Setsuko', text: '"My pay, you want to know?" I ask Naruto.' },
+        { index: 248, name: 'Sakura Haruno', isUser: true, text: '"Pinky, wait a second."' },
     ]);
 
     assert.equal(sanitized.ignored, 2);
@@ -557,7 +558,7 @@ test('legitimate first-person self-address remains valid', () => {
     }], world), false);
 });
 
-test('normal speaker-to-addressee address remains unaffected by self-address validation', () => {
+test('normal speaker-to-addressee address is retained when direct speech supports it', () => {
     const result = extraction();
     result.facts.push({
         targetId: '', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha',
@@ -566,10 +567,84 @@ test('normal speaker-to-addressee address remains unaffected by self-address val
 
     const sanitized = sanitizeReconciliationMetadata(result, {
         entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
-    }, [{ name: 'Narrator', text: 'No dialogue appears here.' }]);
+    }, [{ name: 'Narrator', text: 'Naruto Uzumaki says, “Hey, Suki-chan!”' }]);
 
     assert.equal(result.facts.length, 1);
     assert.equal(sanitized.ignored, 0);
+});
+
+test('ranks and roles require vocative use rather than descriptive mention', () => {
+    const result = extraction();
+    result.facts.push({
+        targetId: '', subject: 'Setsuko Uchiha', predicate: 'calls Kakashi Hatake',
+        value: 'Jonin; sensei', category: 'form of address', importance: 2, persistence: 'recurring',
+    });
+    const world = {
+        entities: [
+            { name: 'Setsuko Uchiha', aliases: ['Setsuko'] },
+            { name: 'Kakashi Hatake', aliases: ['Kakashi'] },
+        ],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    };
+
+    const sanitized = sanitizeReconciliationMetadata(result, world, [
+        {
+            index: 3,
+            name: 'Setsuko',
+            isUser: true,
+            text: '“Hmph. Tough talk for a Jonin who was late for their appointment.” I look him in the eyes.',
+        },
+        {
+            index: 13,
+            name: 'Setsuko',
+            isUser: true,
+            text: '“Hmph. That is not just for performance, sensei.”',
+        },
+    ]);
+
+    assert.equal(sanitized.discardedUnsupportedAddresses, 1);
+    assert.equal(result.facts[0].value, 'sensei');
+});
+
+test('a title used at the start of direct speech remains a valid address', () => {
+    const result = extraction();
+    result.facts.push({
+        targetId: '', subject: 'Operator', predicate: 'calls Team Leader',
+        value: 'Captain', category: 'form of address', importance: 2, persistence: 'recurring',
+    });
+    const world = {
+        entities: [{ name: 'Operator', aliases: [] }, { name: 'Team Leader', aliases: [] }],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    };
+
+    const sanitized = sanitizeReconciliationMetadata(result, world, [{
+        index: 4,
+        name: 'Operator',
+        isUser: true,
+        text: '“Captain, the northern relay is ready.”',
+    }]);
+
+    assert.equal(sanitized.discardedUnsupportedAddresses, 0);
+    assert.equal(result.facts[0].value, 'Captain');
+});
+
+test('unquoted user dialogue can establish a direct address', () => {
+    const result = extraction();
+    result.facts.push({
+        targetId: '', subject: 'Technician', predicate: 'calls Supervisor',
+        value: 'Chief', category: 'form of address', importance: 2, persistence: 'recurring',
+    });
+    const world = {
+        entities: [{ name: 'Technician', aliases: [] }, { name: 'Supervisor', aliases: [] }],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    };
+
+    const sanitized = sanitizeReconciliationMetadata(result, world, [{
+        index: 5, name: 'Technician', isUser: true, text: 'Chief, the diagnostics are complete.',
+    }]);
+
+    assert.equal(sanitized.discardedUnsupportedAddresses, 0);
+    assert.equal(result.facts[0].value, 'Chief');
 });
 
 test('corroborated explicit address omitted from facts is recovered from structured continuity', () => {

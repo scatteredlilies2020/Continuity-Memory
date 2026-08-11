@@ -9,7 +9,7 @@ test('an assistant-led range receives the preceding user turn as attribution-onl
     ];
     const messages = [{ index: 1, name: 'Naruto', text: chat[1].mes }];
     const context = precedingUserAttributionContext(chat, messages);
-    assert.deepEqual(context, { index: 0, name: 'Setsuko', text: chat[0].mes });
+    assert.deepEqual(context, { index: 0, name: 'Setsuko', text: chat[0].mes, isUser: true });
     const formatted = formatExtractionMessages(messages, context);
     assert.match(formatted, /ATTRIBUTION CONTEXT ONLY/);
     assert.match(formatted, /EXCERPT TO EXTRACT/);

@@ -26,6 +26,7 @@ export function collectFingerprintMessages(chat = []) {
             index,
             name: message.name || (message.is_user ? 'User' : 'Character'),
             text: body,
+            isUser: Boolean(message.is_user),
         });
     }
     return messages;

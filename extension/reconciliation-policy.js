@@ -268,6 +268,99 @@ function directlyVoicesFirstPersonSpeech(text, form) {
     return quoted && (firstPersonSpeech || firstPersonActionAfterQuote);
 }
 
+function quotedSpeechSegments(text) {
+    const segments = [];
+    const pattern = /[“"]([^”"\n\r]{1,500})[”"]/gu;
+    for (const match of String(text || '').matchAll(pattern)) segments.push(match[1]);
+    return segments;
+}
+
+function labeledSpeechSegments(text, speakerNames) {
+    const segments = [];
+    for (const name of speakerNames) {
+        const speaker = escaped(name);
+        if (!speaker) continue;
+        const pattern = new RegExp(`(?:^|[\\n\\r])\\s*(?:[*_]{1,2})?${speaker}(?:[*_]{1,2})?\\s*:\\s*([^\\n\\r]{1,500})`, 'giu');
+        for (const match of String(text || '').matchAll(pattern)) segments.push(match[1]);
+    }
+    return segments;
+}
+
+function isVocativeUse(text, form) {
+    const formPattern = escaped(form);
+    if (!formPattern) return false;
+    const trailing = `(?=\\s*(?:[,!?.:;—–-]|$))`;
+    const leadingCue = '(?:(?:hey|hello|hi|oi|yo|listen|look|please|thanks|sorry|welcome|good morning|good evening)\\b[\\s,!?:;—–-]*)*';
+    return [
+        new RegExp(`^\\s*${leadingCue}${formPattern}${trailing}`, 'iu'),
+        new RegExp(`(?:[,;:!?—–-]|[.!?]\\s+)\\s*${formPattern}${trailing}`, 'iu'),
+    ].some(pattern => pattern.test(String(text || '')));
+}
+
+function hasExplicitDirectionalAddressStatement(item, form, messages, world) {
+    const speakerNames = addressNameVariants(world, item?.subject);
+    const addresseeNames = addressNameVariants(world, addressFactAddressee(item));
+    const formPattern = escaped(form);
+    if (!formPattern) return false;
+    const addressVerb = '(?:calls?|called|addresses?|addressed|nicknames?|nicknamed|dubs?|dubbed|refers? to|referred to)';
+    const quotedForm = `[“"']\\s*${formPattern}\\s*[”"']`;
+    return (messages || []).some(message => {
+        const source = String(message?.text ?? message?.mes ?? '');
+        const authoredBySpeaker = Boolean(message?.isUser)
+            && canonicalAddressName(world, message?.name) === canonicalAddressName(world, item?.subject);
+        const namedDirection = speakerNames.some(speakerName => addresseeNames.some(addresseeName =>
+            new RegExp(`\\b${escaped(speakerName)}\\b[^\\n\\r]{0,100}\\b${addressVerb}\\b[^\\n\\r]{0,100}\\b${escaped(addresseeName)}\\b[^\\n\\r]{0,80}${quotedForm}`, 'iu').test(source)));
+        const firstPersonDirection = authoredBySpeaker && addresseeNames.some(addresseeName =>
+            new RegExp(`\\bI\\b[^\\n\\r]{0,40}\\b${addressVerb}\\b[^\\n\\r]{0,100}\\b${escaped(addresseeName)}\\b[^\\n\\r]{0,80}${quotedForm}`, 'iu').test(source));
+        return namedDirection || firstPersonDirection;
+    });
+}
+
+function hasVocativeAddressEvidence(item, form, messages, world) {
+    const speaker = canonicalAddressName(world, item?.subject);
+    const speakerNames = addressNameVariants(world, item?.subject);
+    return (messages || []).some(message => {
+        const source = String(message?.text ?? message?.mes ?? '');
+        if (!containsAddressForm(source, form)) return false;
+        const authoredUserSpeech = Boolean(message?.isUser)
+            && canonicalAddressName(world, message?.name) === speaker;
+        const firstPersonSpeech = directlyVoicesFirstPersonSpeech(source, form);
+        const attributedSpeech = explicitlyAttributesSpeech(source, speakerNames, form);
+        const segments = [...quotedSpeechSegments(source), ...labeledSpeechSegments(source, speakerNames)];
+        if (authoredUserSpeech || attributedSpeech) segments.push(source);
+        return segments.some(segment => isVocativeUse(segment, form))
+            && (authoredUserSpeech || firstPersonSpeech || attributedSpeech);
+    });
+}
+
+function isStoredAddressValue(item, form, world) {
+    const identity = addressFactIdentity(item, world);
+    if (!identity) return false;
+    return (world?.facts || []).some(stored => addressFactIdentity(stored, world) === identity
+        && addressValueSet(stored.value).has(normalized(form)));
+}
+
+export function removeUnsupportedAddressValues(container, messages, world = null) {
+    if (!Array.isArray(container?.facts) || !Array.isArray(messages) || !messages.length) return 0;
+    const empty = new Set();
+    let removed = 0;
+    for (const item of container.facts) {
+        if (!isAddressFact(item)) continue;
+        const retained = [];
+        for (const form of mergeAddressValues(item.value).split(/\s*;\s*/u).filter(Boolean)) {
+            const supported = isStoredAddressValue(item, form, world)
+                || hasExplicitDirectionalAddressStatement(item, form, messages, world)
+                || hasVocativeAddressEvidence(item, form, messages, world);
+            if (supported) retained.push(form);
+            else removed++;
+        }
+        item.value = mergeAddressValues(...retained);
+        if (!item.value) empty.add(item);
+    }
+    container.facts = container.facts.filter(item => !empty.has(item));
+    return removed;
+}
+
 function hasAddressSpeechEvidence(messages, world, speaker, form) {
     const canonicalSpeaker = canonicalAddressName(world, speaker);
     const speakerNames = addressNameVariants(world, speaker);
@@ -621,8 +714,9 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const discardedAddressValues = removeCrossDirectionAddressContamination(result, world, messages);
     const recoveredAliases = recoverExplicitEntityAliases(result, messages);
     const reconciledAddresses = reconcileGenericAddressDuplicates(result, world);
+    const discardedUnsupportedAddresses = removeUnsupportedAddressValues(result, messages, world);
     const discardedPronounAddresses = removeUnsupportedPronounAddressValues(result, messages, world);
-    let ignored = discardedAddressValues + discardedPronounAddresses + removeInvalidAddressFacts(result);
+    let ignored = discardedAddressValues + discardedUnsupportedAddresses + discardedPronounAddresses + removeInvalidAddressFacts(result);
     ignored += removeUnsupportedSelfAddressFacts(result, messages, world);
     if (!Array.isArray(result.identityResolutions)) {
         result.identityResolutions = [];
@@ -666,5 +760,5 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     });
     const warnings = findCoverageWarnings(result, messages);
     if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
-    return { ignored, recovered, recoveredAliases, repairedAddresses, discardedAddressValues, discardedPronounAddresses, reconciledAddresses, warnings };
+    return { ignored, recovered, recoveredAliases, repairedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, warnings };
 }

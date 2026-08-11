@@ -14,6 +14,7 @@ export function precedingUserAttributionContext(chat, messages) {
             index,
             name: message.name || 'User',
             text,
+            isUser: true,
         };
     }
     return null;

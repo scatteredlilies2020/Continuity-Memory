@@ -43,8 +43,8 @@ test('collects the same processable message shape used by extraction', () => {
         { mes: 'cake', name: '', is_user: false },
     ];
     assert.deepEqual(collectFingerprintMessages(chat), [
-        { index: 0, name: 'User', text: 'hello' },
-        { index: 3, name: 'Character', text: 'cake' },
+        { index: 0, name: 'User', text: 'hello', isUser: true },
+        { index: 3, name: 'Character', text: 'cake', isUser: false },
     ]);
 });
 
@@ -52,15 +52,15 @@ test('CM eligibility excludes only the provisional newest AI output', () => {
     const user = { mes: 'First prompt', name: 'User', is_user: true };
     const assistant = { mes: 'Mutable reply', name: 'Yui', is_user: false };
     assert.deepEqual(collectMemoryEligibleMessages([user, assistant]), [
-        { index: 0, name: 'User', text: 'First prompt' },
+        { index: 0, name: 'User', text: 'First prompt', isUser: true },
     ]);
     assert.deepEqual(collectMemoryEligibleMessages([user, assistant, { mes: 'Accepted', name: 'User', is_user: true }]), [
-        { index: 0, name: 'User', text: 'First prompt' },
-        { index: 1, name: 'Yui', text: 'Mutable reply' },
-        { index: 2, name: 'User', text: 'Accepted' },
+        { index: 0, name: 'User', text: 'First prompt', isUser: true },
+        { index: 1, name: 'Yui', text: 'Mutable reply', isUser: false },
+        { index: 2, name: 'User', text: 'Accepted', isUser: true },
     ]);
     assert.deepEqual(collectMemoryEligibleMessages([user, assistant, { mes: 'ignored', is_system: true }]), [
-        { index: 0, name: 'User', text: 'First prompt' },
+        { index: 0, name: 'User', text: 'First prompt', isUser: true },
     ]);
 });
 
@@ -81,6 +81,7 @@ test('uses an InlineSummary replacement as the visible source without reading hi
         index: 0,
         name: 'Inline Summary',
         text: 'Alice and Bob argued over the sealed letter.',
+        isUser: false,
     }]);
 });
 
