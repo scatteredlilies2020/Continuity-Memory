@@ -321,6 +321,61 @@ test('ambiguous short speaker names do not trigger an address reversal', () => {
     assert.equal(result.facts[0].subject, 'Naruto Uzumaki');
 });
 
+test('a later range cannot copy an opposite-direction address value', () => {
+    const result = extraction();
+    result.facts.push({
+        targetId: 'fact_suki', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha',
+        value: 'Suki-chan; idiot', category: 'form of address', importance: 3, persistence: 'recurring',
+    });
+    const world = {
+        entities: [
+            { name: 'Setsuko Uchiha', aliases: ['Setsuko'] },
+            { name: 'Naruto Uzumaki', aliases: ['Naruto'] },
+        ],
+        facts: [
+            { id: 'fact_suki', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha', value: 'Suki-chan', category: 'form of address' },
+            { id: 'fact_idiot', subject: 'Setsuko Uchiha', predicate: 'calls Naruto Uzumaki', value: 'idiot', category: 'form of address' },
+        ],
+        beliefs: [], states: [], relationships: [], threads: [], backgrounds: [],
+    };
+    const sanitized = sanitizeReconciliationMetadata(result, world, [{
+        index: 24,
+        name: 'Naruto',
+        text: 'Naruto discusses the survival exercise without using either nickname.',
+    }]);
+
+    assert.equal(sanitized.discardedAddressValues, 1);
+    assert.equal(result.facts[0].value, 'Suki-chan');
+    assert.equal(result.facts[0].targetId, 'fact_suki');
+});
+
+test('direct new speech may establish the same form in both directions', () => {
+    const result = extraction();
+    result.facts.push({
+        targetId: 'fact_suki', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha',
+        value: 'Suki-chan; idiot', category: 'form of address', importance: 3, persistence: 'recurring',
+    });
+    const world = {
+        entities: [
+            { name: 'Setsuko Uchiha', aliases: ['Setsuko'] },
+            { name: 'Naruto Uzumaki', aliases: ['Naruto'] },
+        ],
+        facts: [
+            { id: 'fact_suki', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha', value: 'Suki-chan', category: 'form of address' },
+            { id: 'fact_idiot', subject: 'Setsuko Uchiha', predicate: 'calls Naruto Uzumaki', value: 'idiot', category: 'form of address' },
+        ],
+        beliefs: [], states: [], relationships: [], threads: [], backgrounds: [],
+    };
+    const sanitized = sanitizeReconciliationMetadata(result, world, [{
+        index: 32,
+        name: 'Narrator',
+        text: 'Naruto Uzumaki calls Setsuko Uchiha “idiot” during their argument.',
+    }]);
+
+    assert.equal(sanitized.discardedAddressValues, 0);
+    assert.equal(result.facts[0].value, 'Suki-chan; idiot');
+});
+
 test('self-address falsely inferred from another speaker is rejected', () => {
     const result = extraction();
     result.facts.push({

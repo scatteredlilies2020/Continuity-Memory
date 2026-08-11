@@ -277,6 +277,26 @@ function hasAddressSpeechEvidence(messages, world, speaker, form) {
     });
 }
 
+function hasDirectionalAddressSpeechEvidence(messages, world, speaker, addressee, form) {
+    const speakerNames = addressNameVariants(world, speaker);
+    const addresseeNames = addressNameVariants(world, addressee);
+    const formPattern = escaped(form);
+    if (!formPattern) return false;
+    return (messages || []).some(message => {
+        const text = String(message?.text ?? message?.mes ?? '');
+        if (!containsAddressForm(text, form)) return false;
+        const explicitlyDirectional = speakerNames.some(speakerName => addresseeNames.some(addresseeName =>
+            new RegExp(`\\b${escaped(speakerName)}\\b[^\\n\\r]{0,100}\\b(?:calls?|called|addresses?|addressed|nicknames?|nicknamed)\\s+\\b${escaped(addresseeName)}\\b[^\\n\\r]{0,100}${formPattern}`, 'iu').test(text)));
+        if (explicitlyDirectional) return true;
+        if (!explicitlyAttributesSpeech(text, speakerNames, form)) return false;
+        return addresseeNames.some(name => {
+            const addresseePattern = escaped(name);
+            if (!addresseePattern) return false;
+            return new RegExp(`\\b${addresseePattern}\\b[^\\n\\r]{0,240}${formPattern}|${formPattern}[^\\n\\r]{0,240}\\b${addresseePattern}\\b`, 'iu').test(text);
+        });
+    });
+}
+
 export function repairReversedAddressFacts(result, world, messages) {
     if (!Array.isArray(result?.facts) || !Array.isArray(messages) || !messages.length) return 0;
     const originalFacts = [...result.facts];
@@ -320,6 +340,47 @@ export function repairReversedAddressFacts(result, world, messages) {
     }
     result.facts = result.facts.filter(item => !empty.has(item));
     return repaired;
+}
+
+export function removeCrossDirectionAddressContamination(result, world, messages) {
+    if (!Array.isArray(result?.facts) || !Array.isArray(world?.facts)) return 0;
+    const empty = new Set();
+    let discarded = 0;
+    for (const item of result.facts) {
+        if (!isAddressFact(item) || isSelfAddressFact(item, world)) continue;
+        const speaker = canonicalAddressDisplayName(world, item.subject);
+        const addressee = canonicalAddressDisplayName(world, addressFactAddressee(item));
+        const identity = addressFactIdentity(item, world);
+        const oppositeIdentity = addressFactIdentity({
+            subject: addressee,
+            predicate: `calls ${speaker}`,
+            category: 'form of address',
+        }, world);
+        if (!identity || !oppositeIdentity) continue;
+        const sameDirection = new Set();
+        const oppositeDirection = new Set();
+        for (const stored of world.facts) {
+            const storedIdentity = addressFactIdentity(stored, world);
+            const target = storedIdentity === identity
+                ? sameDirection
+                : storedIdentity === oppositeIdentity ? oppositeDirection : null;
+            if (!target) continue;
+            for (const form of addressValueSet(stored.value)) target.add(form);
+        }
+        if (!oppositeDirection.size) continue;
+        const retained = [];
+        for (const form of mergeAddressValues(item.value).split(/\s*;\s*/u).filter(Boolean)) {
+            const formIdentity = normalized(form);
+            const copiedFromOpposite = oppositeDirection.has(formIdentity) && !sameDirection.has(formIdentity);
+            const newlySupportedHere = hasDirectionalAddressSpeechEvidence(messages, world, speaker, addressee, form);
+            if (copiedFromOpposite && !newlySupportedHere) discarded++;
+            else retained.push(form);
+        }
+        item.value = mergeAddressValues(...retained);
+        if (!item.value) empty.add(item);
+    }
+    result.facts = result.facts.filter(item => !empty.has(item));
+    return discarded;
 }
 
 export function addressFactIdentity(item, world = null) {
@@ -495,9 +556,10 @@ export function reconciliationTargetIsCompatible(category, incoming, existing, w
 export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const repairedAddresses = repairReversedAddressFacts(result, world, messages);
     const recovered = recoverExplicitAddressFacts(result, world, messages);
+    const discardedAddressValues = removeCrossDirectionAddressContamination(result, world, messages);
     const recoveredAliases = recoverExplicitEntityAliases(result, messages);
     const reconciledAddresses = reconcileGenericAddressDuplicates(result, world);
-    let ignored = removeInvalidAddressFacts(result);
+    let ignored = discardedAddressValues + removeInvalidAddressFacts(result);
     ignored += removeUnsupportedSelfAddressFacts(result, messages, world);
     if (!Array.isArray(result.identityResolutions)) {
         result.identityResolutions = [];
@@ -541,5 +603,5 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     });
     const warnings = findCoverageWarnings(result, messages);
     if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
-    return { ignored, recovered, recoveredAliases, repairedAddresses, reconciledAddresses, warnings };
+    return { ignored, recovered, recoveredAliases, repairedAddresses, discardedAddressValues, reconciledAddresses, warnings };
 }
