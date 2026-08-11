@@ -23,7 +23,7 @@ function beliefValue(item) {
     const truthStatus = clean(item?.truthStatus);
     if (confidence && confidence !== 'likely') qualifiers.push(`holder confidence: ${confidence}`);
     if (status && status !== 'held') qualifiers.push(`holder status: ${status}`);
-    if (truthStatus && truthStatus !== 'unknown') qualifiers.push(`established canon: ${truthStatus}`);
+    if (truthStatus && truthStatus !== 'unknown') qualifiers.push(`established-fact relation: ${truthStatus}`);
     return qualifiers.length ? `${value} [${qualifiers.join('; ')}]` : value;
 }
 

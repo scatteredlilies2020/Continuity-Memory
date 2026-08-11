@@ -29,7 +29,7 @@ function extraction(overrides = {}) {
     };
 }
 
-test('keeps attributed belief facts separate from canon and from each other', () => {
+test('keeps attributed belief facts separate from established facts and from each other', () => {
     const target = world();
     const base = {
         scene: null, sceneCapsule: null, entities: [], identityResolutions: [], recordMerges: [], facts: [],
@@ -56,8 +56,8 @@ test('keeps attributed belief facts separate from canon and from each other', ()
     assert.equal(target.facts.find(item => item.subject === 'Alice').value, 'not the prince');
     assert.equal(target.facts.find(item => item.subject === 'Bob').value, 'a spy');
     const injected = buildMemoryPrompt(target, [{ name: 'User', mes: 'What does Bob think about the masked visitor?' }], 2000, 'chat');
-    assert.match(injected.prompt, /Character perspectives \(not automatically canon\)/);
-    assert.match(injected.prompt, /Bob.*belief about the masked visitor.*a spy.*not automatically canon/i);
+    assert.match(injected.prompt, /Character perspectives \(not established facts\)/);
+    assert.match(injected.prompt, /Bob.*belief about the masked visitor.*a spy.*not an established fact/i);
 });
 
 test('merges durable records and updates matching facts instead of duplicating them', () => {

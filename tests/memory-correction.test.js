@@ -32,16 +32,16 @@ test('correction context selects matching records without dumping unrelated memo
     assert.equal(selected.some(item => item.id === 'fact-unrelated'), false);
 });
 
-test('scopes a character correction to that belief without rewriting canon', () => {
+test('scopes a character correction to that belief without rewriting established facts', () => {
     const world = memoryWorld();
     world.facts.push({
         id: 'belief-alice-mask', subject: 'Alice', predicate: 'belief about masked visitor — identity', value: 'the prince',
         category: 'character belief', persistence: 'persistent', importance: 4,
         sources: [{ chatKey: 'chat', from: 20, to: 23 }],
     });
-    const originalCanonicalFacts = structuredClone(world.facts.filter(item => item.category !== 'character belief'));
+    const originalEstablishedFacts = structuredClone(world.facts.filter(item => item.category !== 'character belief'));
     const proposal = validateCorrectionProposal(world, {
-        summary: 'Alice was wrong about the masked visitor; objective truth remains unrevealed.',
+        summary: 'Alice was wrong about the masked visitor; what happened remains unrevealed.',
         operations: [{
             action: 'update', category: 'facts', targetId: 'belief-alice-mask', reason: 'Change only Alice’s perspective.',
             recordJson: JSON.stringify({
@@ -52,14 +52,14 @@ test('scopes a character correction to that belief without rewriting canon', () 
     }, 'Alice was wrong about the masked visitor, but the truth is not known yet.');
 
     applyCorrectionProposal(world, proposal);
-    assert.deepEqual(world.facts.filter(item => item.category !== 'character belief'), originalCanonicalFacts);
+    assert.deepEqual(world.facts.filter(item => item.category !== 'character belief'), originalEstablishedFacts);
     const belief = world.facts.find(item => item.id === 'belief-alice-mask');
     assert.equal(belief.subject, 'Alice');
     assert.match(belief.value, /no longer believes/i);
     assert.equal(world.facts.some(item => item.subject === 'masked visitor' && item.predicate === 'identity'), false);
 });
 
-test('reviewed correction updates canonical records and invalidates only contaminated hierarchy', () => {
+test('reviewed correction updates established records and invalidates only contaminated hierarchy', () => {
     const world = memoryWorld();
     const proposal = validateCorrectionProposal(world, {
         summary: 'Sasuke knew Elizabeth before the meeting.',
