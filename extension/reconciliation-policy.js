@@ -755,6 +755,26 @@ function removeImpossibleStoredAddressValues(world, messages) {
     return removed;
 }
 
+function restoreStoredAddressValuesFromReplay(world) {
+    if (!Array.isArray(world?.facts) || !Array.isArray(world?.extractions)) return 0;
+    const canonical = new Map(world.facts
+        .filter(isAddressFact)
+        .map(item => [addressFactIdentity(item, world), item])
+        .filter(([identity]) => identity));
+    let restored = 0;
+    for (const extraction of world.extractions) {
+        for (const item of extraction?.result?.facts || []) {
+            if (!isAddressFact(item)) continue;
+            const stored = canonical.get(addressFactIdentity(item, world));
+            if (!stored || stored.correctionId) continue;
+            const before = addressValueSet(stored.value);
+            stored.value = mergeAddressValues(stored.value, item.value);
+            restored += [...addressValueSet(stored.value)].filter(value => !before.has(value)).length;
+        }
+    }
+    return restored;
+}
+
 export function removeInvalidStoredAddressFacts(world, messages = null) {
     let changed = reconcileGenericAddressDuplicates(world, world);
     changed += repairReversedStoredAddressFacts(world, messages);
@@ -778,6 +798,7 @@ export function removeInvalidStoredAddressFacts(world, messages = null) {
         changed += extraction.result.facts.length - retained.length;
         extraction.result.facts = retained;
     }
+    changed += restoreStoredAddressValuesFromReplay(world);
     return changed;
 }
 

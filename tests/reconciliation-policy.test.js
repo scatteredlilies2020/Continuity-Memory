@@ -401,6 +401,33 @@ test('stored reversed address facts are repaired from their anchored source rang
     });
 });
 
+test('stored address records recover supported alternate forms retained in replay history', () => {
+    const world = {
+        entities: [
+            { name: 'Alice Carter', aliases: ['Alice'] },
+            { name: 'Bob Evans', aliases: ['Bob'] },
+        ],
+        facts: [{
+            id: 'fact_address', subject: 'Alice Carter', predicate: 'calls Bob Evans', value: 'Show-off',
+            category: 'form of address', temporalAnchorId: 'L1-test-8-15',
+        }],
+        extractions: [
+            { from: 0, to: 7, result: { facts: [{ subject: 'Alice Carter', predicate: 'calls Bob Evans', value: 'Captain', category: 'form of address' }] } },
+            { from: 8, to: 15, result: { facts: [{ subject: 'Alice Carter', predicate: 'calls Bob Evans', value: 'Show-off', category: 'form of address' }] } },
+        ],
+        corrections: [], states: [], relationships: [], threads: [], backgrounds: [],
+    };
+    const messages = [
+        { index: 2, name: 'Alice', isUser: true, text: 'Captain, take the bridge.' },
+        { index: 10, name: 'Alice', isUser: true, text: 'Nice landing, Show-off.' },
+    ];
+
+    const changed = removeInvalidStoredAddressFacts(world, messages);
+
+    assert.equal(changed, 1);
+    assert.equal(world.facts[0].value, 'Show-off; Captain');
+});
+
 test('explicit attribution preserves a correctly directed address fact', () => {
     const result = extraction();
     result.facts.push({

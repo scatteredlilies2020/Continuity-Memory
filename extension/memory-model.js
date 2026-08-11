@@ -78,6 +78,11 @@ function mergeArray(world, collection, target, incoming, identity, meta, prefix,
                 ? { ...normalized, ...target[index] }
                 : { ...target[index], ...normalized };
             if (collection === 'entities') merged.aliases = cleanList([...(target[index].aliases || []), ...(normalized.aliases || [])]);
+            if (collection === 'facts'
+                && !target[index].correctionId
+                && (isAddressFact(target[index]) || isAddressFact(normalized))) {
+                merged.value = mergeAddressValues(target[index].value, normalized.value);
+            }
             if (collection === 'threads' || collection === 'backgrounds') merged.participants = cleanList([...(target[index].participants || []), ...(normalized.participants || [])]);
             target[index] = common({ ...merged, id: target[index].id, createdAt: target[index].createdAt }, meta, prefix);
             raw.targetId = target[index].id;

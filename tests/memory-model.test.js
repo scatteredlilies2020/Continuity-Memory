@@ -103,6 +103,29 @@ test('address facts merge by direction and retain concurrent exact forms', () =>
     assert.equal(target.facts[0].category, 'form of address');
 });
 
+test('address forms accumulate when identity matching succeeds without a target ID', () => {
+    const target = world();
+    const meta = { chatKey: 'chat', allowStateUpdates: true };
+    target.entities.push(
+        { id: 'alice', name: 'Alice Carter', aliases: ['Alice'] },
+        { id: 'bob', name: 'Bob Evans', aliases: ['Bob'] },
+    );
+    mergeExtraction(target, extraction({ facts: [{
+        targetId: '', subject: 'Alice Carter', predicate: 'calls Bob Evans', value: 'Captain',
+        category: 'form of address', importance: 2, persistence: 'recurring',
+    }] }), { ...meta, from: 0, to: 7 });
+    const factId = target.facts[0].id;
+
+    mergeExtraction(target, extraction({ facts: [{
+        targetId: '', subject: 'Alice Carter', predicate: 'calls Bob Evans', value: 'Show-off',
+        category: 'form of address', importance: 2, persistence: 'recurring',
+    }] }), { ...meta, from: 8, to: 15 });
+
+    assert.equal(target.facts.length, 1);
+    assert.equal(target.facts[0].id, factId);
+    assert.equal(target.facts[0].value, 'Captain; Show-off');
+});
+
 test('replay drops malformed address placeholders before canonical merge', () => {
     const target = world();
     mergeExtraction(target, extraction({
