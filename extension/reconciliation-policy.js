@@ -19,6 +19,8 @@ const ADDRESS_PLACEHOLDER = /(?:\[\s*(?:canonical\s+)?(?:speaker|addressee)(?:\s
 const ADDRESS_ABSENCE = /^(?:\[\s*)?(?:addressee\s+)?(?:unavailable|not established|none|n\/a|no (?:direct )?address(?: is)? established)(?:\s*\])?$/iu;
 const ADDRESS_BRACKET = /[\[\]]/u;
 const ADDRESS_MEANINGFUL = /[\p{L}\p{N}\p{Extended_Pictographic}]/u;
+const ADDRESS_PRONOUN = /^(?:i|me|my|mine|myself|you|your|yours|yourself|yourselves|he|him|his|himself|she|her|hers|herself|it|its|itself|we|us|our|ours|ourselves|they|them|their|theirs|themself|themselves)$/iu;
+const ADDRESS_PRONOUN_SIGNIFICANCE = /\b(?:address(?:es|ed|ing)?|calls?|form of address|refers? to|instead of (?:a |the )?name|refuses? (?:to use )?(?:a |the )?name|disrespect(?:ful(?:ly)?)?|contempt(?:uous(?:ly)?)?|dismissive(?:ly)?|insult(?:ing(?:ly)?)?|derisive(?:ly)?|rude(?:ly)?|pointedly|deliberately)\b/iu;
 
 export function isAddressFact(item) {
     const category = normalized(item?.category);
@@ -528,6 +530,44 @@ export function removeInvalidAddressFacts(container) {
     return removed;
 }
 
+function hasExplicitPronounAddressEvidence(item, form, messages, world) {
+    const speaker = canonicalAddressName(world, item?.subject);
+    const speakerNames = addressNameVariants(world, item?.subject);
+    const addresseeNames = addressNameVariants(world, addressFactAddressee(item));
+    const quotedForm = new RegExp(`[“”"'‘’]\\s*${escaped(form)}\\s*[“”"'‘’]`, 'iu');
+    return (messages || []).some(message => {
+        const source = String(message?.text ?? message?.mes ?? '');
+        if (!quotedForm.test(source) || !ADDRESS_PRONOUN_SIGNIFICANCE.test(source)) return false;
+        const authoredFirstPerson = canonicalAddressName(world, message?.name) === speaker && /\bI\b/u.test(source);
+        const explicitSpeaker = speakerNames.some(name => containsAddressForm(source, name));
+        const explicitAddressee = addresseeNames.some(name => containsAddressForm(source, name));
+        return explicitAddressee && (authoredFirstPerson || explicitSpeaker);
+    });
+}
+
+export function removeUnsupportedPronounAddressValues(container, messages, world = null) {
+    if (!Array.isArray(container?.facts)) return 0;
+    const empty = new Set();
+    let removed = 0;
+    for (const item of container.facts) {
+        if (!isAddressFact(item)) continue;
+        const retained = [];
+        let removedFromItem = 0;
+        for (const form of mergeAddressValues(item.value).split(/\s*;\s*/u).filter(Boolean)) {
+            if (ADDRESS_PRONOUN.test(form) && !hasExplicitPronounAddressEvidence(item, form, messages, world)) {
+                removed++;
+                removedFromItem++;
+            }
+            else retained.push(form);
+        }
+        if (!removedFromItem) continue;
+        item.value = mergeAddressValues(...retained);
+        if (!item.value) empty.add(item);
+    }
+    container.facts = container.facts.filter(item => !empty.has(item));
+    return removed;
+}
+
 export function removeUnsupportedSelfAddressFacts(container, messages, world = null) {
     if (!Array.isArray(container?.facts) || !Array.isArray(messages) || !messages.length) return 0;
     let removed = 0;
@@ -581,7 +621,8 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const discardedAddressValues = removeCrossDirectionAddressContamination(result, world, messages);
     const recoveredAliases = recoverExplicitEntityAliases(result, messages);
     const reconciledAddresses = reconcileGenericAddressDuplicates(result, world);
-    let ignored = discardedAddressValues + removeInvalidAddressFacts(result);
+    const discardedPronounAddresses = removeUnsupportedPronounAddressValues(result, messages, world);
+    let ignored = discardedAddressValues + discardedPronounAddresses + removeInvalidAddressFacts(result);
     ignored += removeUnsupportedSelfAddressFacts(result, messages, world);
     if (!Array.isArray(result.identityResolutions)) {
         result.identityResolutions = [];
@@ -625,5 +666,5 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     });
     const warnings = findCoverageWarnings(result, messages);
     if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
-    return { ignored, recovered, recoveredAliases, repairedAddresses, discardedAddressValues, reconciledAddresses, warnings };
+    return { ignored, recovered, recoveredAliases, repairedAddresses, discardedAddressValues, discardedPronounAddresses, reconciledAddresses, warnings };
 }

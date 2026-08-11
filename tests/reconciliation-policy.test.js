@@ -143,6 +143,60 @@ test('symbol-only model output cannot become an address form', () => {
     assert.deepEqual(result.facts.map(item => item.value), ['Setsuko', 'ナルト', '🦊']);
 });
 
+test('ordinary pronouns cannot become address forms or displace a stored nickname', () => {
+    const result = extraction();
+    result.facts.push(
+        {
+            targetId: 'fact_suki', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha',
+            value: 'you', category: 'form of address', importance: 1, persistence: 'recurring',
+        },
+        {
+            targetId: '', subject: 'Sakura Haruno', predicate: 'calls Setsuko Uchiha',
+            value: 'Pinky; you', category: 'form of address', importance: 2, persistence: 'recurring',
+        },
+    );
+    const world = {
+        entities: [], states: [], relationships: [], threads: [], backgrounds: [],
+        facts: [{
+            id: 'fact_suki', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha',
+            value: 'Suki-chan', category: 'form of address',
+        }],
+    };
+
+    const sanitized = sanitizeReconciliationMetadata(result, world, [
+        { index: 246, name: 'Naruto', text: '"You reacted, so I kept teasing. Sorry," Naruto says before changing the subject.' },
+        { index: 247, name: 'Setsuko', text: '"My pay, you want to know?" I ask Naruto.' },
+    ]);
+
+    assert.equal(sanitized.ignored, 2);
+    assert.deepEqual(result.facts, [{
+        targetId: '', subject: 'Sakura Haruno', predicate: 'calls Setsuko Uchiha',
+        value: 'Pinky', category: 'form of address', importance: 2, persistence: 'recurring',
+    }]);
+    assert.equal(world.facts[0].value, 'Suki-chan');
+});
+
+test('an explicitly meaningful disrespectful pronoun remains a valid address form', () => {
+    const result = extraction();
+    result.facts.push({
+        targetId: '', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha',
+        value: 'you', category: 'form of address', importance: 2, persistence: 'recurring',
+    });
+    const world = {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    };
+
+    const sanitized = sanitizeReconciliationMetadata(result, world, [{
+        index: 12,
+        name: 'Narrator',
+        text: 'Naruto Uzumaki deliberately calls Setsuko Uchiha “you” as a show of contempt and refuses to use her name.',
+    }]);
+
+    assert.equal(sanitized.discardedPronounAddresses, 0);
+    assert.equal(result.facts.length, 1);
+    assert.equal(result.facts[0].value, 'you');
+});
+
 test('stored malformed address placeholders are also removed from replay history', () => {
     const malformed = { subject: 'Setsuko Uchiha', predicate: 'calls [canonical addressee]', value: '[canonical addressee unavailable]', category: 'form of address' };
     const world = { facts: [structuredClone(malformed)], extractions: [{ result: { facts: [structuredClone(malformed)] } }] };

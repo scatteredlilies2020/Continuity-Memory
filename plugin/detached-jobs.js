@@ -126,9 +126,10 @@ function validationLabel(validation, attempt) {
     const recovered = Number(validation.recovered || 0) + Number(validation.recoveredAliases || 0);
     const repaired = Number(validation.repairedAddresses || 0);
     const discarded = Number(validation.discardedAddressValues || 0);
+    const pronouns = Number(validation.discardedPronounAddresses || 0);
     const reconciled = Number(validation.reconciledAddresses || 0);
     const warnings = validation.warnings?.length || 0;
-    return `Valid detached extraction${attempt > 1 ? ' after retry' : ''}${recovered ? `; recovered ${recovered} omitted durable record(s)` : ''}${repaired ? `; repaired ${repaired} reversed address value(s)` : ''}${discarded ? `; discarded ${discarded} cross-direction address value(s)` : ''}${reconciled ? `; reconciled ${reconciled} duplicate address record(s)` : ''}${warnings ? `; ${warnings} L1 coverage warning(s)` : ''}`;
+    return `Valid detached extraction${attempt > 1 ? ' after retry' : ''}${recovered ? `; recovered ${recovered} omitted durable record(s)` : ''}${repaired ? `; repaired ${repaired} reversed address value(s)` : ''}${discarded ? `; discarded ${discarded} cross-direction address value(s)` : ''}${pronouns ? `; discarded ${pronouns} unsupported pronoun address value(s)` : ''}${reconciled ? `; reconciled ${reconciled} duplicate address record(s)` : ''}${warnings ? `; ${warnings} L1 coverage warning(s)` : ''}`;
 }
 
 function formatCapsules(capsules) {
