@@ -60,6 +60,26 @@ test('keeps attributed belief facts separate from established facts and from eac
     assert.match(injected.prompt, /Bob.*belief about the masked visitor.*a spy.*not an established fact/i);
 });
 
+test('injects secret knowledge as a holder boundary instead of a generally known fact', () => {
+    const target = world();
+    mergeExtraction(target, extraction({
+        facts: [{
+            subject: 'Alice',
+            predicate: 'knows secret about the masked visitor — identity',
+            value: 'Clara is behind the mask',
+            category: 'character knowledge',
+            importance: 4,
+            persistence: 'persistent',
+        }],
+        events: [],
+    }), { chatKey: 'chat', from: 0, to: 3, allowStateUpdates: true });
+
+    const injected = buildMemoryPrompt(target, [{ name: 'User', mes: 'What secret does Alice know about the masked visitor?' }], 2000, 'chat');
+    assert.match(injected.prompt, /Secret knowledge boundaries/);
+    assert.match(injected.prompt, /Alice.*knows secret about the masked visitor.*Clara.*restricted to this knower/i);
+    assert.doesNotMatch(injected.prompt, /\nFacts\n[^]*Alice.*knows secret about the masked visitor/i);
+});
+
 test('merges durable records and updates matching facts instead of duplicating them', () => {
     const target = world();
     const meta = { chatKey: 'character:1:chat:test', from: 0, to: 4, allowStateUpdates: true, messageFingerprints: [{ index: 0, fingerprint: 'first' }] };

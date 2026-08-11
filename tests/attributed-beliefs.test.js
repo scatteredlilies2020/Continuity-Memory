@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isAttributedBeliefFact, migrateLegacyBeliefs } from '../extension/attributed-beliefs.js';
+import { isAttributedBeliefFact, isCharacterKnowledgeFact, isKnowledgeBoundedFact, migrateLegacyBeliefs } from '../extension/attributed-beliefs.js';
 
 test('migrates legacy belief records, replay data, and corrections into attributed facts', () => {
     const world = {
@@ -46,4 +46,7 @@ test('migrates legacy belief records, replay data, and corrections into attribut
 test('recognizes new attributed beliefs without a separate collection', () => {
     assert.equal(isAttributedBeliefFact({ subject: 'Alice', predicate: 'belief about Bob — motive', category: 'character belief' }), true);
     assert.equal(isAttributedBeliefFact({ subject: 'Bob', predicate: 'identity', category: 'identity' }), false);
+    const secret = { subject: 'Alice', predicate: 'knows secret about Bob — identity', value: 'Bob is the masked visitor', category: 'character knowledge' };
+    assert.equal(isCharacterKnowledgeFact(secret), true);
+    assert.equal(isKnowledgeBoundedFact(secret), true);
 });

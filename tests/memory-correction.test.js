@@ -59,6 +59,26 @@ test('scopes a character correction to that belief without rewriting established
     assert.equal(world.facts.some(item => item.subject === 'masked visitor' && item.predicate === 'identity'), false);
 });
 
+test('removes one character secret boundary without changing the secret or another knower', () => {
+    const world = memoryWorld();
+    world.facts.push(
+        { id: 'secret-content', subject: 'masked visitor', predicate: 'identity', value: 'Clara', category: 'identity', persistence: 'persistent', importance: 4, sources: [] },
+        { id: 'secret-alice', subject: 'Alice', predicate: 'knows secret about masked visitor — identity', value: 'Clara', category: 'character knowledge', persistence: 'persistent', importance: 4, sources: [] },
+        { id: 'secret-bob', subject: 'Bob', predicate: 'knows secret about masked visitor — identity', value: 'Clara', category: 'character knowledge', persistence: 'persistent', importance: 4, sources: [] },
+    );
+    const proposal = validateCorrectionProposal(world, {
+        summary: 'Alice never learned the visitor’s identity.',
+        operations: [{
+            action: 'delete', category: 'facts', targetId: 'secret-alice', reason: 'Remove only Alice’s knowledge boundary.', recordJson: '{}',
+        }],
+    }, 'Alice never learned the masked visitor’s identity.');
+
+    applyCorrectionProposal(world, proposal);
+    assert.equal(world.facts.some(item => item.id === 'secret-alice'), false);
+    assert.equal(world.facts.find(item => item.id === 'secret-bob').value, 'Clara');
+    assert.equal(world.facts.find(item => item.id === 'secret-content').value, 'Clara');
+});
+
 test('reviewed correction updates established records and invalidates only contaminated hierarchy', () => {
     const world = memoryWorld();
     const proposal = validateCorrectionProposal(world, {
