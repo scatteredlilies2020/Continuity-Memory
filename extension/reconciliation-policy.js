@@ -28,6 +28,13 @@ export function isAddressFact(item) {
         || predicate.startsWith('form of address for ');
 }
 
+function isGenericAddressFact(item) {
+    const category = normalized(item?.category);
+    const predicate = normalized(item?.predicate);
+    return /^(?:social address|forms? of address)$/u.test(category)
+        && /^(?:uses?|used) (?:the )?(?:address|address form|form of address|nickname)$/u.test(predicate);
+}
+
 export function addressFactAddressee(item) {
     if (!isAddressFact(item)) return '';
     const predicate = String(item?.predicate || '').replace(/\s+/g, ' ').trim();
@@ -281,10 +288,72 @@ export function mergeAddressValues(...values) {
     return forms.join('; ');
 }
 
+function addressValueSet(value) {
+    return new Set(mergeAddressValues(value).split(/\s*;\s*/u).map(normalized).filter(Boolean));
+}
+
+function addressValuesOverlap(left, right) {
+    const rightValues = addressValueSet(right);
+    return [...addressValueSet(left)].some(value => rightValues.has(value));
+}
+
+function mergeSourceReferences(...collections) {
+    const seen = new Set();
+    return collections.flat().filter(item => {
+        const identity = JSON.stringify(item);
+        if (seen.has(identity)) return false;
+        seen.add(identity);
+        return true;
+    });
+}
+
+export function reconcileGenericAddressDuplicates(container, world = container) {
+    if (!Array.isArray(container?.facts)) return 0;
+    const localFacts = container.facts;
+    const candidates = [...localFacts, ...(container === world ? [] : world?.facts || [])]
+        .filter(isAddressFact)
+        .map(item => ({ item, local: localFacts.includes(item), identity: addressFactIdentity(item, world) }))
+        .filter(candidate => candidate.identity);
+    let reconciled = 0;
+    container.facts = localFacts.filter(item => {
+        if (!isGenericAddressFact(item)) return true;
+        const speaker = canonicalAddressName(world, item.subject);
+        const anchor = String(item.temporalAnchorId || '');
+        const matching = candidates.filter(candidate => {
+            const candidateSpeaker = canonicalAddressName(world, candidate.item.subject);
+            const candidateAnchor = String(candidate.item.temporalAnchorId || '');
+            return speaker && speaker === candidateSpeaker
+                && (!anchor || !candidateAnchor || anchor === candidateAnchor)
+                && addressValuesOverlap(item.value, candidate.item.value);
+        });
+        const identities = [...new Set(matching.map(candidate => candidate.identity))];
+        if (identities.length !== 1) return true;
+        const local = matching.find(candidate => candidate.local);
+        const canonical = local || matching[0];
+        if (local) {
+            local.item.value = mergeAddressValues(local.item.value, item.value);
+            local.item.sources = mergeSourceReferences(local.item.sources || [], item.sources || []);
+            const importance = Math.max(Number(local.item.importance || 0), Number(item.importance || 0));
+            if (importance > 0) local.item.importance = importance;
+            reconciled++;
+            return false;
+        }
+        const addressee = addressFactAddressee(canonical.item);
+        item.subject = canonical.item.subject;
+        item.predicate = `calls ${addressee}`;
+        item.category = 'form of address';
+        item.targetId = canonical.item.id || item.targetId || '';
+        reconciled++;
+        return true;
+    });
+    return reconciled;
+}
+
 export function removeInvalidAddressFacts(container) {
     if (!Array.isArray(container?.facts)) return 0;
     let removed = 0;
     container.facts = container.facts.filter(item => {
+        if (isGenericAddressFact(item)) return true;
         if (!isAddressFact(item)) return true;
         const fields = [item?.subject, item?.predicate, item?.value, addressFactAddressee(item)];
         const invalid = fields.some(value => !String(value || '').trim()
@@ -310,9 +379,13 @@ export function removeUnsupportedSelfAddressFacts(container, messages, world = n
 }
 
 export function removeInvalidStoredAddressFacts(world) {
-    let removed = removeInvalidAddressFacts(world);
-    for (const extraction of world?.extractions || []) removed += removeInvalidAddressFacts(extraction?.result);
-    return removed;
+    let changed = reconcileGenericAddressDuplicates(world, world);
+    changed += removeInvalidAddressFacts(world);
+    for (const extraction of world?.extractions || []) {
+        changed += reconcileGenericAddressDuplicates(extraction?.result, world);
+        changed += removeInvalidAddressFacts(extraction?.result);
+    }
+    return changed;
 }
 
 export function reconciliationTargetIsCompatible(category, incoming, existing, world = null) {
@@ -334,6 +407,7 @@ export function reconciliationTargetIsCompatible(category, incoming, existing, w
 export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const recovered = recoverExplicitAddressFacts(result, world, messages);
     const recoveredAliases = recoverExplicitEntityAliases(result, messages);
+    const reconciledAddresses = reconcileGenericAddressDuplicates(result, world);
     let ignored = removeInvalidAddressFacts(result);
     ignored += removeUnsupportedSelfAddressFacts(result, messages, world);
     if (!Array.isArray(result.identityResolutions)) {
@@ -378,5 +452,5 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     });
     const warnings = findCoverageWarnings(result, messages);
     if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
-    return { ignored, recovered, recoveredAliases, warnings };
+    return { ignored, recovered, recoveredAliases, reconciledAddresses, warnings };
 }

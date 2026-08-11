@@ -5,7 +5,7 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.77';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.78';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
@@ -13,15 +13,15 @@ import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionC
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.77';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.77';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.78';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.78';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.77';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.77';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.78';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.78';
 import { canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.77';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.77';
-import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.77';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.78';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.78';
+import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.78';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
 
@@ -471,9 +471,10 @@ async function extractChunk(messages, world = runtime.world) {
             const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
             const { result, validation } = validateResult(parsed, world, messages);
             const recovered = Number(validation.recovered || 0) + Number(validation.recoveredAliases || 0);
+            const reconciled = Number(validation.reconciledAddresses || 0);
             const warnings = validation.warnings?.length || 0;
             updateRuntime({
-                lastValidation: `Valid structured extraction${attempt > 1 ? ' after retry' : ''}${recovered ? `; recovered ${recovered} omitted durable record(s)` : ''}${warnings ? `; ${warnings} L1 coverage warning(s)` : ''}`,
+                lastValidation: `Valid structured extraction${attempt > 1 ? ' after retry' : ''}${recovered ? `; recovered ${recovered} omitted durable record(s)` : ''}${reconciled ? `; reconciled ${reconciled} duplicate address record(s)` : ''}${warnings ? `; ${warnings} L1 coverage warning(s)` : ''}`,
             });
             return result;
         } catch (error) {

@@ -1,6 +1,6 @@
 import { EXTRACTION_VERSION } from './coverage.js';
 import { isSuppressedByCorrection } from './memory-correction.js';
-import { addressFactAddressee, addressFactIdentity, isAddressFact, mergeAddressValues, reconciliationTargetIsCompatible, removeInvalidAddressFacts } from './reconciliation-policy.js';
+import { addressFactAddressee, addressFactIdentity, isAddressFact, mergeAddressValues, reconcileGenericAddressDuplicates, reconciliationTargetIsCompatible, removeInvalidAddressFacts } from './reconciliation-policy.js';
 import { canonicalMemorySubject, canonicalStateAttribute, stateIdentity, stateScope } from './state-lifecycle.js';
 import { buildL1TemporalAnchor, buildRelativeTemporalAnchor } from './temporal-anchors.js';
 import { randomUuid } from './uuid.js';
@@ -177,6 +177,7 @@ function deduplicateCanonicalRecords(items, identity) {
 }
 
 export function normalizeAddressFacts(world) {
+    reconcileGenericAddressDuplicates(world, world);
     removeInvalidAddressFacts(world);
     const normalized = [];
     const indexes = new Map();
@@ -323,6 +324,7 @@ export function mergeExtraction(world, result, meta) {
     world.backgrounds ||= [];
     world.corrections ||= [];
     world.sources ||= {};
+    reconcileGenericAddressDuplicates(result, world);
     removeInvalidAddressFacts(result);
     normalizeAddressFacts(world);
     const l1Temporal = buildL1TemporalAnchor(world, result.sceneCapsule?.temporal, meta);

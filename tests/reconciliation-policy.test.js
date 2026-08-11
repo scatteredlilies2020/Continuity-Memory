@@ -151,12 +151,63 @@ test('stored malformed address placeholders are also removed from replay history
     assert.deepEqual(world.extractions[0].result.facts, []);
 });
 
+test('stored generic address duplicates are removed from canonical and replay memory', () => {
+    const directional = {
+        subject: 'Setsuko Uchiha', predicate: 'calls Sakura Haruno', value: 'Pinky', category: 'form of address',
+        temporalAnchorId: 'L1-test-16-23', sources: [{ chatKey: 'chat', from: 16, to: 23 }],
+    };
+    const generic = {
+        subject: 'Setsuko Uchiha', predicate: 'uses the address', value: 'Pinky', category: 'social address',
+        temporalAnchorId: 'L1-test-16-23', sources: [{ chatKey: 'chat', from: 16, to: 23 }],
+    };
+    const world = {
+        entities: [], facts: [structuredClone(directional), structuredClone(generic)],
+        extractions: [{ result: { facts: [structuredClone(directional), structuredClone(generic)] } }],
+    };
+
+    assert.equal(removeInvalidStoredAddressFacts(world), 2);
+    assert.deepEqual(world.facts, [directional]);
+    assert.deepEqual(world.extractions[0].result.facts, [directional]);
+});
+
 test('legacy and current address predicates share one directional identity', () => {
     assert.equal(
         addressFactIdentity({ subject: 'Setsuko Uchiha', predicate: 'form of address for Naruto Uzumaki', category: 'social address' }),
         addressFactIdentity({ subject: 'Setsuko Uchiha', predicate: 'calls Naruto Uzumaki.', category: 'forms of address' }),
     );
     assert.equal(mergeAddressValues('Uzumaki-kun; Uzumaki-san', '“dead last”; Uzumaki-kun'), 'Uzumaki-kun; Uzumaki-san; dead last');
+});
+
+test('generic social-address duplicates fold into one unambiguous directional fact', () => {
+    const result = extraction();
+    result.facts.push(
+        { subject: 'Setsuko Uchiha', predicate: 'calls Sakura Haruno', value: 'Pinky', category: 'form of address', importance: 2, persistence: 'recurring' },
+        { subject: 'Setsuko Uchiha', predicate: 'uses the address', value: 'Pinky', category: 'social address', importance: 2, persistence: 'recurring' },
+    );
+    const sanitized = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    });
+
+    assert.equal(sanitized.reconciledAddresses, 1);
+    assert.deepEqual(result.facts, [{
+        subject: 'Setsuko Uchiha', predicate: 'calls Sakura Haruno', value: 'Pinky', category: 'form of address',
+        importance: 2, persistence: 'recurring', sources: [], targetId: '',
+    }]);
+});
+
+test('generic social-address records remain when their addressee is ambiguous', () => {
+    const result = extraction();
+    result.facts.push(
+        { subject: 'Setsuko Uchiha', predicate: 'calls Sakura Haruno', value: 'Pinky', category: 'form of address' },
+        { subject: 'Setsuko Uchiha', predicate: 'calls Ino Yamanaka', value: 'Pinky', category: 'form of address' },
+        { subject: 'Setsuko Uchiha', predicate: 'uses the address', value: 'Pinky', category: 'social address' },
+    );
+    const sanitized = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    });
+
+    assert.equal(sanitized.reconciledAddresses, 0);
+    assert.equal(result.facts.length, 3);
 });
 
 test('address target IDs cannot reverse the speaker and addressee', () => {
