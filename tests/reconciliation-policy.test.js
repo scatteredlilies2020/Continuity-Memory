@@ -354,6 +354,28 @@ test('a user-authored vocative repairs a reversal without first-person narration
     }]);
 });
 
+test('an address value matching its alleged speaker is rejected without an explicit directional statement', () => {
+    const result = extraction();
+    result.facts.push({
+        targetId: '', subject: 'Alice Carter', predicate: 'calls Bob Evans',
+        value: 'Alice', category: 'form of address', importance: 2, persistence: 'recurring',
+    });
+    const world = {
+        entities: [
+            { name: 'Alice Carter', aliases: ['Alice'] },
+            { name: 'Bob Evans', aliases: ['Bob'] },
+        ],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    };
+    const sanitized = sanitizeReconciliationMetadata(result, world, [{
+        index: 4, name: 'Alice', isUser: false,
+        text: 'Bob checks the list. “Alice, are you ready?” Alice nods.',
+    }]);
+
+    assert.equal(sanitized.discardedUnsupportedAddresses, 1);
+    assert.deepEqual(result.facts, []);
+});
+
 test('stored reversed address facts are repaired from their anchored source range', () => {
     const world = {
         entities: [

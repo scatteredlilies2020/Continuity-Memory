@@ -75,6 +75,19 @@ function addressNameVariants(world, value) {
         .filter(Boolean))];
 }
 
+function addressFormNamesSpeaker(item, form, world) {
+    const value = normalized(form);
+    if (!value) return false;
+    const variants = addressNameVariants(world, item?.subject);
+    if (!variants.length && item?.subject) variants.push(String(item.subject));
+    return variants.some(variant => {
+        const name = normalized(variant);
+        if (!name) return false;
+        const parts = name.split(/\s+/u).filter(Boolean);
+        return value === name || parts.includes(value);
+    });
+}
+
 function escaped(value) {
     return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -341,8 +354,10 @@ export function removeUnsupportedAddressValues(container, messages, world = null
         if (!isAddressFact(item)) continue;
         const retained = [];
         for (const form of mergeAddressValues(item.value).split(/\s*;\s*/u).filter(Boolean)) {
-            const supported = hasExplicitDirectionalAddressStatement(item, form, messages, world)
-                || hasVocativeAddressEvidence(item, form, messages, world);
+            const explicitDirection = hasExplicitDirectionalAddressStatement(item, form, messages, world);
+            const supported = explicitDirection
+                || (!addressFormNamesSpeaker(item, form, world)
+                    && hasVocativeAddressEvidence(item, form, messages, world));
             if (supported) retained.push(form);
             else removed++;
         }
@@ -719,9 +734,31 @@ function repairReversedStoredAddressFacts(world, messages) {
     return repaired;
 }
 
+function removeImpossibleStoredAddressValues(world, messages) {
+    if (!Array.isArray(world?.facts)) return 0;
+    const empty = new Set();
+    let removed = 0;
+    for (const item of world.facts) {
+        if (!isAddressFact(item)) continue;
+        const evidence = messagesForTemporalAnchor(messages, item.temporalAnchorId);
+        const retained = [];
+        for (const form of mergeAddressValues(item.value).split(/\s*;\s*/u).filter(Boolean)) {
+            const impossible = addressFormNamesSpeaker(item, form, world)
+                && !hasExplicitDirectionalAddressStatement(item, form, evidence, world);
+            if (impossible) removed++;
+            else retained.push(form);
+        }
+        item.value = mergeAddressValues(...retained);
+        if (!item.value) empty.add(item);
+    }
+    world.facts = world.facts.filter(item => !empty.has(item));
+    return removed;
+}
+
 export function removeInvalidStoredAddressFacts(world, messages = null) {
     let changed = reconcileGenericAddressDuplicates(world, world);
     changed += repairReversedStoredAddressFacts(world, messages);
+    changed += removeImpossibleStoredAddressValues(world, messages);
     changed += removeInvalidAddressFacts(world);
     const correctedAddressSelectors = new Set((world?.corrections || [])
         .flatMap(correction => correction?.operations || [])
@@ -733,6 +770,7 @@ export function removeInvalidStoredAddressFacts(world, messages = null) {
             && Number(message?.index) <= Number(extraction?.to));
         changed += repairReversedAddressFacts(extraction?.result, world, extractionMessages);
         changed += reconcileGenericAddressDuplicates(extraction?.result, world);
+        changed += removeUnsupportedAddressValues(extraction?.result, extractionMessages, world);
         changed += removeInvalidAddressFacts(extraction?.result);
         if (!Array.isArray(extraction?.result?.facts) || !correctedAddressSelectors.size) continue;
         const retained = extraction.result.facts.filter(item => !isAddressFact(item)
