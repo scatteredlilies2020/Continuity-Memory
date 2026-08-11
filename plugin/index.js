@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PLUGIN = 'continuity-memory';
-const VERSION = '0.14.0-standalone.80';
+const VERSION = '0.14.0-standalone.81';
 const SCHEMA_VERSION = 9;
 const STORAGE_VERSION = 2;
 const SHARD_CHUNK_SIZE = 128;
