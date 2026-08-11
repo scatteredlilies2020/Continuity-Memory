@@ -333,13 +333,6 @@ function hasVocativeAddressEvidence(item, form, messages, world) {
     });
 }
 
-function isStoredAddressValue(item, form, world) {
-    const identity = addressFactIdentity(item, world);
-    if (!identity) return false;
-    return (world?.facts || []).some(stored => addressFactIdentity(stored, world) === identity
-        && addressValueSet(stored.value).has(normalized(form)));
-}
-
 export function removeUnsupportedAddressValues(container, messages, world = null) {
     if (!Array.isArray(container?.facts) || !Array.isArray(messages) || !messages.length) return 0;
     const empty = new Set();
@@ -348,8 +341,7 @@ export function removeUnsupportedAddressValues(container, messages, world = null
         if (!isAddressFact(item)) continue;
         const retained = [];
         for (const form of mergeAddressValues(item.value).split(/\s*;\s*/u).filter(Boolean)) {
-            const supported = isStoredAddressValue(item, form, world)
-                || hasExplicitDirectionalAddressStatement(item, form, messages, world)
+            const supported = hasExplicitDirectionalAddressStatement(item, form, messages, world)
                 || hasVocativeAddressEvidence(item, form, messages, world);
             if (supported) retained.push(form);
             else removed++;
@@ -361,14 +353,30 @@ export function removeUnsupportedAddressValues(container, messages, world = null
     return removed;
 }
 
+function hasAuthoredVocativeEvidence(messages, world, speaker, form) {
+    const canonicalSpeaker = canonicalAddressName(world, speaker);
+    const speakerNames = addressNameVariants(world, speaker);
+    return (messages || []).some(message => {
+        const text = String(message?.text ?? message?.mes ?? '');
+        return Boolean(message?.isUser)
+            && canonicalAddressName(world, message?.name) === canonicalSpeaker
+            && containsAddressForm(text, form)
+            && [...quotedSpeechSegments(text), ...labeledSpeechSegments(text, speakerNames), text]
+                .some(segment => isVocativeUse(segment, form));
+    });
+}
+
 function hasAddressSpeechEvidence(messages, world, speaker, form) {
     const canonicalSpeaker = canonicalAddressName(world, speaker);
     const speakerNames = addressNameVariants(world, speaker);
     return (messages || []).some(message => {
         const text = String(message?.text ?? message?.mes ?? '');
         if (!containsAddressForm(text, form)) return false;
-        const authoredDirectly = canonicalAddressName(world, message?.name) === canonicalSpeaker
-            && directlyVoicesFirstPersonSpeech(text, form);
+        const authoredBySpeaker = canonicalAddressName(world, message?.name) === canonicalSpeaker;
+        const authoredVocative = authoredBySpeaker
+            && hasAuthoredVocativeEvidence([message], world, speaker, form);
+        const authoredDirectly = authoredBySpeaker
+            && (directlyVoicesFirstPersonSpeech(text, form) || authoredVocative);
         return authoredDirectly || explicitlyAttributesSpeech(text, speakerNames, form);
     });
 }
@@ -387,8 +395,12 @@ function hasDirectionalAddressSpeechEvidence(messages, world, speaker, addressee
     return (messages || []).some(message => {
         const text = String(message?.text ?? message?.mes ?? '');
         if (!containsAddressForm(text, form)) return false;
-        const authoredDirectly = canonicalAddressName(world, message?.name) === canonicalSpeaker
-            && directlyVoicesFirstPersonSpeech(text, form);
+        const authoredBySpeaker = canonicalAddressName(world, message?.name) === canonicalSpeaker;
+        const authoredVocative = Boolean(message?.isUser) && authoredBySpeaker
+            && [...quotedSpeechSegments(text), ...labeledSpeechSegments(text, speakerNames), text]
+                .some(segment => isVocativeUse(segment, form));
+        const authoredDirectly = authoredBySpeaker
+            && (directlyVoicesFirstPersonSpeech(text, form) || authoredVocative);
         if (authoredDirectly && addresseeContext) return true;
         const explicitlyDirectional = speakerNames.some(speakerName => addresseeNames.some(addresseeName =>
             new RegExp(`\\b${escaped(speakerName)}\\b[^\\n\\r]{0,100}\\b(?:calls?|called|addresses?|addressed|nicknames?|nicknamed)\\s+\\b${escaped(addresseeName)}\\b[^\\n\\r]{0,100}${formPattern}`, 'iu').test(text)));
@@ -417,7 +429,9 @@ export function repairReversedAddressFacts(result, world, messages) {
         for (const form of mergeAddressValues(item.value).split(/\s*;\s*/u).filter(Boolean)) {
             const forwardEvidence = hasAddressSpeechEvidence(messages, world, speaker, form);
             const reverseEvidence = hasAddressSpeechEvidence(messages, world, addressee, form);
-            if (reverseEvidence && !forwardEvidence) reversed.push(form);
+            const forwardAuthored = hasAuthoredVocativeEvidence(messages, world, speaker, form);
+            const reverseAuthored = hasAuthoredVocativeEvidence(messages, world, addressee, form);
+            if ((reverseAuthored && !forwardAuthored) || (reverseEvidence && !forwardEvidence)) reversed.push(form);
             else retained.push(form);
         }
         if (!reversed.length) continue;
@@ -672,8 +686,42 @@ export function removeUnsupportedSelfAddressFacts(container, messages, world = n
     return removed;
 }
 
-export function removeInvalidStoredAddressFacts(world) {
+function messagesForTemporalAnchor(messages, anchorId) {
+    const match = String(anchorId || '').match(/-(\d+)-(\d+)$/u);
+    if (!match) return messages || [];
+    const from = Number(match[1]);
+    const to = Number(match[2]);
+    return (messages || []).filter(message => Number(message?.index) >= from && Number(message?.index) <= to);
+}
+
+function repairReversedStoredAddressFacts(world, messages) {
+    if (!Array.isArray(world?.facts) || !Array.isArray(messages) || !messages.length) return 0;
+    let repaired = 0;
+    for (const item of world.facts) {
+        if (!isAddressFact(item) || isSelfAddressFact(item, world)) continue;
+        const speaker = canonicalAddressDisplayName(world, item.subject);
+        const addressee = canonicalAddressDisplayName(world, addressFactAddressee(item));
+        if (!speaker || !addressee) continue;
+        const evidence = messagesForTemporalAnchor(messages, item.temporalAnchorId);
+        const forms = mergeAddressValues(item.value).split(/\s*;\s*/u).filter(Boolean);
+        if (!forms.length || !forms.every(form => {
+            const reverseAuthored = hasAuthoredVocativeEvidence(evidence, world, addressee, form);
+            const forwardAuthored = hasAuthoredVocativeEvidence(evidence, world, speaker, form);
+            return (reverseAuthored && !forwardAuthored)
+                || (hasAddressSpeechEvidence(evidence, world, addressee, form)
+                    && !hasAddressSpeechEvidence(evidence, world, speaker, form));
+        })) continue;
+        item.subject = addressee;
+        item.predicate = `calls ${speaker}`;
+        item.category = 'form of address';
+        repaired += forms.length;
+    }
+    return repaired;
+}
+
+export function removeInvalidStoredAddressFacts(world, messages = null) {
     let changed = reconcileGenericAddressDuplicates(world, world);
+    changed += repairReversedStoredAddressFacts(world, messages);
     changed += removeInvalidAddressFacts(world);
     const correctedAddressSelectors = new Set((world?.corrections || [])
         .flatMap(correction => correction?.operations || [])
@@ -681,6 +729,9 @@ export function removeInvalidStoredAddressFacts(world) {
         .map(operation => String(operation?.beforeSelector || ''))
         .filter(Boolean));
     for (const extraction of world?.extractions || []) {
+        const extractionMessages = (messages || []).filter(message => Number(message?.index) >= Number(extraction?.from)
+            && Number(message?.index) <= Number(extraction?.to));
+        changed += repairReversedAddressFacts(extraction?.result, world, extractionMessages);
         changed += reconcileGenericAddressDuplicates(extraction?.result, world);
         changed += removeInvalidAddressFacts(extraction?.result);
         if (!Array.isArray(extraction?.result?.facts) || !correctedAddressSelectors.size) continue;

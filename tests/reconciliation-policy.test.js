@@ -329,6 +329,56 @@ test('direct source speech repairs a cross-person address reversal', () => {
     }]);
 });
 
+test('a user-authored vocative repairs a reversal without first-person narration', () => {
+    const result = extraction();
+    result.facts.push({
+        targetId: 'fact_idiot', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha',
+        value: 'idiot', category: 'form of address', importance: 2, persistence: 'recurring',
+    });
+    const world = {
+        entities: [
+            { name: 'Setsuko Uchiha', aliases: ['Setsuko'] },
+            { name: 'Naruto Uzumaki', aliases: ['Naruto'] },
+        ],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    };
+    const sanitized = sanitizeReconciliationMetadata(result, world, [
+        { index: 225, name: 'Setsuko', isUser: true, text: '"Me? Why ask, everyone ate here at some point, idiot' },
+        { index: 226, name: 'Naruto', isUser: false, text: '"I’m not an idiot," Naruto protests.' },
+    ]);
+
+    assert.equal(sanitized.repairedAddresses, 1);
+    assert.deepEqual(result.facts, [{
+        targetId: '', subject: 'Setsuko Uchiha', predicate: 'calls Naruto Uzumaki',
+        value: 'idiot', category: 'form of address', importance: 2, persistence: 'recurring',
+    }]);
+});
+
+test('stored reversed address facts are repaired from their anchored source range', () => {
+    const world = {
+        entities: [
+            { name: 'Setsuko Uchiha', aliases: ['Setsuko'] },
+            { name: 'Naruto Uzumaki', aliases: ['Naruto'] },
+        ],
+        facts: [{
+            id: 'fact_idiot', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha', value: 'idiot',
+            category: 'form of address', temporalAnchorId: 'L1-0399d9d5-224-231',
+        }],
+        extractions: [], corrections: [], states: [], relationships: [], threads: [], backgrounds: [],
+    };
+    const changed = removeInvalidStoredAddressFacts(world, [
+        { index: 30, name: 'Naruto', isUser: false, text: 'Naruto calls someone else an idiot.' },
+        { index: 225, name: 'Setsuko', isUser: true, text: '"Me? Why ask, everyone ate here at some point, idiot' },
+        { index: 226, name: 'Naruto', isUser: false, text: '"I’m not an idiot," Naruto protests.' },
+    ]);
+
+    assert.equal(changed, 1);
+    assert.deepEqual(world.facts[0], {
+        id: 'fact_idiot', subject: 'Setsuko Uchiha', predicate: 'calls Naruto Uzumaki', value: 'idiot',
+        category: 'form of address', temporalAnchorId: 'L1-0399d9d5-224-231',
+    });
+});
+
 test('explicit attribution preserves a correctly directed address fact', () => {
     const result = extraction();
     result.facts.push({
@@ -400,8 +450,8 @@ test('a later range cannot copy an opposite-direction address value', () => {
     }]);
 
     assert.equal(sanitized.discardedAddressValues, 1);
-    assert.equal(result.facts[0].value, 'Suki-chan');
-    assert.equal(result.facts[0].targetId, 'fact_suki');
+    assert.equal(sanitized.discardedUnsupportedAddresses, 1);
+    assert.deepEqual(result.facts, []);
 });
 
 test('the first range cannot create the same address form in both directions from an echoed nickname', () => {
@@ -506,7 +556,7 @@ test('direct new speech may establish the same form in both directions', () => {
     }]);
 
     assert.equal(sanitized.discardedAddressValues, 0);
-    assert.equal(result.facts[0].value, 'Suki-chan; idiot');
+    assert.equal(result.facts[0].value, 'idiot');
 });
 
 test('self-address falsely inferred from another speaker is rejected', () => {
