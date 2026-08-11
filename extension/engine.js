@@ -5,23 +5,24 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.78';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.79';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.79';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.78';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.78';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.79';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.79';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.78';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.78';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.79';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.79';
 import { canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.78';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.78';
-import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.78';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.79';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.79';
+import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.79';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
 
@@ -481,6 +482,7 @@ async function extractChunk(messages, world = runtime.world) {
             lastError = error;
             updateRuntime({ lastValidation: `Extraction attempt ${attempt}/2 failed: ${error.message}` });
             if (isRateLimitError(error)) throw new Error(`Rate limited; this chunk remains pending. Resume processing after the endpoint recovers.`, { cause: error });
+            if (isExplicitExtractionOutputLimitError(error)) throw error;
         }
     }
     throw new Error(`Structured extraction failed twice: ${lastError?.message || 'unknown error'}`);
@@ -580,10 +582,34 @@ async function requestDirectStructured(prompt, systemPrompt, jsonSchema, respons
         const detail = payload?.error?.message || payload?.error || payload?.message || `${response.status} ${response.statusText}`;
         throw new Error(`Direct ${kind} API failed: ${detail}`);
     }
+    assertCompletionNotTruncated(payload, `Direct ${kind} API`);
     const content = payload?.choices?.[0]?.message?.content ?? payload?.choices?.[0]?.text;
     const result = Array.isArray(content) ? content.map(item => item?.text || '').join('') : content;
     if (!String(result || '').trim()) throw new Error(`Direct ${kind} API returned no text.`);
     return String(result);
+}
+
+function completionFinishReason(payload) {
+    return String(
+        payload?.choices?.[0]?.finish_reason
+        ?? payload?.data?.choices?.[0]?.finish_reason
+        ?? payload?.response?.choices?.[0]?.finish_reason
+        ?? '',
+    ).trim().toLocaleLowerCase();
+}
+
+function assertCompletionNotTruncated(payload, label) {
+    const reason = completionFinishReason(payload);
+    if (reason === 'length' || reason === 'max_tokens') {
+        throw new Error(`${label} reached its output limit (finish_reason: ${reason}).`);
+    }
+}
+
+function extractProfileResponse(response, apiMap, profileName) {
+    assertCompletionNotTruncated(response, `Connection profile “${profileName}”`);
+    const result = extractMessageFromData(response, apiMap.selected);
+    if (!result || typeof result !== 'string') throw new Error(`Connection profile “${profileName}” returned no text.`);
+    return result;
 }
 
 export async function requestDirectText(prompt, systemPrompt, responseLength = 300, kind = 'extraction') {
@@ -648,9 +674,7 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
                 profileId, messagesFor(fallbackPrompt), profileResponseLength, options, compatibilityPayload(),
             );
         }
-        const result = extractMessageFromData(response, apiMap.selected);
-        if (!result || typeof result !== 'string') throw new Error(`Connection profile “${profile.name}” returned no text.`);
-        return result;
+        return extractProfileResponse(response, apiMap, profile.name);
     }
     try {
         response = await ConnectionManagerRequestService.sendRequest(
@@ -669,9 +693,7 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
                 error = retryError;
             }
             if (response) {
-                const result = extractMessageFromData(response, apiMap.selected);
-                if (!result || typeof result !== 'string') throw new Error(`Connection profile “${profile.name}” returned no text.`);
-                return result;
+                return extractProfileResponse(response, apiMap, profile.name);
             }
         }
         if (!shouldRetryWithoutSchema(error)) throw error;
@@ -690,9 +712,7 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
             );
         }
     }
-    const result = extractMessageFromData(response, apiMap.selected);
-    if (!result || typeof result !== 'string') throw new Error(`Connection profile “${profile.name}” returned no text.`);
-    return result;
+    return extractProfileResponse(response, apiMap, profile.name);
 }
 
 export async function reviewMemoryCorrection(instruction) {
@@ -1370,31 +1390,48 @@ async function processRange(job, epoch) {
     const groupSize = resolveL1GroupSize(job.l1GroupSize);
     const chunks = await chunkMessages(unseen, resolveExtractionChunk(getSettings().extractionChunkTokens, getContext().maxContext), groupSize);
 
-    for (let index = 0; index < chunks.length; index++) {
-        if (runtime.paused || runtime.generation !== epoch) throw new Error('Processing stopped; pending results were discarded.');
-        const chunk = chunks[index].messages;
-        updateRuntime({
-            progress: { current: index + 1, total: chunks.length, from: chunk[0].index, to: chunk.at(-1).index, inputTokens: chunks[index].tokens },
-            status: 'processing',
-        });
-        const result = await extractChunk(chunk);
-        if (runtime.paused || runtime.generation !== epoch) throw new Error('Processing stopped; pending results were discarded.');
-        await saveExtraction(job.worldId, result, {
+    const adaptive = await processAdaptiveExtractionChunks(chunks, {
+        measureMessages: chunk => getTokenCountAsync(formatMessages(chunk)),
+        onAttempt: ({ messages: chunk, tokens, current, total }) => {
+            if (runtime.paused || runtime.generation !== epoch) throw new Error('Processing stopped; pending results were discarded.');
+            updateRuntime({
+                progress: { current, total, from: chunk[0].index, to: chunk.at(-1).index, inputTokens: tokens },
+                status: 'processing',
+            });
+        },
+        extract: async chunk => {
+            const result = await extractChunk(chunk);
+            if (runtime.paused || runtime.generation !== epoch) throw new Error('Processing stopped; pending results were discarded.');
+            return result;
+        },
+        onSplit: ({ original, parts, current, total }) => {
+            const [left, right] = parts;
+            updateRuntime({
+                progress: { current, total, from: original.messages[0].index, to: original.messages.at(-1).index, inputTokens: original.tokens },
+                retryStatus: `Extraction output was incomplete for messages ${original.messages[0].index}-${original.messages.at(-1).index}. Retrying as messages ${left.messages[0].index}-${left.messages.at(-1).index} and ${right.messages[0].index}-${right.messages.at(-1).index}.`,
+            });
+        },
+        save: (result, chunk) => saveExtraction(job.worldId, result, {
             chatKey: job.chatKey,
             from: chunk[0].index,
             to: chunk.at(-1).index,
             allowStateUpdates: job.allowStateUpdates,
             messageFingerprints: chunk.map(message => ({ index: message.index, fingerprint: message.fingerprint })),
-        });
-        try {
-            await buildNextArc(job.worldId, epoch);
-            await buildNextEra(job.worldId, epoch);
-        } catch (error) {
-            console.warn('[Continuity] Non-destructive hierarchy generation was deferred.', error);
-            updateRuntime({ arcStatus: 'L2/L3 hierarchy deferred; lower-level memory is safe.', arcError: error.message });
-        }
+        }),
+        afterSave: async () => {
+            try {
+                await buildNextArc(job.worldId, epoch);
+                await buildNextEra(job.worldId, epoch);
+            } catch (error) {
+                console.warn('[Continuity] Non-destructive hierarchy generation was deferred.', error);
+                updateRuntime({ arcStatus: 'L2/L3 hierarchy deferred; lower-level memory is safe.', arcError: error.message });
+            }
+        },
+    });
+    if (adaptive.splits) {
+        updateRuntime({ retryStatus: `Adaptive extraction recovered ${adaptive.splits} incomplete section${adaptive.splits === 1 ? '' : 's'} as ${adaptive.completed} validated L1 parts.` });
     }
-    return { chunks: chunks.length, messages: unseen.length, skipped };
+    return { chunks: adaptive.completed, adaptiveSplits: adaptive.splits, messages: unseen.length, skipped };
 }
 
 async function processQueue() {
