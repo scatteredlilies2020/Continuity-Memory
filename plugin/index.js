@@ -3,9 +3,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrateLegacyBeliefs } from '../extension/attributed-beliefs.js';
+import { cancelDetachedJob, createDetachedJob, getDetachedJob, listDetachedJobs } from './detached-jobs.js';
 
 const PLUGIN = 'continuity-memory';
-const VERSION = '0.14.0-standalone.87';
+const VERSION = '0.14.0-standalone.88';
 const SCHEMA_VERSION = 10;
 const STORAGE_VERSION = 2;
 const SHARD_CHUNK_SIZE = 128;
@@ -372,7 +373,7 @@ function sendError(res, error) {
     res.status(status).json({ ok: false, error: error.message || String(error) });
 }
 
-export async function init(router, { syncExtension = true } = {}) {
+export async function init(router, { syncExtension = true, fetchImpl = fetch } = {}) {
     if (syncExtension) {
         const frontend = await syncBundledExtension();
         console.log(`[${PLUGIN}] frontend ${frontend.status} at ${frontend.path}`);
@@ -381,7 +382,7 @@ export async function init(router, { syncExtension = true } = {}) {
         try {
             const dirs = await ensureStorage(req);
             const files = (await fs.readdir(dirs.worlds)).filter(file => file.endsWith('.json'));
-            res.json({ ok: true, plugin: PLUGIN, version: VERSION, schemaVersion: SCHEMA_VERSION, storageVersion: STORAGE_VERSION, worlds: files.length, storage: dirs.root });
+            res.json({ ok: true, plugin: PLUGIN, version: VERSION, schemaVersion: SCHEMA_VERSION, storageVersion: STORAGE_VERSION, detachedJobs: true, worlds: files.length, storage: dirs.root });
         } catch (error) {
             sendError(res, error);
         }
@@ -473,6 +474,79 @@ export async function init(router, { syncExtension = true } = {}) {
             world.revision = 0;
             await writeShardedWorld(dirs, world);
             res.status(201).json({ ok: true, world });
+        } catch (error) {
+            sendError(res, error);
+        }
+    });
+
+    router.post('/migrate-world', async (req, res) => {
+        try {
+            const dirs = await ensureStorage(req);
+            const source = req.body?.world || req.body;
+            const id = assertWorldId(source?.id);
+            const existing = await optionalWorld(dirs, id);
+            if (existing) return res.json({ ok: true, existing: true, world: existing, counts: counts(existing) });
+            const world = normalizeWorld({ ...source, id, revision: -1 }, id);
+            world.revision = Math.max(0, Number(source.revision) || 0);
+            world.createdAt = source.createdAt || world.createdAt;
+            world.updatedAt = source.updatedAt || world.updatedAt;
+            await writeShardedWorld(dirs, world);
+            res.status(201).json({ ok: true, existing: false, world, counts: counts(world) });
+        } catch (error) {
+            sendError(res, error);
+        }
+    });
+
+    router.post('/extraction-jobs', async (req, res) => {
+        try {
+            const dirs = await ensureStorage(req);
+            const storage = {
+                loadWorld: async id => {
+                    const world = await optionalWorld(dirs, assertWorldId(id));
+                    if (!world) throw Object.assign(new Error('World not found'), { status: 404 });
+                    return world;
+                },
+                saveWorld: async (id, input) => {
+                    const record = await optionalWorldRecord(dirs, assertWorldId(id));
+                    if (!record.world) throw Object.assign(new Error('World not found'), { status: 404 });
+                    if (Number(input.revision || 0) !== Number(record.world.revision || 0)) {
+                        throw Object.assign(new Error(`Revision conflict: stored ${record.world.revision || 0}, received ${input.revision || 0}`), { status: 409 });
+                    }
+                    const world = normalizeWorld({ ...input, createdAt: record.world.createdAt, revision: record.world.revision }, id);
+                    await writeShardedWorld(dirs, world, record.manifest);
+                    return world;
+                },
+            };
+            const { job, existing } = createDetachedJob(req, req.body, storage, { fetchImpl });
+            res.status(existing ? 200 : 202).json({ ok: true, existing, job: getDetachedJob(req, job.id) });
+        } catch (error) {
+            sendError(res, error);
+        }
+    });
+
+    router.get('/extraction-jobs', async (req, res) => {
+        try {
+            res.json({ ok: true, jobs: listDetachedJobs(req, { worldId: String(req.query.worldId || ''), chatKey: String(req.query.chatKey || '') }) });
+        } catch (error) {
+            sendError(res, error);
+        }
+    });
+
+    router.get('/extraction-jobs/:id', async (req, res) => {
+        try {
+            const job = getDetachedJob(req, req.params.id);
+            if (!job) throw Object.assign(new Error('Detached job not found'), { status: 404 });
+            res.json({ ok: true, job });
+        } catch (error) {
+            sendError(res, error);
+        }
+    });
+
+    router.delete('/extraction-jobs/:id', async (req, res) => {
+        try {
+            const job = cancelDetachedJob(req, req.params.id);
+            if (!job) throw Object.assign(new Error('Detached job not found'), { status: 404 });
+            res.json({ ok: true, job });
         } catch (error) {
             sendError(res, error);
         }

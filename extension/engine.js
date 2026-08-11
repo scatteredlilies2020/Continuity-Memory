@@ -2,29 +2,30 @@ import { extractMessageFromData, generateRaw, getRequestHeaders } from '/script.
 import { getContext } from '/scripts/st-context.js';
 import { getTokenCountAsync } from '/scripts/tokenizers.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
+import { proxies } from '/scripts/openai.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.87';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.88';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.87';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.88';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.87';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.87';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.88';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.88';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.87';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.87';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.88';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.88';
 import { canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.87';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.87';
-import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.87';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.88';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.88';
+import { onRuntimeStop, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.88';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
 
@@ -268,6 +269,13 @@ const JSON_SHAPE_EXAMPLE = JSON.stringify({
 
 let activeExtractionThinkingMode = null;
 const DIRECT_PROFILE_ID = '__direct__';
+const watchedDetachedJobs = new Set();
+const activeDetachedJobs = new Set();
+
+onRuntimeStop(async () => {
+    const ids = [...activeDetachedJobs];
+    await Promise.allSettled(ids.map(id => api.cancelExtractionJob(id)));
+});
 
 export function applyExtractionRequestSettings(data) {
     if (!activeExtractionThinkingMode || !data || typeof data !== 'object') return;
@@ -447,31 +455,11 @@ function extractionTemporalContext(world) {
 }
 
 async function extractChunk(messages, world = runtime.world) {
-    const settings = getSettings();
-    const detail = settings.detail;
-    const detailInstruction = detail === 'light'
-        ? 'Capture only details likely to matter again.'
-        : detail === 'detailed'
-            ? 'Capture subtle recurring details, conditions, relationships, routines, rules, resources, and small changes as well as major developments, using whatever categories fit this scenario.'
-            : 'Capture major developments and useful recurring or persistent details without recording filler.';
-    const profileId = settings.memoryProfileId;
-    const usesStructuredSchema = requestSupportsStructuredSchema(extractionJsonSchema, profileId, 'extraction');
-    const taskTemplate = settings.extractionTaskTemplate ?? DEFAULT_EXTRACTION_TASK_TEMPLATE;
-    const attributionContext = precedingUserAttributionContext(getContext().chat || [], messages);
-    const taskValues = {
-        detail: detailInstruction,
-        messages: formatExtractionMessages(messages, attributionContext),
-        active_states: extractionStateContext(world, messages),
-        temporal_context: extractionTemporalContext(world),
-    };
-    const prompt = renderStructuredTaskPrompt(taskTemplate, DEFAULT_EXTRACTION_TASK_TEMPLATE, taskValues, JSON_SHAPE_EXAMPLE, usesStructuredSchema, ['messages', 'active_states', 'temporal_context']);
-    const fallbackPrompt = usesStructuredSchema
-        ? renderStructuredTaskPrompt(taskTemplate, DEFAULT_EXTRACTION_TASK_TEMPLATE, taskValues, JSON_SHAPE_EXAMPLE, false, ['messages', 'active_states', 'temporal_context'])
-        : prompt;
+    const prepared = prepareExtractionPrompts(messages, world);
+    const { prompt, fallbackPrompt, systemPrompt } = prepared;
     let lastError;
     for (let attempt = 1; attempt <= 2; attempt++) {
         try {
-            const systemPrompt = buildExtractionSystemPrompt(settings.extractionSystemPrompt, settings.jbEnabled, settings.jbPrompt);
             const raw = await requestExtraction(prompt, systemPrompt, fallbackPrompt);
             updateRuntime({ lastRawResponse: String(raw).slice(0, 30000) });
             const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
@@ -493,6 +481,36 @@ async function extractChunk(messages, world = runtime.world) {
         }
     }
     throw new Error(`Structured extraction failed twice: ${lastError?.message || 'unknown error'}`);
+}
+
+function prepareExtractionPrompts(messages, world = runtime.world) {
+    const settings = getSettings();
+    const detail = settings.detail;
+    const detailInstruction = detail === 'light'
+        ? 'Capture only details likely to matter again.'
+        : detail === 'detailed'
+            ? 'Capture subtle recurring details, conditions, relationships, routines, rules, resources, and small changes as well as major developments, using whatever categories fit this scenario.'
+            : 'Capture major developments and useful recurring or persistent details without recording filler.';
+    const profileId = settings.memoryProfileId;
+    const usesStructuredSchema = requestSupportsStructuredSchema(extractionJsonSchema, profileId, 'extraction');
+    const taskTemplate = settings.extractionTaskTemplate ?? DEFAULT_EXTRACTION_TASK_TEMPLATE;
+    const attributionContext = precedingUserAttributionContext(getContext().chat || [], messages);
+    const taskValues = {
+        detail: detailInstruction,
+        messages: formatExtractionMessages(messages, attributionContext),
+        active_states: extractionStateContext(world, messages),
+        temporal_context: extractionTemporalContext(world),
+    };
+    const prompt = renderStructuredTaskPrompt(taskTemplate, DEFAULT_EXTRACTION_TASK_TEMPLATE, taskValues, JSON_SHAPE_EXAMPLE, usesStructuredSchema, ['messages', 'active_states', 'temporal_context']);
+    const fallbackPrompt = usesStructuredSchema
+        ? renderStructuredTaskPrompt(taskTemplate, DEFAULT_EXTRACTION_TASK_TEMPLATE, taskValues, JSON_SHAPE_EXAMPLE, false, ['messages', 'active_states', 'temporal_context'])
+        : prompt;
+    return {
+        prompt,
+        fallbackPrompt,
+        systemPrompt: buildExtractionSystemPrompt(settings.extractionSystemPrompt, settings.jbEnabled, settings.jbPrompt),
+        usesStructuredSchema,
+    };
 }
 
 async function requestExtraction(prompt, systemPrompt, fallbackPrompt = prompt) {
@@ -735,6 +753,196 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
         }
     }
     return extractProfileResponse(response, apiMap, profile.name);
+}
+
+function detachedRequestBodies({ prompt, fallbackPrompt, systemPrompt, usesStructuredSchema }) {
+    const settings = getSettings();
+    const profileId = settings.memoryProfileId;
+    const messagesFor = userPrompt => [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+    ];
+    let base;
+    let thinking;
+    let model;
+    if (profileId === DIRECT_PROFILE_ID) {
+        const config = directRequestConfig('extraction');
+        model = config.model;
+        thinking = buildThinkingRequest({
+            mode: settings.thinkingMode,
+            source: config.provider === 'openrouter' ? 'openrouter' : 'custom',
+            model,
+            url: config.url,
+        });
+        base = {
+            chat_completion_source: config.provider,
+            model,
+            ...(config.provider === 'openrouter'
+                ? { api_url: config.url }
+                : { custom_url: config.url, secret_id: config.secretId || undefined }),
+        };
+    } else if (profileId) {
+        const profile = ConnectionManagerRequestService.getProfile(profileId);
+        const apiMap = ConnectionManagerRequestService.validateProfile(profile);
+        if (apiMap.selected !== 'openai' || !apiMap.source) return null;
+        const proxy = proxies.find(item => item.name === profile.proxy);
+        model = profile.model;
+        thinking = buildThinkingRequest({
+            mode: settings.thinkingMode,
+            source: apiMap.source,
+            model,
+            url: profile['api-url'],
+            profileName: profile.name,
+        });
+        base = {
+            chat_completion_source: apiMap.source,
+            model,
+            secret_id: profile['secret-id'] || undefined,
+            custom_url: profile['api-url'] || undefined,
+            api_url: profile['api-url'] || undefined,
+            vertexai_region: profile['api-url'] || undefined,
+            zai_endpoint: profile['api-url'] || undefined,
+            siliconflow_endpoint: profile['api-url'] || undefined,
+            minimax_endpoint: profile['api-url'] || undefined,
+            pollinations_endpoint: profile['api-url'] || undefined,
+            reverse_proxy: proxy?.url || undefined,
+            proxy_password: proxy?.password || undefined,
+        };
+    } else {
+        // Native active-chat settings require browser-side preset expansion.
+        return null;
+    }
+    const responseLength = resolveMemoryResponseTokens(memoryResponseTokens('l1'), thinking.adapter) ?? undefined;
+    const compatible = isolatedProfilePayload({
+        ...outputTokenPayload(model, memoryResponseTokens('l1')),
+        ...thinking.payload,
+    });
+    const thinkingKeys = new Set(['include_reasoning', 'reasoning_effort', 'reasoning_budget', 'thinking_budget', 'thinking_level', 'thinking', 'reasoning', 'think', 'enable_thinking', 'chat_template_kwargs', 'custom_include_body']);
+    const uncontrolled = Object.fromEntries(Object.entries(compatible).filter(([key]) => !thinkingKeys.has(key)));
+    const requestFor = (userPrompt, withSchema, withThinking = true) => ({
+        ...base,
+        stream: false,
+        use_sysprompt: true,
+        messages: messagesFor(userPrompt),
+        max_tokens: responseLength,
+        ...(withThinking ? compatible : uncontrolled),
+        ...(withSchema && usesStructuredSchema ? { json_schema: extractionJsonSchema } : {}),
+    });
+    return {
+        request: requestFor(prompt, true),
+        fallbackRequest: usesStructuredSchema ? requestFor(fallbackPrompt, false) : null,
+        uncontrolledRequest: thinking.controlled ? requestFor(fallbackPrompt, false, false) : null,
+    };
+}
+
+function splitDetachedMessages(messages) {
+    if (messages.length < 2) return null;
+    const weights = messages.map(message => Math.max(1, String(message.text || '').length));
+    const total = weights.reduce((sum, value) => sum + value, 0);
+    let running = 0;
+    let boundary = 1;
+    let difference = Number.POSITIVE_INFINITY;
+    for (let index = 1; index < messages.length; index++) {
+        running += weights[index - 1];
+        const candidate = Math.abs(total - running * 2);
+        if (candidate < difference) {
+            difference = candidate;
+            boundary = index;
+        }
+    }
+    return [messages.slice(0, boundary), messages.slice(boundary)];
+}
+
+function prepareDetachedTask(messages, world) {
+    const prepared = prepareExtractionPrompts(messages, world);
+    const requests = detachedRequestBodies(prepared);
+    if (!requests) return null;
+    const split = splitDetachedMessages(messages);
+    return {
+        messages,
+        ...requests,
+        ...(split ? { parts: split.map(part => prepareDetachedTask(part, world)) } : {}),
+    };
+}
+
+async function waitForDetachedJob(id) {
+    while (true) {
+        const { job } = await api.getExtractionJob(id);
+        updateRuntime({
+            status: job.status === 'complete' ? 'processing' : job.status,
+            progress: { current: job.current, total: job.total, from: job.from, to: job.to },
+            lastValidation: job.validation || 'Detached extraction is running in SillyTavern; this tab may be closed.',
+        });
+        if (job.status === 'complete') return job;
+        if (job.status === 'error' || job.status === 'cancelled') throw new Error(job.error || `Detached extraction ${job.status}.`);
+        await new Promise(resolve => setTimeout(resolve, 750));
+    }
+}
+
+async function reconnectDetachedExtraction(worldId, chatKey) {
+    try {
+        const health = runtime.health || await api.health();
+        updateRuntime({ health });
+        if (!health?.detachedJobs) return;
+        const { jobs } = await api.listExtractionJobs({ worldId, chatKey });
+        const active = jobs.find(job => job.status === 'queued' || job.status === 'processing');
+        if (!active || watchedDetachedJobs.has(active.id)) return;
+        watchedDetachedJobs.add(active.id);
+        activeDetachedJobs.add(active.id);
+        updateRuntime({
+            status: active.status,
+            lastValidation: 'Reconnected to a detached CM extraction running in SillyTavern.',
+        });
+        await waitForDetachedJob(active.id);
+        const world = (await api.getWorld(worldId)).world;
+        updateRuntime({ world, status: 'idle', progress: null, lastCompletedAt: new Date().toISOString() });
+        await embedWorldInChat(world);
+    } catch (error) {
+        updateRuntime({ status: 'error', progress: null, lastError: error.message, lastValidation: `Detached CM extraction failed: ${error.message}` });
+    } finally {
+        for (const id of [...watchedDetachedJobs]) {
+            try {
+                const { job } = await api.getExtractionJob(id);
+                if (job.status !== 'queued' && job.status !== 'processing') watchedDetachedJobs.delete(id);
+            } catch {
+                watchedDetachedJobs.delete(id);
+            }
+        }
+        for (const id of [...activeDetachedJobs]) {
+            if (!watchedDetachedJobs.has(id)) activeDetachedJobs.delete(id);
+        }
+    }
+}
+
+async function processDetachedRange(job, chunks, currentWorld) {
+    const health = runtime.health || await api.health();
+    updateRuntime({ health });
+    if (!health?.detachedJobs || getSettings().reviewBeforeCommit) return null;
+    const tasks = chunks.map(chunk => prepareDetachedTask(chunk.messages, currentWorld));
+    if (tasks.some(task => !task)) return null;
+    const started = await api.startExtractionJob({
+        worldId: job.worldId,
+        chatKey: job.chatKey,
+        reason: job.reason,
+        allowStateUpdates: job.allowStateUpdates,
+        tasks,
+    });
+    updateRuntime({
+        status: started.existing ? 'processing' : 'queued',
+        lastValidation: started.existing
+            ? 'Reconnected to the detached CM build already running in SillyTavern.'
+            : 'Detached CM build accepted by SillyTavern; it will continue if this tab closes.',
+    });
+    activeDetachedJobs.add(started.job.id);
+    try {
+        const completed = await waitForDetachedJob(started.job.id);
+        const world = (await api.getWorld(job.worldId)).world;
+        updateRuntime({ world, lastValidation: completed.validation || `Detached extraction saved ${completed.messages} message(s).` });
+        await embedWorldInChat(world);
+        return { chunks: completed.chunks, adaptiveSplits: completed.splits, messages: completed.messages, skipped: 0 };
+    } finally {
+        activeDetachedJobs.delete(started.job.id);
+    }
 }
 
 export async function reviewMemoryCorrection(instruction) {
@@ -1415,6 +1623,9 @@ async function processRange(job, epoch) {
     const groupSize = resolveL1GroupSize(job.l1GroupSize);
     const chunks = await chunkMessages(unseen, resolveExtractionChunk(getSettings().extractionChunkTokens, getContext().maxContext), groupSize);
 
+    const detached = await processDetachedRange(job, chunks, currentWorld);
+    if (detached) return { ...detached, skipped };
+
     const adaptive = await processAdaptiveExtractionChunks(chunks, {
         measureMessages: chunk => getTokenCountAsync(formatMessages(chunk)),
         onAttempt: ({ messages: chunk, tokens, current, total }) => {
@@ -1751,6 +1962,7 @@ export async function loadBoundWorld() {
     if (removeInvalidStoredAddressFacts(world) > 0) world = (await api.saveWorld(world)).world;
     updateRuntime({ world });
     await embedWorldInChat(world);
+    void reconnectDetachedExtraction(worldId, getChatKey());
     return world;
 }
 

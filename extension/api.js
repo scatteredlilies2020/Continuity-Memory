@@ -1,5 +1,5 @@
 import { getRequestHeaders } from '/script.js';
-import { createFileStorageApi } from './file-storage.js?v=0.14.0-standalone.87';
+import { createFileStorageApi } from './file-storage.js?v=0.14.0-standalone.88';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 
 const BASE = '/api/plugins/continuity-memory';
@@ -34,6 +34,11 @@ const pluginApi = {
     saveWorld: world => request(`/worlds/${encodeURIComponent(world.id)}`, { method: 'PUT', body: JSON.stringify(world) }),
     deleteWorld: id => request(`/worlds/${encodeURIComponent(id)}`, { method: 'DELETE', body: JSON.stringify({}) }),
     importWorld: world => request('/import', { method: 'POST', body: JSON.stringify({ world }) }),
+    migrateWorld: world => request('/migrate-world', { method: 'POST', body: JSON.stringify({ world }) }),
+    startExtractionJob: job => request('/extraction-jobs', { method: 'POST', body: JSON.stringify(job) }),
+    getExtractionJob: id => request(`/extraction-jobs/${encodeURIComponent(id)}`),
+    listExtractionJobs: ({ worldId = '', chatKey = '' } = {}) => request(`/extraction-jobs?worldId=${encodeURIComponent(worldId)}&chatKey=${encodeURIComponent(chatKey)}`),
+    cancelExtractionJob: id => request(`/extraction-jobs/${encodeURIComponent(id)}`, { method: 'DELETE', body: JSON.stringify({}) }),
 };
 
 async function getBackend() {
@@ -54,7 +59,27 @@ async function getBackend() {
 async function call(method, ...args) {
     const backend = await getBackend();
     if (method === 'health' && backend.health) return backend.health;
-    const result = await backend.api[method](...args);
+    if (backend.api === pluginApi && method === 'listWorlds') {
+        const [current, legacy] = await Promise.all([pluginApi.listWorlds(), fileApi.listWorlds()]);
+        const worlds = new Map(legacy.worlds.map(world => [world.id, world]));
+        for (const world of current.worlds) worlds.set(world.id, world);
+        return { ok: true, worlds: [...worlds.values()].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))) };
+    }
+    if (backend.api === pluginApi && method === 'deleteWorld') {
+        const result = await pluginApi.deleteWorld(...args);
+        try { await fileApi.deleteWorld(...args); }
+        catch (error) { if (error.status !== 404) console.warn('[Continuity] Could not remove the retired file-storage copy.', error); }
+        return result;
+    }
+    let result;
+    try {
+        result = await backend.api[method](...args);
+    } catch (error) {
+        if (backend.api !== pluginApi || method !== 'getWorld' || error.status !== 404) throw error;
+        const legacy = await fileApi.getWorld(...args);
+        result = await pluginApi.migrateWorld(legacy.world);
+        console.info(`[Continuity] Migrated world ${legacy.world.id} into detached server storage; the former file copy remains as a backup.`);
+    }
     if (result?.world) migrateLegacyBeliefs(result.world);
     return result;
 }
@@ -67,4 +92,8 @@ export const api = {
     saveWorld: world => call('saveWorld', world),
     deleteWorld: id => call('deleteWorld', id),
     importWorld: world => call('importWorld', world),
+    startExtractionJob: job => call('startExtractionJob', job),
+    getExtractionJob: id => call('getExtractionJob', id),
+    listExtractionJobs: filter => call('listExtractionJobs', filter),
+    cancelExtractionJob: id => call('cancelExtractionJob', id),
 };

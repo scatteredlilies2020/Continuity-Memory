@@ -1,6 +1,7 @@
 import { cancelExtractionReview } from './extraction-review.js';
 
 const listeners = new Set();
+const stopHandlers = new Set();
 
 export const runtime = {
     status: 'idle',
@@ -35,8 +36,21 @@ export function onRuntimeChange(listener) {
     return () => listeners.delete(listener);
 }
 
+export function onRuntimeStop(handler) {
+    stopHandlers.add(handler);
+    return () => stopHandlers.delete(handler);
+}
+
+function notifyStopHandlers(reason) {
+    for (const handler of stopHandlers) {
+        try { void handler(reason); } catch (error) { console.error('[Continuity] Runtime stop handler failed', error); }
+    }
+}
+
 export function stopRuntime() {
-    cancelExtractionReview('Processing stopped; the reviewed extraction was not saved.');
+    const reason = 'Processing stopped; the reviewed extraction was not saved.';
+    cancelExtractionReview(reason);
+    notifyStopHandlers(reason);
     runtime.generation++;
     const queued = runtime.queue.splice(0);
     for (const job of queued) job.reject?.(new Error('Processing stopped and the queue was cleared.'));
@@ -44,7 +58,9 @@ export function stopRuntime() {
 }
 
 export function pauseRuntime() {
-    cancelExtractionReview('Processing paused; the reviewed extraction was not saved.');
+    const reason = 'Processing paused; the reviewed extraction was not saved.';
+    cancelExtractionReview(reason);
+    notifyStopHandlers(reason);
     runtime.generation++;
     updateRuntime({ paused: true, status: 'paused', progress: null });
 }
