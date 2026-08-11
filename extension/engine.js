@@ -6,26 +6,26 @@ import { proxies } from '/scripts/openai.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.88';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.89';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.88';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.89';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.88';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.88';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.89';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.89';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.88';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.88';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.89';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.89';
 import { canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.88';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.88';
-import { onRuntimeStop, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.88';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.89';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.89';
+import { onRuntimeStop, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.89';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
 
@@ -755,9 +755,13 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
     return extractProfileResponse(response, apiMap, profile.name);
 }
 
-function detachedRequestBodies({ prompt, fallbackPrompt, systemPrompt, usesStructuredSchema }) {
+function detachedRequestBodies({ prompt, fallbackPrompt, systemPrompt, usesStructuredSchema }, {
+    jsonSchema = extractionJsonSchema,
+    layer = 'l1',
+    profileId = getSettings().memoryProfileId,
+    directKind = 'extraction',
+} = {}) {
     const settings = getSettings();
-    const profileId = settings.memoryProfileId;
     const messagesFor = userPrompt => [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -766,7 +770,7 @@ function detachedRequestBodies({ prompt, fallbackPrompt, systemPrompt, usesStruc
     let thinking;
     let model;
     if (profileId === DIRECT_PROFILE_ID) {
-        const config = directRequestConfig('extraction');
+        const config = directRequestConfig(directKind);
         model = config.model;
         thinking = buildThinkingRequest({
             mode: settings.thinkingMode,
@@ -812,9 +816,10 @@ function detachedRequestBodies({ prompt, fallbackPrompt, systemPrompt, usesStruc
         // Native active-chat settings require browser-side preset expansion.
         return null;
     }
-    const responseLength = resolveMemoryResponseTokens(memoryResponseTokens('l1'), thinking.adapter) ?? undefined;
+    const layerTokens = memoryResponseTokens(layer);
+    const responseLength = resolveMemoryResponseTokens(layerTokens, thinking.adapter) ?? undefined;
     const compatible = isolatedProfilePayload({
-        ...outputTokenPayload(model, memoryResponseTokens('l1')),
+        ...outputTokenPayload(model, layerTokens),
         ...thinking.payload,
     });
     const thinkingKeys = new Set(['include_reasoning', 'reasoning_effort', 'reasoning_budget', 'thinking_budget', 'thinking_level', 'thinking', 'reasoning', 'think', 'enable_thinking', 'chat_template_kwargs', 'custom_include_body']);
@@ -826,7 +831,7 @@ function detachedRequestBodies({ prompt, fallbackPrompt, systemPrompt, usesStruc
         messages: messagesFor(userPrompt),
         max_tokens: responseLength,
         ...(withThinking ? compatible : uncontrolled),
-        ...(withSchema && usesStructuredSchema ? { json_schema: extractionJsonSchema } : {}),
+        ...(withSchema && usesStructuredSchema ? { json_schema: jsonSchema } : {}),
     });
     return {
         request: requestFor(prompt, true),
@@ -865,12 +870,74 @@ function prepareDetachedTask(messages, world) {
     };
 }
 
+function prepareDetachedHierarchyLayer(layer) {
+    const settings = getSettings();
+    const l2 = layer === 'l2';
+    const profileId = settings.arcProfileId || settings.memoryProfileId;
+    const directKind = settings.arcProfileId === DIRECT_PROFILE_ID ? 'summary' : 'extraction';
+    const jsonSchema = l2 ? arcJsonSchema : eraJsonSchema;
+    const usesStructuredSchema = requestSupportsStructuredSchema(jsonSchema, profileId, directKind);
+    const placeholder = '__CONTINUITY_DETACHED_HIERARCHY_PROMPT__';
+    const requests = detachedRequestBodies({
+        prompt: placeholder,
+        fallbackPrompt: placeholder,
+        systemPrompt: buildHierarchySystemPrompt(l2
+            ? settings.arcSystemPrompt ?? DEFAULT_ARC_SYSTEM_PROMPT
+            : settings.eraSystemPrompt ?? DEFAULT_ERA_SYSTEM_PROMPT),
+        usesStructuredSchema,
+    }, { jsonSchema, layer, profileId, directKind });
+    if (!requests) return null;
+    return {
+        ...requests,
+        placeholder,
+        usesStructuredSchema,
+        taskTemplate: l2
+            ? settings.arcTaskTemplate ?? DEFAULT_ARC_TASK_TEMPLATE
+            : settings.eraTaskTemplate ?? DEFAULT_ERA_TASK_TEMPLATE,
+        shapeExample: ARC_JSON_SHAPE_EXAMPLE,
+        valueKey: l2 ? 'capsules' : 'arcs',
+    };
+}
+
+function prepareDetachedHierarchyPlan() {
+    const settings = getSettings();
+    if (!['l2', 'l3'].includes(settings.hierarchyMode)) return null;
+    try {
+        const l2 = prepareDetachedHierarchyLayer('l2');
+        const l3 = settings.hierarchyMode === 'l3' ? prepareDetachedHierarchyLayer('l3') : null;
+        if (!l2 || (settings.hierarchyMode === 'l3' && !l3)) return null;
+        return {
+            settings: {
+                hierarchyMode: settings.hierarchyMode,
+                arcGroupSize: settings.arcGroupSize,
+                eraGroupSize: settings.eraGroupSize,
+                eraStartArcs: settings.eraStartArcs,
+            },
+            l2,
+            l3,
+        };
+    } catch (error) {
+        console.warn('[Continuity] Detached L2/L3 could not be prepared; detached L1 will continue safely.', error);
+        return null;
+    }
+}
+
 async function waitForDetachedJob(id) {
     while (true) {
         const { job } = await api.getExtractionJob(id);
+        const hierarchyPhase = job.phase === 'l2' || job.phase === 'l3';
         updateRuntime({
             status: job.status === 'complete' ? 'processing' : job.status,
-            progress: { current: job.current, total: job.total, from: job.from, to: job.to },
+            progress: hierarchyPhase ? null : {
+                current: job.current,
+                total: job.total,
+                from: job.from,
+                to: job.to,
+                inputTokens: job.inputTokens,
+            },
+            ...(hierarchyPhase ? {
+                arcStatus: `${job.phase === 'l2' ? 'Building eligible L2' : 'Building eligible L3'}… created L2 ${job.l2 || 0}, L3 ${job.l3 || 0}.`,
+            } : {}),
             lastValidation: job.validation || 'Detached extraction is running in SillyTavern; this tab may be closed.',
         });
         if (job.status === 'complete') return job;
@@ -893,9 +960,18 @@ async function reconnectDetachedExtraction(worldId, chatKey) {
             status: active.status,
             lastValidation: 'Reconnected to a detached CM extraction running in SillyTavern.',
         });
-        await waitForDetachedJob(active.id);
+        const completed = await waitForDetachedJob(active.id);
         const world = (await api.getWorld(worldId)).world;
-        updateRuntime({ world, status: 'idle', progress: null, lastCompletedAt: new Date().toISOString() });
+        updateRuntime({
+            world,
+            status: 'idle',
+            progress: null,
+            arcStatus: completed.hierarchyError
+                ? 'L2/L3 hierarchy deferred; saved L1 remains intact.'
+                : `Detached hierarchy complete: L2 ${completed.l2 || 0}, L3 ${completed.l3 || 0}.`,
+            arcError: completed.hierarchyError || '',
+            lastCompletedAt: new Date().toISOString(),
+        });
         await embedWorldInChat(world);
     } catch (error) {
         updateRuntime({ status: 'error', progress: null, lastError: error.message, lastValidation: `Detached CM extraction failed: ${error.message}` });
@@ -918,7 +994,7 @@ async function processDetachedRange(job, chunks, currentWorld) {
     const health = runtime.health || await api.health();
     updateRuntime({ health });
     if (!health?.detachedJobs || getSettings().reviewBeforeCommit) return null;
-    const tasks = chunks.map(chunk => prepareDetachedTask(chunk.messages, currentWorld));
+    const tasks = chunks.map(chunk => ({ ...prepareDetachedTask(chunk.messages, currentWorld), inputTokens: chunk.tokens }));
     if (tasks.some(task => !task)) return null;
     const started = await api.startExtractionJob({
         worldId: job.worldId,
@@ -926,6 +1002,7 @@ async function processDetachedRange(job, chunks, currentWorld) {
         reason: job.reason,
         allowStateUpdates: job.allowStateUpdates,
         tasks,
+        hierarchy: prepareDetachedHierarchyPlan(),
     });
     updateRuntime({
         status: started.existing ? 'processing' : 'queued',
@@ -937,9 +1014,24 @@ async function processDetachedRange(job, chunks, currentWorld) {
     try {
         const completed = await waitForDetachedJob(started.job.id);
         const world = (await api.getWorld(job.worldId)).world;
-        updateRuntime({ world, lastValidation: completed.validation || `Detached extraction saved ${completed.messages} message(s).` });
+        updateRuntime({
+            world,
+            arcStatus: completed.hierarchyError
+                ? 'L2/L3 hierarchy deferred; saved L1 remains intact.'
+                : `Detached hierarchy complete: L2 ${completed.l2 || 0}, L3 ${completed.l3 || 0}.`,
+            arcError: completed.hierarchyError || '',
+            lastValidation: completed.validation || `Detached extraction saved ${completed.messages} message(s).`,
+        });
         await embedWorldInChat(world);
-        return { chunks: completed.chunks, adaptiveSplits: completed.splits, messages: completed.messages, skipped: 0 };
+        return {
+            chunks: completed.chunks,
+            adaptiveSplits: completed.splits,
+            messages: completed.messages,
+            skipped: 0,
+            arcs: completed.l2 || 0,
+            eras: completed.l3 || 0,
+            hierarchyError: completed.hierarchyError || '',
+        };
     } finally {
         activeDetachedJobs.delete(started.job.id);
     }

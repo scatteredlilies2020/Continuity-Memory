@@ -3,7 +3,7 @@ import { getContext } from '/scripts/st-context.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor } from './engine.js?v=0.14.0-standalone.88';
+import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor } from './engine.js?v=0.14.0-standalone.89';
 import { worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
 import { buildMemoryPrompt } from './retrieval.js';
@@ -14,14 +14,14 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, cancelExtractionReview } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages } from './fingerprint.js?v=0.14.0-standalone.88';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.88';
-import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.88';
+import { alignWorldToChat, collectFingerprintMessages } from './fingerprint.js?v=0.14.0-standalone.89';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.89';
+import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.89';
 import { completeL1MessageCount, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.88';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.88';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.88';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.89';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.89';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.89';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -807,12 +807,18 @@ async function continueFailedL1() {
     const result = await maybeAutoExtract(true);
     if (!result) throw new Error('No pending L1 messages could be started. Open a populated chat and refresh Continuity.');
     if (result.cancelled) return { cancelled: true, continued: 0, pendingMessages: coverage.pending, pendingTail, bufferedMessages: coverage.buffered };
-    return { continued: result.chunks || 1, pendingMessages: result.messages || 0, pendingTail, bufferedMessages: coverage.buffered };
+    return {
+        ...result,
+        continued: result.chunks || 1,
+        pendingMessages: result.messages || 0,
+        pendingTail,
+        bufferedMessages: coverage.buffered,
+    };
 }
 
 async function finishHierarchy(l1, clearRetrieval = false, rebuildVectors = false) {
-    let arcs = 0;
-    let eras = 0;
+    let arcs = Number(l1.arcs) || 0;
+    let eras = Number(l1.eras) || 0;
     const epoch = runtime.generation;
     updateRuntime({ processing: true, status: 'building', retryStatus: 'L1 complete. Building eligible L2 and L3 records…' });
     try {

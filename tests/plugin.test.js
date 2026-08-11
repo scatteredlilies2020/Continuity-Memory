@@ -182,6 +182,123 @@ test('detached extraction jobs remain separate from roleplay generation and save
     assert.equal(loaded.payload.world.sources['character:chat'].processedMessages.length, 1);
 });
 
+test('detached jobs report source tokens and build eligible L2/L3 without a browser', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-detached-hierarchy-test-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const extracted = {
+        scene: { location: 'Road', time: 'Later', participants: ['Alice'], activity: 'Walking', mood: 'calm' },
+        sceneCapsule: {
+            title: 'Another step', storyTime: 'Later', location: 'Road', participants: ['Alice'],
+            opening: 'Alice continues.', beats: ['Alice walks onward.'], emotionalArc: '', closing: 'Alice keeps walking.', importance: 2,
+            temporal: { frame: 'main narrative', relation: 'same-period', elapsed: '', certainty: 'implicit' },
+        },
+        entities: [], identityResolutions: [], recordMerges: [], facts: [], states: [], relationships: [], events: [], threads: [], backgrounds: [],
+    };
+    const l2 = {
+        title: 'Road arc', storyTime: 'During the journey', participants: ['Alice'], summary: 'Alice advances through the journey.',
+        turningPoints: ['Alice continues onward.'], emotionalArc: 'Steady resolve.', closingState: 'Alice is still traveling.', openThreads: ['The destination remains ahead.'], importance: 3,
+    };
+    const l3 = {
+        title: 'Journey era', storyTime: 'Across the journey', participants: ['Alice'], summary: 'Alice persists across several stages of travel.',
+        turningPoints: ['The journey continues.'], emotionalArc: 'Resolve endures.', closingState: 'The larger journey remains active.', openThreads: ['Arrival remains unresolved.'], importance: 3,
+    };
+    const fetchImpl = async (_url, options) => {
+        const body = JSON.parse(options.body);
+        const prompt = (body.messages || []).map(message => message.content || '').join('\n');
+        const result = prompt.includes('Create one concise L3') ? l3 : prompt.includes('Create one concise L2') ? l2 : extracted;
+        return new Response(JSON.stringify({
+            choices: [{ message: { content: JSON.stringify(result) }, finish_reason: 'stop' }],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+    const router = mockRouter();
+    await init(router, { syncExtension: false, fetchImpl });
+    const created = await call(router.routes.get('POST /worlds'), root, { body: { name: 'Detached hierarchy' } });
+    const world = created.payload.world;
+    world.capsules = Array.from({ length: 24 }, (_, index) => ({
+        id: `capsule-${index}`,
+        chatKey: 'character:chat',
+        from: index,
+        to: index,
+        storyTime: `Step ${index + 1}`,
+        temporal: { anchorId: `anchor-${index}`, frame: 'main narrative' },
+        location: 'Road',
+        participants: ['Alice'],
+        opening: 'Alice travels.',
+        beats: [`Travel step ${index + 1}.`],
+        emotionalArc: '',
+        closing: 'The journey continues.',
+        importance: 2,
+        sources: [],
+    }));
+    world.arcs = Array.from({ length: 12 }, (_, index) => ({
+        id: `existing-arc-${index}`,
+        chatKey: 'character:chat',
+        from: index,
+        to: index,
+        capsuleIds: [`older-capsule-${index}`],
+        storyTime: `Earlier arc ${index + 1}`,
+        participants: ['Alice'],
+        summary: `Earlier journey stage ${index + 1}.`,
+        turningPoints: [],
+        emotionalArc: '',
+        closingState: 'Travel continues.',
+        openThreads: [],
+        importance: 2,
+        sources: [],
+    }));
+    const seeded = await call(router.routes.get('PUT /worlds/:id'), root, { params: { id: world.id }, body: world });
+    assert.equal(seeded.status, 200);
+
+    const placeholder = '__DETACHED_HIERARCHY_PROMPT__';
+    const layer = (kind, valueKey) => ({
+        request: { chat_completion_source: 'openai', model: 'test', messages: [{ role: 'user', content: placeholder }] },
+        fallbackRequest: null,
+        uncontrolledRequest: null,
+        placeholder,
+        usesStructuredSchema: false,
+        taskTemplate: `Create one concise ${kind} from chronological records.\n{{format}}\n\n{{${valueKey}}}`,
+        shapeExample: JSON.stringify({ title: '', storyTime: '', participants: [], summary: '', turningPoints: [], emotionalArc: '', closingState: '', openThreads: [], importance: 3 }),
+        valueKey,
+    });
+    const task = {
+        messages: [{ index: 24, name: 'Alice', text: 'I keep walking.' }],
+        inputTokens: 321,
+        request: { chat_completion_source: 'openai', model: 'test', messages: [] },
+    };
+    const started = await call(router.routes.get('POST /extraction-jobs'), root, {
+        body: {
+            worldId: world.id,
+            chatKey: 'character:chat',
+            tasks: [task],
+            reason: 'manual',
+            hierarchy: {
+                settings: { hierarchyMode: 'l3', arcGroupSize: 24, eraGroupSize: 6, eraStartArcs: 12 },
+                l2: layer('L2', 'capsules'),
+                l3: layer('L3', 'arcs'),
+            },
+        },
+        headers: { cookie: 'session=test', 'x-csrf-token': 'test' },
+    });
+    const jobId = started.payload.job.id;
+    let job;
+    for (let attempt = 0; attempt < 100; attempt++) {
+        const status = await call(router.routes.get('GET /extraction-jobs/:id'), root, { params: { id: jobId } });
+        job = status.payload.job;
+        if (job.status === 'complete' || job.status === 'error') break;
+        await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    assert.equal(job.status, 'complete', job.error);
+    assert.equal(job.inputTokens, 321);
+    assert.equal(job.phase, 'complete');
+    assert.equal(job.l2, 1);
+    assert.equal(job.l3, 1);
+    assert.equal(job.hierarchyError, '');
+    const loaded = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: world.id } });
+    assert.equal(loaded.payload.world.capsules.length, 25);
+    assert.equal(loaded.payload.world.arcs.length, 13);
+    assert.equal(loaded.payload.world.eras.length, 1);
+});
+
 test('server plugin installs and updates its bundled frontend without overwriting an unmanaged install', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-frontend-test-'));
     t.after(() => fs.rm(root, { recursive: true, force: true }));

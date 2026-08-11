@@ -3,8 +3,10 @@ import crypto from 'node:crypto';
 import { isRateLimitError } from '../extension/errors.js';
 import { isRecoverableExtractionOutputError } from '../extension/extraction-recovery.js';
 import { fingerprintMessage } from '../extension/fingerprint.js';
-import { mergeExtraction } from '../extension/memory-model.js';
+import { addDerivedArc, addDerivedEra, mergeExtraction } from '../extension/memory-model.js';
 import { migrateLegacyBeliefs } from '../extension/attributed-beliefs.js';
+import { nextArcCapsules } from '../extension/hierarchy-policy.js';
+import { renderPromptTemplate } from '../extension/prompts.js';
 import { sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
 import { isThinkingControlError } from '../extension/thinking-policy.js';
 
@@ -31,6 +33,11 @@ function publicJob(job) {
         splits: job.splits,
         error: job.error || '',
         validation: job.validation || '',
+        inputTokens: job.inputTokens,
+        phase: job.phase,
+        l2: job.l2,
+        l3: job.l3,
+        hierarchyError: job.hierarchyError || '',
     };
 }
 
@@ -124,6 +131,159 @@ function validationLabel(validation, attempt) {
     return `Valid detached extraction${attempt > 1 ? ' after retry' : ''}${recovered ? `; recovered ${recovered} omitted durable record(s)` : ''}${repaired ? `; repaired ${repaired} reversed address value(s)` : ''}${discarded ? `; discarded ${discarded} cross-direction address value(s)` : ''}${reconciled ? `; reconciled ${reconciled} duplicate address record(s)` : ''}${warnings ? `; ${warnings} L1 coverage warning(s)` : ''}`;
 }
 
+function formatCapsules(capsules) {
+    return capsules.map((capsule, index) => JSON.stringify({
+        sequence: index + 1,
+        storyTime: capsule.storyTime,
+        temporal: capsule.temporal,
+        location: capsule.location,
+        participants: capsule.participants,
+        opening: capsule.opening,
+        beats: capsule.beats,
+        emotionalArc: capsule.emotionalArc,
+        closing: capsule.closing,
+        importance: capsule.importance,
+    })).join('\n');
+}
+
+function formatArcs(arcs) {
+    return arcs.map((arc, index) => JSON.stringify({
+        sequence: index + 1,
+        storyTime: arc.storyTime,
+        temporalAnchorIds: arc.temporalAnchorIds,
+        temporalFrames: arc.temporalFrames,
+        participants: arc.participants,
+        summary: arc.summary,
+        turningPoints: arc.turningPoints,
+        emotionalArc: arc.emotionalArc,
+        closingState: arc.closingState,
+        openThreads: arc.openThreads,
+        importance: arc.importance,
+    })).join('\n');
+}
+
+function nextEraArcs(world, settings = {}) {
+    if (settings.hierarchyMode !== 'l3') return null;
+    const groupSize = Math.max(3, Math.min(16, Math.round(Number(settings.eraGroupSize) || 6)));
+    const threshold = Math.max(groupSize * 2, Math.min(100, Math.round(Number(settings.eraStartArcs) || 12)));
+    const covered = new Set((world.eras || []).flatMap(era => era.arcIds || []));
+    const byChat = new Map();
+    for (const arc of world.arcs || []) {
+        const chatKey = arc.chatKey || '';
+        if (!byChat.has(chatKey)) byChat.set(chatKey, []);
+        byChat.get(chatKey).push(arc);
+    }
+    for (const arcs of byChat.values()) {
+        arcs.sort((a, b) => Number(a.from ?? 0) - Number(b.from ?? 0) || String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+        if (arcs.length < threshold) continue;
+        const ungrouped = arcs.filter(arc => !covered.has(arc.id));
+        if (ungrouped.length < groupSize * 2) continue;
+        return ungrouped.slice(0, groupSize);
+    }
+    return null;
+}
+
+function validateHierarchyResult(result, label) {
+    if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error(`${label} summarizer returned no JSON object.`);
+    for (const key of ['participants', 'turningPoints', 'openThreads']) {
+        if (!Array.isArray(result[key])) throw new Error(`${label} field "${key}" is not an array.`);
+    }
+    if (!String(result.summary || '').trim()) throw new Error(`${label} summarizer returned no summary.`);
+    return result;
+}
+
+function hierarchyPrompt(layer, records, withSchema) {
+    const source = String(layer.taskTemplate || '');
+    const usesFormatPlaceholder = source.includes('{{format}}');
+    const format = withSchema
+        ? 'Return one schema-valid JSON object with all required keys.'
+        : `Return one JSON object with this exact shape and all keys:\n${layer.shapeExample}`;
+    return renderPromptTemplate(source, {
+        [layer.valueKey]: layer.valueKey === 'capsules' ? formatCapsules(records) : formatArcs(records),
+        format,
+        schema: layer.shapeExample,
+    }, [usesFormatPlaceholder ? 'format' : 'schema', layer.valueKey]);
+}
+
+function requestFromTemplate(template, placeholder, prompt) {
+    if (!template) return null;
+    const request = structuredClone(template);
+    request.messages = (request.messages || []).map(message => ({
+        ...message,
+        content: typeof message.content === 'string' ? message.content.replace(placeholder, prompt) : message.content,
+    }));
+    return request;
+}
+
+async function requestHierarchy(job, layer, records, label) {
+    const prompt = hierarchyPrompt(layer, records, layer.usesStructuredSchema);
+    const fallbackPrompt = layer.usesStructuredSchema ? hierarchyPrompt(layer, records, false) : prompt;
+    const primary = requestFromTemplate(layer.request, layer.placeholder, prompt);
+    const fallback = requestFromTemplate(layer.fallbackRequest, layer.placeholder, fallbackPrompt);
+    const uncontrolled = requestFromTemplate(layer.uncontrolledRequest, layer.placeholder, fallbackPrompt);
+    let raw;
+    try {
+        raw = await backendRequest(job, primary);
+    } catch (error) {
+        if (uncontrolled && isThinkingControlError(error)) raw = await backendRequest(job, uncontrolled);
+        else if (fallback && shouldRetryWithoutSchema(error)) {
+            try { raw = await backendRequest(job, fallback); }
+            catch (fallbackError) {
+                if (!uncontrolled || !isThinkingControlError(fallbackError)) throw fallbackError;
+                raw = await backendRequest(job, uncontrolled);
+            }
+        } else throw error;
+    }
+    return validateHierarchyResult(parseJsonResponse(raw), label);
+}
+
+async function saveHierarchyResult(job, result, sourceRecords, layer) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+        const world = await job.loadWorld();
+        const collection = layer === 'l2' ? world.capsules || [] : world.arcs || [];
+        const current = sourceRecords.map(source => collection.find(item => item.id === source.id)).filter(Boolean);
+        if (current.length !== sourceRecords.length) throw new Error(`${layer.toUpperCase()} sources changed while detached hierarchy was being built.`);
+        const before = (layer === 'l2' ? world.arcs : world.eras)?.length || 0;
+        if (layer === 'l2') addDerivedArc(world, result, current);
+        else addDerivedEra(world, result, current);
+        const after = (layer === 'l2' ? world.arcs : world.eras)?.length || 0;
+        if (after === before) return false;
+        try {
+            await job.saveWorld(world);
+            return true;
+        } catch (error) {
+            if (error.status !== 409 || attempt > 0) throw error;
+        }
+    }
+    return false;
+}
+
+async function runHierarchy(job) {
+    const plan = job.hierarchy;
+    if (!plan?.l2) return;
+    job.phase = 'l2';
+    while (!job.cancelled) {
+        const world = await job.loadWorld();
+        const capsules = nextArcCapsules(world, plan.settings);
+        if (!capsules) break;
+        job.validation = `Building eligible L2 ${job.l2 + 1} from ${capsules.length} L1 records…`;
+        const result = await requestHierarchy(job, plan.l2, capsules, 'L2');
+        if (job.cancelled) throw new Error('Detached processing was cancelled.');
+        if (await saveHierarchyResult(job, result, capsules, 'l2')) job.l2++;
+    }
+    if (!plan.l3 || plan.settings?.hierarchyMode !== 'l3') return;
+    job.phase = 'l3';
+    while (!job.cancelled) {
+        const world = await job.loadWorld();
+        const arcs = nextEraArcs(world, plan.settings);
+        if (!arcs) break;
+        job.validation = `Building eligible L3 ${job.l3 + 1} from ${arcs.length} L2 records…`;
+        const result = await requestHierarchy(job, plan.l3, arcs, 'L3');
+        if (job.cancelled) throw new Error('Detached processing was cancelled.');
+        if (await saveHierarchyResult(job, result, arcs, 'l3')) job.l3++;
+    }
+}
+
 async function backendRequest(job, body) {
     const response = await job.fetchImpl(job.backendUrl, {
         method: 'POST',
@@ -192,6 +352,7 @@ async function runTask(job, task) {
     job.current = job.chunks + 1;
     job.from = task.messages[0]?.index ?? null;
     job.to = task.messages.at(-1)?.index ?? null;
+    job.inputTokens = Math.max(0, Number(task.inputTokens) || 0) || null;
     try {
         const result = await extractTask(job, task, world);
         if (job.cancelled) throw new Error('Detached processing was cancelled.');
@@ -235,6 +396,17 @@ async function run(job) {
     job.startedAt = new Date().toISOString();
     try {
         for (const task of job.tasks) await runTask(job, task);
+        try {
+            await runHierarchy(job);
+        } catch (error) {
+            if (job.cancelled) throw error;
+            job.hierarchyError = error.message || String(error);
+            console.warn('[continuity-memory] detached hierarchy was deferred; saved L1 remains intact:', error);
+        }
+        job.phase = 'complete';
+        job.validation = job.hierarchyError
+            ? `L1 complete; L2/L3 hierarchy deferred: ${job.hierarchyError}`
+            : `Detached build complete: L1 ${job.chunks}, L2 ${job.l2}, L3 ${job.l3}.`;
         job.status = 'complete';
     } catch (error) {
         job.status = job.cancelled ? 'cancelled' : 'error';
@@ -244,6 +416,7 @@ async function run(job) {
         job.completedAt = new Date().toISOString();
         activeByWorld.delete(job.activeKey);
         job.backendHeaders = null;
+        job.hierarchy = null;
         job.tasks = [];
         trimFinishedJobs();
     }
@@ -279,6 +452,7 @@ export function createDetachedJob(req, payload, storage, { fetchImpl = fetch } =
         worldId,
         chatKey,
         tasks,
+        hierarchy: payload?.hierarchy && typeof payload.hierarchy === 'object' ? payload.hierarchy : null,
         reason: String(payload.reason || 'manual'),
         allowStateUpdates: payload.allowStateUpdates !== false,
         activeKey,
@@ -296,6 +470,11 @@ export function createDetachedJob(req, payload, storage, { fetchImpl = fetch } =
         chunks: 0,
         messages: 0,
         splits: 0,
+        inputTokens: null,
+        phase: 'l1',
+        l2: 0,
+        l3: 0,
+        hierarchyError: '',
         error: '',
         validation: '',
         cancelled: false,
