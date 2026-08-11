@@ -5,25 +5,26 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.82';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './fingerprint.js?v=0.14.0-standalone.83';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.82';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.83';
 import { requestExtractionReview } from './extraction-review.js';
+import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.82';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.82';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.83';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.83';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.82';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.82';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.83';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.83';
 import { canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.82';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.82';
-import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.82';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.83';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.83';
+import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.83';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
 
@@ -42,7 +43,7 @@ const temporalRelationSchema = {
 const extractionSchema = {
     type: 'object',
     additionalProperties: false,
-    required: ['scene', 'sceneCapsule', 'entities', 'identityResolutions', 'recordMerges', 'facts', 'beliefs', 'states', 'relationships', 'events', 'threads', 'backgrounds'],
+    required: ['scene', 'sceneCapsule', 'entities', 'identityResolutions', 'recordMerges', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds'],
     properties: {
         scene: {
             type: 'object', additionalProperties: false,
@@ -88,7 +89,7 @@ const extractionSchema = {
                 type: 'object', additionalProperties: false,
                 required: ['category', 'canonicalId', 'duplicateIds', 'evidence'],
                 properties: {
-                    category: { type: 'string', enum: ['facts', 'beliefs', 'states', 'relationships', 'threads', 'backgrounds'] },
+                    category: { type: 'string', enum: ['facts', 'states', 'relationships', 'threads', 'backgrounds'] },
                     canonicalId: { type: 'string' },
                     duplicateIds: { type: 'array', maxItems: 12, items: { type: 'string' } },
                     evidence: { type: 'string' },
@@ -102,19 +103,6 @@ const extractionSchema = {
                 properties: {
                     targetId: { type: 'string' }, subject: { type: 'string' }, predicate: { type: 'string' }, value: { type: 'string' }, category: { type: 'string' },
                     importance: { type: 'integer', minimum: 1, maximum: 5 }, persistence: { type: 'string', enum: ['temporary', 'recurring', 'persistent'] },
-                },
-            },
-        },
-        beliefs: {
-            type: 'array', items: {
-                type: 'object', additionalProperties: false,
-                required: ['targetId', 'holder', 'subject', 'predicate', 'value', 'confidence', 'status', 'truthStatus', 'importance'],
-                properties: {
-                    targetId: { type: 'string' }, holder: { type: 'string' }, subject: { type: 'string' }, predicate: { type: 'string' }, value: { type: 'string' },
-                    confidence: { type: 'string', enum: ['certain', 'likely', 'suspected', 'doubted'] },
-                    status: { type: 'string', enum: ['held', 'revised', 'rejected'] },
-                    truthStatus: { type: 'string', enum: ['confirmed', 'contradicted', 'unknown'] },
-                    importance: { type: 'integer', minimum: 1, maximum: 5 },
                 },
             },
         },
@@ -234,7 +222,7 @@ const correctionSchema = {
                 required: ['action', 'category', 'targetId', 'reason', 'recordJson'],
                 properties: {
                     action: { type: 'string', enum: ['add', 'update', 'delete'] },
-                    category: { type: 'string', enum: ['entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'threads', 'backgrounds', 'capsules'] },
+                    category: { type: 'string', enum: ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds', 'capsules'] },
                     targetId: { type: 'string' },
                     reason: { type: 'string' },
                     recordJson: { type: 'string' },
@@ -253,7 +241,7 @@ const correctionJsonSchema = Object.freeze({
 });
 
 const CORRECTION_SYSTEM_PROMPT = `You repair structured roleplay continuity memory from an explicit user correction.
-The correction is authoritative only for the scope it states. Distinguish objective canon from a character's subjective belief. "That never happened" can change facts, events, and chronology; "Alice was wrong about it" changes Alice's belief without deciding what objectively happened. If canonical truth remains hidden or unknown, preserve truthStatus "unknown" and do not invent a fact or event.
+The correction is authoritative only for the scope it states. Distinguish objective canon from attributed facts whose category is "character belief". "That never happened" can change facts, events, and chronology; "Alice was wrong about it" changes only the fact about Alice's belief and does not decide what objectively happened. If canonical truth remains hidden or unknown, do not invent a fact or event about it.
 Change only records that conflict with the correction or are necessary to preserve it.
 Use exact category names and target IDs from the supplied candidate records. For update, return the complete corrected public record as JSON encoded inside recordJson. For delete, use "{}". For add, leave targetId empty and return the complete new record.
 Check every relevant representation of the mistake. In particular, update or remove an L1 capsule when it repeats the incorrect event; otherwise derived summaries can relearn the error.
@@ -271,7 +259,6 @@ const JSON_SHAPE_EXAMPLE = JSON.stringify({
     identityResolutions: [{ reference: '', canonical: '', evidence: '' }],
     recordMerges: [{ category: 'facts', canonicalId: '', duplicateIds: [], evidence: '' }],
     facts: [{ targetId: '', subject: '', predicate: '', value: '', category: '', importance: 3, persistence: 'persistent' }],
-    beliefs: [{ targetId: '', holder: '', subject: '', predicate: '', value: '', confidence: 'certain', status: 'held', truthStatus: 'unknown', importance: 3 }],
     states: [{ targetId: '', subject: '', attribute: '', value: '', previous: '', importance: 3, scope: 'scene', operation: 'set' }],
     relationships: [{ targetId: '', from: '', to: '', kind: '', status: '', dynamic: '', importance: 3 }],
     events: [{ title: '', summary: '', participants: [], location: '', storyTime: '', consequences: '', importance: 3, temporal: { frame: 'main narrative', relation: 'same-period', elapsed: '', certainty: 'implicit' } }],
@@ -352,10 +339,12 @@ async function chunkMessages(messages, tokenLimit, maxMessages = Infinity) {
 
 function validateResult(result, world, messages) {
     if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('Extractor returned no JSON object.');
+    if (!Array.isArray(result.facts)) throw new Error('Extractor field "facts" is not an array.');
+    migrateLegacyBeliefs(result);
     if (!result.sceneCapsule || typeof result.sceneCapsule !== 'object' || !Array.isArray(result.sceneCapsule.beats)) {
         throw new Error('Extractor returned no valid chronological scene capsule.');
     }
-    for (const key of ['entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'threads', 'backgrounds']) {
+    for (const key of ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds']) {
         if (!Array.isArray(result[key])) throw new Error(`Extractor field "${key}" is not an array.`);
     }
     const validation = sanitizeReconciliationMetadata(result, world, messages);
@@ -399,18 +388,6 @@ function extractionStateContext(world, messages) {
     const facts = rankCanonical(world?.facts,
         item => `${item.subject || ''} ${item.predicate || ''} ${item.value || ''}`,
         item => [item.subject], 18).map(canonicalFactReference);
-    const beliefs = rankCanonical(world?.beliefs,
-        item => `${item.holder || ''} ${item.subject || ''} ${item.predicate || ''} ${item.value || ''}`,
-        item => [item.holder, item.subject], 18).map(item => ({
-        targetId: item.id,
-        holder: item.holder,
-        subject: item.subject,
-        predicate: item.predicate,
-        value: String(item.value || '').replace(/\s+/g, ' ').trim().slice(0, 220),
-        confidence: item.confidence,
-        status: item.status,
-        truthStatus: item.truthStatus,
-    }));
     const relationships = rankCanonical(world?.relationships,
         item => `${item.from || ''} ${item.to || ''} ${item.kind || ''} ${item.status || ''} ${item.dynamic || ''}`,
         item => [item.from, item.to], 12).map(item => ({
@@ -454,14 +431,13 @@ function extractionStateContext(world, messages) {
             value: item.value,
             scope: item.scope,
         })),
-        canonicalFacts: facts,
-        knownBeliefs: beliefs,
+        knownFacts: facts,
         canonicalRelationships: relationships,
         knownThreads: activeThreads,
         knownBackgrounds: backgrounds,
     }).filter(([, records]) => records.length));
     if (!Object.keys(snapshot).length) return '';
-    return `CANONICAL RECORDS:\n${JSON.stringify(snapshot)}\nUse targetId for updates, omit unchanged records, and preserve canonical identity fields.`;
+    return `KNOWN CONTINUITY RECORDS (facts categorized as "character belief" are subjective, not automatically canon):\n${JSON.stringify(snapshot)}\nUse targetId for updates, omit unchanged records, and preserve canonical identity fields.`;
 }
 
 function extractionTemporalContext(world) {

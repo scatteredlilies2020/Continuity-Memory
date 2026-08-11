@@ -1,10 +1,10 @@
 import { randomUuid } from './uuid.js';
 import { addressFactIdentity } from './reconciliation-policy.js';
+import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 
 const COLLECTIONS = Object.freeze({
     entities: ['name', 'type', 'aliases', 'description', 'importance'],
     facts: ['subject', 'predicate', 'value', 'category', 'importance', 'persistence'],
-    beliefs: ['holder', 'subject', 'predicate', 'value', 'confidence', 'status', 'truthStatus', 'importance'],
     states: ['subject', 'attribute', 'value', 'previous', 'importance', 'scope', 'operation'],
     relationships: ['from', 'to', 'kind', 'status', 'dynamic', 'importance'],
     events: ['title', 'summary', 'participants', 'location', 'storyTime', 'consequences', 'importance'],
@@ -14,7 +14,7 @@ const COLLECTIONS = Object.freeze({
 });
 
 export const CORRECTABLE_CATEGORIES = Object.freeze(Object.keys(COLLECTIONS));
-const ID_PREFIXES = Object.freeze({ entities: 'entity', facts: 'fact', beliefs: 'belief', states: 'state', relationships: 'relationship', events: 'event', threads: 'thread', backgrounds: 'background', capsules: 'capsule' });
+const ID_PREFIXES = Object.freeze({ entities: 'entity', facts: 'fact', states: 'state', relationships: 'relationship', events: 'event', threads: 'thread', backgrounds: 'background', capsules: 'capsule' });
 
 const LIST_FIELDS = new Set(['aliases', 'participants', 'beats']);
 const STOP_WORDS = new Set('a an and are as at be been but by do for from had has have he her him his how i if in is it its me my not of on or our she that the their them then they this to was we were what when where which who why will with you your'.split(' '));
@@ -43,11 +43,6 @@ function publicRecord(category, item) {
         else result[field] = text(item?.[field]);
     }
     if (category === 'facts' && !['temporary', 'recurring', 'persistent'].includes(result.persistence)) result.persistence = 'persistent';
-    if (category === 'beliefs') {
-        if (!['certain', 'likely', 'suspected', 'doubted'].includes(result.confidence)) result.confidence = 'likely';
-        if (!['held', 'revised', 'rejected'].includes(result.status)) result.status = 'held';
-        if (!['confirmed', 'contradicted', 'unknown'].includes(result.truthStatus)) result.truthStatus = 'unknown';
-    }
     if (category === 'states') {
         if (!['scene', 'ongoing'].includes(result.scope)) result.scope = 'ongoing';
         result.operation = 'set';
@@ -63,7 +58,6 @@ function publicRecord(category, item) {
 function requiredIdentity(category, record) {
     if (category === 'entities') return record.name;
     if (category === 'facts') return record.subject && record.predicate;
-    if (category === 'beliefs') return record.holder && record.subject && record.predicate;
     if (category === 'states') return record.subject && record.attribute;
     if (category === 'relationships') return record.from && record.to;
     if (category === 'events') return record.title || record.summary;
@@ -87,6 +81,7 @@ function searchable(item) {
 }
 
 export function selectCorrectionContext(world, instruction, { limit = 60, characterLimit = 30000 } = {}) {
+    migrateLegacyBeliefs(world);
     const query = terms(instruction);
     const ranked = [];
     for (const category of CORRECTABLE_CATEGORIES) {
@@ -131,7 +126,6 @@ export function correctionSelector(category, item, meta = {}) {
     const record = publicRecord(category, item);
     if (category === 'entities') return normalized(record.name);
     if (category === 'facts') return addressFactIdentity(record) || `${normalized(record.subject)}|${normalized(record.predicate)}`;
-    if (category === 'beliefs') return `${normalized(record.holder)}|${normalized(record.subject)}|${normalized(record.predicate)}`;
     if (category === 'states') return `${normalized(record.subject)}|${normalized(record.attribute)}`;
     if (category === 'relationships') return `${normalized(record.from)}|${normalized(record.to)}|${normalized(record.kind)}`;
     if (category === 'threads') return normalized(record.title);
@@ -151,6 +145,7 @@ export function isSuppressedByCorrection(world, category, item, meta = {}) {
 }
 
 export function validateCorrectionProposal(world, proposal, instruction = '') {
+    migrateLegacyBeliefs(world);
     if (!proposal || typeof proposal !== 'object' || Array.isArray(proposal)) throw new Error('The correction model returned no JSON object.');
     const summary = text(proposal.summary, 1000);
     const rawOperations = Array.isArray(proposal.operations) ? proposal.operations : [];
@@ -267,6 +262,7 @@ function overlaps(a, b) {
 }
 
 export function applyCorrectionProposal(world, proposal) {
+    migrateLegacyBeliefs(world);
     world.corrections ||= [];
     world.arcs ||= [];
     world.eras ||= [];

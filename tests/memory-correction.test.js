@@ -8,7 +8,7 @@ import { buildMemoryPrompt } from '../extension/retrieval.js';
 function memoryWorld() {
     return {
         id: 'world', revision: 3, scene: null,
-        entities: [], beliefs: [], states: [], relationships: [], threads: [], extractions: [], corrections: [], sources: {},
+        entities: [], states: [], relationships: [], threads: [], extractions: [], corrections: [], sources: {},
         facts: [{
             id: 'fact-knowledge', subject: 'Sasuke', predicate: 'knowledge of Elizabeth', value: 'Learned her identity during the tower meeting',
             category: 'knowledge', persistence: 'persistent', importance: 4, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
@@ -34,28 +34,29 @@ test('correction context selects matching records without dumping unrelated memo
 
 test('scopes a character correction to that belief without rewriting canon', () => {
     const world = memoryWorld();
-    world.beliefs = [{
-        id: 'belief-alice-mask', holder: 'Alice', subject: 'masked visitor', predicate: 'identity', value: 'the prince',
-        confidence: 'certain', status: 'held', truthStatus: 'unknown', importance: 4,
+    world.facts.push({
+        id: 'belief-alice-mask', subject: 'Alice', predicate: 'belief about masked visitor — identity', value: 'the prince',
+        category: 'character belief', persistence: 'persistent', importance: 4,
         sources: [{ chatKey: 'chat', from: 20, to: 23 }],
-    }];
-    const originalFacts = structuredClone(world.facts);
+    });
+    const originalCanonicalFacts = structuredClone(world.facts.filter(item => item.category !== 'character belief'));
     const proposal = validateCorrectionProposal(world, {
         summary: 'Alice was wrong about the masked visitor; objective truth remains unrevealed.',
         operations: [{
-            action: 'update', category: 'beliefs', targetId: 'belief-alice-mask', reason: 'Change only Alice’s perspective.',
+            action: 'update', category: 'facts', targetId: 'belief-alice-mask', reason: 'Change only Alice’s perspective.',
             recordJson: JSON.stringify({
-                holder: 'Alice', subject: 'masked visitor', predicate: 'identity', value: 'not the prince',
-                confidence: 'doubted', status: 'revised', truthStatus: 'unknown', importance: 4,
+                subject: 'Alice', predicate: 'belief about masked visitor — identity', value: 'no longer believes the visitor is the prince',
+                category: 'character belief', persistence: 'persistent', importance: 4,
             }),
         }],
     }, 'Alice was wrong about the masked visitor, but the truth is not known yet.');
 
     applyCorrectionProposal(world, proposal);
-    assert.deepEqual(world.facts, originalFacts);
-    assert.equal(world.beliefs[0].holder, 'Alice');
-    assert.equal(world.beliefs[0].status, 'revised');
-    assert.equal(world.beliefs[0].truthStatus, 'unknown');
+    assert.deepEqual(world.facts.filter(item => item.category !== 'character belief'), originalCanonicalFacts);
+    const belief = world.facts.find(item => item.id === 'belief-alice-mask');
+    assert.equal(belief.subject, 'Alice');
+    assert.match(belief.value, /no longer believes/i);
+    assert.equal(world.facts.some(item => item.subject === 'masked visitor' && item.predicate === 'identity'), false);
 });
 
 test('reviewed correction updates canonical records and invalidates only contaminated hierarchy', () => {

@@ -89,7 +89,8 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_INJECTION_INSTRUCTION, /without explanation/);
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(CONTINUITY_COVERAGE_RULES));
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(EPISTEMIC_MEMORY_RULES));
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /truthStatus.*unknown/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /category is "character belief"/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Canon remains unknown/);
     assert.match(DEFAULT_RETRIEVAL_SYSTEM_PROMPT, /roleplay or simulation/);
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /participants need not be people/);
     assert.match(DEFAULT_ERA_SYSTEM_PROMPT, /participants need not be people/);

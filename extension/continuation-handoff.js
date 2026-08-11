@@ -1,8 +1,10 @@
+import { migrateLegacyBeliefs } from './attributed-beliefs.js';
+
 export const CONTINUATION_PACKAGE_KIND = 'continuity-arc-handoff';
 export const CONTINUATION_PACKAGE_VERSION = 1;
 
 const INHERITED_COLLECTIONS = Object.freeze([
-    'entities', 'facts', 'beliefs', 'states', 'relationships', 'events',
+    'entities', 'facts', 'states', 'relationships', 'events',
     'capsules', 'arcs', 'eras', 'threads', 'backgrounds', 'corrections',
 ]);
 
@@ -78,7 +80,8 @@ export function createContinuationPackage(world, exportedAt = new Date().toISOSt
 export function prepareContinuationWorld(value, { chatKey, attachedAt = new Date().toISOString(), name = '' } = {}) {
     if (!isContinuationPackage(value)) throw new Error('This is not a supported Continuity continuation-arc file.');
     if (!clean(chatKey)) throw new Error('Open the destination chat before starting a continuation arc.');
-    const source = value.world;
+    const source = clone(value.world);
+    migrateLegacyBeliefs(source);
     if (!source.id || !source.name) throw new Error('The continuation file does not contain a valid source memory.');
 
     const world = clone(source);

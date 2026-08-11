@@ -8,7 +8,7 @@ import { buildMemoryPrompt, orderEventsChronologically } from '../extension/retr
 function world() {
     return {
         id: 'test-world', name: 'Test', revision: 0, scene: null,
-        entities: [], facts: [], beliefs: [], states: [], relationships: [], events: [], capsules: [], arcs: [], eras: [], extractions: [], threads: [], backgrounds: [], sources: {},
+        entities: [], facts: [], states: [], relationships: [], events: [], capsules: [], arcs: [], eras: [], extractions: [], threads: [], backgrounds: [], sources: {},
     };
 }
 
@@ -20,7 +20,6 @@ function extraction(overrides = {}) {
         identityResolutions: [],
         recordMerges: [],
         facts: [{ subject: 'Yui', predicate: 'favorite snack', value: 'cake', category: 'preference', importance: 3, persistence: 'persistent' }],
-        beliefs: [],
         states: [{ subject: 'Yui', attribute: 'location', value: 'Music room', previous: '', importance: 3, scope: 'scene', operation: 'set' }],
         relationships: [{ from: 'Yui', to: 'Mio', kind: 'friendship', status: 'Close friends', dynamic: 'Yui teases Mio gently.', importance: 4 }],
         events: [{ title: 'Practice session', summary: 'Yui and Mio practiced after school.', participants: ['Yui', 'Mio'], location: 'Music room', storyTime: 'Today', consequences: '', importance: 2, temporal: { frame: 'main narrative', relation: 'same-period', elapsed: '', certainty: 'implicit' } }],
@@ -30,7 +29,7 @@ function extraction(overrides = {}) {
     };
 }
 
-test('keeps character beliefs separate from canon and from each other', () => {
+test('keeps attributed belief facts separate from canon and from each other', () => {
     const target = world();
     const base = {
         scene: null, sceneCapsule: null, entities: [], identityResolutions: [], recordMerges: [], facts: [],
@@ -38,28 +37,27 @@ test('keeps character beliefs separate from canon and from each other', () => {
     };
     mergeExtraction(target, {
         ...base,
-        beliefs: [
-            { holder: 'Alice', subject: 'the masked visitor', predicate: 'identity', value: 'the prince', confidence: 'certain', status: 'held', truthStatus: 'unknown', importance: 4 },
-            { holder: 'Bob', subject: 'the masked visitor', predicate: 'identity', value: 'a spy', confidence: 'suspected', status: 'held', truthStatus: 'unknown', importance: 3 },
+        facts: [
+            { subject: 'Alice', predicate: 'belief about the masked visitor — identity', value: 'the prince', category: 'character belief', persistence: 'persistent', importance: 4 },
+            { subject: 'Bob', predicate: 'belief about the masked visitor — identity', value: 'a spy', category: 'character belief', persistence: 'persistent', importance: 3 },
         ],
     }, { chatKey: 'chat', from: 0, to: 3, allowStateUpdates: true });
 
-    assert.equal(target.facts.length, 0);
-    assert.equal(target.beliefs.length, 2);
-    assert.deepEqual(target.beliefs.map(item => item.holder).sort(), ['Alice', 'Bob']);
-    assert.ok(target.beliefs.every(item => item.truthStatus === 'unknown'));
+    assert.equal(target.facts.length, 2);
+    assert.deepEqual(target.facts.map(item => item.subject).sort(), ['Alice', 'Bob']);
+    assert.equal(target.facts.some(item => item.subject === 'the masked visitor' && item.predicate === 'identity'), false);
 
     mergeExtraction(target, {
         ...base,
-        beliefs: [{ holder: 'Alice', subject: 'the masked visitor', predicate: 'identity', value: 'not the prince', confidence: 'doubted', status: 'revised', truthStatus: 'unknown', importance: 4 }],
+        facts: [{ subject: 'Alice', predicate: 'belief about the masked visitor — identity', value: 'not the prince', category: 'character belief', persistence: 'persistent', importance: 4 }],
     }, { chatKey: 'chat', from: 4, to: 7, allowStateUpdates: true });
 
-    assert.equal(target.beliefs.length, 2);
-    assert.equal(target.beliefs.find(item => item.holder === 'Alice').status, 'revised');
-    assert.equal(target.beliefs.find(item => item.holder === 'Bob').value, 'a spy');
+    assert.equal(target.facts.length, 2);
+    assert.equal(target.facts.find(item => item.subject === 'Alice').value, 'not the prince');
+    assert.equal(target.facts.find(item => item.subject === 'Bob').value, 'a spy');
     const injected = buildMemoryPrompt(target, [{ name: 'User', mes: 'What does Bob think about the masked visitor?' }], 2000, 'chat');
     assert.match(injected.prompt, /Character perspectives \(not automatically canon\)/);
-    assert.match(injected.prompt, /Bob believes.*a spy.*canon: unknown/i);
+    assert.match(injected.prompt, /Bob.*belief about the masked visitor.*a spy.*not automatically canon/i);
 });
 
 test('merges durable records and updates matching facts instead of duplicating them', () => {
@@ -983,7 +981,7 @@ test('full reset erases every memory layer while preserving the bound world iden
 
     assert.deepEqual({ id: target.id, name: target.name, revision: target.revision }, identity);
     assert.equal(target.scene, null);
-    for (const category of ['entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds', 'corrections']) {
+    for (const category of ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds', 'corrections']) {
         assert.deepEqual(target[category], []);
     }
     assert.deepEqual(target.sources, {});

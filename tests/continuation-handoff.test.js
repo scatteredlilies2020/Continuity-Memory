@@ -15,7 +15,7 @@ function world() {
         revision: 12,
         scene: { id: 'scene-1', location: 'Harbor', sources: [{ chatKey: 'old-chat', from: 8, to: 15 }] },
         entities: [{ id: 'entity-1', name: 'Alice', sources: [{ chatKey: 'old-chat', from: 0, to: 7 }] }],
-        facts: [], beliefs: [], states: [], relationships: [], events: [],
+        facts: [], beliefs: [{ id: 'belief-1', holder: 'Alice', subject: 'masked visitor', predicate: 'identity', value: 'the prince', truthStatus: 'unknown', sources: [{ chatKey: 'old-chat', from: 0, to: 7 }] }], states: [], relationships: [], events: [],
         capsules: [{ id: 'capsule-1', chatKey: 'old-chat', from: 0, to: 7, sources: [{ chatKey: 'old-chat', from: 0, to: 7 }] }],
         arcs: [{ id: 'arc-1', capsuleIds: ['capsule-1'], sources: [{ chatKey: 'old-chat', from: 0, to: 7 }] }],
         eras: [], extractions: [{ id: 'extraction-1', chatKey: 'old-chat', from: 0, to: 7 }],
@@ -47,6 +47,10 @@ test('starting a continuation preserves memory but detaches old message fingerpr
     assert.equal(continued.entities[0].name, 'Alice');
     assert.equal(continued.entities[0].sources[0].chatKey, 'continuation:origin-world');
     assert.equal(continued.entities[0].sources[0].inherited, true);
+    assert.equal(continued.beliefs, undefined);
+    assert.equal(continued.facts[0].subject, 'Alice');
+    assert.equal(continued.facts[0].category, 'character belief');
+    assert.equal(continued.facts[0].sources[0].chatKey, 'continuation:origin-world');
     assert.equal(continued.capsules[0].chatKey, 'continuation:origin-world');
     assert.equal(continued.continuation.attachedChatKey, 'character:2:chat:new-arc');
     assert.equal(continued.revision, -1);

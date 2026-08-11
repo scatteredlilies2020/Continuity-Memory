@@ -1,7 +1,7 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, IDENTITY_RESOLUTION_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.82';
+import { CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, IDENTITY_RESOLUTION_RULES, LEGACY_EPISTEMIC_MEMORY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.83';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
 
@@ -330,17 +330,20 @@ export function getSettings() {
         settings.relationalAddressPromptVersion = 6;
         saveSettingsDebounced();
     }
-    if (Number(settings.epistemicPromptVersion || 0) < 1) {
-        const extractionPrompt = String(settings.extractionSystemPrompt || PROMPT_DEFAULTS.extractionSystemPrompt);
-        if (!extractionPrompt.includes('Keep objective canon separate from subjective perspective.')) {
-            settings.extractionSystemPrompt = `${extractionPrompt}\n${EPISTEMIC_MEMORY_RULES}`;
+    if (Number(settings.epistemicPromptVersion || 0) < 2) {
+        let extractionPrompt = String(settings.extractionSystemPrompt || PROMPT_DEFAULTS.extractionSystemPrompt);
+        if (extractionPrompt.includes(LEGACY_EPISTEMIC_MEMORY_RULES)) {
+            extractionPrompt = extractionPrompt.replace(LEGACY_EPISTEMIC_MEMORY_RULES, EPISTEMIC_MEMORY_RULES);
+        } else if (!extractionPrompt.includes(EPISTEMIC_MEMORY_RULES)) {
+            extractionPrompt = `${extractionPrompt}\n${EPISTEMIC_MEMORY_RULES}`;
         }
+        settings.extractionSystemPrompt = extractionPrompt;
         const hierarchyRule = 'Preserve who believed, reported, suspected, or knew each uncertain claim. Never turn an unresolved or subjective claim into objective canon.';
         for (const key of ['arcSystemPrompt', 'eraSystemPrompt']) {
             const prompt = String(settings[key] || PROMPT_DEFAULTS[key]);
             if (!prompt.includes(hierarchyRule)) settings[key] = `${prompt}\n${hierarchyRule}`;
         }
-        settings.epistemicPromptVersion = 1;
+        settings.epistemicPromptVersion = 2;
         saveSettingsDebounced();
     }
     if (settings.rawTailMode === undefined) {

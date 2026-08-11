@@ -1,5 +1,6 @@
 import { getRequestHeaders } from '/script.js';
-import { createFileStorageApi } from './file-storage.js?v=0.14.0-standalone.82';
+import { createFileStorageApi } from './file-storage.js?v=0.14.0-standalone.83';
+import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 
 const BASE = '/api/plugins/continuity-memory';
 const fileApi = createFileStorageApi({ requestHeaders: getRequestHeaders });
@@ -53,7 +54,9 @@ async function getBackend() {
 async function call(method, ...args) {
     const backend = await getBackend();
     if (method === 'health' && backend.health) return backend.health;
-    return await backend.api[method](...args);
+    const result = await backend.api[method](...args);
+    if (result?.world) migrateLegacyBeliefs(result.world);
+    return result;
 }
 
 export const api = {

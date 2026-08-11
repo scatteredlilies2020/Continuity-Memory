@@ -360,6 +360,7 @@ function addFairSections(parts, sections, budget) {
 }
 
 export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, chatKey = '', expandedTerms = [], injectionInstruction = DEFAULT_INJECTION_INSTRUCTION, semanticRanks = new Map(), options = {}) {
+    migrateLegacyBeliefs(world);
     if (!world) return { prompt: '', estimatedTokens: 0 };
     const semanticAnchors = embeddingAnchorText(world, semanticRanks);
     const query = `${recentMessages.map(message => `${message.name || ''} ${message.mes || ''}`).join(' ')} ${(expandedTerms || []).join(' ')} ${semanticAnchors}`;
@@ -481,14 +482,12 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         .map(({ item }) => `- ${item.from} → ${item.to} (${item.kind}): ${anchoredRelativeText(`${item.status}${item.dynamic ? `; ${item.dynamic}` : ''}`, item)}`);
     addSection('Relationships', relationships);
 
-    const beliefs = matching((world.beliefs || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)), queryTerms, item => item.status === 'held' ? 2 : 0, 'belief', semanticRanks).slice(0, 16)
-        .map(({ item }) => {
-            const qualifiers = [item.confidence, item.status, `canon: ${item.truthStatus || 'unknown'}`].map(plain).filter(Boolean).join(', ');
-            return `- ${item.holder} believes ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)}${qualifiers ? ` [${qualifiers}]` : ''}`;
-        });
-    addSection('Character perspectives (not automatically canon)', beliefs);
+    const availableFacts = (world.facts || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item));
+    const perspectives = matching(availableFacts.filter(isAttributedBeliefFact), queryTerms, item => item.persistence === 'persistent' ? 2 : 0, 'fact', semanticRanks).slice(0, 16)
+        .map(({ item }) => `- ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)} [subjective; not automatically canon]`);
+    addSection('Character perspectives (not automatically canon)', perspectives);
 
-    const facts = matching((world.facts || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)), queryTerms, item => item.persistence === 'persistent' ? 2 : 0, 'fact', semanticRanks).slice(0, 18)
+    const facts = matching(availableFacts.filter(item => !isAttributedBeliefFact(item)), queryTerms, item => item.persistence === 'persistent' ? 2 : 0, 'fact', semanticRanks).slice(0, 18)
         .map(({ item }) => {
             const qualifier = item.persistence && item.persistence !== 'persistent' ? ` [${item.persistence}]` : '';
             return `- ${item.subject} — ${item.predicate}${qualifier}: ${anchoredRelativeText(item.value, item)}`;
@@ -511,5 +510,6 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value) };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.82';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.83';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
+import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';

@@ -1,13 +1,17 @@
-const SCHEMA_VERSION = 9;
+import { migrateLegacyBeliefs } from './attributed-beliefs.js';
+
+const SCHEMA_VERSION = 10;
 const STORAGE_VERSION = 2;
 const SHARD_CHUNK_SIZE = 128;
 const INDEX_FILES = ['continuity-memory-index.json', 'continuity-memory-index-redundant.json'];
 const LEGACY_INDEX_FILE = 'continuity-memory-index-backup.json';
 const WORLD_ID_RE = /^[a-z0-9][a-z0-9_-]{0,79}$/;
 const FILE_RE = /^[a-z0-9][a-z0-9_.-]{0,220}\.json$/i;
-const ARRAY_SHARDS = ['entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds', 'corrections'];
+const ARRAY_SHARDS = ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds', 'corrections'];
+const LEGACY_ARRAY_SHARDS = ['beliefs'];
 const SINGLE_SHARDS = ['scene', 'sources', 'continuation'];
 const ALL_SHARDS = [...SINGLE_SHARDS, ...ARRAY_SHARDS];
+const READ_SHARDS = [...ALL_SHARDS, ...LEGACY_ARRAY_SHARDS];
 
 function storageError(message, status = 500) {
     return Object.assign(new Error(message), { status });
@@ -60,7 +64,6 @@ function emptyWorld(id, name) {
         scene: null,
         entities: [],
         facts: [],
-        beliefs: [],
         states: [],
         relationships: [],
         events: [],
@@ -78,9 +81,10 @@ function emptyWorld(id, name) {
 
 function normalizeWorld(input, expectedId) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw storageError('World payload must be an object', 400);
+    migrateLegacyBeliefs(input);
     const id = assertWorldId(expectedId || input.id);
     const base = emptyWorld(id, input.name);
-    for (const key of ['entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds', 'corrections']) {
+    for (const key of ARRAY_SHARDS) {
         base[key] = Array.isArray(input[key]) ? input[key].slice(0, 100000) : [];
     }
     base.scene = input.scene && typeof input.scene === 'object' ? input.scene : null;
@@ -96,7 +100,6 @@ function counts(world) {
     return {
         entities: world.entities?.length || 0,
         facts: world.facts?.length || 0,
-        beliefs: world.beliefs?.length || 0,
         states: world.states?.length || 0,
         relationships: world.relationships?.length || 0,
         events: world.events?.length || 0,
@@ -283,7 +286,10 @@ export function createFileStorageApi({ fetchFn = globalThis.fetch, requestHeader
         if (stored?.shardedStorage && !isShardManifest(stored)) {
             throw storageError(`Unsupported memory storage version: ${stored.shardedStorage.version ?? 'unknown'}`);
         }
-        if (!isShardManifest(stored)) return stored;
+        if (!isShardManifest(stored)) {
+            migrateLegacyBeliefs(stored);
+            return stored;
+        }
         if (stored.id !== expectedId) throw storageError(`Stored memory ID does not match its manifest (${expectedId})`);
         const world = {
             schemaVersion: stored.schemaVersion || SCHEMA_VERSION,
@@ -293,7 +299,7 @@ export function createFileStorageApi({ fetchFn = globalThis.fetch, requestHeader
             updatedAt: stored.updatedAt,
             revision: stored.revision || 0,
         };
-        for (const category of ALL_SHARDS) {
+        for (const category of READ_SHARDS) {
             const entries = Array.isArray(stored.shards[category]) ? stored.shards[category] : [];
             const parts = await mapConcurrent(entries, 8, async (entry, part) => {
                 const shard = await readJsonFile(entry.file);
@@ -305,9 +311,10 @@ export function createFileStorageApi({ fetchFn = globalThis.fetch, requestHeader
                 }
                 return shard.data;
             });
-            if (ARRAY_SHARDS.includes(category)) world[category] = parts.flat();
+            if (ARRAY_SHARDS.includes(category) || LEGACY_ARRAY_SHARDS.includes(category)) world[category] = parts.flat();
             else world[category] = parts.length ? parts[0] : (category === 'sources' ? {} : null);
         }
+        migrateLegacyBeliefs(world);
         return world;
     }
 
@@ -363,7 +370,7 @@ export function createFileStorageApi({ fetchFn = globalThis.fetch, requestHeader
                     manifest.shards[category].push({ file, hash, count: Array.isArray(data) ? data.length : 1 });
                 }
             }
-            const oldFiles = ALL_SHARDS.flatMap(category => previousManifest?.shards?.[category] || [])
+            const oldFiles = READ_SHARDS.flatMap(category => previousManifest?.shards?.[category] || [])
                 .map(entry => entry.file)
                 .filter(file => file && !newFiles.has(file));
             const retiredFiles = [...new Set([...(previousManifest?.retiredShards || []), ...oldFiles])];
@@ -443,7 +450,7 @@ export function createFileStorageApi({ fetchFn = globalThis.fetch, requestHeader
             delete index.worlds[id];
             const files = [
                 worldFilename(id),
-                ...ALL_SHARDS.flatMap(category => manifest?.shards?.[category] || []).map(entry => entry.file),
+                ...READ_SHARDS.flatMap(category => manifest?.shards?.[category] || []).map(entry => entry.file),
                 ...(manifest?.retiredShards || []),
             ];
             index.pendingDeletes = [...new Set([...(index.pendingDeletes || []), ...files])];

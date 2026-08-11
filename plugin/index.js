@@ -2,15 +2,18 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { migrateLegacyBeliefs } from '../extension/attributed-beliefs.js';
 
 const PLUGIN = 'continuity-memory';
-const VERSION = '0.14.0-standalone.82';
-const SCHEMA_VERSION = 9;
+const VERSION = '0.14.0-standalone.83';
+const SCHEMA_VERSION = 10;
 const STORAGE_VERSION = 2;
 const SHARD_CHUNK_SIZE = 128;
-const ARRAY_SHARDS = ['entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds', 'corrections'];
+const ARRAY_SHARDS = ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds', 'corrections'];
+const LEGACY_ARRAY_SHARDS = ['beliefs'];
 const SINGLE_SHARDS = ['scene', 'sources', 'continuation'];
 const ALL_SHARDS = [...SINGLE_SHARDS, ...ARRAY_SHARDS];
+const READ_SHARDS = [...ALL_SHARDS, ...LEGACY_ARRAY_SHARDS];
 const WORLD_ID_RE = /^[a-z0-9][a-z0-9_-]{0,79}$/;
 const MANAGED_MARKER = '.continuity-memory-managed';
 const BUNDLED_EXTENSION = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'extension');
@@ -171,7 +174,6 @@ function emptyWorld(id, name) {
         scene: null,
         entities: [],
         facts: [],
-        beliefs: [],
         states: [],
         relationships: [],
         events: [],
@@ -191,9 +193,10 @@ function normalizeWorld(input, expectedId) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) {
         throw Object.assign(new Error('World payload must be an object'), { status: 400 });
     }
+    migrateLegacyBeliefs(input);
     const id = assertWorldId(expectedId || input.id);
     const base = emptyWorld(id, input.name);
-    const arrays = ['entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds', 'corrections'];
+    const arrays = ARRAY_SHARDS;
     for (const key of arrays) {
         base[key] = Array.isArray(input[key]) ? input[key].slice(0, 100000) : [];
     }
@@ -234,7 +237,10 @@ async function materializeStoredWorld(dirs, id, stored) {
     if (stored?.shardedStorage && !isShardManifest(stored)) {
         throw new Error(`Unsupported memory storage version: ${stored.shardedStorage.version ?? 'unknown'}`);
     }
-    if (!isShardManifest(stored)) return stored;
+    if (!isShardManifest(stored)) {
+        migrateLegacyBeliefs(stored);
+        return stored;
+    }
     if (stored.id !== id) throw new Error(`Stored memory ID does not match its manifest (${id})`);
     const world = {
         schemaVersion: stored.schemaVersion || SCHEMA_VERSION,
@@ -244,7 +250,7 @@ async function materializeStoredWorld(dirs, id, stored) {
         updatedAt: stored.updatedAt,
         revision: stored.revision || 0,
     };
-    for (const category of ALL_SHARDS) {
+    for (const category of READ_SHARDS) {
         const entries = Array.isArray(stored.shards[category]) ? stored.shards[category] : [];
         const parts = await Promise.all(entries.map(async (entry, part) => {
             const shard = await readJson(shardFilePath(dirs, id, entry.file));
@@ -254,9 +260,10 @@ async function materializeStoredWorld(dirs, id, stored) {
             }
             return shard.data;
         }));
-        if (ARRAY_SHARDS.includes(category)) world[category] = parts.flat();
+        if (ARRAY_SHARDS.includes(category) || LEGACY_ARRAY_SHARDS.includes(category)) world[category] = parts.flat();
         else world[category] = parts.length ? parts[0] : (category === 'sources' ? {} : null);
     }
+    migrateLegacyBeliefs(world);
     return world;
 }
 
@@ -315,7 +322,7 @@ async function writeShardedWorld(dirs, world, previousManifest = null) {
                 manifest.shards[category].push({ file, hash, count: Array.isArray(data) ? data.length : 1 });
             }
         }
-        const oldFiles = ALL_SHARDS.flatMap(category => previousManifest?.shards?.[category] || [])
+        const oldFiles = READ_SHARDS.flatMap(category => previousManifest?.shards?.[category] || [])
             .map(entry => entry.file)
             .filter(file => file && !newFiles.has(file));
         const retiredFiles = [...new Set([...(previousManifest?.retiredShards || []), ...oldFiles])];
@@ -344,7 +351,6 @@ function counts(world) {
     const result = {
         entities: world.entities?.length || 0,
         facts: world.facts?.length || 0,
-        beliefs: world.beliefs?.length || 0,
         states: world.states?.length || 0,
         relationships: world.relationships?.length || 0,
         events: world.events?.length || 0,

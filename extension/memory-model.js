@@ -4,6 +4,7 @@ import { addressFactAddressee, addressFactIdentity, isAddressFact, mergeAddressV
 import { canonicalMemorySubject, canonicalStateAttribute, stateIdentity, stateScope } from './state-lifecycle.js';
 import { buildL1TemporalAnchor, buildRelativeTemporalAnchor } from './temporal-anchors.js';
 import { randomUuid } from './uuid.js';
+import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 
 function text(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -272,7 +273,6 @@ function applyIdentityResolution(world, raw, meta) {
 
     if (world.scene) world.scene = updateRecord(world.scene, { participants: replaceList(world.scene.participants) });
     world.facts = (world.facts || []).map(item => updateRecord(item, { subject: replace(item.subject) }));
-    world.beliefs = (world.beliefs || []).map(item => updateRecord(item, { holder: replace(item.holder), subject: replace(item.subject) }));
     world.states = (world.states || []).map(item => updateRecord(item, { subject: replace(item.subject) }));
     world.relationships = (world.relationships || []).map(item => updateRecord(item, { from: replace(item.from), to: replace(item.to) }));
     world.events = (world.events || []).map(item => updateRecord(item, { participants: replaceList(item.participants) }));
@@ -283,7 +283,6 @@ function applyIdentityResolution(world, raw, meta) {
     world.eras = (world.eras || []).map(item => updateParticipants(item, 40));
 
     world.facts = deduplicateCanonicalRecords(world.facts, item => `${key(item.subject)}|${key(item.predicate)}`);
-    world.beliefs = deduplicateCanonicalRecords(world.beliefs, item => `${key(item.holder)}|${key(item.subject)}|${key(item.predicate)}`);
     world.states = deduplicateCanonicalRecords(world.states, item => stateIdentity(world, item));
     world.relationships = deduplicateCanonicalRecords(world.relationships, item => `${key(item.from)}|${key(item.to)}|${key(item.kind)}`);
     return true;
@@ -291,7 +290,7 @@ function applyIdentityResolution(world, raw, meta) {
 
 function applyRecordMerge(world, raw, meta) {
     const category = text(raw?.category);
-    if (!['facts', 'beliefs', 'states', 'relationships', 'threads', 'backgrounds'].includes(category) || !text(raw?.evidence)) return false;
+    if (!['facts', 'states', 'relationships', 'threads', 'backgrounds'].includes(category) || !text(raw?.evidence)) return false;
     const records = world[category] || [];
     const canonicalId = text(raw.canonicalId);
     const duplicateIds = [...new Set(cleanList(raw.duplicateIds).filter(itemId => itemId !== canonicalId))];
@@ -313,9 +312,9 @@ function applyRecordMerge(world, raw, meta) {
 }
 
 export function mergeExtraction(world, result, meta) {
+    migrateLegacyBeliefs(world);
     world.entities ||= [];
     world.facts ||= [];
-    world.beliefs ||= [];
     world.states ||= [];
     world.relationships ||= [];
     world.events ||= [];
@@ -379,18 +378,6 @@ export function mergeExtraction(world, result, meta) {
             temporalAnchorId: l1Temporal.anchorId,
         };
     }, preserveHistoricalRecord);
-
-    mergeArray(world, 'beliefs', world.beliefs, result.beliefs, item => `${key(item.holder)}|${key(item.subject)}|${key(item.predicate)}`, meta, 'belief', (item, existing) => ({
-        holder: existing?.holder || canonicalMemorySubject(world, item.holder),
-        subject: existing?.subject || canonicalMemorySubject(world, item.subject),
-        predicate: existing?.predicate || text(item.predicate),
-        value: text(item.value),
-        confidence: ['certain', 'likely', 'suspected', 'doubted'].includes(item.confidence) ? item.confidence : 'likely',
-        status: ['held', 'revised', 'rejected'].includes(item.status) ? item.status : 'held',
-        truthStatus: ['confirmed', 'contradicted', 'unknown'].includes(item.truthStatus) ? item.truthStatus : 'unknown',
-        importance: clampImportance(item.importance),
-        temporalAnchorId: l1Temporal.anchorId,
-    }), preserveHistoricalRecord);
 
     if (meta.allowStateUpdates !== false) {
         // Scene state is a replaceable snapshot, not historical memory. Advancing
@@ -564,12 +551,13 @@ function sameRange(source, meta) {
 }
 
 export function replaceExtraction(world, result, meta) {
+    migrateLegacyBeliefs(world);
     world.extractions ||= [];
     world.arcs ||= [];
     world.eras ||= [];
     const removedCapsuleIds = new Set((world.capsules || []).filter(item => sameRange(item, meta)).map(item => item.id));
     const removedArcIds = new Set(world.arcs.filter(arc => (arc.capsuleIds || []).some(id => removedCapsuleIds.has(id))).map(arc => arc.id));
-    for (const category of ['entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'threads', 'backgrounds']) {
+    for (const category of ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds']) {
         world[category] = (world[category] || []).flatMap(item => {
             const sources = (item.sources || []).filter(source => !sameRange(source, meta));
             return sources.length ? [{ ...item, sources }] : [];
@@ -587,9 +575,10 @@ export function replaceExtraction(world, result, meta) {
 }
 
 export function removeChatContributions(world, chatKey) {
+    migrateLegacyBeliefs(world);
     const removedCapsuleIds = new Set((world.capsules || []).filter(item => item.chatKey === chatKey).map(item => item.id));
     const removedArcIds = new Set((world.arcs || []).filter(arc => arc.chatKey === chatKey || (arc.capsuleIds || []).some(id => removedCapsuleIds.has(id))).map(arc => arc.id));
-    for (const category of ['entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'threads', 'backgrounds']) {
+    for (const category of ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds']) {
         world[category] = (world[category] || []).flatMap(item => {
             const sources = (item.sources || []).filter(source => source.chatKey !== chatKey);
             return sources.length ? [{ ...item, sources }] : [];
@@ -610,7 +599,6 @@ export function removeChatContributions(world, chatKey) {
 function replayIdentity(collection, item, chatKey) {
     if (collection === 'entities') return key(item.name);
     if (collection === 'facts') return `${key(item.subject)}|${key(item.predicate)}`;
-    if (collection === 'beliefs') return `${key(item.holder)}|${key(item.subject)}|${key(item.predicate)}`;
     if (collection === 'states') return stateIdentity(null, item);
     if (collection === 'relationships') return `${key(item.from)}|${key(item.to)}|${key(item.kind)}`;
     if (collection === 'threads') return key(item.title);
@@ -630,7 +618,9 @@ function replayIdentity(collection, item, chatKey) {
 }
 
 export function restoreRetainedReplayRecords(world, previousWorld, chatKey) {
-    for (const collection of ['entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'threads', 'backgrounds', 'capsules', 'extractions']) {
+    migrateLegacyBeliefs(world);
+    migrateLegacyBeliefs(previousWorld);
+    for (const collection of ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds', 'capsules', 'extractions']) {
         const previousByIdentity = new Map();
         for (const item of previousWorld?.[collection] || []) {
             const identity = replayIdentity(collection, item, chatKey);
@@ -676,8 +666,9 @@ export function restoreRetainedReplayRecords(world, previousWorld, chatKey) {
 }
 
 export function resetWorldMemory(world) {
+    migrateLegacyBeliefs(world);
     world.scene = null;
-    for (const category of ['entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds', 'corrections']) {
+    for (const category of ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds', 'corrections']) {
         world[category] = [];
     }
     world.sources = {};
@@ -783,7 +774,8 @@ function clampImportance(value) {
 
 export function worldCounts(world) {
     if (!world) return {};
-    const counts = Object.fromEntries(['entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'threads', 'backgrounds']
+    migrateLegacyBeliefs(world);
+    const counts = Object.fromEntries(['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds']
         .map(name => [name, world[name]?.length || 0]));
     counts.L1 = world.capsules?.length || 0;
     counts.L2 = world.arcs?.length || 0;

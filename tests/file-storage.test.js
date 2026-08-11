@@ -65,14 +65,15 @@ test('built-in SillyTavern file storage preserves worlds, revisions, import, and
     assert.equal((await api.listWorlds()).worlds[0].id, created.world.id);
 
     created.world.facts.push({ id: 'fact-1', subject: 'Yui', predicate: 'likes', value: 'cake' });
-    created.world.beliefs.push({ id: 'belief-1', holder: 'Mio', subject: 'Yui', predicate: 'motive', value: 'wants cake', truthStatus: 'unknown' });
+    created.world.beliefs = [{ id: 'belief-1', holder: 'Mio', subject: 'Yui', predicate: 'motive', value: 'wants cake', truthStatus: 'unknown' }];
     created.world.backgrounds.push({ id: 'background-1', topic: 'Distant election', summary: 'The result remains disputed.', status: 'active', certainty: 'reported' });
     created.world.corrections.push({ id: 'correction-1', instruction: 'Yui likes cake.', operations: [] });
     created.world.continuation = { originWorldId: 'origin-world', attachedChatKey: 'chat:new-arc' };
     const saved = await api.saveWorld(created.world);
     assert.equal(saved.world.revision, 1);
-    assert.equal((await api.getWorld(saved.world.id)).world.facts.length, 1);
-    assert.equal((await api.getWorld(saved.world.id)).world.beliefs[0].holder, 'Mio');
+    assert.equal((await api.getWorld(saved.world.id)).world.facts.length, 2);
+    assert.equal((await api.getWorld(saved.world.id)).world.facts.find(item => item.id === 'belief-1').subject, 'Mio');
+    assert.equal((await api.getWorld(saved.world.id)).world.beliefs, undefined);
     assert.equal((await api.getWorld(saved.world.id)).world.backgrounds[0].topic, 'Distant election');
     assert.equal((await api.getWorld(saved.world.id)).world.corrections.length, 1);
     assert.equal((await api.getWorld(saved.world.id)).world.continuation.originWorldId, 'origin-world');
@@ -85,7 +86,7 @@ test('built-in SillyTavern file storage preserves worlds, revisions, import, and
     assert.equal(imported.world.id, 'imported-world');
     assert.equal(JSON.parse(server.files.get('continuity-memory-world-imported-world.json')).shardedStorage.version, 2);
     assert.equal((await api.getWorld('imported-world')).world.facts[0].id, 'fact-1');
-    assert.equal((await api.getWorld('imported-world')).world.beliefs[0].id, 'belief-1');
+    assert.equal((await api.getWorld('imported-world')).world.facts.some(item => item.id === 'belief-1' && item.category === 'character belief'), true);
     assert.equal((await api.getWorld('imported-world')).world.continuation.attachedChatKey, 'chat:new-arc');
     assert.equal((await api.getWorld('imported-world')).world.backgrounds[0].id, 'background-1');
     assert.equal((await api.listWorlds()).worlds.length, 2);

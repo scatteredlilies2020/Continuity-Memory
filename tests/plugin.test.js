@@ -42,7 +42,7 @@ test('server plugin creates, saves, and explicitly deletes worlds', async t => {
 
     const world = created.payload.world;
     world.facts.push({ id: 'fact-1', subject: 'Yui', predicate: 'likes', value: 'cake' });
-    world.beliefs.push({ id: 'belief-1', holder: 'Mio', subject: 'Yui', predicate: 'motive', value: 'wants cake', truthStatus: 'unknown' });
+    world.beliefs = [{ id: 'belief-1', holder: 'Mio', subject: 'Yui', predicate: 'motive', value: 'wants cake', truthStatus: 'unknown' }];
     world.arcs.push({ id: 'arc-1', title: 'First arc', capsuleIds: ['capsule-1'] });
     world.eras.push({ id: 'era-1', title: 'First era', arcIds: ['arc-1'] });
     world.extractions.push({ id: 'extraction-1', chatKey: 'chat', from: 0, to: 4, result: {} });
@@ -50,8 +50,9 @@ test('server plugin creates, saves, and explicitly deletes worlds', async t => {
     const saved = await call(router.routes.get('PUT /worlds/:id'), root, { params: { id: world.id }, body: world });
     assert.equal(saved.status, 200);
     assert.equal(saved.payload.world.revision, 1);
-    assert.equal(saved.payload.counts.facts, 1);
-    assert.equal(saved.payload.counts.beliefs, 1);
+    assert.equal(saved.payload.counts.facts, 2);
+    assert.equal(saved.payload.counts.beliefs, undefined);
+    assert.equal(saved.payload.world.facts.some(item => item.id === 'belief-1' && item.category === 'character belief'), true);
     assert.equal(saved.payload.counts.l2Arcs, 1);
     assert.equal(saved.payload.counts.l3Eras, 1);
     assert.equal(saved.payload.counts.retryableL1, 1);
@@ -62,7 +63,8 @@ test('server plugin creates, saves, and explicitly deletes worlds', async t => {
     const loaded = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: world.id } });
     assert.equal(loaded.payload.world.shardedStorage, undefined);
     assert.equal(loaded.payload.world.facts[0].id, 'fact-1');
-    assert.equal(loaded.payload.world.beliefs[0].id, 'belief-1');
+    assert.equal(loaded.payload.world.beliefs, undefined);
+    assert.equal(loaded.payload.world.facts.some(item => item.id === 'belief-1'), true);
     assert.equal(loaded.payload.world.continuation.attachedChatKey, 'chat:new-arc');
 
     const conflict = await call(router.routes.get('PUT /worlds/:id'), root, { params: { id: world.id }, body: world });
