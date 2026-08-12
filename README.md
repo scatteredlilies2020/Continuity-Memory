@@ -53,6 +53,8 @@ Applied corrections are recorded as authoritative revisions. If a historical eve
 
 Continuity detects edits, deletions, swipes, and branch changes. A checkpoint is withheld whenever newer or changed messages are waiting to be processed, which keeps the recent raw chat authoritative.
 
+When a SillyTavern branch or checkpoint is created, Continuity verifies and locally replays the parent chat's unchanged L1 prefix into a separate memory for the new chat. Only the L1 containing the fork point and the later suffix need fresh extraction; the two-message stability buffer is still preserved.
+
 Mutable state is fail-closed. Scene-local locations, activities, emotions, and plans expire when the next L1 range advances. Longer-running conditions are stored for reconciliation, but are injected as current only when the newest L1 reconfirms them. Predicted or scheduled events remain plans or open threads until they actually occur. Legacy state records without lifecycle metadata are never injected as current.
 
 When the narrative later identifies an earlier unknown, disguised, or descriptive reference, Continuity migrates matching structured references to the canonical entity and merges duplicates. The identification must be supported by the chat; outside franchise knowledge, resemblance, suspicion, and unconfirmed claims do not establish identity.
