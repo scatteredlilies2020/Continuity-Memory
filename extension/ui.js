@@ -1,9 +1,9 @@
-import { getRequestHeaders } from '/script.js';
+import { characters, getRequestHeaders, saveChatConditional, this_chid } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor } from './engine.js?v=0.14.0-standalone.97';
+import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor } from './engine.js?v=0.14.0-standalone.98';
 import { worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
 import { buildMemoryPrompt } from './retrieval.js';
@@ -14,14 +14,15 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, cancelExtractionReview } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages } from './fingerprint.js?v=0.14.0-standalone.97';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.97';
-import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.97';
+import { alignWorldToChat, collectFingerprintMessages } from './fingerprint.js?v=0.14.0-standalone.98';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.98';
+import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.98';
 import { completeL1MessageCount, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.97';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.97';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.97';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.98';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.98';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.98';
+import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -31,6 +32,7 @@ let viewerSearch = '';
 let viewerPage = 0;
 let viewerSignature = '';
 let renderedExtractionReviewId = '';
+let nativeChatExportBridgeInstalled = false;
 const DIRECT_PROFILE_ID = '__direct__';
 
 function verifyMemoryAlignment(world) {
@@ -50,6 +52,87 @@ function toast(type, message) {
 function settingWarning(message) {
     if (window.toastr?.warning) window.toastr.warning(message, 'Continuity Memory');
     else console.warn(`[Continuity] ${message}`);
+}
+
+function exportChatKey(chatId, context = getContext()) {
+    const owner = context.groupId ? `group:${context.groupId}` : `character:${context.characterId ?? 'unknown'}`;
+    return `${owner}:chat:${chatId}`;
+}
+
+function downloadPortableChat(text, filename) {
+    const blob = new Blob([text], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
+async function exportNativeChatWithPortableMemory(target, filenameFull, chatId, chatKey, worldId, includePortableMemory) {
+    const context = getContext();
+    if (context.chatId === chatId) await saveChatConditional();
+    const response = await fetch('/api/chats/export', {
+        method: 'POST',
+        body: JSON.stringify({
+            is_group: Boolean(context.groupId),
+            character_id: characters[this_chid]?.id,
+            file: filenameFull,
+            exportfilename: filenameFull,
+            format: 'jsonl',
+        }),
+        headers: getRequestHeaders(),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.message || `Chat export failed (${response.status}).`);
+
+    if (!includePortableMemory) {
+        downloadPortableChat(removePortableMemoryFromChatExport(payload.result), filenameFull);
+        toast('success', 'Chat exported without portable Continuity memory.');
+        target.blur?.();
+        return;
+    }
+
+    let world;
+    try {
+        world = (await api.getWorld(worldId)).world;
+    } catch (error) {
+        if (error.status !== 404) throw error;
+        const embedded = getPortableSnapshotFromChatExport(payload.result);
+        if (embedded?.world?.id === worldId) world = embedded.world;
+        else throw new Error('This chat references Continuity memory that is missing from this SillyTavern user. Restore or import the memory before exporting the chat.');
+    }
+
+    const parsed = parseChatExport(payload.result);
+    const alignment = alignWorldToChat(world, collectFingerprintMessages(parsed.messages), chatKey);
+    if (!alignment.ok) throw new Error(`The chat was not exported with memory because its stored memory does not match: ${alignment.message}`);
+    const portable = embedPortableMemoryInChatExport(payload.result, alignment.world);
+    downloadPortableChat(portable, filenameFull);
+    toast('success', 'Chat exported with its current Continuity memory included.');
+    target.blur?.();
+}
+
+function installNativeChatExportBridge() {
+    if (nativeChatExportBridgeInstalled) return;
+    nativeChatExportBridgeInstalled = true;
+    document.addEventListener('click', event => {
+        const target = event.target instanceof Element
+            ? event.target.closest('.exportRawChatButton[data-format="jsonl"]')
+            : null;
+        if (!target) return;
+        const filenameFull = String(target.closest('.select_chat_block_wrapper')?.querySelector('.select_chat_block_filename')?.textContent || '').trim();
+        const chatId = filenameFull.replace(/\.jsonl$/iu, '');
+        if (!filenameFull || !chatId) return;
+        const includePortableMemory = getSettings().embedMemoryInChat;
+        const chatKey = exportChatKey(chatId);
+        const worldId = getSettings().chatWorlds?.[chatKey];
+        if (!worldId) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        exportNativeChatWithPortableMemory(target, filenameFull, chatId, chatKey, worldId, includePortableMemory)
+            .catch(error => toast('error', error.message));
+    }, true);
 }
 
 function setSetting(id, key, transform = value => value) {
@@ -936,6 +1019,7 @@ function cancelCorrection() {
 
 export function initUI() {
     const settings = getSettings();
+    installNativeChatExportBridge();
     initSectionToggle();
     $('#continuity_reset_defaults').on('click', async () => {
         if (!window.confirm('Reset all Continuity settings and prompts to their built-in defaults? Stored memory and chat bindings will not be changed.')) return;

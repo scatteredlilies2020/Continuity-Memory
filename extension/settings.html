@@ -26,8 +26,8 @@
                     <button id="continuity_refresh" class="menu_button"><i class="fa-solid fa-rotate"></i> Refresh</button>
                 </div>
                 <small>Created only when extraction begins, then kept separate for this chat. Briefly opening untouched chats creates no files.</small>
-                <label class="checkbox_label"><input id="continuity_embed_chat" type="checkbox"><span>Embed portable memory in chat files (global)</span></label>
-                <small>On: every opened chat can carry its Continuity memory, which increases chat-file size. Off: the current chat is cleaned immediately and other chats are cleaned when opened; normal memory still works from SillyTavern's user-file storage. Leave this off for very long chats unless you need portable chat exports.</small>
+                <label class="checkbox_label"><input id="continuity_embed_chat" type="checkbox"><span>Keep portable memory in chat files (global)</span></label>
+                <small>On: stored chats and SillyTavern JSONL exports include the latest matching Continuity memory for transfer between devices. Off: neither stored chats nor chat exports include a portable copy; normal memory remains in SillyTavern's user storage.</small>
                 <details>
                     <summary>Transfer memory</summary>
                     <div class="continuity-button-row">
@@ -37,7 +37,7 @@
                         <label class="menu_button continuity-file-label"><i class="fa-solid fa-book-open"></i> Start continuation arc<input id="continuity_import_continuation" type="file" accept="application/json,.json"></label>
                         <label class="menu_button continuity-file-label"><i class="fa-solid fa-broom"></i> Clean exported chat<input id="continuity_clean_chat" type="file" accept="application/json,.json,.jsonl"></label>
                     </div>
-                    <small>Import accepts only the same conversation history, verified by message fingerprints. Use it for a copied chat or transfer to another device; unrelated chats and changed branches are blocked.</small>
+                    <small>When Keep portable memory is on, SillyTavern JSONL chat exports automatically include their matching Continuity memory. Manual memory import accepts only the same conversation history, verified by message fingerprints; unrelated chats and changed branches are blocked.</small>
                     <small>Continue in new chat downloads one ordinary JSON file containing a portable copy of this memory. In the destination chat, choose Start continuation arc and select it. Old message fingerprints are detached while inherited facts, perspectives, chronology, relationships, and open threads remain available.</small>
                     <small>The cleaner removes embedded Continuity data locally and downloads a replacement chat file. Your original export is not modified.</small>
                 </details>
