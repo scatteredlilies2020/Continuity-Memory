@@ -2,8 +2,9 @@ import { characters, getRequestHeaders, saveChatConditional, this_chid } from '/
 import { getContext } from '/scripts/st-context.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
+import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor } from './engine.js?v=0.14.0-standalone.100';
+import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor } from './engine.js?v=0.14.0-standalone.101';
 import { worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
 import { buildMemoryPrompt } from './retrieval.js';
@@ -13,17 +14,17 @@ import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
 import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
-import { approveExtractionReview, cancelExtractionReview } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.100';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.100';
-import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.100';
+import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.101';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.101';
+import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.101';
 import { completeL1MessageCount, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.100';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.100';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.100';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.101';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.101';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.101';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.100';
+import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.101';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -32,7 +33,7 @@ let viewerCategory = 'l1';
 let viewerSearch = '';
 let viewerPage = 0;
 let viewerSignature = '';
-let renderedExtractionReviewId = '';
+let extractionReviewSession = null;
 let nativeChatExportBridgeInstalled = false;
 const DIRECT_PROFILE_ID = '__direct__';
 
@@ -59,6 +60,222 @@ function toast(type, message) {
     if (!getSettings().showNotifications) return;
     if (window.toastr?.[type]) window.toastr[type](message, 'Continuity Memory');
     else console[type === 'error' ? 'error' : 'log'](`[Continuity] ${message}`);
+}
+
+function extractionReviewTitle(review) {
+    const sourceLayer = review.layer === 'L3' ? 'L2' : 'L1';
+    return review.layer === 'L1'
+        ? `Review L1 · messages ${review.from}–${review.to}`
+        : `Review ${review.layer} · ${review.sourceCount} ${sourceLayer} record(s)`;
+}
+
+function extractionReviewStopMessage(review) {
+    if (review.layer === 'L1') {
+        return 'Generation stopped because the reviewed L1 candidate was discarded instead of saved. Its source messages remain pending and can be generated again later.';
+    }
+    const sourceLayer = review.layer === 'L3' ? 'L2' : 'L1';
+    return `Generation stopped because the reviewed ${review.layer} candidate was discarded instead of saved. Its source ${sourceLayer} records remain available for another build.`;
+}
+
+function reviewControl(session, className) {
+    return session.popup.dlg.querySelector(`.${className}`);
+}
+
+function setReviewControlDisabled(session, className, disabled) {
+    const control = reviewControl(session, className);
+    if (!control) return;
+    control.classList.toggle('disabled', Boolean(disabled));
+    control.setAttribute('aria-disabled', String(Boolean(disabled)));
+}
+
+function refreshExtractionReviewControls(session, review = session.review) {
+    if (!review || extractionReviewSession !== session) return;
+    session.review = review;
+    const busy = review.phase === 'regenerating';
+    session.content.querySelector('.continuity-review-candidate').textContent = `Candidate ${review.candidateIndex + 1}/${review.candidateCount}`;
+    session.content.querySelector('.continuity-review-phase').textContent = busy
+        ? `Regenerating ${review.layer} from the same source…`
+        : review.dirty ? 'Manual draft changed · only this candidate will be saved' : 'Unsaved AI-generated candidate';
+    setReviewControlDisabled(session, 'continuity-review-previous', busy || review.candidateIndex <= 0);
+    setReviewControlDisabled(session, 'continuity-review-next', busy || review.candidateIndex >= review.candidateCount - 1);
+    setReviewControlDisabled(session, 'continuity-review-regenerate', busy || !review.canRegenerate);
+    setReviewControlDisabled(session, 'continuity-review-edit', busy || session.editing);
+    setReviewControlDisabled(session, 'continuity-review-revert', busy || !review.dirty);
+    setReviewControlDisabled(session, 'continuity-review-discard', busy);
+    setReviewControlDisabled(session, 'continuity-review-save', busy);
+    session.editor.readOnly = busy || !session.editing;
+    session.editor.classList.toggle('continuity-review-editor-editing', session.editing && !busy);
+}
+
+function applyExtractionReview(session, review) {
+    if (!review || extractionReviewSession !== session || review.id !== session.reviewId) return;
+    const key = `${review.id}:${review.revision}`;
+    if (session.renderedKey !== key) {
+        session.renderedKey = key;
+        session.review = review;
+        session.editor.value = review.json;
+        session.editing = false;
+        session.content.querySelector('.continuity-review-title').textContent = extractionReviewTitle(review);
+    }
+    refreshExtractionReviewControls(session, review);
+}
+
+async function navigateExtractionReview(session, offset) {
+    if (extractionReviewSession !== session || session.review.phase === 'regenerating') return;
+    const target = session.review.candidateIndex + offset;
+    if (target < 0 || target >= session.review.candidateCount) return;
+    try {
+        const review = selectExtractionReviewCandidate(target, session.editor.value, session.reviewId);
+        applyExtractionReview(session, review);
+    } catch (error) {
+        toast('error', error.message);
+    }
+}
+
+async function regenerateReviewedMemory(session) {
+    if (extractionReviewSession !== session || session.review.phase === 'regenerating') return;
+    try {
+        await regenerateExtractionReview(session.editor.value, session.reviewId);
+    } catch (error) {
+        if (extractionReviewSession === session) {
+            refreshExtractionReviewControls(session, session.review);
+            session.content.querySelector('.continuity-review-phase').textContent = `Regeneration failed: ${error.message}`;
+        }
+        toast('error', error.message);
+    }
+}
+
+function enableExtractionReviewEditing(session) {
+    if (extractionReviewSession !== session || session.review.phase === 'regenerating') return;
+    session.editing = true;
+    refreshExtractionReviewControls(session);
+    session.editor.focus();
+    session.editor.setSelectionRange(session.editor.value.length, session.editor.value.length);
+}
+
+function revertReviewedMemory(session) {
+    if (extractionReviewSession !== session || session.review.phase === 'regenerating') return;
+    try {
+        const review = revertExtractionReviewDraft(session.reviewId);
+        applyExtractionReview(session, review);
+    } catch (error) {
+        toast('error', error.message);
+    }
+}
+
+function saveReviewedMemory(session) {
+    if (extractionReviewSession !== session || session.review.phase === 'regenerating') return;
+    try {
+        const review = session.review;
+        approveExtractionReview(session.editor.value, session.reviewId);
+        toast('success', `Reviewed ${review.layer} saved. Other regenerated candidates were discarded.`);
+    } catch (error) {
+        session.content.querySelector('.continuity-review-phase').textContent = error.message;
+        toast('error', error.message);
+    }
+}
+
+async function discardReviewedMemory(session) {
+    if (extractionReviewSession !== session || session.review.phase === 'regenerating') return;
+    const review = session.review;
+    const confirmed = await Popup.show.confirm(
+        `Discard ${review.layer} and stop generation?`,
+        'This candidate and all of its unsaved regeneration swipes will be discarded. Nothing from this review will be saved.',
+        { okButton: 'Discard & Stop', cancelButton: 'Keep reviewing' },
+    );
+    if (confirmed !== POPUP_RESULT.AFFIRMATIVE || extractionReviewSession !== session) return;
+    const message = extractionReviewStopMessage(review);
+    stopRuntime(message);
+    await Popup.show.text('Continuity generation stopped', message, { okButton: 'OK' });
+}
+
+function closeExtractionReviewPopup(session) {
+    if (!session || extractionReviewSession !== session) return;
+    extractionReviewSession = null;
+    session.allowClose = true;
+    void session.popup.complete(POPUP_RESULT.AFFIRMATIVE);
+}
+
+function openExtractionReviewPopup(review) {
+    const content = document.createElement('div');
+    content.className = 'continuity-review-modal';
+    const heading = document.createElement('div');
+    heading.className = 'continuity-review-heading';
+    const title = document.createElement('b');
+    title.className = 'continuity-review-title';
+    const candidate = document.createElement('span');
+    candidate.className = 'continuity-review-candidate';
+    heading.append(title, candidate);
+    const phase = document.createElement('div');
+    phase.className = 'continuity-review-phase';
+    const editor = document.createElement('textarea');
+    editor.className = 'text_pole continuity-review-editor';
+    editor.spellcheck = false;
+    editor.readOnly = true;
+    content.append(heading, phase, editor);
+
+    let session;
+    const popup = new Popup(content, POPUP_TYPE.TEXT, '', {
+        okButton: false,
+        cancelButton: false,
+        wide: true,
+        large: true,
+        allowVerticalScrolling: false,
+        leftAlign: true,
+        customButtons: [
+            { text: '‹ Previous', classes: ['continuity-review-previous'], action: () => void navigateExtractionReview(session, -1) },
+            { text: 'Next ›', classes: ['continuity-review-next'], action: () => void navigateExtractionReview(session, 1) },
+            { text: 'Regenerate with AI', classes: ['continuity-review-regenerate'], action: () => void regenerateReviewedMemory(session) },
+            { text: 'Edit manually', classes: ['continuity-review-edit'], action: () => enableExtractionReviewEditing(session) },
+            { text: 'Revert edits', classes: ['continuity-review-revert'], action: () => revertReviewedMemory(session) },
+            { text: 'Discard & Stop', classes: ['continuity-review-discard', 'redWarningBG'], action: () => void discardReviewedMemory(session) },
+            { text: 'Save & Continue', classes: ['continuity-review-save', 'menu_button_default'], appendAtEnd: true, action: () => saveReviewedMemory(session) },
+        ],
+        onClosing: () => session.allowClose,
+    });
+    popup.dlg.classList.add('continuity-review-dialog');
+    session = {
+        popup,
+        content,
+        editor,
+        review,
+        reviewId: review.id,
+        renderedKey: '',
+        editing: false,
+        allowClose: false,
+    };
+    extractionReviewSession = session;
+    editor.addEventListener('input', () => {
+        if (!session.editing || extractionReviewSession !== session) return;
+        try {
+            const updated = updateExtractionReviewDraft(editor.value, session.reviewId);
+            session.review = updated;
+            refreshExtractionReviewControls(session, updated);
+        } catch (error) {
+            toast('error', error.message);
+        }
+    });
+    applyExtractionReview(session, review);
+    void popup.show().finally(() => {
+        if (extractionReviewSession === session) extractionReviewSession = null;
+    });
+}
+
+function syncExtractionReviewPopup(review) {
+    if (!review) {
+        if (extractionReviewSession) closeExtractionReviewPopup(extractionReviewSession);
+        return;
+    }
+    if (!extractionReviewSession) {
+        openExtractionReviewPopup(review);
+        return;
+    }
+    if (extractionReviewSession.reviewId !== review.id) {
+        closeExtractionReviewPopup(extractionReviewSession);
+        openExtractionReviewPopup(review);
+        return;
+    }
+    applyExtractionReview(extractionReviewSession, review);
 }
 
 function settingWarning(message) {
@@ -708,18 +925,7 @@ export function renderRuntime() {
         ? `Processing chunk ${progress.current}/${progress.total} · messages ${progress.from}–${progress.to} · ~${progress.inputTokens || '?'} source tokens`
         : runtime.lastError ? `Last error: ${runtime.lastError}` : runtime.lastCompletedAt ? `Last completed: ${new Date(runtime.lastCompletedAt).toLocaleString()}` : 'Idle');
     const extractionReview = runtime.pendingExtractionReview;
-    $('#continuity_extraction_review_panel').prop('hidden', !extractionReview);
-    if (extractionReview && renderedExtractionReviewId !== extractionReview.id) {
-        renderedExtractionReviewId = extractionReview.id;
-        const sourceLayer = extractionReview.layer === 'L3' ? 'L2' : 'L1';
-        const title = extractionReview.layer === 'L1'
-            ? `Review L1 · messages ${extractionReview.from}–${extractionReview.to}`
-            : `Review ${extractionReview.layer} · ${extractionReview.sourceCount} ${sourceLayer} record(s)`;
-        $('#continuity_extraction_review_title').text(title);
-        $('#continuity_extraction_review_json').val(extractionReview.json);
-    } else if (!extractionReview) {
-        renderedExtractionReviewId = '';
-    }
+    syncExtractionReviewPopup(extractionReview);
     $('#continuity_arc_status').text(runtime.arcError ? `Hierarchy deferred: ${runtime.arcError}` : runtime.arcStatus || 'L2 and L3 are derived non-destructively when eligible.');
     $('#continuity_retry_status').text(runtime.retryStatus || 'No manual build running.');
     const coverage = getProcessingCoverage();
@@ -1202,19 +1408,6 @@ export function initUI() {
         renderRuntime();
     });
     $('#continuity_stop').on('click', () => { stopRuntime(); toast('info', 'Processing stopped and the queue was cleared.'); });
-    $('#continuity_extraction_review_apply').on('click', () => {
-        try {
-            const review = runtime.pendingExtractionReview;
-            approveExtractionReview(String($('#continuity_extraction_review_json').val() || ''), review?.id);
-            toast('success', `Reviewed ${review?.layer || 'memory'} approved and queued for saving.`);
-        } catch (error) {
-            toast('error', error.message);
-        }
-    });
-    $('#continuity_extraction_review_discard').on('click', () => {
-        const discarded = cancelExtractionReview(undefined, runtime.pendingExtractionReview?.id);
-        if (discarded) toast('info', 'Memory result discarded. Its source remains available for another build.');
-    });
     $('#continuity_build').on('click', () => buildMemory()
         .then(result => !result.cancelled && toast(result.continued || result.arcs || result.eras ? 'success' : 'info', result.continued || result.arcs || result.eras ? 'Memory build completed.' : 'Memory is already up to date.'))
         .catch(error => toast('error', error.message)));

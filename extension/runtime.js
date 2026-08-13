@@ -47,14 +47,13 @@ function notifyStopHandlers(reason) {
     }
 }
 
-export function stopRuntime() {
-    const reason = 'Processing stopped; the reviewed memory was not saved.';
+export function stopRuntime(reason = 'Processing stopped; the reviewed memory was not saved.') {
     cancelExtractionReview(reason);
     notifyStopHandlers(reason);
     runtime.generation++;
     const queued = runtime.queue.splice(0);
     for (const job of queued) job.reject?.(new Error('Processing stopped and the queue was cleared.'));
-    updateRuntime({ paused: true, status: 'paused', progress: null });
+    updateRuntime({ paused: true, status: 'paused', progress: null, lastValidation: reason, retryStatus: reason });
 }
 
 export function pauseRuntime() {

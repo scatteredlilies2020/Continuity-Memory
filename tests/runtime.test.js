@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { invalidateRuntimeWork, runtime } from '../extension/runtime.js';
+import { invalidateRuntimeWork, runtime, stopRuntime } from '../extension/runtime.js';
 
 test('a source mutation invalidates in-flight work and clears queued stale ranges', () => {
     const rejected = [];
@@ -26,6 +26,26 @@ test('a source mutation invalidates in-flight work and clears queued stale range
         assert.equal(runtime.retryStatus, 'Source message deleted.');
         assert.deepEqual(rejected, ['Source message deleted.', 'Source message deleted.']);
         assert.deepEqual(result, { invalidated: true, queued: 2 });
+    } finally {
+        Object.assign(runtime, original);
+    }
+});
+
+test('discarding a review can stop generation with a specific visible reason', () => {
+    const rejected = [];
+    const original = { ...runtime, queue: runtime.queue };
+    runtime.generation = 10;
+    runtime.paused = false;
+    runtime.queue = [{ reject: error => rejected.push(error.message) }];
+    try {
+        stopRuntime('Reviewed L2 candidate was discarded.');
+        assert.equal(runtime.generation, 11);
+        assert.equal(runtime.paused, true);
+        assert.equal(runtime.status, 'paused');
+        assert.deepEqual(runtime.queue, []);
+        assert.equal(runtime.lastValidation, 'Reviewed L2 candidate was discarded.');
+        assert.equal(runtime.retryStatus, 'Reviewed L2 candidate was discarded.');
+        assert.deepEqual(rejected, ['Processing stopped and the queue was cleared.']);
     } finally {
         Object.assign(runtime, original);
     }

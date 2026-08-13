@@ -4,7 +4,11 @@ import {
     approveExtractionReview,
     cancelExtractionReview,
     getPendingExtractionReview,
+    regenerateExtractionReview,
     requestExtractionReview,
+    revertExtractionReviewDraft,
+    selectExtractionReviewCandidate,
+    updateExtractionReviewDraft,
 } from '../extension/extraction-review.js';
 
 test('review exposes editable JSON and resolves only after validation', async () => {
@@ -56,4 +60,51 @@ test('discard rejects safely and leaves no active review', async () => {
     assert.equal(cancelExtractionReview(), true);
     await assert.rejects(promise, error => error.code === 'EXTRACTION_REVIEW_CANCELLED');
     assert.equal(getPendingExtractionReview(), null);
+});
+
+test('regeneration creates temporary swipes and preserves each manual draft', async () => {
+    let generations = 1;
+    const promise = requestExtractionReview({
+        result: { summary: 'candidate one' },
+        meta: { layer: 'L2', sourceCount: 24 },
+        regenerate: async () => ({ summary: `candidate ${++generations}` }),
+    });
+    let review = updateExtractionReviewDraft('{"summary":"edited one"}');
+    assert.equal(review.dirty, true);
+
+    review = await regenerateExtractionReview(review.json, review.id);
+    assert.equal(review.candidateCount, 2);
+    assert.equal(review.candidateIndex, 1);
+    assert.match(review.json, /candidate 2/);
+    assert.equal(review.dirty, false);
+
+    review = updateExtractionReviewDraft('{"summary":"edited two"}', review.id);
+    review = selectExtractionReviewCandidate(0, review.json, review.id);
+    assert.equal(review.json, '{"summary":"edited one"}');
+    assert.equal(review.dirty, true);
+
+    review = revertExtractionReviewDraft(review.id);
+    assert.match(review.json, /candidate one/);
+    assert.equal(review.dirty, false);
+    review = selectExtractionReviewCandidate(1, review.json, review.id);
+    assert.equal(review.json, '{"summary":"edited two"}');
+
+    approveExtractionReview(review.json, review.id);
+    assert.deepEqual(await promise, { summary: 'edited two' });
+    assert.equal(getPendingExtractionReview(), null);
+});
+
+test('failed regeneration keeps the current draft awaiting review', async () => {
+    const promise = requestExtractionReview({
+        result: { summary: 'safe candidate' },
+        regenerate: async () => { throw new Error('provider unavailable'); },
+    });
+    const review = updateExtractionReviewDraft('{"summary":"safe edit"}');
+    await assert.rejects(regenerateExtractionReview(review.json, review.id), /provider unavailable/);
+    const pending = getPendingExtractionReview();
+    assert.equal(pending.phase, 'review');
+    assert.equal(pending.candidateCount, 1);
+    assert.equal(pending.json, '{"summary":"safe edit"}');
+    cancelExtractionReview(undefined, pending.id);
+    await assert.rejects(promise, error => error.code === 'EXTRACTION_REVIEW_CANCELLED');
 });

@@ -6,26 +6,26 @@ import { proxies } from '/scripts/openai.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.100';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.101';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.100';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.101';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.100';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.100';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.101';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.101';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.100';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.100';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.101';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.101';
 import { canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.100';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.100';
-import { onRuntimeStop, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.100';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.101';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.101';
+import { onRuntimeStop, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.101';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
 
@@ -627,26 +627,27 @@ function reviewStatus(review) {
     return `Review ${review.layer} summary from ${review.sourceCount} ${sourceLayer} record(s) before it is saved.`;
 }
 
-async function reviewMemoryBeforeSave(result, meta, validate) {
+async function reviewMemoryBeforeSave(result, meta, validate, regenerate = null) {
     if (!getSettings().reviewBeforeCommit) return result;
     return await requestExtractionReview({
         result,
         meta,
         validate,
+        regenerate,
         onPending: review => updateRuntime({
             pendingExtractionReview: review,
-            status: 'awaiting-review',
-            retryStatus: reviewStatus(review),
+            status: review.phase === 'regenerating' ? 'regenerating-review' : 'awaiting-review',
+            retryStatus: review.phase === 'regenerating' ? `Regenerating ${review.layer} candidate…` : reviewStatus(review),
         }),
         onSettled: () => updateRuntime({ pendingExtractionReview: null }),
     });
 }
 
-async function reviewExtractionBeforeSave(result, world, messages, meta = {}) {
-    return reviewMemoryBeforeSave(result, { ...meta, layer: 'L1' }, candidate => validateResult(candidate, world, messages).result);
+async function reviewExtractionBeforeSave(result, world, messages, meta = {}, regenerate = null) {
+    return reviewMemoryBeforeSave(result, { ...meta, layer: 'L1' }, candidate => validateResult(candidate, world, messages).result, regenerate);
 }
 
-async function reviewHierarchyBeforeSave(result, layer, sources, reason = 'hierarchy') {
+async function reviewHierarchyBeforeSave(result, layer, sources, reason = 'hierarchy', regenerate = null) {
     const ranges = (sources || []).flatMap(item => [Number(item?.from), Number(item?.to)]).filter(Number.isFinite);
     return reviewMemoryBeforeSave(result, {
         layer,
@@ -654,7 +655,7 @@ async function reviewHierarchyBeforeSave(result, layer, sources, reason = 'hiera
         sourceCount: sources?.length || 0,
         from: ranges.length ? Math.min(...ranges) : 0,
         to: ranges.length ? Math.max(...ranges) : 0,
-    }, candidate => validateArcResult(candidate, layer));
+    }, candidate => validateArcResult(candidate, layer), regenerate);
 }
 
 function completionFinishReason(payload) {
@@ -1351,7 +1352,7 @@ export async function buildNextArc(worldId = getBoundWorldId(), expectedEpoch = 
     updateRuntime({ arcStatus: `Building L2 from ${capsules.length} L1 records…`, arcError: '' });
     let result = await generateArc(capsules);
     if (expectedEpoch !== null && runtime.generation !== expectedEpoch) throw new Error('Processing stopped; pending L2 result was discarded.');
-    result = await reviewHierarchyBeforeSave(result, 'L2', capsules);
+    result = await reviewHierarchyBeforeSave(result, 'L2', capsules, 'hierarchy', () => generateArc(capsules));
     if (expectedEpoch !== null && runtime.generation !== expectedEpoch) throw new Error('Processing stopped; pending L2 result was discarded.');
     return saveDerivedArc(world, result, capsules);
 }
@@ -1388,7 +1389,7 @@ export async function buildNextEra(worldId = getBoundWorldId(), expectedEpoch = 
     updateRuntime({ arcStatus: `Building L3 from ${arcs.length} L2 records…`, arcError: '' });
     let result = await generateEra(arcs);
     if (expectedEpoch !== null && runtime.generation !== expectedEpoch) throw new Error('Processing stopped; pending L3 result was discarded.');
-    result = await reviewHierarchyBeforeSave(result, 'L3', arcs);
+    result = await reviewHierarchyBeforeSave(result, 'L3', arcs, 'hierarchy', () => generateEra(arcs));
     if (expectedEpoch !== null && runtime.generation !== expectedEpoch) throw new Error('Processing stopped; pending L3 result was discarded.');
     return saveDerivedEra(world, result, arcs);
 }
@@ -1485,7 +1486,7 @@ export async function retryMemoryLayer({ layer, targetId = 'latest', all = false
                 const messages = collectMessages(target.from, target.to);
                 if (!messages.length) throw new Error(`Source messages ${target.from}–${target.to} are unavailable in this chat.`);
                 let result = await extractChunk(messages);
-                result = await reviewExtractionBeforeSave(result, runtime.world, messages, { from: target.from, to: target.to, reason: 'retry' });
+                result = await reviewExtractionBeforeSave(result, runtime.world, messages, { from: target.from, to: target.to, reason: 'retry' }, () => extractChunk(messages));
                 if (runtime.generation !== epoch) throw new Error('Retry stopped; the current generated result was discarded.');
                 await saveRetriedL1(worldId, target, result, messages);
             } else {
@@ -1494,7 +1495,7 @@ export async function retryMemoryLayer({ layer, targetId = 'latest', all = false
                 if (capsules.length !== (target.capsuleIds || []).length) throw new Error(`Cannot rebuild “${target.title}”; its source L1 records changed.`);
                 let result = await generateArc(capsules);
                 if (runtime.generation !== epoch) throw new Error('Retry stopped; the current generated result was discarded.');
-                result = await reviewHierarchyBeforeSave(result, 'L2', capsules, 'retry');
+                result = await reviewHierarchyBeforeSave(result, 'L2', capsules, 'retry', () => generateArc(capsules));
                 if (runtime.generation !== epoch) throw new Error('Retry stopped; the current generated result was discarded.');
                 await saveRetriedL2(worldId, target, result);
             }
@@ -1556,7 +1557,7 @@ export async function syncChangedExtractions(force = false) {
                 retryStatus: `Updating changed memory section ${index + 1}/${targets.length}…`,
             });
             let result = await extractChunk(messages);
-            result = await reviewExtractionBeforeSave(result, world, messages, { from: target.from, to: target.to, reason: 'changed-source' });
+            result = await reviewExtractionBeforeSave(result, world, messages, { from: target.from, to: target.to, reason: 'changed-source' }, () => extractChunk(messages));
             if (runtime.generation !== epoch) throw new Error('Live memory update stopped; existing memory was left unchanged.');
             staged.push({ target, messages, result });
         }
@@ -1638,7 +1639,7 @@ export async function restartL1FromScratch() {
                 retryStatus: `Rebuilding fresh L1 chunk ${index + 1}/${chunks.length}; each completed chunk is saved.`,
             });
             let result = await extractChunk(chunk);
-            result = await reviewExtractionBeforeSave(result, runtime.world, chunk, { from: chunk[0].index, to: chunk.at(-1).index, reason: 'fresh-rebuild' });
+            result = await reviewExtractionBeforeSave(result, runtime.world, chunk, { from: chunk[0].index, to: chunk.at(-1).index, reason: 'fresh-rebuild' }, () => extractChunk(chunk));
             if (runtime.paused || runtime.generation !== epoch) throw new Error('Fresh rebuild stopped. Completed chunks remain saved; use Build to resume.');
             await saveExtraction(worldId, result, {
                 chatKey,
@@ -1763,7 +1764,7 @@ async function processRange(job, epoch) {
         },
         extract: async chunk => {
             let result = await extractChunk(chunk);
-            result = await reviewExtractionBeforeSave(result, runtime.world, chunk, { from: chunk[0].index, to: chunk.at(-1).index, reason: job.reason });
+            result = await reviewExtractionBeforeSave(result, runtime.world, chunk, { from: chunk[0].index, to: chunk.at(-1).index, reason: job.reason }, () => extractChunk(chunk));
             if (runtime.paused || runtime.generation !== epoch) throw new Error('Processing stopped; pending results were discarded.');
             return result;
         },
@@ -1816,7 +1817,7 @@ async function processQueue() {
             status: reviewCancelled ? 'idle' : runtime.paused || rateLimited ? 'paused' : 'error',
             lastError: reviewCancelled ? '' : error.message,
             progress: null,
-            lastValidation: reviewCancelled ? 'Review discarded; source messages remain pending.' : stopped ? 'Stopped' : rateLimited ? 'Paused after rate limit; no failed messages were marked processed.' : `Failed: ${error.message}`,
+            lastValidation: reviewCancelled ? error.message : stopped ? 'Stopped' : rateLimited ? 'Paused after rate limit; no failed messages were marked processed.' : `Failed: ${error.message}`,
         });
         if (reviewCancelled) job.resolve({ cancelled: true, messages: 0, chunks: 0 });
         else job.reject(error);
@@ -1987,7 +1988,7 @@ export async function repairTailRollback({ allowChanged = false } = {}) {
                 retryStatus: `Re-extracting the retained edge of rollback range ${index + 1}/${crossing.length}…`,
             });
             let result = await extractChunk(messages);
-            result = await reviewExtractionBeforeSave(result, sourceWorld, messages, { from: messages[0].index, to: messages.at(-1).index, reason: 'rollback-repair' });
+            result = await reviewExtractionBeforeSave(result, sourceWorld, messages, { from: messages[0].index, to: messages.at(-1).index, reason: 'rollback-repair' }, () => extractChunk(messages));
             if (runtime.generation !== epoch) throw new Error('Rollback repair stopped; existing memory was left unchanged.');
             partial.push({
                 result,
