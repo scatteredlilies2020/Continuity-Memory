@@ -23,6 +23,7 @@ const ADDRESS_BRACKET = /[\[\]]/u;
 const ADDRESS_MEANINGFUL = /[\p{L}\p{N}\p{Extended_Pictographic}]/u;
 const ADDRESS_PRONOUN = /^(?:i|me|my|mine|myself|you|your|yours|yourself|yourselves|he|him|his|himself|she|her|hers|herself|it|its|itself|we|us|our|ours|ourselves|they|them|their|theirs|themself|themselves)$/iu;
 const ADDRESS_PRONOUN_SIGNIFICANCE = /\b(?:address(?:es|ed|ing)?|calls?|form of address|refers? to|instead of (?:a |the )?name|refuses? (?:to use )?(?:a |the )?name|disrespect(?:ful(?:ly)?)?|contempt(?:uous(?:ly)?)?|dismissive(?:ly)?|insult(?:ing(?:ly)?)?|derisive(?:ly)?|rude(?:ly)?|pointedly|deliberately)\b/iu;
+const ADDRESS_CLAUSE_START = /^(?:(?:i|you|he|she|it|we|they)[’'](?:m|re|s|ve|d|ll)\b|(?:i|you|he|she|it|we|they)\s+(?:am|are|is|was|were|have|has|had|do|does|did|can|could|will|would|shall|should|may|might|must)(?:n['’]t)?\b)/iu;
 
 export function isAddressFact(item) {
     const category = normalized(item?.category);
@@ -254,9 +255,9 @@ function explicitlyAttributesSpeech(text, speakerNames, form) {
         if (!speaker) return false;
         return [
             new RegExp(`(?:^|[\\n\\r])\\s*(?:[*_]{1,2})?${speaker}(?:[*_]{1,2})?\\s*:\\s*[^\\n\\r]{0,240}${formPattern}`, 'iu'),
-            new RegExp(`\\b${speaker}\\b\\s+(?:\\w+\\s+){0,3}${speechVerb}\\b[^\\n\\r]{0,200}${formPattern}`, 'iu'),
-            new RegExp(`${formPattern}[^\\n\\r]{0,120}\\b${speechVerb}\\s+\\b${speaker}\\b`, 'iu'),
-            new RegExp(`${formPattern}[^\\n\\r]{0,120}\\b${speaker}\\b\\s+(?:\\w+\\s+){0,3}${speechVerb}\\b`, 'iu'),
+            new RegExp(`\\b${speaker}\\b\\s+(?:\\w+\\s+){0,3}${speechVerb}\\b[^“”"\\n\\r]{0,40}[“"]?[^“”"\\n\\r]{0,200}${formPattern}`, 'iu'),
+            new RegExp(`[“"][^“”"\\n\\r]{0,240}${formPattern}[^“”"\\n\\r]{0,240}[”"]\\s*[,.:;!?—–-]*\\s*\\b${speechVerb}\\s+\\b${speaker}\\b`, 'iu'),
+            new RegExp(`[“"][^“”"\\n\\r]{0,240}${formPattern}[^“”"\\n\\r]{0,240}[”"]\\s*[,.:;!?—–-]*\\s*\\b${speaker}\\b\\s+(?:\\w+\\s+){0,3}${speechVerb}\\b`, 'iu'),
             new RegExp(`\\b${speaker}\\b[^\\n\\r]{0,60}\\b(?:calls?|called|refers?|referred|introduces?|introduced|identifies?|identified)\\s+(?:herself|himself|themself|themselves)\\b[^\\n\\r]{0,160}${formPattern}`, 'iu'),
         ].some(pattern => pattern.test(text));
     });
@@ -283,11 +284,17 @@ function directlyVoicesFirstPersonSpeech(text, form) {
     return quoted && (firstPersonSpeech || firstPersonActionAfterQuote);
 }
 
-function quotedSpeechSegments(text) {
+function quotedSpeechOccurrences(text) {
     const segments = [];
     const pattern = /[“"]([^”"\n\r]{1,500})[”"]/gu;
-    for (const match of String(text || '').matchAll(pattern)) segments.push(match[1]);
+    for (const match of String(text || '').matchAll(pattern)) {
+        segments.push({ segment: match[1], start: match.index, end: match.index + match[0].length });
+    }
     return segments;
+}
+
+function quotedSpeechSegments(text) {
+    return quotedSpeechOccurrences(text).map(item => item.segment);
 }
 
 function labeledSpeechSegments(text, speakerNames) {
@@ -305,11 +312,35 @@ function isVocativeUse(text, form) {
     const formPattern = escaped(form);
     if (!formPattern) return false;
     const trailing = `(?=\\s*(?:[,!?.:;—–-]|$))`;
-    const leadingCue = '(?:(?:hey|hello|hi|oi|yo|listen|look|please|thanks|sorry|welcome|good morning|good evening)\\b[\\s,!?:;—–-]*)*';
+    const leadingCue = '(?:(?:hey|hello|hi|oi|yo|listen|look|please|thanks|sorry|welcome|good morning|good evening|shut up)\\b[\\s,!?:;—–-]*)*';
     return [
         new RegExp(`^\\s*${leadingCue}${formPattern}${trailing}`, 'iu'),
         new RegExp(`(?:[,;:!?—–-]|[.!?]\\s+)\\s*${formPattern}${trailing}`, 'iu'),
     ].some(pattern => pattern.test(String(text || '')));
+}
+
+function assistantOwnVocativeEvidence(message, world, speaker, form) {
+    if (message?.isUser || canonicalAddressName(world, message?.name) !== canonicalAddressName(world, speaker)) return false;
+    const text = String(message?.text ?? message?.mes ?? '');
+    const speechVerb = '(?:says?|said|asks?|asked|replies?|replied|shouts?|shouted|yells?|yelled|calls?|called)';
+    const otherNames = (world?.entities || [])
+        .filter(entity => canonicalAddressName(world, entity?.name) !== canonicalAddressName(world, speaker))
+        .flatMap(entity => addressNameVariants(world, entity?.name));
+    return quotedSpeechOccurrences(text).some(({ segment, start, end }) => {
+        if (!containsAddressForm(segment, form) || !isVocativeUse(segment, form)) return false;
+        const before = text.slice(Math.max(0, start - 120), start);
+        const after = text.slice(end, end + 120);
+        const metalinguisticQuote = /\b(?:calls?|called|addresses?|addressed|nicknames?|nicknamed|refers? to|referred to|dubs?|dubbed)\b[^“”"\n\r]{0,80}$/iu.test(before);
+        if (metalinguisticQuote) return false;
+        const attributedElsewhere = otherNames.some(name => {
+            const candidate = escaped(name);
+            if (!candidate) return false;
+            const beforePattern = new RegExp(`\\b${candidate}\\b\\s+(?:\\w+\\s+){0,3}${speechVerb}\\b[\\s,:;—–-]*$`, 'iu');
+            const afterPattern = new RegExp(`^\\s*[,.:;!?—–-]*\\s*(?:\\b${candidate}\\b\\s+(?:\\w+\\s+){0,3}${speechVerb}\\b|${speechVerb}\\s+\\b${candidate}\\b)`, 'iu');
+            return beforePattern.test(before) || afterPattern.test(after);
+        });
+        return !attributedElsewhere;
+    });
 }
 
 function hasExplicitDirectionalAddressStatement(item, form, messages, world) {
@@ -339,11 +370,12 @@ function hasVocativeAddressEvidence(item, form, messages, world) {
         if (!containsAddressForm(source, form)) return false;
         const authoredUserSpeech = Boolean(message?.isUser)
             && canonicalAddressName(world, message?.name) === speaker;
+        const authoredAssistantSpeech = assistantOwnVocativeEvidence(message, world, item?.subject, form);
         const firstPersonSpeech = directlyVoicesFirstPersonSpeech(source, form);
         const attributedSpeech = explicitlyAttributesSpeech(source, speakerNames, form);
         const segments = [...quotedSpeechSegments(source), ...labeledSpeechSegments(source, speakerNames)];
         if (authoredUserSpeech || attributedSpeech) segments.push(source);
-        return segments.some(segment => isVocativeUse(segment, form))
+        return authoredAssistantSpeech || segments.some(segment => isVocativeUse(segment, form))
             && (authoredUserSpeech || firstPersonSpeech || attributedSpeech);
     });
 }
@@ -375,11 +407,12 @@ function hasAuthoredVocativeEvidence(messages, world, speaker, form) {
     const speakerNames = addressNameVariants(world, speaker);
     return (messages || []).some(message => {
         const text = String(message?.text ?? message?.mes ?? '');
-        return Boolean(message?.isUser)
+        const userEvidence = Boolean(message?.isUser)
             && canonicalAddressName(world, message?.name) === canonicalSpeaker
             && containsAddressForm(text, form)
             && [...quotedSpeechSegments(text), ...labeledSpeechSegments(text, speakerNames), text]
                 .some(segment => isVocativeUse(segment, form));
+        return userEvidence || assistantOwnVocativeEvidence(message, world, speaker, form);
     });
 }
 
@@ -389,11 +422,11 @@ function hasAddressSpeechEvidence(messages, world, speaker, form) {
     return (messages || []).some(message => {
         const text = String(message?.text ?? message?.mes ?? '');
         if (!containsAddressForm(text, form)) return false;
-        const authoredBySpeaker = canonicalAddressName(world, message?.name) === canonicalSpeaker;
-        const authoredVocative = authoredBySpeaker
-            && hasAuthoredVocativeEvidence([message], world, speaker, form);
-        const authoredDirectly = authoredBySpeaker
-            && (directlyVoicesFirstPersonSpeech(text, form) || authoredVocative);
+        const authoredUser = Boolean(message?.isUser)
+            && canonicalAddressName(world, message?.name) === canonicalSpeaker;
+        const authoredVocative = hasAuthoredVocativeEvidence([message], world, speaker, form);
+        const authoredDirectly = authoredVocative
+            || (authoredUser && directlyVoicesFirstPersonSpeech(text, form));
         return authoredDirectly || explicitlyAttributesSpeech(text, speakerNames, form);
     });
 }
@@ -412,12 +445,11 @@ function hasDirectionalAddressSpeechEvidence(messages, world, speaker, addressee
     return (messages || []).some(message => {
         const text = String(message?.text ?? message?.mes ?? '');
         if (!containsAddressForm(text, form)) return false;
-        const authoredBySpeaker = canonicalAddressName(world, message?.name) === canonicalSpeaker;
-        const authoredVocative = Boolean(message?.isUser) && authoredBySpeaker
-            && [...quotedSpeechSegments(text), ...labeledSpeechSegments(text, speakerNames), text]
-                .some(segment => isVocativeUse(segment, form));
-        const authoredDirectly = authoredBySpeaker
-            && (directlyVoicesFirstPersonSpeech(text, form) || authoredVocative);
+        const authoredUser = Boolean(message?.isUser)
+            && canonicalAddressName(world, message?.name) === canonicalSpeaker;
+        const authoredVocative = hasAuthoredVocativeEvidence([message], world, speaker, form);
+        const authoredDirectly = authoredVocative
+            || (authoredUser && directlyVoicesFirstPersonSpeech(text, form));
         if (authoredDirectly && addresseeContext) return true;
         const explicitlyDirectional = speakerNames.some(speakerName => addresseeNames.some(addresseeName =>
             new RegExp(`\\b${escaped(speakerName)}\\b[^\\n\\r]{0,100}\\b(?:calls?|called|addresses?|addressed|nicknames?|nicknamed)\\s+\\b${escaped(addresseeName)}\\b[^\\n\\r]{0,100}${formPattern}`, 'iu').test(text)));
@@ -462,15 +494,19 @@ export function repairReversedAddressFacts(result, world, messages) {
             existing.value = mergeAddressValues(existing.value, ...reversed);
         } else {
             const stored = (world?.facts || []).find(candidate => addressFactIdentity(candidate, world) === reverseIdentity);
-            result.facts.push({
-                targetId: stored?.id || '',
-                subject: addressee,
-                predicate: `calls ${speaker}`,
-                value: mergeAddressValues(...reversed),
-                category: 'form of address',
-                importance: Number(item.importance || 2),
-                persistence: ['temporary', 'recurring', 'persistent'].includes(item.persistence) ? item.persistence : 'recurring',
-            });
+            const storedValues = addressValueSet(stored?.value);
+            const novelReversed = reversed.filter(form => !storedValues.has(normalized(form)));
+            if (novelReversed.length) {
+                result.facts.push({
+                    targetId: stored?.id || '',
+                    subject: addressee,
+                    predicate: `calls ${speaker}`,
+                    value: mergeAddressValues(...novelReversed),
+                    category: 'form of address',
+                    importance: Number(item.importance || 2),
+                    persistence: ['temporary', 'recurring', 'persistent'].includes(item.persistence) ? item.persistence : 'recurring',
+                });
+            }
         }
         repaired += reversed.length;
     }
@@ -642,14 +678,31 @@ export function removeInvalidAddressFacts(container) {
     container.facts = container.facts.filter(item => {
         if (isGenericAddressFact(item)) return true;
         if (!isAddressFact(item)) return true;
-        const fields = [item?.subject, item?.predicate, item?.value, addressFactAddressee(item)];
+        const fields = [item?.subject, item?.predicate, addressFactAddressee(item)];
         const invalid = fields.some(value => !String(value || '').trim()
             || !ADDRESS_MEANINGFUL.test(String(value))
             || ADDRESS_PLACEHOLDER.test(String(value))
-            || ADDRESS_BRACKET.test(String(value)))
-            || ADDRESS_ABSENCE.test(String(item?.value || '').trim());
-        if (invalid) removed++;
-        return !invalid;
+            || ADDRESS_BRACKET.test(String(value)));
+        if (invalid) {
+            removed++;
+            return false;
+        }
+        const forms = mergeAddressValues(item.value).split(/\s*;\s*/u).filter(Boolean);
+        if (!forms.length) {
+            removed++;
+            return false;
+        }
+        const retained = forms.filter(form => {
+            const invalidForm = !ADDRESS_MEANINGFUL.test(form)
+                || ADDRESS_PLACEHOLDER.test(form)
+                || ADDRESS_BRACKET.test(form)
+                || ADDRESS_ABSENCE.test(form)
+                || ADDRESS_CLAUSE_START.test(form);
+            if (invalidForm) removed++;
+            return !invalidForm;
+        });
+        item.value = mergeAddressValues(...retained);
+        return Boolean(item.value);
     });
     return removed;
 }

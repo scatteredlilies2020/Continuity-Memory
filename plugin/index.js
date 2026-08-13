@@ -6,7 +6,7 @@ import { migrateLegacyBeliefs } from '../extension/attributed-beliefs.js';
 import { cancelDetachedJob, createDetachedJob, getDetachedJob, listDetachedJobs } from './detached-jobs.js';
 
 const PLUGIN = 'continuity-memory';
-const VERSION = '0.14.0-standalone.105';
+const VERSION = '0.14.0-standalone.106';
 const SCHEMA_VERSION = 10;
 const STORAGE_VERSION = 2;
 const SHARD_CHUNK_SIZE = 128;
