@@ -588,6 +588,34 @@ test('retrieval prioritizes matching buried character memory within its budget',
     assert.ok(result.estimatedTokens <= 1200);
 });
 
+test('retrieval prioritizes relevant forms of address in one compact section', () => {
+    const target = world();
+    target.entities.push(
+        { id: 'naruto', name: 'Naruto Uzumaki', aliases: ['Naruto'] },
+        { id: 'setsuko', name: 'Setsuko Uchiha', aliases: ['Setsuko'] },
+    );
+    target.facts.push(
+        {
+            id: 'address-forward', subject: 'Setsuko Uchiha', predicate: 'calls Naruto Uzumaki', value: 'Uzumaki-kun; dead last',
+            category: 'form of address', importance: 2, persistence: 'persistent',
+        },
+        {
+            id: 'address-reverse', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha', value: 'Setsuko; Suki-chan',
+            category: 'form of address', importance: 2, persistence: 'persistent',
+        },
+    );
+
+    const result = buildMemoryPrompt(target, [{ name: 'Setsuko', mes: 'Naruto arrives for training.' }], 1000, 'chat');
+
+    assert.match(result.prompt, /Addresses:/);
+    assert.match(result.prompt, /Setsuko Uchiha→Naruto Uzumaki: Uzumaki-kun; dead last/);
+    assert.match(result.prompt, /Naruto Uzumaki→Setsuko Uchiha: Setsuko; Suki-chan/);
+    assert.match(result.prompt, / \| /);
+    assert.equal(result.prompt.match(/Uzumaki-kun/g)?.length, 1);
+    assert.equal(result.prompt.match(/Suki-chan/g)?.length, 1);
+    assert.ok(result.estimatedTokens <= 1000);
+});
+
 test('retrieval reserves room for every populated memory category', () => {
     const target = world();
     mergeExtraction(target, extraction(), { chatKey: 'chat', from: 0, to: 4, allowStateUpdates: true });

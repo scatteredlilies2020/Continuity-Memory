@@ -384,6 +384,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     const latestIsRaw = item => latestSourceInRawTail(item, chatKey, rawTailRange);
     const whollyRaw = item => sourcedWhollyInRawTail(item, chatKey, rawTailRange);
     const sourceIsCurrent = item => !sourcedFromInvalidExtraction(item, invalidSourceRanges);
+    const availableFacts = (world.facts || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item));
 
     if (world.scene && options.includeSceneCheckpoint !== false && sourceIsCurrent(world.scene) && !latestIsRaw(world.scene)) {
         addSection('Checkpoint', [
@@ -394,6 +395,11 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
             line('Tone', world.scene.mood),
         ]);
     }
+
+    const addressForms = matching(availableFacts.filter(isAddressFact), queryTerms, () => 12, 'fact', semanticRanks)
+        .slice(0, 12)
+        .map(({ item }) => `${plain(item.subject)}→${plain(addressFactAddressee(item))}: ${plain(item.value)}`);
+    addSection('Addresses', addressForms.length ? [`- ${addressForms.join(' | ')}`] : []);
 
     const correctionRecords = world.corrections || [];
     const recentCorrections = correctionRecords.slice(-2);
@@ -482,12 +488,11 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         .map(({ item }) => `- ${item.from} → ${item.to} (${item.kind}): ${anchoredRelativeText(`${item.status}${item.dynamic ? `; ${item.dynamic}` : ''}`, item)}`);
     addSection('Relationships', relationships);
 
-    const availableFacts = (world.facts || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item));
     const perspectives = matching(availableFacts.filter(isAttributedBeliefFact), queryTerms, item => item.persistence === 'persistent' ? 2 : 0, 'fact', semanticRanks).slice(0, 16)
         .map(({ item }) => `- ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)} [subjective; not an established fact]`);
     addSection('Character perspectives (not established facts)', perspectives);
 
-    const facts = matching(availableFacts.filter(item => !isAttributedBeliefFact(item)), queryTerms, item => item.persistence === 'persistent' ? 2 : 0, 'fact', semanticRanks).slice(0, 18)
+    const facts = matching(availableFacts.filter(item => !isAttributedBeliefFact(item) && !isAddressFact(item)), queryTerms, item => item.persistence === 'persistent' ? 2 : 0, 'fact', semanticRanks).slice(0, 18)
         .map(({ item }) => {
             const qualifier = item.persistence && item.persistence !== 'persistent' ? ` [${item.persistence}]` : '';
             return `- ${item.subject} — ${item.predicate}${qualifier}: ${anchoredRelativeText(item.value, item)}`;
@@ -513,3 +518,4 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
 import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.104';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
+import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';
