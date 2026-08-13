@@ -4,7 +4,7 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.103';
+import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.104';
 import { worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
 import { buildMemoryPrompt } from './retrieval.js';
@@ -15,17 +15,17 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.103';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.103';
-import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.103';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.104';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.104';
+import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.104';
 import { completeL1MessageCount, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.103';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.103';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.103';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.104';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.104';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.104';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.103';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, pinchedReviewFontSize, REVIEW_FONT_STEP, reviewGenerationProgress, touchDistance } from './review-display.js?v=0.14.0-standalone.103';
+import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.104';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, reviewGenerationProgress, touchDistance } from './review-display.js?v=0.14.0-standalone.104';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -36,6 +36,7 @@ let viewerPage = 0;
 let viewerSignature = '';
 let extractionReviewSession = null;
 let roleplayGateOverlay = null;
+let reviewRecoveryListenersInstalled = false;
 let nativeChatExportBridgeInstalled = false;
 const DIRECT_PROFILE_ID = '__direct__';
 
@@ -306,6 +307,22 @@ function closeExtractionReviewPopup(session) {
     void session.popup.complete(POPUP_RESULT.AFFIRMATIVE);
 }
 
+function abandonStaleExtractionReviewPopup(session) {
+    if (!session || extractionReviewSession !== session) return;
+    extractionReviewSession = null;
+    session.allowClose = true;
+    session.popup?.dlg?.remove();
+    const popups = Popup.util?.popups;
+    const index = Array.isArray(popups) ? popups.indexOf(session.popup) : -1;
+    if (index >= 0) popups.splice(index, 1);
+}
+
+function retireExtractionReviewPopup(session) {
+    const dialog = session?.popup?.dlg;
+    if (dialog?.isConnected && dialog.open) closeExtractionReviewPopup(session);
+    else abandonStaleExtractionReviewPopup(session);
+}
+
 function openExtractionReviewPopup(review) {
     const content = document.createElement('div');
     content.className = 'continuity-review-modal';
@@ -386,20 +403,44 @@ function openExtractionReviewPopup(review) {
 }
 
 function syncExtractionReviewPopup(review) {
-    if (!review) {
-        if (extractionReviewSession) closeExtractionReviewPopup(extractionReviewSession);
-        return;
-    }
-    if (!extractionReviewSession) {
+    const action = extractionReviewRecoveryAction(review, extractionReviewSession);
+    if (action === 'none') return;
+    if (action === 'close') return retireExtractionReviewPopup(extractionReviewSession);
+    if (action === 'replace') {
+        retireExtractionReviewPopup(extractionReviewSession);
         openExtractionReviewPopup(review);
         return;
     }
-    if (extractionReviewSession.reviewId !== review.id) {
-        closeExtractionReviewPopup(extractionReviewSession);
+    if (action === 'reopen') {
+        abandonStaleExtractionReviewPopup(extractionReviewSession);
+        openExtractionReviewPopup(review);
+        return;
+    }
+    if (action === 'open') {
         openExtractionReviewPopup(review);
         return;
     }
     applyExtractionReview(extractionReviewSession, review);
+}
+
+export function restorePendingExtractionReview({ focus = true } = {}) {
+    const review = runtime.pendingExtractionReview;
+    if (!review) return false;
+    syncExtractionReviewPopup(review);
+    const dialog = extractionReviewSession?.popup?.dlg;
+    if (focus && dialog?.isConnected && dialog.open) dialog.focus({ preventScroll: true });
+    return true;
+}
+
+function installReviewRecoveryListeners() {
+    if (reviewRecoveryListenersInstalled) return;
+    reviewRecoveryListenersInstalled = true;
+    const restore = () => restorePendingExtractionReview();
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) restore();
+    });
+    window.addEventListener('pageshow', restore);
+    window.addEventListener('focus', restore);
 }
 
 function settingWarning(message) {
@@ -1317,6 +1358,7 @@ async function finishHierarchy(l1, clearRetrieval = false, rebuildVectors = fals
 }
 
 async function buildMemory() {
+    if (restorePendingExtractionReview()) return { cancelled: true, reviewPending: true };
     await ensureCurrentChatMemory(true);
     const l1 = await continueFailedL1();
     if (l1.cancelled) return l1;
@@ -1324,6 +1366,7 @@ async function buildMemory() {
 }
 
 async function repairRollback() {
+    if (restorePendingExtractionReview()) return { cancelled: true, reviewPending: true };
     const rollback = getTailRollbackStatus();
     if (!rollback.detected) return { cancelled: true };
     if (!window.confirm(`Repair memory after removing ${rollback.removedMessages} tail message(s)? Unaffected L1 extraction results will be replayed locally; only a partially cut range may call the model.`)) return { cancelled: true };
@@ -1348,6 +1391,7 @@ async function undoLatestL1Memory() {
 }
 
 async function restartBuild() {
+    if (restorePendingExtractionReview()) return { cancelled: true, reviewPending: true };
     await ensureCurrentChatMemory(true);
     const messageCount = getContext().chat?.length || 0;
     if (!window.confirm(`Start over from a brand-new empty memory for all ${messageCount} chat messages? This immediately and permanently erases all current structured memory, L1/L2/L3, extraction records, retrieval cache, and vectors. Every fresh L1 chunk calls the model and is saved as it completes, so Build can resume missing ranges after a failure. No backup is saved.`)) return { cancelled: true };
@@ -1360,6 +1404,7 @@ async function restartBuild() {
 }
 
 async function rebuildHierarchy() {
+    if (restorePendingExtractionReview()) return { cancelled: true, reviewPending: true };
     await ensureCurrentChatMemory(true);
     const l1Count = runtime.world?.capsules?.length || 0;
     if (!l1Count) throw new Error('There are no L1 records to build L2/L3 from. Use Build or erase everything and start over.');
@@ -1411,6 +1456,7 @@ function cancelCorrection() {
 export function initUI() {
     const settings = getSettings();
     installNativeChatExportBridge();
+    installReviewRecoveryListeners();
     initSectionToggle();
     $('#continuity_reset_defaults').on('click', async () => {
         if (!window.confirm('Reset all Continuity settings and prompts to their built-in defaults? Stored memory and chat bindings will not be changed.')) return;
@@ -1552,6 +1598,7 @@ export function initUI() {
 
     $('#continuity_refresh').on('click', () => refreshWorlds().catch(error => toast('error', error.message)));
     $('#continuity_pause').on('click', () => {
+        if (restorePendingExtractionReview()) return;
         if (runtime.paused) { resumeRuntime(); continueQueue(); }
         else pauseRuntime();
         renderRuntime();

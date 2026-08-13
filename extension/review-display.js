@@ -23,6 +23,14 @@ export function pinchedReviewFontSize(startSize, startDistance, currentDistance)
     return clampReviewFontSize(Number(startSize) * (nextDistance / initialDistance));
 }
 
+export function extractionReviewRecoveryAction(review, session) {
+    if (!review) return session ? 'close' : 'none';
+    if (!session) return 'open';
+    if (session.reviewId !== review.id) return 'replace';
+    const dialog = session.popup?.dlg;
+    return dialog?.isConnected && dialog?.open ? 'reuse' : 'reopen';
+}
+
 export function reviewGenerationProgress(state) {
     const progress = state?.progress;
     if (progress && Number.isFinite(Number(progress.from)) && Number.isFinite(Number(progress.to))) {
