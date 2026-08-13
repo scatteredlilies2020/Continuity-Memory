@@ -1,7 +1,7 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.106';
+import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.107';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
 
@@ -308,10 +308,11 @@ export function getSettings() {
         settings.tokenEfficientPromptVersion = 1;
         saveSettingsDebounced();
     }
-    if (Number(settings.relationalAddressPromptVersion || 0) < 7) {
+    if (Number(settings.relationalAddressPromptVersion || 0) < 8) {
         let prompt = String(settings.extractionSystemPrompt || PROMPT_DEFAULTS.extractionSystemPrompt);
         if (!prompt.includes(RELATIONAL_ADDRESS_RULE)) {
             const previousRules = [
+                'Store honorifics, titles, nicknames, callsigns, or first-name use as one fact per speaker-addressee pair. A form must be a direct, name-like vocative—not a sentence, clause, description, or nearby dialogue fragment. Ordinary "you" requires explicit social meaning (disrespect or name refusal). Require exact wording; omit absence, silence, indirect replies, and claims that no address is established. One meaningful shift is enough. Attribute quoted lines to explicit speakers; a message author is not automatically the speaker of every line it narrates. Self-directed facts require explicit self-use of the form; never infer self-address from another speaker. Subject: canonical speaker; predicate: "calls ACTUAL_CANONICAL_NAME." Never output placeholder text or brackets. Value: list all exact current forms and meaningful former forms only; keep coexisting forms together. Update relationships only if a shift signals changed familiarity, distance, respect, or hierarchy. Ignore one-offs.',
                 'Store honorifics, titles, nicknames, callsigns, or first-name use as one fact per speaker-addressee pair. A form must be explicit as an address or used as a direct vocative, never merely descriptive ("a/the X" or "is an X"). Ordinary "you" requires explicit social meaning (disrespect or name refusal). Require exact wording; omit absence, silence, indirect replies, and claims that no address is established. One meaningful shift is enough. Attribute quoted lines to explicit speakers; a message author is not automatically the speaker of every line it narrates. Self-directed facts require explicit self-use of the form; never infer self-address from another speaker. Subject: canonical speaker; predicate: "calls ACTUAL_CANONICAL_NAME." Never output placeholder text or brackets. Value: list all exact current forms and meaningful former forms only; keep coexisting forms together. Update relationships only if a shift signals changed familiarity, distance, respect, or hierarchy. Ignore one-offs.',
                 'Store socially meaningful address wording (honorifics, titles, nicknames, callsigns, or first-name use) as one fact per speaker-addressee pair. Require exact wording used or explicitly established; omit absence, silence, indirect replies, and claims that no address is established. One meaningful shift is enough. Subject: canonical speaker. Predicate: "calls ACTUAL_CANONICAL_NAME." Never output placeholder text or brackets. Value: list all exact current forms and meaningful former forms only; keep coexisting forms together, without commentary. Update relationships only if a shift signals changed familiarity, distance, respect, or hierarchy. Ignore ordinary one-offs.',
                 'Store socially meaningful address wording (honorifics, titles, nicknames, callsigns, or first-name use) as one fact per speaker-addressee pair. Require exact wording used or explicitly established; omit absence, silence, indirect replies, and claims that no address is established. One meaningful shift is enough. Subject: canonical speaker. Predicate: "calls [canonical addressee]." Value: list all exact current forms and meaningful former forms only; keep coexisting forms together, without commentary. Update relationships only if a shift signals changed familiarity, distance, respect, or hierarchy. Ignore ordinary one-offs.',
@@ -332,7 +333,7 @@ export function getSettings() {
         if (settings.injectionInstruction === previousInjection) {
             settings.injectionInstruction = PROMPT_DEFAULTS.injectionInstruction;
         }
-        settings.relationalAddressPromptVersion = 7;
+        settings.relationalAddressPromptVersion = 8;
         saveSettingsDebounced();
     }
     if (Number(settings.epistemicPromptVersion || 0) < 4) {

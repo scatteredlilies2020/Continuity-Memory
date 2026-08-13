@@ -593,6 +593,56 @@ test('a narrated user quote cannot contaminate the opposite address direction', 
     ]);
 });
 
+test('a first-person tell cue repairs a surname-honorific reversal echoed by narration', () => {
+    const result = extraction();
+    result.facts.push({
+        targetId: 'fact_loser', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha',
+        value: 'Uzumaki-kun', category: 'social address', importance: 2, persistence: 'recurring',
+    });
+    const world = {
+        entities: [
+            { name: 'Setsuko Uchiha', aliases: ['Setsuko'] },
+            { name: 'Naruto Uzumaki', aliases: ['Naruto'] },
+        ],
+        facts: [
+            { id: 'fact_suki', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha', value: 'Suki-chan', category: 'form of address' },
+            { id: 'fact_loser', subject: 'Setsuko Uchiha', predicate: 'calls Naruto Uzumaki', value: 'loser', category: 'form of address' },
+        ],
+        states: [], relationships: [], threads: [], backgrounds: [],
+    };
+    const sanitized = sanitizeReconciliationMetadata(result, world, [
+        { index: 445, name: 'Setsuko', isUser: true, text: 'I tell Uzumaki-kun his control sucks' },
+        { index: 446, name: 'Naruto', isUser: false, text: '“Uzumaki-kun.” Setsuko\'s voice carries the flat, final tone of a diagnosis. “Your control sucks.” Naruto freezes.' },
+    ]);
+
+    assert.equal(sanitized.repairedAddresses, 1);
+    assert.deepEqual(result.facts, [{
+        targetId: 'fact_loser', subject: 'Setsuko Uchiha', predicate: 'calls Naruto Uzumaki',
+        value: 'Uzumaki-kun', category: 'form of address', importance: 2, persistence: 'recurring',
+    }]);
+});
+
+test('an honorific derived from the alleged speaker name fails closed without directional evidence', () => {
+    const result = extraction();
+    result.facts.push({
+        targetId: '', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha',
+        value: 'Uzumaki-kun', category: 'form of address', importance: 2, persistence: 'recurring',
+    });
+    const world = {
+        entities: [
+            { name: 'Setsuko Uchiha', aliases: ['Setsuko'] },
+            { name: 'Naruto Uzumaki', aliases: ['Naruto'] },
+        ],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    };
+    const sanitized = sanitizeReconciliationMetadata(result, world, [{
+        index: 5, name: 'Narrator', isUser: false, text: 'The disputed transcript contains “Uzumaki-kun.”',
+    }]);
+
+    assert.equal(sanitized.discardedUnsupportedAddresses, 1);
+    assert.deepEqual(result.facts, []);
+});
+
 test('sentence clauses cannot become address forms', () => {
     const result = extraction();
     result.facts.push({

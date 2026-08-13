@@ -24,6 +24,7 @@ const ADDRESS_MEANINGFUL = /[\p{L}\p{N}\p{Extended_Pictographic}]/u;
 const ADDRESS_PRONOUN = /^(?:i|me|my|mine|myself|you|your|yours|yourself|yourselves|he|him|his|himself|she|her|hers|herself|it|its|itself|we|us|our|ours|ourselves|they|them|their|theirs|themself|themselves)$/iu;
 const ADDRESS_PRONOUN_SIGNIFICANCE = /\b(?:address(?:es|ed|ing)?|calls?|form of address|refers? to|instead of (?:a |the )?name|refuses? (?:to use )?(?:a |the )?name|disrespect(?:ful(?:ly)?)?|contempt(?:uous(?:ly)?)?|dismissive(?:ly)?|insult(?:ing(?:ly)?)?|derisive(?:ly)?|rude(?:ly)?|pointedly|deliberately)\b/iu;
 const ADDRESS_CLAUSE_START = /^(?:(?:i|you|he|she|it|we|they)[’'](?:m|re|s|ve|d|ll)\b|(?:i|you|he|she|it|we|they)\s+(?:am|are|is|was|were|have|has|had|do|does|did|can|could|will|would|shall|should|may|might|must)(?:n['’]t)?\b)/iu;
+const ADDRESS_HONORIFIC_SUFFIX = /(?:[-\s]?(?:san|sama|kun|chan|sensei|senpai|sempai|dono|shi|hakase|heika|denka))$/iu;
 
 export function isAddressFact(item) {
     const category = normalized(item?.category);
@@ -81,13 +82,14 @@ function addressNameVariants(world, value) {
 function addressFormNamesSpeaker(item, form, world) {
     const value = normalized(form);
     if (!value) return false;
+    const unadorned = value.replace(ADDRESS_HONORIFIC_SUFFIX, '').trim();
     const variants = addressNameVariants(world, item?.subject);
     if (!variants.length && item?.subject) variants.push(String(item.subject));
     return variants.some(variant => {
         const name = normalized(variant);
         if (!name) return false;
         const parts = name.split(/\s+/u).filter(Boolean);
-        return value === name || parts.includes(value);
+        return value === name || parts.includes(value) || (unadorned && (unadorned === name || parts.includes(unadorned)));
     });
 }
 
@@ -258,6 +260,7 @@ function explicitlyAttributesSpeech(text, speakerNames, form) {
             new RegExp(`\\b${speaker}\\b\\s+(?:\\w+\\s+){0,3}${speechVerb}\\b[^“”"\\n\\r]{0,40}[“"]?[^“”"\\n\\r]{0,200}${formPattern}`, 'iu'),
             new RegExp(`[“"][^“”"\\n\\r]{0,240}${formPattern}[^“”"\\n\\r]{0,240}[”"]\\s*[,.:;!?—–-]*\\s*\\b${speechVerb}\\s+\\b${speaker}\\b`, 'iu'),
             new RegExp(`[“"][^“”"\\n\\r]{0,240}${formPattern}[^“”"\\n\\r]{0,240}[”"]\\s*[,.:;!?—–-]*\\s*\\b${speaker}\\b\\s+(?:\\w+\\s+){0,3}${speechVerb}\\b`, 'iu'),
+            new RegExp(`[“"][^“”"\\n\\r]{0,240}${formPattern}[^“”"\\n\\r]{0,240}[”"]\\s*[,.:;!?—–-]*\\s*\\b${speaker}[’']s\\s+(?:voice|tone|words?)\\b`, 'iu'),
             new RegExp(`\\b${speaker}\\b[^\\n\\r]{0,60}\\b(?:calls?|called|refers?|referred|introduces?|introduced|identifies?|identified)\\s+(?:herself|himself|themself|themselves)\\b[^\\n\\r]{0,160}${formPattern}`, 'iu'),
         ].some(pattern => pattern.test(text));
     });
@@ -319,6 +322,13 @@ function isVocativeUse(text, form) {
     ].some(pattern => pattern.test(String(text || '')));
 }
 
+function hasFirstPersonAddressCue(text, form) {
+    const formPattern = escaped(form);
+    if (!formPattern) return false;
+    return new RegExp(`\\bI\\s+(?:(?:tell|told|ask|asked|call|called|address|addressed)\\s+|(?:say|said|shout|shouted|yell|yelled)\\s+(?:to\\s+)?)${formPattern}(?=\\s|[,!?.:;—–-]|$)`, 'iu')
+        .test(String(text || ''));
+}
+
 function assistantOwnVocativeEvidence(message, world, speaker, form) {
     if (message?.isUser || canonicalAddressName(world, message?.name) !== canonicalAddressName(world, speaker)) return false;
     const text = String(message?.text ?? message?.mes ?? '');
@@ -336,7 +346,7 @@ function assistantOwnVocativeEvidence(message, world, speaker, form) {
             const candidate = escaped(name);
             if (!candidate) return false;
             const beforePattern = new RegExp(`\\b${candidate}\\b\\s+(?:\\w+\\s+){0,3}${speechVerb}\\b[\\s,:;—–-]*$`, 'iu');
-            const afterPattern = new RegExp(`^\\s*[,.:;!?—–-]*\\s*(?:\\b${candidate}\\b\\s+(?:\\w+\\s+){0,3}${speechVerb}\\b|${speechVerb}\\s+\\b${candidate}\\b)`, 'iu');
+            const afterPattern = new RegExp(`^\\s*[,.:;!?—–-]*\\s*(?:\\b${candidate}\\b\\s+(?:\\w+\\s+){0,3}${speechVerb}\\b|${speechVerb}\\s+\\b${candidate}\\b|\\b${candidate}[’']s\\s+(?:voice|tone|words?)\\b)`, 'iu');
             return beforePattern.test(before) || afterPattern.test(after);
         });
         return !attributedElsewhere;
@@ -410,8 +420,8 @@ function hasAuthoredVocativeEvidence(messages, world, speaker, form) {
         const userEvidence = Boolean(message?.isUser)
             && canonicalAddressName(world, message?.name) === canonicalSpeaker
             && containsAddressForm(text, form)
-            && [...quotedSpeechSegments(text), ...labeledSpeechSegments(text, speakerNames), text]
-                .some(segment => isVocativeUse(segment, form));
+            && ([...quotedSpeechSegments(text), ...labeledSpeechSegments(text, speakerNames), text]
+                .some(segment => isVocativeUse(segment, form)) || hasFirstPersonAddressCue(text, form));
         return userEvidence || assistantOwnVocativeEvidence(message, world, speaker, form);
     });
 }
