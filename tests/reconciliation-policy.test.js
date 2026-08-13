@@ -298,7 +298,7 @@ test('authoritative address corrections purge superseded replay facts', () => {
         extractions: [{ result: { facts: [structuredClone(bad)] } }],
     };
 
-    assert.equal(removeInvalidStoredAddressFacts(world), 1);
+    assert.equal(removeInvalidStoredAddressFacts(world), 2);
     assert.deepEqual(world.extractions[0].result.facts, []);
     assert.equal(world.facts[0].value, 'Suki-chan');
 });
@@ -620,6 +620,56 @@ test('an unambiguous short character name attributes an echoed quote without a s
     assert.deepEqual(result.facts, [{
         targetId: 'fact_loser', subject: 'Setsuko Uchiha', predicate: 'calls Naruto Uzumaki',
         value: 'loser', category: 'form of address', importance: 2, persistence: 'recurring',
+    }]);
+});
+
+test('a markdown speaker label with its colon inside bold markup preserves direction', () => {
+    const result = extraction();
+    result.facts.push({
+        targetId: '', subject: 'Setsuko Uchiha', predicate: 'calls Sakura Haruno',
+        value: 'Suki', category: 'social address', importance: 2, persistence: 'recurring',
+    });
+    const world = {
+        entities: [
+            { name: 'Setsuko Uchiha', aliases: [] },
+            { name: 'Sakura Haruno', aliases: [] },
+            { name: 'Naruto Uzumaki', aliases: [] },
+        ],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    };
+    const sanitized = sanitizeReconciliationMetadata(result, world, [{
+        index: 0, name: 'Naruto', isUser: false,
+        text: '**Sakura:** Flips her pink hair. “Just because everyone follows you does not make you special, Suki.”',
+    }]);
+
+    assert.equal(sanitized.repairedAddresses, 1);
+    assert.deepEqual(result.facts, [{
+        targetId: '', subject: 'Sakura Haruno', predicate: 'calls Setsuko Uchiha',
+        value: 'Suki', category: 'form of address', importance: 2, persistence: 'recurring',
+    }]);
+});
+
+test('a verbose directional social-address fact is normalized for address injection', () => {
+    const result = extraction();
+    result.facts.push({
+        targetId: '', subject: 'Setsuko Uchiha', predicate: 'uses respectful address toward Iruka Umino',
+        value: 'Current form: "Iruka-sensei"; "Sensei".', category: 'social address', importance: 2, persistence: 'recurring',
+    });
+    const world = {
+        entities: [
+            { name: 'Setsuko Uchiha', aliases: [] },
+            { name: 'Iruka Umino', aliases: [] },
+        ],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    };
+    const sanitized = sanitizeReconciliationMetadata(result, world, [{
+        index: 0, name: 'Setsuko', isUser: true, text: '"Ah... Iruka-sensei, yes, sir we passed as a team."',
+    }]);
+
+    assert.equal(sanitized.normalizedAddresses, 1);
+    assert.deepEqual(result.facts, [{
+        targetId: '', subject: 'Setsuko Uchiha', predicate: 'calls Iruka Umino',
+        value: 'Iruka-sensei; Sensei', category: 'form of address', importance: 2, persistence: 'recurring',
     }]);
 });
 

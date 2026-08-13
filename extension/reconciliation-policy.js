@@ -31,7 +31,8 @@ export function isAddressFact(item) {
     const predicate = normalized(item?.predicate);
     return /^forms? of address$/u.test(category)
         || predicate.startsWith('calls ')
-        || predicate.startsWith('form of address for ');
+        || predicate.startsWith('form of address for ')
+        || /^(?:uses?|used) (?:a )?(?:(?:respectful|formal|informal|honorific|familiar|derisive|disrespectful) )?(?:address|address form|form of address|nickname) (?:toward|towards|for|with) /u.test(predicate);
 }
 
 function isGenericAddressFact(item) {
@@ -44,8 +45,30 @@ function isGenericAddressFact(item) {
 export function addressFactAddressee(item) {
     if (!isAddressFact(item)) return '';
     const predicate = String(item?.predicate || '').replace(/\s+/g, ' ').trim();
-    const match = predicate.match(/^(?:calls|form of address for)\s+(.+?)\s*[.!?]?$/iu);
+    const match = predicate.match(/^(?:calls|form of address for)\s+(.+?)\s*[.!?]?$/iu)
+        || predicate.match(/^(?:uses?|used) (?:a )?(?:(?:respectful|formal|informal|honorific|familiar|derisive|disrespectful) )?(?:address|address form|form of address|nickname) (?:toward|towards|for|with)\s+(.+?)\s*[.!?]?$/iu);
     return String(match?.[1] || '').trim();
+}
+
+function normalizeDirectionalAddressFacts(container, world = container) {
+    if (!Array.isArray(container?.facts)) return 0;
+    let changed = 0;
+    for (const item of container.facts) {
+        if (!isAddressFact(item) || isGenericAddressFact(item)) continue;
+        const speaker = canonicalAddressDisplayName(world, item.subject);
+        const addressee = canonicalAddressDisplayName(world, addressFactAddressee(item));
+        if (!speaker || !addressee) continue;
+        const value = mergeAddressValues(String(item.value || '')
+            .replace(/^(?:(?:current|preferred|usual)\s+)?(?:address\s+)?forms?\s*:\s*/iu, '')
+            .replace(/[“”"'‘’.,]+\s*$/gu, ''));
+        const predicate = `calls ${addressee}`;
+        if (item.subject !== speaker || item.predicate !== predicate || item.category !== 'form of address' || item.value !== value) changed++;
+        item.subject = speaker;
+        item.predicate = predicate;
+        item.category = 'form of address';
+        item.value = value;
+    }
+    return changed;
 }
 
 function canonicalAddressName(world, value) {
@@ -259,7 +282,7 @@ function explicitlyAttributesSpeech(text, speakerNames, form) {
         const speaker = escaped(name);
         if (!speaker) return false;
         return [
-            new RegExp(`(?:^|[\\n\\r])\\s*(?:[*_]{1,2})?${speaker}(?:[*_]{1,2})?\\s*:\\s*[^\\n\\r]{0,240}${formPattern}`, 'iu'),
+            new RegExp(`(?:^|[\\n\\r])\\s*(?:[*_]{1,2})?${speaker}(?:[*_]{1,2})?\\s*:\\s*(?:[*_]{1,2})?[^\\n\\r]{0,500}${formPattern}`, 'iu'),
             new RegExp(`\\b${speaker}\\b\\s+(?:\\w+\\s+){0,3}${speechVerb}\\b[^“”"\\n\\r]{0,40}[“"]?[^“”"\\n\\r]{0,200}${formPattern}`, 'iu'),
             new RegExp(`[“"][^“”"\\n\\r]{0,240}${formPattern}[^“”"\\n\\r]{0,240}[”"]\\s*[,.:;!?—–-]*\\s*\\b${speechVerb}\\s+\\b${speaker}\\b`, 'iu'),
             new RegExp(`[“"][^“”"\\n\\r]{0,240}${formPattern}[^“”"\\n\\r]{0,240}[”"]\\s*[,.:;!?—–-]*\\s*\\b${speaker}\\b\\s+(?:\\w+\\s+){0,3}${speechVerb}\\b`, 'iu'),
@@ -308,7 +331,7 @@ function labeledSpeechSegments(text, speakerNames) {
     for (const name of speakerNames) {
         const speaker = escaped(name);
         if (!speaker) continue;
-        const pattern = new RegExp(`(?:^|[\\n\\r])\\s*(?:[*_]{1,2})?${speaker}(?:[*_]{1,2})?\\s*:\\s*([^\\n\\r]{1,500})`, 'giu');
+        const pattern = new RegExp(`(?:^|[\\n\\r])\\s*(?:[*_]{1,2})?${speaker}(?:[*_]{1,2})?\\s*:\\s*(?:[*_]{1,2})?([^\\n\\r]{1,500})`, 'giu');
         for (const match of String(text || '').matchAll(pattern)) segments.push(match[1]);
     }
     return segments;
@@ -844,7 +867,8 @@ function restoreStoredAddressValuesFromReplay(world) {
 }
 
 export function removeInvalidStoredAddressFacts(world, messages = null) {
-    let changed = reconcileGenericAddressDuplicates(world, world);
+    let changed = normalizeDirectionalAddressFacts(world, world);
+    changed += reconcileGenericAddressDuplicates(world, world);
     changed += repairReversedStoredAddressFacts(world, messages);
     changed += removeImpossibleStoredAddressValues(world, messages);
     changed += removeInvalidAddressFacts(world);
@@ -856,6 +880,7 @@ export function removeInvalidStoredAddressFacts(world, messages = null) {
     for (const extraction of world?.extractions || []) {
         const extractionMessages = (messages || []).filter(message => Number(message?.index) >= Number(extraction?.from)
             && Number(message?.index) <= Number(extraction?.to));
+        changed += normalizeDirectionalAddressFacts(extraction?.result, world);
         changed += repairReversedAddressFacts(extraction?.result, world, extractionMessages);
         changed += reconcileGenericAddressDuplicates(extraction?.result, world);
         changed += removeUnsupportedAddressValues(extraction?.result, extractionMessages, world);
@@ -904,6 +929,7 @@ export function reconciliationMergeIsCompatible(category, canonical, duplicate, 
 }
 
 export function sanitizeReconciliationMetadata(result, world, messages = null) {
+    const normalizedAddresses = normalizeDirectionalAddressFacts(result, world);
     const repairedAddresses = repairReversedAddressFacts(result, world, messages);
     const recovered = recoverExplicitAddressFacts(result, world, messages);
     const discardedAddressValues = removeCrossDirectionAddressContamination(result, world, messages);
@@ -962,5 +988,5 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     });
     const warnings = findCoverageWarnings(result, messages);
     if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
-    return { ignored, recovered, recoveredAliases, repairedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, warnings };
+    return { ignored, recovered, recoveredAliases, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, warnings };
 }
