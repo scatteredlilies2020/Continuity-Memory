@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { collectMemoryEligibleMessages } from '../extension/fingerprint.js';
+import { collectMemoryEligibleMessages } from '../extension/message-digest.js';
 import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from '../extension/generation-policy.js';
 
 const chat = [{ index: 0, mes: 'Hello' }];

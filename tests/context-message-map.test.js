@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mapContextMessages } from '../extension/context-message-map.js';
-import { fingerprintMessage } from '../extension/fingerprint.js';
+import { fingerprintMessage } from '../extension/message-digest.js';
 
 test('verifies processed messages against original text before prompt-only regex changes', () => {
     const source = [{

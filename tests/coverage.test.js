@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from '../extension/coverage.js';
-import { fingerprintMessage } from '../extension/fingerprint.js';
+import { fingerprintMessage } from '../extension/message-digest.js';
 
 const messages = [
     { index: 0, name: 'User', text: 'One' },

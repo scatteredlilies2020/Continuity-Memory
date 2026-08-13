@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { forkWorldToBranch } from '../extension/branch-cache.js';
-import { fingerprintMessage } from '../extension/fingerprint.js';
+import { fingerprintMessage } from '../extension/message-digest.js';
 import { mergeExtraction } from '../extension/memory-model.js';
 
 const parentKey = 'character:7:chat:adventure';

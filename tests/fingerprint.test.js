@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, findInvalidExtractionRanges, fingerprintMessage } from '../extension/fingerprint.js';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, findInvalidExtractionRanges, fingerprintMessage } from '../extension/message-digest.js';
 
 const oldKey = 'character:7:chat:old.jsonl';
 const newKey = 'character:22:chat:copied.jsonl';

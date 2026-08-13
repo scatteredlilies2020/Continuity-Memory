@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 
 import { isRateLimitError } from '../extension/errors.js';
 import { isRecoverableExtractionOutputError } from '../extension/extraction-recovery.js';
-import { fingerprintMessage } from '../extension/fingerprint.js';
+import { fingerprintMessage } from '../extension/message-digest.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction } from '../extension/memory-model.js';
 import { migrateLegacyBeliefs } from '../extension/attributed-beliefs.js';
 import { nextArcCapsules } from '../extension/hierarchy-policy.js';

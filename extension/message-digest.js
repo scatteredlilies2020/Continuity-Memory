@@ -1,3 +1,5 @@
+// Keep this module filename neutral: privacy filter lists commonly block
+// scripts named "fingerprint.js", even when they only hash local message text.
 function fastHash(value) {
     const source = String(value ?? '');
     let first = 0x811c9dc5;

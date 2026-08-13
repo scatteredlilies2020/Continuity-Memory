@@ -17,6 +17,11 @@ for (const asset of ['js', 'css']) {
 }
 
 const extensionFiles = readdirSync(extensionRoot).filter(name => name.endsWith('.js'));
+for (const blockedName of ['fingerprint.js']) {
+    if (extensionFiles.includes(blockedName)) {
+        throw new Error(`Browser extension asset ${blockedName} is blocked by common privacy filter lists`);
+    }
+}
 for (const folder of ['extension', 'plugin']) {
     for (const file of readdirSync(path.join(root, folder)).filter(name => name.endsWith('.js'))) {
         execFileSync(process.execPath, ['--check', path.join(root, folder, file)], { stdio: 'inherit' });
