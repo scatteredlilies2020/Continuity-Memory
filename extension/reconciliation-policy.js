@@ -56,16 +56,16 @@ function canonicalAddressName(world, value) {
         .some(name => normalized(name) === requested));
     if (matches.length === 1) return normalized(matches[0].name);
     if (!matches.length && !requested.includes(' ')) {
-        const shortMatches = entities.filter(entity => normalized(String(entity?.name || '').split(/\s+/u)[0]) === requested);
+        const shortMatches = entities.filter(entity => String(entity?.name || '').split(/\s+/u)
+            .some(part => normalized(part.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '')) === requested));
         if (shortMatches.length === 1) return normalized(shortMatches[0].name);
     }
     return normalized(value);
 }
 
 function canonicalAddressDisplayName(world, value) {
-    const requested = normalized(value);
-    const matches = (world?.entities || []).filter(entity => [entity?.name, ...(entity?.aliases || [])]
-        .some(name => normalized(name) === requested));
+    const canonical = canonicalAddressName(world, value);
+    const matches = (world?.entities || []).filter(entity => normalized(entity?.name) === canonical);
     return String(matches.length === 1 ? matches[0].name : value || '').replace(/\s+/g, ' ').trim();
 }
 
@@ -74,7 +74,10 @@ function addressNameVariants(world, value) {
     if (!requested) return [];
     const entity = (world?.entities || []).find(item => [item?.name, ...(item?.aliases || [])]
         .some(name => normalized(name) === requested));
-    return [...new Set([value, entity?.name, ...(entity?.aliases || [])]
+    const parts = String(entity?.name || '').split(/\s+/u)
+        .map(part => part.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ''))
+        .filter(part => part && canonicalAddressName(world, part) === normalized(entity?.name));
+    return [...new Set([value, entity?.name, ...(entity?.aliases || []), ...parts]
         .map(name => String(name || '').replace(/\s+/g, ' ').trim())
         .filter(Boolean))];
 }

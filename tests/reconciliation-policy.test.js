@@ -593,6 +593,36 @@ test('a narrated user quote cannot contaminate the opposite address direction', 
     ]);
 });
 
+test('an unambiguous short character name attributes an echoed quote without a stored alias', () => {
+    const result = extraction();
+    result.facts.push({
+        targetId: 'fact_loser', subject: 'Setsuko Uchiha', predicate: 'calls Naruto Uzumaki',
+        value: 'loser', category: 'form of address', importance: 2, persistence: 'recurring',
+    });
+    const world = {
+        entities: [
+            { name: 'Setsuko Uchiha', aliases: [] },
+            { name: 'Naruto Uzumaki', aliases: [] },
+            { name: "Setsuko's Friday schedule", aliases: [] },
+        ],
+        facts: [
+            { id: 'fact_suki', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha', value: 'Suki-chan', category: 'form of address' },
+            { id: 'fact_loser', subject: 'Setsuko Uchiha', predicate: 'calls Naruto Uzumaki', value: 'loser', category: 'form of address' },
+        ],
+        states: [], relationships: [], threads: [], backgrounds: [],
+    };
+    const sanitized = sanitizeReconciliationMetadata(result, world, [{
+        index: 360, name: 'Naruto', isUser: false,
+        text: '“Shut up, loser. I did not say it like that,” Setsuko says. Naruto protests.',
+    }]);
+
+    assert.equal(sanitized.repairedAddresses, 0);
+    assert.deepEqual(result.facts, [{
+        targetId: 'fact_loser', subject: 'Setsuko Uchiha', predicate: 'calls Naruto Uzumaki',
+        value: 'loser', category: 'form of address', importance: 2, persistence: 'recurring',
+    }]);
+});
+
 test('a first-person tell cue repairs a surname-honorific reversal echoed by narration', () => {
     const result = extraction();
     result.facts.push({
