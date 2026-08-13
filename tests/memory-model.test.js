@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildEmbeddingDocuments } from '../extension/embedding-index.js';
 import { EXTRACTION_VERSION } from '../extension/coverage.js';
-import { addDerivedArc, addDerivedEra, compactHierarchyFields, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords } from '../extension/memory-model.js';
+import { addDerivedArc, addDerivedEra, compactHierarchyFields, getLatestL1UndoStatus, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from '../extension/memory-model.js';
 import { buildMemoryPrompt, orderEventsChronologically } from '../extension/retrieval.js';
 
 function world() {
@@ -1068,6 +1068,87 @@ test('branch replay preserves retained record and hierarchy identities', () => {
     for (const key of [`capsule:${retainedIds.capsule}`, `arc:${retainedIds.arc}`, `era:${retainedIds.era}`]) {
         assert.equal(replayedHashes.get(key), previousHashes.get(key));
     }
+});
+
+test('undo latest L1 keeps chat messages pending and removes all dependent memory', () => {
+    const target = world();
+    const chatKey = 'chat';
+    const first = extraction();
+    const second = extraction({
+        scene: { ...extraction().scene, location: 'Concert hall' },
+        sceneCapsule: { ...extraction().sceneCapsule, title: 'Concert performance', location: 'Concert hall' },
+        facts: [
+            { subject: 'Yui', predicate: 'favorite snack', value: 'strawberry cake', category: 'preference', importance: 4, persistence: 'persistent' },
+            { subject: 'Yui', predicate: 'concert role', value: 'lead guitarist', category: 'identity', importance: 4, persistence: 'persistent' },
+        ],
+        events: [{ ...extraction().events[0], title: 'Concert performance', location: 'Concert hall' }],
+    });
+    const fingerprints = (from, to) => Array.from({ length: to - from + 1 }, (_, offset) => ({ index: from + offset, fingerprint: `fingerprint-${from + offset}` }));
+    mergeExtraction(target, first, { chatKey, from: 0, to: 4, allowStateUpdates: true, messageFingerprints: fingerprints(0, 4) });
+    const retainedCapsule = target.capsules[0];
+    const retainedArc = addDerivedArc(target, {
+        title: 'Practice arc', storyTime: '', participants: [], summary: 'The original practice.',
+        turningPoints: [], emotionalArc: '', closingState: '', openThreads: [], importance: 3,
+    }, [retainedCapsule]);
+    const retainedEra = addDerivedEra(target, {
+        title: 'Practice era', storyTime: '', participants: [], summary: 'The original practice era.',
+        turningPoints: [], emotionalArc: '', closingState: '', openThreads: [], importance: 3,
+    }, [retainedArc]);
+    mergeExtraction(target, second, { chatKey, from: 5, to: 9, allowStateUpdates: true, messageFingerprints: fingerprints(5, 9) });
+    const dependentArc = addDerivedArc(target, {
+        title: 'Concert arc', storyTime: '', participants: [], summary: 'Practice led to the concert.',
+        turningPoints: [], emotionalArc: '', closingState: '', openThreads: [], importance: 4,
+    }, target.capsules);
+    const dependentEra = addDerivedEra(target, {
+        title: 'Concert era', storyTime: '', participants: [], summary: 'The concert era.',
+        turningPoints: [], emotionalArc: '', closingState: '', openThreads: [], importance: 4,
+    }, [retainedArc, dependentArc]);
+    mergeExtraction(target, extraction({
+        facts: [{ subject: 'Mio', predicate: 'instrument', value: 'bass', category: 'identity', importance: 4, persistence: 'persistent' }],
+    }), { chatKey: 'other', from: 0, to: 4, allowStateUpdates: false, messageFingerprints: fingerprints(0, 4) });
+
+    const status = getLatestL1UndoStatus(target, chatKey);
+    assert.deepEqual({ available: status.available, replayable: status.replayable, from: status.from, to: status.to, dependentL2: status.dependentL2, dependentL3: status.dependentL3 }, {
+        available: true, replayable: true, from: 5, to: 9, dependentL2: 1, dependentL3: 1,
+    });
+
+    const result = undoLatestL1Extraction(target, chatKey, status.extractionId);
+    assert.deepEqual({ from: result.from, to: result.to, removedL2: result.removedL2, removedL3: result.removedL3, retainedL1: result.retainedL1 }, {
+        from: 5, to: 9, removedL2: 1, removedL3: 1, retainedL1: 1,
+    });
+    assert.deepEqual(target.extractions.filter(item => item.chatKey === chatKey).map(item => [item.from, item.to]), [[0, 4]]);
+    assert.deepEqual(target.sources[chatKey].processedMessages.map(item => item.index), [0, 1, 2, 3, 4]);
+    assert.deepEqual(target.sources[chatKey].requiredMemoryIndexes, [5, 6, 7, 8, 9]);
+    assert.equal(target.capsules.some(item => item.chatKey === chatKey && Number(item.from) === 5), false);
+    assert.equal(target.facts.find(item => item.subject === 'Yui' && item.predicate === 'favorite snack').value, 'cake');
+    assert.equal(target.facts.some(item => item.predicate === 'concert role'), false);
+    assert.equal(target.events.some(item => item.title === 'Concert performance'), false);
+    assert.equal(target.scene.location, 'Music room');
+    assert.equal(target.arcs.some(item => item.id === retainedArc.id), true);
+    assert.equal(target.arcs.some(item => item.id === dependentArc.id), false);
+    assert.equal(target.eras.some(item => item.id === retainedEra.id), true);
+    assert.equal(target.eras.some(item => item.id === dependentEra.id), false);
+    assert.equal(target.facts.some(item => item.subject === 'Mio'), true);
+    assert.ok(target.sources.other);
+
+    mergeExtraction(target, second, { chatKey, from: 5, to: 9, allowStateUpdates: true, messageFingerprints: fingerprints(5, 9) });
+    assert.deepEqual(target.sources[chatKey].requiredMemoryIndexes, []);
+    undoLatestL1Extraction(target, chatKey);
+    undoLatestL1Extraction(target, chatKey);
+    assert.equal(getLatestL1UndoStatus(target, chatKey).available, false);
+    assert.deepEqual(target.sources[chatKey].requiredMemoryIndexes, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    assert.equal(target.extractions.some(item => item.chatKey === 'other'), true);
+});
+
+test('undo latest L1 refuses incomplete legacy replay data without changing memory', () => {
+    const target = world();
+    mergeExtraction(target, extraction(), { chatKey: 'chat', from: 0, to: 4, allowStateUpdates: true });
+    delete target.extractions[0].result;
+    const before = structuredClone(target);
+
+    assert.equal(getLatestL1UndoStatus(target, 'chat').replayable, false);
+    assert.throws(() => undoLatestL1Extraction(target, 'chat'), /cannot safely undo one range/i);
+    assert.deepEqual(target, before);
 });
 
 test('full reset erases every memory layer while preserving the bound world identity', () => {

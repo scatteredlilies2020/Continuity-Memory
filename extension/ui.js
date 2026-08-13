@@ -4,7 +4,7 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor } from './engine.js?v=0.14.0-standalone.101';
+import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.102';
 import { worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
 import { buildMemoryPrompt } from './retrieval.js';
@@ -15,16 +15,16 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.101';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.101';
-import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.101';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.102';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.102';
+import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.102';
 import { completeL1MessageCount, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.101';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.101';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.101';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.102';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.102';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.102';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.101';
+import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.102';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -866,6 +866,14 @@ export function renderRuntime() {
     $('#continuity_repair_rollback')
         .toggle(rollback.detected)
         .html(`<i class="fa-solid fa-clock-rotate-left"></i> Repair rollback${rollback.detected ? ` (${rollback.removedMessages})` : ''}`);
+    const latestL1 = getLatestL1UndoStatus();
+    $('#continuity_undo_latest_l1')
+        .prop('disabled', runtime.processing || !latestL1.available || !latestL1.replayable)
+        .attr('title', !latestL1.available
+            ? 'There is no saved L1 memory to undo for this chat.'
+            : !latestL1.replayable
+                ? 'This older memory cannot safely replay retained L1 records. Rebuild it from scratch first.'
+                : `Undo L1 messages ${latestL1.from}–${latestL1.to}; chat messages will remain.`);
     $('#continuity_embed_chat').prop('checked', settings.embedMemoryInChat);
     $('#continuity_context_reduction').prop('checked', settings.contextReductionEnabled);
     $('#continuity_tail_mode').val(settings.rawTailMode);
@@ -1198,6 +1206,22 @@ async function repairRollback() {
     return finishHierarchy({ continued: repaired.reextracted, ...repaired }, true);
 }
 
+async function undoLatestL1Memory() {
+    const latest = getLatestL1UndoStatus();
+    if (!latest.available) throw new Error('There is no saved L1 memory to undo for this chat.');
+    if (!latest.replayable) throw new Error('This older memory cannot safely undo one L1 range. Rebuild it from scratch first.');
+    const dependent = [
+        latest.dependentL2 ? `${latest.dependentL2} dependent L2` : '',
+        latest.dependentL3 ? `${latest.dependentL3} dependent L3` : '',
+    ].filter(Boolean).join(' and ');
+    if (!window.confirm(`Undo the latest L1 for messages ${latest.from}–${latest.to}?\n\nThe chat messages will stay, but this L1, facts, states, relationships, events, threads, and backgrounds established by it${dependent ? `, plus ${dependent}` : ''} will be removed. These messages become incomplete memory and will be rebuilt before the next roleplay reply.`)) return { cancelled: true };
+    clearRetrievalExpansionCache();
+    const result = await undoLatestL1();
+    scheduleEmbeddingIndexSync(result.world, 0);
+    renderMemoryViewer(true);
+    return result;
+}
+
 async function restartBuild() {
     await ensureCurrentChatMemory(true);
     const messageCount = getContext().chat?.length || 0;
@@ -1410,6 +1434,9 @@ export function initUI() {
     $('#continuity_stop').on('click', () => { stopRuntime(); toast('info', 'Processing stopped and the queue was cleared.'); });
     $('#continuity_build').on('click', () => buildMemory()
         .then(result => !result.cancelled && toast(result.continued || result.arcs || result.eras ? 'success' : 'info', result.continued || result.arcs || result.eras ? 'Memory build completed.' : 'Memory is already up to date.'))
+        .catch(error => toast('error', error.message)));
+    $('#continuity_undo_latest_l1').on('click', () => undoLatestL1Memory()
+        .then(result => !result.cancelled && toast('success', `Undid L1 messages ${result.from}–${result.to}${result.removedL2 || result.removedL3 ? `; removed ${result.removedL2} L2 and ${result.removedL3} L3` : ''}. The range will rebuild before the next reply.`))
         .catch(error => toast('error', error.message)));
     $('#continuity_repair_rollback').on('click', () => repairRollback()
         .then(result => !result.cancelled && toast('success', `Rollback repaired: removed memory from ${result.removedMessages || 0} deleted message(s).`))

@@ -41,6 +41,8 @@ test('allows one background L1 batch of headroom before roleplay must catch up',
     assert.deepEqual(roleplayBacklogPolicy(1, 8), {
         pending: 1,
         eligible: 0,
+        required: 0,
+        blocking: 0,
         backgroundThreshold: 8,
         hardLimit: 16,
         shouldCatchUp: false,
@@ -68,11 +70,21 @@ test('scales the protected background headroom with the configured L1 group size
     assert.deepEqual(roleplayBacklogPolicy(23, 12), {
         pending: 23,
         eligible: 12,
+        required: 0,
+        blocking: 12,
         backgroundThreshold: 12,
         hardLimit: 24,
         shouldCatchUp: false,
     });
     assert.equal(roleplayBacklogPolicy(24, 12).shouldCatchUp, true);
+});
+
+test('deliberately undone memory blocks roleplay below the normal backlog limit', () => {
+    const result = roleplayBacklogPolicy(2, 10, 2);
+    assert.equal(result.eligible, 0);
+    assert.equal(result.required, 2);
+    assert.equal(result.blocking, 2);
+    assert.equal(result.shouldCatchUp, true);
 });
 
 test('describes memory work that delays roleplay generation', () => {

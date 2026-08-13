@@ -549,14 +549,20 @@ export function mergeExtraction(world, result, meta) {
 
     const existingSource = world.sources[meta.chatKey] || {};
     const processedByIndex = new Map((existingSource.processedMessages || []).map(item => [Number(item.index), item]));
+    const completedIndexes = new Set();
     for (const item of meta.messageFingerprints || []) {
-        processedByIndex.set(Number(item.index), { index: Number(item.index), fingerprint: String(item.fingerprint), version: EXTRACTION_VERSION });
+        const index = Number(item.index);
+        completedIndexes.add(index);
+        processedByIndex.set(index, { index, fingerprint: String(item.fingerprint), version: EXTRACTION_VERSION });
     }
     world.sources[meta.chatKey] = {
         ...existingSource,
         lastProcessedIndex: Math.max(meta.to, world.sources[meta.chatKey]?.lastProcessedIndex ?? -1),
         lastProcessedAt: new Date().toISOString(),
         processedMessages: [...processedByIndex.values()].sort((a, b) => a.index - b.index).slice(-100000),
+        requiredMemoryIndexes: (existingSource.requiredMemoryIndexes || [])
+            .map(Number)
+            .filter(index => Number.isFinite(index) && !completedIndexes.has(index)),
     };
 
     return world;
@@ -678,7 +684,102 @@ export function restoreRetainedReplayRecords(world, previousWorld, chatKey) {
         world.eras.push(structuredClone(era));
         eraIds.add(era.id);
     }
+    const requiredMemoryIndexes = (previousWorld?.sources?.[chatKey]?.requiredMemoryIndexes || [])
+        .map(Number)
+        .filter(Number.isFinite);
+    if (requiredMemoryIndexes.length) {
+        world.sources ||= {};
+        world.sources[chatKey] = {
+            ...(world.sources[chatKey] || {}),
+            requiredMemoryIndexes: [...new Set(requiredMemoryIndexes)].sort((a, b) => a - b),
+        };
+    }
     return world;
+}
+
+function orderedChatExtractions(world, chatKey) {
+    return (world?.extractions || [])
+        .filter(item => item?.chatKey === chatKey && Number.isFinite(Number(item.from)) && Number.isFinite(Number(item.to)))
+        .slice()
+        .sort((a, b) => Number(a.from) - Number(b.from) || Number(a.to) - Number(b.to) || String(a.id || '').localeCompare(String(b.id || '')));
+}
+
+export function getLatestL1UndoStatus(world, chatKey) {
+    const extractions = orderedChatExtractions(world, chatKey);
+    const target = extractions.at(-1);
+    if (!target) return { available: false, replayable: false, from: null, to: null, extractionId: '', dependentL2: 0, dependentL3: 0 };
+
+    const targetCapsuleIds = new Set((world?.capsules || [])
+        .filter(item => item.chatKey === chatKey && Number(item.from) === Number(target.from) && Number(item.to) === Number(target.to))
+        .map(item => item.id));
+    const dependentArcIds = new Set((world?.arcs || [])
+        .filter(item => (item.capsuleIds || []).some(id => targetCapsuleIds.has(id)))
+        .map(item => item.id));
+    const dependentL3 = (world?.eras || []).filter(item => (item.arcIds || []).some(id => dependentArcIds.has(id))).length;
+
+    return {
+        available: true,
+        replayable: extractions.every(item => item.result && typeof item.result === 'object'),
+        from: Number(target.from),
+        to: Number(target.to),
+        extractionId: String(target.id || ''),
+        dependentL2: dependentArcIds.size,
+        dependentL3,
+    };
+}
+
+export function undoLatestL1Extraction(world, chatKey, expectedExtractionId = '') {
+    const status = getLatestL1UndoStatus(world, chatKey);
+    if (!status.available) throw new Error('There is no saved L1 memory to undo for this chat.');
+    if (!status.replayable) throw new Error('This memory predates stored L1 replay data and cannot safely undo one range. Rebuild it from scratch first.');
+    if (expectedExtractionId && status.extractionId !== expectedExtractionId) {
+        throw new Error('The latest L1 changed while Undo was saving. Nothing was removed; review the latest range and try again.');
+    }
+
+    const retained = orderedChatExtractions(world, chatKey)
+        .filter(item => Number(item.from) !== status.from || Number(item.to) !== status.to);
+    const target = orderedChatExtractions(world, chatKey)
+        .find(item => Number(item.from) === status.from && Number(item.to) === status.to);
+    const previousWorld = structuredClone(world);
+    const previousArcIds = new Set((world.arcs || []).map(item => item.id));
+    const previousEraIds = new Set((world.eras || []).map(item => item.id));
+
+    removeChatContributions(world, chatKey);
+    for (const item of retained) {
+        mergeExtraction(world, structuredClone(item.result), {
+            chatKey,
+            from: Number(item.from),
+            to: Number(item.to),
+            allowStateUpdates: item.allowStateUpdates !== false,
+            replayStoredExtraction: true,
+            messageFingerprints: structuredClone(item.messageFingerprints || []),
+        });
+    }
+    restoreRetainedReplayRecords(world, previousWorld, chatKey);
+    const requiredMemoryIndexes = (target?.messageFingerprints || [])
+        .map(item => Number(item.index))
+        .filter(Number.isFinite);
+    const fallbackIndexes = Array.from({ length: Math.max(0, status.to - status.from + 1) }, (_, offset) => status.from + offset);
+    const alreadyRequired = (world.sources?.[chatKey]?.requiredMemoryIndexes || []).map(Number).filter(Number.isFinite);
+    world.sources ||= {};
+    world.sources[chatKey] = {
+        ...(world.sources[chatKey] || {}),
+        requiredMemoryIndexes: [...new Set([...alreadyRequired, ...(requiredMemoryIndexes.length ? requiredMemoryIndexes : fallbackIndexes)])].sort((a, b) => a - b),
+    };
+
+    const retainedArcIds = new Set((world.arcs || []).map(item => item.id));
+    const retainedEraIds = new Set((world.eras || []).map(item => item.id));
+    return {
+        undone: true,
+        world,
+        from: status.from,
+        to: status.to,
+        extractionId: status.extractionId,
+        removedL1: 1,
+        removedL2: [...previousArcIds].filter(id => !retainedArcIds.has(id)).length,
+        removedL3: [...previousEraIds].filter(id => !retainedEraIds.has(id)).length,
+        retainedL1: retained.length,
+    };
 }
 
 export function resetWorldMemory(world) {

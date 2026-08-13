@@ -5,17 +5,20 @@ export function shouldGateRoleplayGeneration(settings, coreChat, type) {
     return coreChat.length > 0 || type === 'swipe' || type === 'regenerate';
 }
 
-export function roleplayBacklogPolicy(pendingMessages, groupSize) {
+export function roleplayBacklogPolicy(pendingMessages, groupSize, requiredMessages = 0) {
     const size = resolveL1GroupSize(groupSize);
     const pending = Math.max(0, Math.round(Number(pendingMessages) || 0));
     const eligible = completeL1MessageCount(pending, size);
+    const required = Math.max(0, Math.round(Number(requiredMessages) || 0));
     const hardLimit = size * 2;
     return {
         pending,
         eligible,
+        required,
+        blocking: required || eligible,
         backgroundThreshold: size,
         hardLimit,
-        shouldCatchUp: pending >= hardLimit,
+        shouldCatchUp: required > 0 || pending >= hardLimit,
     };
 }
 
