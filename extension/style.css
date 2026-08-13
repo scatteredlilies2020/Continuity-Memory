@@ -28,13 +28,6 @@
 .continuity-viewer-meta { display:flex; flex-wrap:wrap; gap:5px; margin-top:7px; font-size:.8em; opacity:.8; }
 .continuity-viewer-meta span { border:1px solid var(--SmartThemeBorderColor); border-radius:999px; padding:2px 6px; }
 .continuity-viewer-pages { justify-content:flex-end; }
-.continuity-generation-overlay[hidden] { display:none !important; }
-.continuity-generation-overlay { position:fixed; inset:0; z-index:2147483646; display:flex; align-items:center; justify-content:center; padding:12px; background:rgba(0,0,0,.72); }
-.continuity-generation-card { box-sizing:border-box; display:grid; grid-template-columns:auto minmax(0,1fr); gap:8px 12px; align-items:center; width:min(560px,calc(100vw - 24px)); max-height:calc(100dvh - 24px); overflow:auto; padding:18px; border:1px solid var(--SmartThemeBorderColor); border-radius:12px; background:var(--SmartThemeBlurTintColor,rgba(24,24,28,.98)); box-shadow:0 12px 42px rgba(0,0,0,.55); }
-.continuity-generation-spinner { grid-row:1 / span 2; align-self:start; margin-top:3px; font-size:1.35em; }
-.continuity-generation-title { font-size:1.05em; overflow-wrap:anywhere; }
-.continuity-generation-detail { min-height:1.3em; opacity:.86; overflow-wrap:anywhere; }
-.continuity-generation-stop { grid-column:1 / -1; justify-self:end; margin-top:5px; min-width:110px; }
 .popup.continuity-review-dialog { width:min(1100px,92vw) !important; max-width:1100px; }
 .continuity-review-dialog .popup-body,
 .continuity-review-dialog .popup-content { min-height:0; }
@@ -54,8 +47,6 @@
 @media (max-width: 600px) { .continuity-grid.two { grid-template-columns:1fr; } }
 @media (max-width: 600px) { .continuity-viewer-controls { grid-template-columns:1fr; } }
 @media (max-width: 600px) {
-    .continuity-generation-overlay { padding:5px; }
-    .continuity-generation-card { width:calc(100vw - 10px); max-height:calc(100dvh - 10px); padding:15px; }
     .popup.continuity-review-dialog { width:calc(100vw - 10px) !important; max-width:none; height:calc(100dvh - 10px) !important; max-height:calc(100dvh - 10px); }
     .continuity-review-dialog .popup-body,
     .continuity-review-dialog .popup-content,

@@ -7,7 +7,6 @@ import {
     MAX_REVIEW_FONT_SIZE,
     MIN_REVIEW_FONT_SIZE,
     pinchedReviewFontSize,
-    reviewGenerationProgress,
     touchDistance,
 } from '../extension/review-display.js';
 
@@ -25,19 +24,6 @@ test('two-finger pinch scales review text without escaping its bounds', () => {
     assert.equal(pinchedReviewFontSize(14, touchDistance(start), touchDistance(wider)), 21);
     assert.equal(pinchedReviewFontSize(20, 100, 1000), MAX_REVIEW_FONT_SIZE);
     assert.equal(pinchedReviewFontSize(14, 0, 100), 14);
-});
-
-test('priority overlay describes active L1 and hierarchy work', () => {
-    assert.deepEqual(reviewGenerationProgress({
-        progress: { current: 2, total: 3, from: 10, to: 19 },
-        retryStatus: 'Roleplay is waiting.',
-    }), {
-        title: 'Generating L1 for messages 10–19',
-        detail: 'Roleplay is waiting. · chunk 2/3',
-    });
-    assert.equal(reviewGenerationProgress({ retryStatus: 'Completing eligible L2 records…' }).title, 'Generating L2 memory');
-    assert.equal(reviewGenerationProgress({ retryStatus: 'Completing the selected vector index…' }).title, 'Updating memory search index');
-    assert.equal(reviewGenerationProgress({ roleplayGate: { stopping: true }, retryStatus: 'Stopping safely…' }).title, 'Stopping Continuity generation…');
 });
 
 test('pending review recovery reuses a live dialog and reopens a missing one', () => {

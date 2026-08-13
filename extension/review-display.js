@@ -30,21 +30,3 @@ export function extractionReviewRecoveryAction(review, session) {
     const dialog = session.popup?.dlg;
     return dialog?.isConnected && dialog?.open ? 'reuse' : 'reopen';
 }
-
-export function reviewGenerationProgress(state) {
-    const progress = state?.progress;
-    if (progress && Number.isFinite(Number(progress.from)) && Number.isFinite(Number(progress.to))) {
-        const chunk = Number(progress.total) > 1
-            ? ` · chunk ${Number(progress.current) || 1}/${Number(progress.total)}`
-            : '';
-        return {
-            title: `Generating L1 for messages ${progress.from}–${progress.to}`,
-            detail: `${state?.retryStatus || 'Continuity is preparing memory before the reply.'}${chunk}`,
-        };
-    }
-    const detail = String(state?.retryStatus || state?.roleplayGate?.message || 'Continuity is preparing memory before the reply.');
-    if (String(state?.status || '').includes('embedding') || detail.toLocaleLowerCase().includes('vector index')) return { title: 'Updating memory search index', detail };
-    if (String(state?.arcStatus || '').includes('L3') || detail.includes('L3')) return { title: 'Generating L3 memory', detail };
-    if (String(state?.arcStatus || '').includes('L2') || detail.includes('L2')) return { title: 'Generating L2 memory', detail };
-    return { title: state?.roleplayGate?.stopping ? 'Stopping Continuity generation…' : 'Preparing memory before the reply', detail };
-}
