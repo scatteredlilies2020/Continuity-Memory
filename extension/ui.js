@@ -4,7 +4,7 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.102';
+import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.103';
 import { worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
 import { buildMemoryPrompt } from './retrieval.js';
@@ -15,16 +15,17 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.102';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.102';
-import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.102';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.103';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.103';
+import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.103';
 import { completeL1MessageCount, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.102';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.102';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.102';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.103';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.103';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.103';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.102';
+import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.103';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, pinchedReviewFontSize, REVIEW_FONT_STEP, reviewGenerationProgress, touchDistance } from './review-display.js?v=0.14.0-standalone.103';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -34,6 +35,7 @@ let viewerSearch = '';
 let viewerPage = 0;
 let viewerSignature = '';
 let extractionReviewSession = null;
+let roleplayGateOverlay = null;
 let nativeChatExportBridgeInstalled = false;
 const DIRECT_PROFILE_ID = '__direct__';
 
@@ -75,6 +77,114 @@ function extractionReviewStopMessage(review) {
     }
     const sourceLayer = review.layer === 'L3' ? 'L2' : 'L1';
     return `Generation stopped because the reviewed ${review.layer} candidate was discarded instead of saved. Its source ${sourceLayer} records remain available for another build.`;
+}
+
+function ensureRoleplayGateOverlay() {
+    if (roleplayGateOverlay?.root?.isConnected) return roleplayGateOverlay;
+    const root = document.createElement('div');
+    root.className = 'continuity-generation-overlay';
+    root.hidden = true;
+    root.setAttribute('role', 'alertdialog');
+    root.setAttribute('aria-modal', 'true');
+    root.setAttribute('aria-labelledby', 'continuity_generation_overlay_title');
+    root.setAttribute('aria-describedby', 'continuity_generation_overlay_detail');
+
+    const card = document.createElement('div');
+    card.className = 'continuity-generation-card';
+    const spinner = document.createElement('i');
+    spinner.className = 'fa-solid fa-spinner fa-spin continuity-generation-spinner';
+    spinner.setAttribute('aria-hidden', 'true');
+    const title = document.createElement('b');
+    title.id = 'continuity_generation_overlay_title';
+    title.className = 'continuity-generation-title';
+    const detail = document.createElement('div');
+    detail.id = 'continuity_generation_overlay_detail';
+    detail.className = 'continuity-generation-detail';
+    detail.setAttribute('aria-live', 'polite');
+    const stop = document.createElement('button');
+    stop.type = 'button';
+    stop.className = 'menu_button redWarningBG continuity-generation-stop';
+    stop.innerHTML = '<i class="fa-solid fa-stop"></i> Stop';
+    stop.addEventListener('click', () => {
+        if (!runtime.roleplayGate?.active || runtime.roleplayGate.stopping) return;
+        const reason = 'Continuity preparation was stopped. Memory remains pending, so the reply was not generated.';
+        stopRuntime(reason);
+        updateRuntime({
+            roleplayGate: { ...runtime.roleplayGate, active: true, stopping: true, message: reason },
+            retryStatus: 'Stopping memory generation safely…',
+        });
+    });
+    card.append(spinner, title, detail, stop);
+    root.append(card);
+    document.body.append(root);
+    roleplayGateOverlay = { root, title, detail, stop };
+    return roleplayGateOverlay;
+}
+
+function syncRoleplayGateOverlay(state) {
+    const visible = Boolean(state.roleplayGate?.active && !state.pendingExtractionReview);
+    if (!visible && !roleplayGateOverlay) return;
+    const overlay = ensureRoleplayGateOverlay();
+    const opening = visible && overlay.root.hidden;
+    overlay.root.hidden = !visible;
+    if (!visible) return;
+    const copy = reviewGenerationProgress(state);
+    overlay.title.textContent = copy.title;
+    overlay.detail.textContent = copy.detail;
+    overlay.stop.disabled = Boolean(state.roleplayGate.stopping);
+    overlay.stop.classList.toggle('disabled', Boolean(state.roleplayGate.stopping));
+    overlay.stop.innerHTML = state.roleplayGate.stopping
+        ? '<i class="fa-solid fa-spinner fa-spin"></i> Stopping…'
+        : '<i class="fa-solid fa-stop"></i> Stop';
+    if (opening) queueMicrotask(() => overlay.stop.focus({ preventScroll: true }));
+}
+
+function applyExtractionReviewFontSize(session, value, persist = true) {
+    const size = clampReviewFontSize(value);
+    session.fontSize = size;
+    session.editor.style.fontSize = `${size}px`;
+    session.fontSizeLabel.textContent = `${size}px`;
+    session.fontSizeLabel.setAttribute('aria-label', `Review text size ${size} pixels. Reset to ${DEFAULT_REVIEW_FONT_SIZE} pixels.`);
+    if (persist) {
+        getSettings().reviewEditorFontSize = size;
+        saveSettings();
+    }
+    return size;
+}
+
+function createReviewSizeButton(text, label, action) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'menu_button continuity-review-size-button';
+    button.textContent = text;
+    button.setAttribute('aria-label', label);
+    button.title = label;
+    button.addEventListener('click', action);
+    return button;
+}
+
+function installReviewPinchSizing(session) {
+    let pinch = null;
+    session.editor.addEventListener('touchstart', event => {
+        if (event.touches.length !== 2) return;
+        pinch = { distance: touchDistance(event.touches), size: session.fontSize, changed: false };
+    }, { passive: true });
+    session.editor.addEventListener('touchmove', event => {
+        if (!pinch || event.touches.length !== 2) return;
+        event.preventDefault();
+        const size = pinchedReviewFontSize(pinch.size, pinch.distance, touchDistance(event.touches));
+        if (size === session.fontSize) return;
+        pinch.changed = true;
+        applyExtractionReviewFontSize(session, size, false);
+    }, { passive: false });
+    const finishPinch = event => {
+        if (!pinch || event.touches.length >= 2) return;
+        const changed = pinch.changed;
+        pinch = null;
+        if (changed) applyExtractionReviewFontSize(session, session.fontSize, true);
+    };
+    session.editor.addEventListener('touchend', finishPinch, { passive: true });
+    session.editor.addEventListener('touchcancel', finishPinch, { passive: true });
 }
 
 function reviewControl(session, className) {
@@ -205,7 +315,17 @@ function openExtractionReviewPopup(review) {
     title.className = 'continuity-review-title';
     const candidate = document.createElement('span');
     candidate.className = 'continuity-review-candidate';
-    heading.append(title, candidate);
+    const headingActions = document.createElement('div');
+    headingActions.className = 'continuity-review-heading-actions';
+    const sizeControls = document.createElement('div');
+    sizeControls.className = 'continuity-review-size-controls';
+    const decreaseSize = createReviewSizeButton('A−', 'Decrease review text size', () => applyExtractionReviewFontSize(session, session.fontSize - REVIEW_FONT_STEP));
+    const fontSizeLabel = createReviewSizeButton(`${DEFAULT_REVIEW_FONT_SIZE}px`, `Reset review text size to ${DEFAULT_REVIEW_FONT_SIZE} pixels`, () => applyExtractionReviewFontSize(session, DEFAULT_REVIEW_FONT_SIZE));
+    fontSizeLabel.classList.add('continuity-review-size-label');
+    const increaseSize = createReviewSizeButton('A+', 'Increase review text size', () => applyExtractionReviewFontSize(session, session.fontSize + REVIEW_FONT_STEP));
+    sizeControls.append(decreaseSize, fontSizeLabel, increaseSize);
+    headingActions.append(candidate, sizeControls);
+    heading.append(title, headingActions);
     const phase = document.createElement('div');
     phase.className = 'continuity-review-phase';
     const editor = document.createElement('textarea');
@@ -243,6 +363,8 @@ function openExtractionReviewPopup(review) {
         renderedKey: '',
         editing: false,
         allowClose: false,
+        fontSize: DEFAULT_REVIEW_FONT_SIZE,
+        fontSizeLabel,
     };
     extractionReviewSession = session;
     editor.addEventListener('input', () => {
@@ -255,6 +377,8 @@ function openExtractionReviewPopup(review) {
             toast('error', error.message);
         }
     });
+    applyExtractionReviewFontSize(session, getSettings().reviewEditorFontSize, false);
+    installReviewPinchSizing(session);
     applyExtractionReview(session, review);
     void popup.show().finally(() => {
         if (extractionReviewSession === session) extractionReviewSession = null;
@@ -933,6 +1057,7 @@ export function renderRuntime() {
         ? `Processing chunk ${progress.current}/${progress.total} · messages ${progress.from}–${progress.to} · ~${progress.inputTokens || '?'} source tokens`
         : runtime.lastError ? `Last error: ${runtime.lastError}` : runtime.lastCompletedAt ? `Last completed: ${new Date(runtime.lastCompletedAt).toLocaleString()}` : 'Idle');
     const extractionReview = runtime.pendingExtractionReview;
+    syncRoleplayGateOverlay(runtime);
     syncExtractionReviewPopup(extractionReview);
     $('#continuity_arc_status').text(runtime.arcError ? `Hierarchy deferred: ${runtime.arcError}` : runtime.arcStatus || 'L2 and L3 are derived non-destructively when eligible.');
     $('#continuity_retry_status').text(runtime.retryStatus || 'No manual build running.');

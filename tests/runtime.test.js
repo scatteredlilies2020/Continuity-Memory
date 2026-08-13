@@ -35,11 +35,13 @@ test('discarding a review can stop generation with a specific visible reason', (
     const rejected = [];
     const original = { ...runtime, queue: runtime.queue };
     runtime.generation = 10;
+    runtime.stopSequence = 2;
     runtime.paused = false;
     runtime.queue = [{ reject: error => rejected.push(error.message) }];
     try {
         stopRuntime('Reviewed L2 candidate was discarded.');
         assert.equal(runtime.generation, 11);
+        assert.equal(runtime.stopSequence, 3);
         assert.equal(runtime.paused, true);
         assert.equal(runtime.status, 'paused');
         assert.deepEqual(runtime.queue, []);

@@ -1,21 +1,21 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.14.0-standalone.102';
+import { api } from './api.js?v=0.14.0-standalone.103';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.102';
+import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.103';
 import { buildMemoryPrompt } from './retrieval.js';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.102';
-import { invalidateRuntimeWork, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.102';
-import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.102';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds } from './ui.js?v=0.14.0-standalone.102';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.103';
+import { invalidateRuntimeWork, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.103';
+import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.103';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds } from './ui.js?v=0.14.0-standalone.103';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.102';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.102';
-import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.102';
-import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.102';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.103';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.103';
+import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.103';
+import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.103';
 import { completeL1MessageCount, isL1StabilityProtectedMessage, resolveL1GroupSize } from './l1-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
 
@@ -46,7 +46,10 @@ globalThis.continuityMemoryGenerateInterceptor = async (coreChat, contextSize, a
             mutationSync = null;
             pendingEmbeddingSyncWorld = null;
             activeGenerationReadiness = prepareRoleplayGeneration(type)
-                .finally(() => { activeGenerationReadiness = null; });
+                .finally(() => {
+                    activeGenerationReadiness = null;
+                    updateRuntime({ roleplayGate: null });
+                });
         }
         const readiness = await activeGenerationReadiness;
         const reduction = await reduceChatContext(coreChat, contextSize, abort, type);
@@ -63,7 +66,14 @@ globalThis.continuityMemoryGenerateInterceptor = async (coreChat, contextSize, a
     }
 };
 
-async function waitForActiveMemoryWork() {
+function assertRoleplayPreparationNotStopped(stopSequence) {
+    if (stopSequence !== null && runtime.stopSequence !== stopSequence) {
+        throw new Error('Continuity preparation was stopped. Memory remains pending, so the reply was not generated.');
+    }
+}
+
+async function waitForActiveMemoryWork(stopSequence = null) {
+    assertRoleplayPreparationNotStopped(stopSequence);
     if (runtime.paused) resumeRuntime();
     continueQueue();
     if (!runtime.processing && !runtime.queue.length) return;
@@ -71,6 +81,11 @@ async function waitForActiveMemoryWork() {
         let resumedPause = false;
         let unsubscribe = () => {};
         const inspect = state => {
+            if (stopSequence !== null && state.stopSequence !== stopSequence) {
+                unsubscribe();
+                reject(new Error('Continuity preparation was stopped. Memory remains pending, so the reply was not generated.'));
+                return;
+            }
             if (state.paused && !resumedPause) {
                 resumedPause = true;
                 resumeRuntime();
@@ -87,9 +102,10 @@ async function waitForActiveMemoryWork() {
     });
 }
 
-async function completeL1ForGeneration(sourceMessages) {
-    await waitForActiveMemoryWork();
+async function completeL1ForGeneration(sourceMessages, stopSequence) {
+    await waitForActiveMemoryWork(stopSequence);
     while (true) {
+        assertRoleplayPreparationNotStopped(stopSequence);
         const coverage = getProcessingCoverage(runtime.world, sourceMessages);
         if (!coverage.extractable) return coverage;
         const groupSize = resolveL1GroupSize(getSettings().extractionBatchMessages);
@@ -97,15 +113,17 @@ async function completeL1ForGeneration(sourceMessages) {
         if (runtime.paused) resumeRuntime();
         updateRuntime({ status: 'preparing-roleplay', retryStatus: `Roleplay is waiting while Continuity processes ${coverage.extractable} stable pending message(s)…` });
         const result = await maybeAutoExtract(true, sourceMessages);
+        assertRoleplayPreparationNotStopped(stopSequence);
         if (!result) throw new Error(`${coverage.extractable} stable memory message(s) remain pending and could not be started.`);
         const updated = getProcessingCoverage(runtime.world, sourceMessages);
         if (updated.extractable >= coverage.extractable) throw new Error(`Memory processing made no progress; ${updated.extractable} stable message(s) remain pending.`);
     }
 }
 
-async function completeRequiredL1ForGeneration(sourceMessages) {
-    await waitForActiveMemoryWork();
+async function completeRequiredL1ForGeneration(sourceMessages, stopSequence) {
+    await waitForActiveMemoryWork(stopSequence);
     while (true) {
+        assertRoleplayPreparationNotStopped(stopSequence);
         const coverage = getProcessingCoverage(runtime.world, sourceMessages);
         if (!coverage.required) return coverage;
         if (!coverage.requiredExtractable) {
@@ -114,16 +132,18 @@ async function completeRequiredL1ForGeneration(sourceMessages) {
         if (runtime.paused) resumeRuntime();
         updateRuntime({ status: 'preparing-roleplay', retryStatus: `Roleplay is waiting while Continuity rebuilds ${coverage.required} deliberately undone memory message(s)…` });
         const result = await maybeAutoExtract(true, sourceMessages, { requiredOnly: true });
+        assertRoleplayPreparationNotStopped(stopSequence);
         if (!result) throw new Error(`${coverage.required} required memory message(s) remain pending and could not be started.`);
         const updated = getProcessingCoverage(runtime.world, sourceMessages);
         if (updated.required >= coverage.required) throw new Error(`Required memory processing made no progress; ${updated.required} message(s) remain incomplete.`);
     }
 }
 
-async function completeHierarchyForGeneration() {
+async function completeHierarchyForGeneration(stopSequence) {
     const runLayer = async (builder, label) => {
         let count = 0;
         while (true) {
+            assertRoleplayPreparationNotStopped(stopSequence);
             if (runtime.paused) resumeRuntime();
             const epoch = runtime.generation;
             try {
@@ -132,6 +152,7 @@ async function completeHierarchyForGeneration() {
                 count++;
                 updateRuntime({ retryStatus: `Roleplay is waiting while Continuity completes ${label}…` });
             } catch (error) {
+                assertRoleplayPreparationNotStopped(stopSequence);
                 if (runtime.paused || /processing stopped/i.test(error.message)) {
                     resumeRuntime();
                     continue;
@@ -150,12 +171,14 @@ async function completeHierarchyForGeneration() {
     }
 }
 
-async function completeVectorsForGeneration() {
+async function completeVectorsForGeneration(stopSequence) {
     if (getSettings().retrievalMode !== 'embedding-hybrid') return null;
     if (!runtime.world?.id) throw new Error('The selected memory is unavailable for vector indexing.');
     updateRuntime({ status: 'preparing-roleplay', retryStatus: 'Memory is ready. Completing the selected vector index before roleplay…' });
     while (true) {
+        assertRoleplayPreparationNotStopped(stopSequence);
         const result = await resumeEmbeddingIndexing(runtime.world);
+        assertRoleplayPreparationNotStopped(stopSequence);
         if (result?.status === 'ready') return result;
         if (!['paused', 'stopped'].includes(result?.status)) throw new Error(`Vector index is ${result?.status || 'not ready'}.`);
     }
@@ -173,7 +196,11 @@ async function prepareRoleplayGeneration(type) {
     const waitingNotification = activeWorkAtStart || waitingBacklog.shouldCatchUp
         ? roleplayWaitNotification(runtime, waitingBacklog.shouldCatchUp ? waitingBacklog.blocking : 0)
         : '';
-    if (waitingNotification) showGenerationNotification('info', waitingNotification, { timeOut: 12000, extendedTimeOut: 4000 });
+    const stopSequence = runtime.stopSequence;
+    if (waitingNotification) {
+        updateRuntime({ roleplayGate: { active: true, message: waitingNotification, stopping: false, startedAt: Date.now() } });
+        showGenerationNotification('info', waitingNotification, { timeOut: 12000, extendedTimeOut: 4000 });
+    }
     const revisionBeforeWaiting = Number(runtime.world?.revision ?? -1);
     let backgroundError = '';
     if (activeWorkAtStart || waitingBacklog.shouldCatchUp) {
@@ -181,8 +208,9 @@ async function prepareRoleplayGeneration(type) {
             // Let an in-flight request settle before roleplay uses the same
             // SillyTavern connection. A merely paused soft backlog remains raw
             // and does not stop roleplay until it reaches the hard limit.
-            await waitForActiveMemoryWork();
+            await waitForActiveMemoryWork(stopSequence);
         } catch (error) {
+            assertRoleplayPreparationNotStopped(stopSequence);
             if (waitingBacklog.shouldCatchUp) throw error;
             backgroundError = error.message || String(error);
             updates.push('left failed background memory work safely in raw chat');
@@ -204,12 +232,23 @@ async function prepareRoleplayGeneration(type) {
     let vectors = null;
     let caughtUp = false;
     if (initialBacklog.shouldCatchUp) {
-        if (initialCoverage.required) await completeRequiredL1ForGeneration(sourceMessages);
-        await completeL1ForGeneration(sourceMessages);
-        hierarchy = await completeHierarchyForGeneration();
-        vectors = await completeVectorsForGeneration();
+        if (!runtime.roleplayGate) {
+            updateRuntime({
+                roleplayGate: {
+                    active: true,
+                    message: `Roleplay is waiting while Continuity processes ${initialBacklog.blocking} memory message(s)…`,
+                    stopping: false,
+                    startedAt: Date.now(),
+                },
+            });
+        }
+        if (initialCoverage.required) await completeRequiredL1ForGeneration(sourceMessages, stopSequence);
+        await completeL1ForGeneration(sourceMessages, stopSequence);
+        hierarchy = await completeHierarchyForGeneration(stopSequence);
+        vectors = await completeVectorsForGeneration(stopSequence);
         caughtUp = true;
     }
+    assertRoleplayPreparationNotStopped(stopSequence);
     const coverage = getProcessingCoverage(runtime.world, sourceMessages);
     const remainingBacklog = roleplayBacklogPolicy(coverage.extractable, groupSize, coverage.required);
     if (remainingBacklog.shouldCatchUp) {

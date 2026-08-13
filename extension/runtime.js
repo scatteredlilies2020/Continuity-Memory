@@ -9,6 +9,7 @@ export const runtime = {
     queue: [],
     processing: false,
     generation: 0,
+    stopSequence: 0,
     lastStartedAt: null,
     lastCompletedAt: null,
     lastError: '',
@@ -19,6 +20,7 @@ export const runtime = {
     injectionStatus: 'Checking memory injection…',
     contextReduction: { mode: 'waiting', hiddenMessages: 0, hiddenTokens: 0, tailMessages: 0, tailTurns: 0, tailTokens: 0, tailBudget: 0, fixedPromptTokens: null, totalPromptTokens: null, safetyTokens: 0 },
     progress: null,
+    roleplayGate: null,
     pendingExtractionReview: null,
     world: null,
     health: null,
@@ -51,6 +53,7 @@ export function stopRuntime(reason = 'Processing stopped; the reviewed memory wa
     cancelExtractionReview(reason);
     notifyStopHandlers(reason);
     runtime.generation++;
+    runtime.stopSequence++;
     const queued = runtime.queue.splice(0);
     for (const job of queued) job.reject?.(new Error('Processing stopped and the queue was cleared.'));
     updateRuntime({ paused: true, status: 'paused', progress: null, lastValidation: reason, retryStatus: reason });

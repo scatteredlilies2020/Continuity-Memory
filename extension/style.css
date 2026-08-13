@@ -28,6 +28,13 @@
 .continuity-viewer-meta { display:flex; flex-wrap:wrap; gap:5px; margin-top:7px; font-size:.8em; opacity:.8; }
 .continuity-viewer-meta span { border:1px solid var(--SmartThemeBorderColor); border-radius:999px; padding:2px 6px; }
 .continuity-viewer-pages { justify-content:flex-end; }
+.continuity-generation-overlay[hidden] { display:none !important; }
+.continuity-generation-overlay { position:fixed; inset:0; z-index:2147483646; display:flex; align-items:center; justify-content:center; padding:12px; background:rgba(0,0,0,.72); }
+.continuity-generation-card { box-sizing:border-box; display:grid; grid-template-columns:auto minmax(0,1fr); gap:8px 12px; align-items:center; width:min(560px,calc(100vw - 24px)); max-height:calc(100dvh - 24px); overflow:auto; padding:18px; border:1px solid var(--SmartThemeBorderColor); border-radius:12px; background:var(--SmartThemeBlurTintColor,rgba(24,24,28,.98)); box-shadow:0 12px 42px rgba(0,0,0,.55); }
+.continuity-generation-spinner { grid-row:1 / span 2; align-self:start; margin-top:3px; font-size:1.35em; }
+.continuity-generation-title { font-size:1.05em; overflow-wrap:anywhere; }
+.continuity-generation-detail { min-height:1.3em; opacity:.86; overflow-wrap:anywhere; }
+.continuity-generation-stop { grid-column:1 / -1; justify-self:end; margin-top:5px; min-width:110px; }
 .popup.continuity-review-dialog { width:min(1100px,92vw) !important; max-width:1100px; }
 .continuity-review-dialog .popup-body,
 .continuity-review-dialog .popup-content { min-height:0; }
@@ -35,19 +42,26 @@
 .continuity-review-dialog .popup-controls { flex:0 0 auto; display:flex; flex-wrap:wrap; gap:6px; }
 .continuity-review-modal { display:flex; flex-direction:column; gap:7px; min-height:0; width:100%; }
 .continuity-review-heading { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:7px; }
+.continuity-review-heading-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:7px; }
 .continuity-review-candidate { border:1px solid var(--SmartThemeBorderColor); border-radius:999px; padding:2px 8px; font-size:.85em; }
+.continuity-review-size-controls { display:flex; align-items:center; gap:3px; }
+.continuity-review-size-button { min-width:38px; min-height:30px; padding:3px 7px; font-weight:600; }
+.continuity-review-size-label { min-width:48px; font-size:.82em; font-weight:400; }
 .continuity-review-phase { min-height:1.3em; font-size:.9em; opacity:.85; }
-.continuity-review-editor { box-sizing:border-box; width:100%; height:clamp(260px,55vh,620px); min-height:180px; max-height:70vh; resize:vertical; overflow:auto; white-space:pre; font-family:var(--monoFontFamily,monospace); line-height:1.35; }
+.continuity-review-editor { box-sizing:border-box; width:100%; height:clamp(260px,55vh,620px); min-height:180px; max-height:70vh; resize:vertical; overflow:auto; white-space:pre; touch-action:pan-x pan-y; font-family:var(--monoFontFamily,monospace); line-height:1.35; }
 .continuity-review-editor[readonly] { cursor:default; opacity:.92; }
 .continuity-review-editor-editing { outline:2px solid var(--SmartThemeQuoteColor); outline-offset:1px; }
 @media (max-width: 600px) { .continuity-grid.two { grid-template-columns:1fr; } }
 @media (max-width: 600px) { .continuity-viewer-controls { grid-template-columns:1fr; } }
 @media (max-width: 600px) {
+    .continuity-generation-overlay { padding:5px; }
+    .continuity-generation-card { width:calc(100vw - 10px); max-height:calc(100dvh - 10px); padding:15px; }
     .popup.continuity-review-dialog { width:calc(100vw - 10px) !important; max-width:none; height:calc(100dvh - 10px) !important; max-height:calc(100dvh - 10px); }
     .continuity-review-dialog .popup-body,
     .continuity-review-dialog .popup-content,
     .continuity-review-modal { display:flex; flex:1 1 auto; flex-direction:column; min-height:0; }
     .continuity-review-editor { flex:1 1 auto; width:100%; height:auto; min-height:180px; max-height:none; resize:none; }
+    .continuity-review-heading-actions { width:100%; justify-content:space-between; }
     .continuity-review-dialog .popup-controls .menu_button { flex:1 1 calc(50% - 6px); min-width:130px; }
     .continuity-review-dialog .continuity-review-save { order:10; flex-basis:100% !important; }
 }
