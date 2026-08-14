@@ -1,14 +1,14 @@
 import { extractMessageFromData } from '/script.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
-import { isThinkingControlError } from './thinking-policy.js?v=0.14.0-standalone.109';
-import { generateWithThinkingPolicy, requestDirectText } from './engine.js?v=0.14.0-standalone.109';
+import { isThinkingControlError } from './thinking-policy.js?v=0.14.0-standalone.110';
+import { generateWithThinkingPolicy, requestDirectText } from './engine.js?v=0.14.0-standalone.110';
 import { parseExpandedTerms } from './semantic-terms.js';
 import { recentRetrievalQuery } from './retrieval-query.js';
-import { getSettings } from './settings.js?v=0.14.0-standalone.109';
-import { buildThinkingRequest } from './thinking-policy.js?v=0.14.0-standalone.109';
-import { DEFAULT_RETRIEVAL_QUERY_TEMPLATE, DEFAULT_RETRIEVAL_SYSTEM_PROMPT, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.109';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.109';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.109';
+import { getSettings } from './settings.js?v=0.14.0-standalone.110';
+import { buildThinkingRequest } from './thinking-policy.js?v=0.14.0-standalone.110';
+import { DEFAULT_RETRIEVAL_QUERY_TEMPLATE, DEFAULT_RETRIEVAL_SYSTEM_PROMPT, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.110';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.110';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.110';
 
 const cache = new Map();
 
