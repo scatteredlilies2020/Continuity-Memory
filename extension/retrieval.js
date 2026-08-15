@@ -1,9 +1,11 @@
 const STOP_WORDS = new Set('a an the and that this with from into have has had was were are for but not you your they them their she her him his its our out about just then than there here what when where who how why would could should been being also very more most some any all to of in on at as by or if it is be do we he me my up no so us'.split(' '));
+const LOW_SIGNAL_RECALL_TERMS = new Set('one tell told said says like thing things good bad still current former earlier previous previously member staff person people place time day way work working going went come came look looks know knew want wants house home room'.split(' '));
 const CJK_RUN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
 const LIFECYCLE_GUIDANCE = 'Raw chat controls. Events and plans outside Open matters are past; current conditions appear only under Current state.';
 
 import { isFreshActiveState, latestSourceInRawTail, sourcedWhollyInRawTail } from './state-lifecycle.js';
 import { anchoredRelativeText, anchoredStoryTime } from './temporal-anchors.js';
+import { retrievalMessageText } from './retrieval-query.js';
 
 function plain(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -71,6 +73,52 @@ function searchableTerms(item) {
     return terms(searchable(item));
 }
 
+function identityTerms(item) {
+    return terms([
+        item?.name,
+        item?.subject,
+        item?.from,
+        item?.to,
+        item?.title,
+        item?.topic,
+        item?.predicate,
+        ...(item?.participants || []),
+        ...(item?.aliases || []),
+    ].filter(Boolean).join(' '));
+}
+
+function retrievalRecords(world) {
+    return [world?.scene]
+        .concat(...[
+            'entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras',
+            'threads', 'backgrounds', 'corrections',
+        ].map(category => world?.[category] || []))
+        .filter(Boolean);
+}
+
+function retrievalProfile(world, recentMessages, expandedTerms) {
+    const recent = recentMessages || [];
+    const latestUser = recent.slice().reverse().find(message => message?.is_user === true)
+        || recent[recent.length - 1]
+        || {};
+    const direct = terms(retrievalMessageText(latestUser));
+    const expanded = terms((expandedTerms || []).join(' '));
+    const context = terms(recent
+        .filter(message => message !== latestUser)
+        .map(retrievalMessageText)
+        .join(' '));
+    const focus = new Set([...direct, ...expanded]);
+    const frequencies = new Map([...focus].map(term => [term, 0]));
+    const records = retrievalRecords(world);
+    for (const item of records) {
+        const haystack = searchableTerms(item);
+        for (const term of focus) if (haystack.has(term)) frequencies.set(term, frequencies.get(term) + 1);
+    }
+    const rareLimit = Math.max(4, Math.ceil(records.length * 0.02));
+    const rare = new Set([...focus].filter(term => (frequencies.get(term) || 0) <= rareLimit));
+    return { direct, expanded, context, focus, rare };
+}
+
 function recency(item) {
     const time = Date.parse(item.updatedAt || item.createdAt || 0);
     if (!Number.isFinite(time)) return 0;
@@ -83,13 +131,31 @@ function semanticRank(semanticRanks, category, item) {
     return Number(semanticRanks.get(embeddingRecordKey(category, item.id))) || 0;
 }
 
-function rank(items, queryTerms, extra = () => 0, category = '', semanticRanks = new Map()) {
+function rank(items, query, extra = () => 0, category = '', semanticRanks = new Map()) {
+    const profile = query?.focus instanceof Set
+        ? query
+        : { direct: query, expanded: new Set(), context: new Set(), focus: query, rare: query };
     const prepared = (items || []).map((item, index) => {
         const haystack = searchableTerms(item);
-        let matches = 0;
-        for (const term of queryTerms) if (haystack.has(term)) matches++;
-        const localScore = matches * 5 + (Number(item.importance) || 3) + recency(item) + extra(item) - index * 0.00001;
-        return { item, matches, localScore, semanticRank: semanticRank(semanticRanks, category, item) };
+        const identities = identityTerms(item);
+        const matchingTerms = source => [...source].filter(term => haystack.has(term));
+        const directMatches = matchingTerms(profile.direct);
+        const expandedMatches = matchingTerms(profile.expanded);
+        const contextMatches = matchingTerms(profile.context);
+        const focusMatches = new Set([...directMatches, ...expandedMatches]);
+        const identityMatch = directMatches.some(term => identities.has(term));
+        const rareMatch = [...focusMatches].some(term => profile.rare.has(term) && !LOW_SIGNAL_RECALL_TERMS.has(term));
+        const matches = focusMatches.size;
+        const eligible = identityMatch || rareMatch || matches >= 2;
+        const localScore = matches * 8 + directMatches.length * 4 + Math.min(3, contextMatches.length)
+            + (Number(item.importance) || 3) + recency(item) + extra(item) - index * 0.00001;
+        return {
+            item,
+            matches,
+            eligible,
+            localScore,
+            semanticRank: semanticRank(semanticRanks, category, item),
+        };
     });
     if (!(semanticRanks instanceof Map) || !semanticRanks.size) {
         return prepared.map(result => ({ ...result, score: result.localScore })).sort((a, b) => b.score - a.score);
@@ -104,9 +170,9 @@ function rank(items, queryTerms, extra = () => 0, category = '', semanticRanks =
     return prepared.sort((a, b) => b.score - a.score);
 }
 
-function matching(items, queryTerms, extra = () => 0, category = '', semanticRanks = new Map()) {
-    return rank(items, queryTerms, extra, category, semanticRanks)
-        .filter(result => result.matches > 0 || result.semanticRank > 0);
+function matching(items, query, extra = () => 0, category = '', semanticRanks = new Map()) {
+    return rank(items, query, extra, category, semanticRanks)
+        .filter(result => result.eligible || result.semanticRank > 0);
 }
 
 function line(label, value) {
@@ -362,9 +428,8 @@ function addFairSections(parts, sections, budget) {
 export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, chatKey = '', expandedTerms = [], injectionInstruction = DEFAULT_INJECTION_INSTRUCTION, semanticRanks = new Map(), options = {}) {
     migrateLegacyBeliefs(world);
     if (!world) return { prompt: '', estimatedTokens: 0 };
-    const semanticAnchors = embeddingAnchorText(world, semanticRanks);
-    const query = `${recentMessages.map(message => `${message.name || ''} ${message.mes || ''}`).join(' ')} ${(expandedTerms || []).join(' ')} ${semanticAnchors}`;
-    const queryTerms = terms(query);
+    const semanticAnchors = [...terms(embeddingAnchorText(world, semanticRanks))];
+    const queryTerms = retrievalProfile(world, recentMessages, [...(expandedTerms || []), ...semanticAnchors]);
     const budget = Math.max(1000, Number(budgetTokens));
     const guidance = String(injectionInstruction ?? DEFAULT_INJECTION_INSTRUCTION).trim();
     const parts = { value: `<continuity>\n${guidance}${guidance ? '\n' : ''}${LIFECYCLE_GUIDANCE}\n` };

@@ -644,6 +644,42 @@ test('retrieval does not fill category space with unrelated memories', () => {
     assert.doesNotMatch(result.prompt, /favorite snack/);
 });
 
+test('retrieval admits strong recall matches but rejects context-only and weak generic matches', () => {
+    const target = world();
+    target.facts = [
+        {
+            id: 'fact-trading-house', subject: 'Subaru Natsuki', predicate: 'visited trading house',
+            value: 'Subaru accompanied Samael and Felt during the trading-house negotiation.', importance: 3,
+        },
+        {
+            id: 'fact-loot-house', subject: 'Felt', predicate: 'remembers Subaru',
+            value: 'Felt previously met Subaru at the loot house.', importance: 3,
+        },
+        {
+            id: 'fact-rabies', subject: 'Rabies', predicate: 'is an illness',
+            value: 'Fear of water appears after the infection reaches the brain.', importance: 3,
+        },
+        {
+            id: 'fact-flowers', subject: 'Emilia', predicate: 'belief about flowers',
+            value: 'White flowers once reminded Emilia of frost.', importance: 3,
+        },
+    ];
+    const recent = [
+        {
+            name: 'Narrator', is_user: false,
+            mes: '<stat>Psyche: fear of abandonment</stat><background_updates>Emilia tends white flowers.</background_updates>Felt waits with Subaru.',
+        },
+        { name: 'User', is_user: true, mes: 'He was the one with us at the trading house.' },
+    ];
+
+    const result = buildMemoryPrompt(target, recent, 12000, 'chat', ['previously met Subaru', 'former trading-house associate']);
+
+    assert.match(result.prompt, /visited trading house/);
+    assert.match(result.prompt, /remembers Subaru/);
+    assert.doesNotMatch(result.prompt, /Rabies/);
+    assert.doesNotMatch(result.prompt, /White flowers/);
+});
+
 test('local retrieval does not truncate the beginning of a long complete message', () => {
     const target = world();
     target.facts.push({

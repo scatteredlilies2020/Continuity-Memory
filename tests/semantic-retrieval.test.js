@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { recentRetrievalQuery } from '../extension/retrieval-query.js';
+import { recentRetrievalQuery, retrievalMessageText } from '../extension/retrieval-query.js';
 import { parseExpandedTerms } from '../extension/semantic-terms.js';
 
 test('parses and deduplicates concise AI-expanded retrieval terms', () => {
@@ -20,4 +20,16 @@ test('AI retrieval keeps the selected number of complete messages', () => {
     assert.match(query, /-statbox-ending/);
     assert.match(query, /message-6/);
     assert.match(query, /message-7/);
+});
+
+test('retrieval ignores generated stat and background-update blocks while preserving narrative', () => {
+    const message = {
+        mes: '<stat>HELD: barrier sabotage; fear of abandonment</stat>\n'
+            + '<background_updates>- [Elsa]: watches the fountain</background_updates>\n'
+            + 'Subaru remembers Felt from the trading house.',
+    };
+
+    const text = retrievalMessageText(message);
+
+    assert.equal(text, 'Subaru remembers Felt from the trading house.');
 });
