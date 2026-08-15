@@ -41,7 +41,7 @@
 .continuity-review-size-button { min-width:38px; min-height:30px; padding:3px 7px; font-weight:600; }
 .continuity-review-size-label { min-width:48px; font-size:.82em; font-weight:400; }
 .continuity-review-phase { min-height:1.3em; font-size:.9em; opacity:.85; }
-.continuity-review-editor { box-sizing:border-box; width:100%; height:clamp(260px,55vh,620px); min-height:180px; max-height:70vh; resize:vertical; overflow:auto; white-space:pre; touch-action:pan-x pan-y; font-family:var(--monoFontFamily,monospace); line-height:1.35; }
+.continuity-review-editor { box-sizing:border-box; width:100%; height:clamp(260px,55vh,620px); min-height:180px; max-height:70vh; resize:vertical; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; touch-action:pan-y; font-family:var(--monoFontFamily,monospace); line-height:1.35; }
 .continuity-review-editor[readonly] { cursor:default; opacity:.92; }
 .continuity-review-editor-editing { outline:2px solid var(--SmartThemeQuoteColor); outline-offset:1px; }
 @media (max-width: 600px) { .continuity-grid.two { grid-template-columns:1fr; } }
