@@ -134,7 +134,7 @@
                         <option value="embedding-hybrid">Embedding hybrid (vector + local, optional)</option>
                     </select>
                 </label>
-                <small>AI-expanded uses a small cached LLM request. Embedding hybrid uses Continuity's own embedding provider configuration and local matching, without an LLM retrieval request. Both safely fall back to local matching.</small>
+                <small>AI-expanded uses a small cached LLM request and never silently substitutes local retrieval; a failed expansion stops roleplay generation. Embedding hybrid uses Continuity's own embedding provider configuration and local matching, without an LLM retrieval request.</small>
                 <label class="continuity-ai-retrieval-setting">AI retrieval model
                     <select id="continuity_retrieval_profile" class="text_pole">
                         <option value="">Same as extraction model</option>

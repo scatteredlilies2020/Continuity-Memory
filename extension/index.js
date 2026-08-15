@@ -1,21 +1,21 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.14.0-standalone.112';
+import { api } from './api.js?v=0.14.0-standalone.113';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.112';
+import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.113';
 import { buildMemoryPrompt } from './retrieval.js';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.112';
-import { invalidateRuntimeWork, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.112';
-import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.112';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.112';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.113';
+import { invalidateRuntimeWork, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.113';
+import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.113';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.113';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.112';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.112';
-import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.112';
-import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.112';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.113';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.113';
+import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.113';
+import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.113';
 import { completeL1MessageCount, isL1StabilityProtectedMessage, resolveL1GroupSize } from './l1-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
 
@@ -315,13 +315,40 @@ async function refreshInjection(useRetrievalAssist = false, strictEmbedding = fa
     const recent = availableRecent.slice(-queryMessageLimit);
     let expandedTerms = [];
     let semanticRanks = new Map();
-    if (useRetrievalAssist && settings.retrievalMode === 'ai-expanded') {
+    if (settings.retrievalMode === 'ai-expanded') {
+        const phase = useRetrievalAssist ? 'generation' : 'preview';
         try {
             expandedTerms = await expandRetrievalTerms(recent);
-            updateRuntime({ retrievalAssist: { mode: 'ai-expanded', terms: expandedTerms, fallback: false } });
+            updateRuntime({
+                retrievalAssist: {
+                    mode: 'ai-expanded',
+                    phase,
+                    executed: true,
+                    terms: expandedTerms,
+                    fallback: false,
+                    error: null,
+                },
+            });
         } catch (error) {
-            console.warn('[Continuity] AI retrieval expansion failed; using local matching.', error);
-            updateRuntime({ retrievalAssist: { mode: 'local', terms: [], fallback: true, error: error.message } });
+            const message = `AI-expanded retrieval is selected but failed: ${error.message}`;
+            console.error('[Continuity] AI retrieval expansion failed; local matching was not substituted.', error);
+            setExtensionPrompt(PROMPT_KEY, '', placement.position, placement.depth, false, placement.role);
+            updateRuntime({
+                lastInjection: '',
+                lastInjectionTokens: 0,
+                injectionStatus: `${message} No local memory was injected.`,
+                lastError: message,
+                retrievalAssist: {
+                    mode: 'ai-expanded',
+                    phase,
+                    executed: false,
+                    terms: [],
+                    fallback: false,
+                    error: error.message,
+                },
+            });
+            if (useRetrievalAssist) throw new Error(message, { cause: error });
+            return;
         }
     } else if (useRetrievalAssist && settings.retrievalMode === 'embedding-hybrid') {
         try {
@@ -499,7 +526,11 @@ async function init() {
     if (event_types.CHAT_RENAMED) {
         eventSource.on(event_types.CHAT_RENAMED, eventData => onChatRenamed(eventData).catch(error => updateRuntime({ lastError: `Chat memory rename failed: ${error.message}` })));
     }
-    eventSource.on(event_types.GENERATION_STARTED, async () => {
+    eventSource.on(event_types.GENERATION_STARTED, async (type, _params, dryRun) => {
+        // Ordinary roleplay generations are refreshed later by the interceptor
+        // with the complete user turn. Do not issue an early request against
+        // stale chat text or overwrite its authoritative retrieval diagnostics.
+        if (!dryRun && shouldGateRoleplayGeneration(getSettings(), getContext().chat || [], type)) return;
         try { await refreshInjection(false); }
         catch (error) { updateRuntime({ lastError: `Could not prepare memory: ${error.message}` }); }
     });
