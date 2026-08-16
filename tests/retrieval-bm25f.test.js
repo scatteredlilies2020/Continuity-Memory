@@ -321,3 +321,54 @@ test('source-history support receives priority when the continuity budget is tig
     assert.ok(supportIds.indexOf('foundation') < firstLooseIndex);
     assert.ok(supportIds.indexOf('revision') < firstLooseIndex);
 });
+
+test('support depth treats the configured budget as a ceiling instead of a fill target', () => {
+    const target = world({
+        relationships: [{
+            id: 'accord', from: 'Neris', to: 'Orin', kind: 'vesper sigilword accord', status: 'active',
+            dynamic: 'The current obsidian boundary remains in force.',
+            sources: [{ chatKey: 'chat', from: 20, to: 27 }],
+        }],
+        facts: Array.from({ length: 40 }, (_, index) => ({
+            id: `support-${index}`, subject: 'Neris', predicate: `vesper sigilword note for Orin ${index}`,
+            value: `A separate supporting condition numbered ${index}.`, importance: 3,
+            sources: [{ chatKey: 'chat', from: 20, to: 27 }],
+        })),
+    });
+
+    const automaticBaseline = buildMemoryPrompt(target, user('What is the current obsidian boundary?'), 10000);
+    const largerCustomBudget = buildMemoryPrompt(target, user('What is the current obsidian boundary?'), 12800);
+    const baselineSupport = selections(automaticBaseline, 'Supporting continuity');
+    const customSupport = selections(largerCustomBudget, 'Supporting continuity');
+
+    assert.ok(baselineSupport.length > 0);
+    assert.ok(baselineSupport.length < Math.ceil(10000 / 80));
+    assert.ok(customSupport.length >= baselineSupport.length);
+    assert.ok(customSupport.length < Math.ceil(12800 / 80));
+});
+
+test('one relevant AI seed cannot fan out across the entire support budget', () => {
+    const target = world({
+        threads: [{
+            id: 'old-visit', title: 'Prepare the village visit', status: 'open',
+            detail: 'Aster and Beryl will visit the village tomorrow.', participants: ['Aster', 'Beryl'],
+        }],
+        facts: Array.from({ length: 50 }, (_, index) => ({
+            id: `village-${index}`, subject: 'Aster', predicate: `village preparation with Beryl ${index}`,
+            value: `They prepared ordinary visit detail ${index}.`, importance: 2,
+        })),
+    });
+
+    const result = buildMemoryPrompt(
+        target,
+        user('Next.'),
+        20000,
+        '',
+        ['Aster and Beryl prepare the village visit', 'stationer errand'],
+    );
+    const support = selections(result, 'Supporting continuity');
+
+    assert.deepEqual(selections(result, 'Open matters').map(item => item.id), ['old-visit']);
+    assert.ok(support.length < 10);
+    assert.ok(support.length < Math.ceil(20000 / 80));
+});

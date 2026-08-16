@@ -730,6 +730,82 @@ function supportConnection(seed, candidate, profile) {
     };
 }
 
+function queryEvidenceConfidence(selection, profile) {
+    const item = selection?.item;
+    const result = selection?.result || {};
+    const stats = profile.recordStats.get(item) || retrievalFieldStats(item);
+    const isIdentityTerm = term => queryTermVariants(term, true)
+        .some(variant => profile.identityVocabulary.has(variant));
+    const contentMatch = term => fieldHasQueryTerm(stats.fields.heading, term, true)
+        || fieldHasQueryTerm(stats.fields.body, term, true);
+    const identityMatch = term => fieldHasQueryTerm(stats.fields.identity, term, true)
+        || fieldHasQueryTerm(stats.fields.anchor, term, true);
+    const evidenceQuality = source => {
+        const surface = [...source].filter(term => !term.startsWith('~'));
+        const concepts = surface.filter(term => !isIdentityTerm(term));
+        if (!concepts.length) return 0;
+        const identities = surface.filter(isIdentityTerm);
+        const totalWeight = concepts.reduce((sum, term) => sum + inverseDocumentFrequency(profile, term), 0);
+        const matched = concepts.filter(contentMatch);
+        const matchedWeight = matched.reduce((sum, term) => sum + inverseDocumentFrequency(profile, term), 0);
+        const coverage = totalWeight > 0 ? matchedWeight / totalWeight : 0;
+        const evidenceMass = 1 - Math.exp(-matchedWeight / 4);
+        const identityCoverage = identities.length
+            ? identities.filter(identityMatch).length / identities.length
+            : 0;
+        return Math.min(1, coverage * 0.65 + evidenceMass * 0.25 + identityCoverage * 0.1);
+    };
+    const direct = evidenceQuality(profile.direct);
+    const expanded = Math.max(0, ...profile.expandedGroups.map(evidenceQuality));
+    const semantic = result.semanticRank > 0 ? 1 / Math.sqrt(result.semanticRank) : 0;
+    return Math.min(1, Math.max(direct, expanded, semantic));
+}
+
+function retainSupportForSeed(seedSelection, ranked, profile, depthScale = 1) {
+    if (!ranked.length) return [];
+    const seedConfidence = queryEvidenceConfidence(seedSelection, profile);
+    // A weak primary may remain useful on its own, but it should not unlock a
+    // large historical neighborhood. Stronger query evidence earns a wider,
+    // still finite supporting envelope.
+    const generalQuota = Math.max(0, Math.round(seedConfidence * 6 * depthScale));
+    const sourceQuota = Math.max(0, Math.round(seedConfidence * 3.5 * depthScale));
+    if (!generalQuota && !sourceQuota) return [];
+
+    const byId = new Map();
+    const sourcePreferred = memorySourceRanges(seedSelection.item)
+        .flatMap(range => ranked.filter(result => overlapsSourceRange(result.item, range)).slice(0, 2));
+    for (const result of sourcePreferred) {
+        if (byId.size >= sourceQuota || byId.has(result.item.id)) continue;
+        byId.set(result.item.id, {
+            ...result,
+            seedConfidence,
+            supportMarginalScore: seedConfidence,
+            supportRank: ranked.indexOf(result) + 1,
+        });
+    }
+
+    const bestPriority = Math.max(0.0001, ranked[0].priority);
+    for (let index = 0; index < ranked.length && byId.size < generalQuota; index++) {
+        const result = ranked[index];
+        if (byId.has(result.item.id)) continue;
+        const connectionStrength = 1 - Math.exp(-result.connection.score / 10);
+        const queryRelevance = queryEvidenceConfidence({ item: result.item, result }, profile);
+        const relativePriority = Math.min(1, result.priority / bestPriority);
+        const depthDecay = 1 / Math.sqrt(1 + index * 0.3);
+        const marginal = seedConfidence
+            * (connectionStrength * 0.55 + queryRelevance * 0.2 + relativePriority * 0.25)
+            * depthDecay;
+        if (marginal < 0.14 || relativePriority < 0.25) continue;
+        byId.set(result.item.id, {
+            ...result,
+            seedConfidence,
+            supportMarginalScore: marginal,
+            supportRank: index + 1,
+        });
+    }
+    return [...byId.values()];
+}
+
 function line(label, value) {
     const body = plain(value);
     return body ? `- ${label}: ${body}` : '';
@@ -1027,6 +1103,15 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
                 aiExpandedRank: result?.expandedRank || 0,
                 score: Number.isFinite(result?.score) ? Number(result.score.toFixed(4)) : null,
                 semanticRank: result?.semanticRank || 0,
+                supportSeedConfidence: Number.isFinite(result?.seedConfidence)
+                    ? Number(result.seedConfidence.toFixed(4))
+                    : null,
+                supportMarginalScore: Number.isFinite(result?.supportMarginalScore)
+                    ? Number(result.supportMarginalScore.toFixed(4))
+                    : null,
+                supportRank: result?.supportRank || 0,
+                sourceLinked: Boolean(result?.connection?.sourceLinked),
+                hierarchyLinked: Boolean(result?.connection?.hierarchyLinked),
                 reason,
             });
         }
@@ -1208,11 +1293,14 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         ...((world.backgrounds || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)).map(item => ({ category: 'background', item }))),
     ].filter(candidate => candidate.item?.id && !selectedIds.has(candidate.item.id));
     const supportRelevanceByItem = new Map();
-    const supportLimit = Math.max(12, Math.min(120, Math.ceil(budget / 80)));
+    const supportLimit = Math.max(12, Math.ceil(budget / 80));
+    // Automatic/default budgets are the tuning baseline. Larger or smaller
+    // user budgets adjust depth gradually instead of switching policies.
+    const supportDepthScale = Math.min(1.5, Math.max(0.75, Math.sqrt(budget / 10000)));
     const primarySupportSeeds = selectedMemoryRecords
         .filter(selection => selection.category !== 'entity' && selection.reason !== 'latest L1')
         .filter((selection, index, all) => all.findIndex(other => other.item.id === selection.item.id) === index)
-        .map(selection => selection.item);
+        .map(selection => selection);
     const rankSupportWave = supportFrontier => {
         const wave = [];
         for (const candidate of supportCandidates) {
@@ -1257,11 +1345,16 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         return wave;
     };
     const directSupportLimit = supportLimit;
-    const rankedSupportBySeed = primarySupportSeeds.map(seed => rankSupportWave([seed]).slice(0, supportLimit));
+    const rankedSupportBySeed = primarySupportSeeds.map(selection => retainSupportForSeed(
+        selection,
+        rankSupportWave([selection.item]).slice(0, supportLimit),
+        queryTerms,
+        supportDepthScale,
+    ));
     const directSupport = [];
     const directSupportById = new Map();
     const sourceSupportLimit = Math.ceil(supportLimit * 0.5);
-    const sourceSupportBySeed = primarySupportSeeds.map((seed, seedIndex) => memorySourceRanges(seed)
+    const sourceSupportBySeed = primarySupportSeeds.map((selection, seedIndex) => memorySourceRanges(selection.item)
         .flatMap(range => rankedSupportBySeed[seedIndex]
             .filter(result => overlapsSourceRange(result.item, range))
             .slice(0, 2))
@@ -1334,7 +1427,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.120';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.121';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';
