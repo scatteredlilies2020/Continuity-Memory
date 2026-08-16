@@ -99,6 +99,8 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Mere solitary discovery does not require a thread/);
     assert.match(DEFAULT_RETRIEVAL_SYSTEM_PROMPT, /roleplay or simulation/);
     assert.match(DEFAULT_RETRIEVAL_SYSTEM_PROMPT, /immediate next response/);
+    assert.match(DEFAULT_RETRIEVAL_SYSTEM_PROMPT, /every phrase independently searchable/);
+    assert.match(DEFAULT_RETRIEVAL_SYSTEM_PROMPT, /include those actors in that same phrase/);
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /participants need not be people/);
     assert.match(DEFAULT_ERA_SYSTEM_PROMPT, /participants need not be people/);
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /consequential knowledge gaps as open threads/);
