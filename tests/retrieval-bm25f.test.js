@@ -73,6 +73,19 @@ test('an accurate AI phrase qualifies while a lone rare word from it does not', 
     assert.deepEqual(selections(result, 'Past events').map(item => item.id), ['accurate']);
 });
 
+test('a long AI phrase can recall a supporting record from several agreeing signals', () => {
+    const target = world({
+        events: [
+            event('deal', 'Felt sets the price', 'Samael owes her a name before the Council hears it.', ['Samael', 'Felt']),
+            event('names-only', 'Street crossing', 'They pass through the capital.', ['Samael', 'Felt']),
+        ],
+    });
+    const result = buildMemoryPrompt(target, user('Go on.'), 2000, '', [
+        'Samael owes Felt a warm name before the Council hears the agreement',
+    ]);
+    assert.deepEqual(selections(result, 'Past events').map(item => item.id), ['deal']);
+});
+
 test('generic one-word AI expansions require corpus rarity while unique ones still recall', () => {
     const target = world({
         events: [
