@@ -1316,6 +1316,16 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     const supportDepthScale = Math.min(1.5, Math.max(0.75, Math.sqrt(budget / 10000)));
     const primarySupportSeeds = selectedMemoryRecords
         .filter(selection => selection.category !== 'entity' && selection.reason !== 'latest L1')
+        // L1/L2/L3 records already carry their own condensed history. Expanding
+        // them again tends to recover a whole old interval instead of useful
+        // prerequisites for the current query.
+        .filter(selection => !['capsule', 'arc', 'era'].includes(selection.category))
+        // Open matters remain visible as primaries on a permissive match, but
+        // only strong/direct thread evidence may unlock their wider history.
+        .filter(selection => selection.category !== 'thread'
+            || selection.result?.directEligible
+            || selection.result?.semanticRank > 0
+            || queryEvidenceConfidence(selection, queryTerms) >= 0.75)
         .filter((selection, index, all) => all.findIndex(other => other.item.id === selection.item.id) === index)
         .map(selection => selection);
     const rankSupportWave = supportFrontier => {
@@ -1444,7 +1454,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.123';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.124';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';
