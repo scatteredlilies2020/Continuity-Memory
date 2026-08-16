@@ -184,6 +184,24 @@ function pairedIdentityMatch(item, source, includeMorphology = false) {
         && sides.every(side => identitySideMatches(source, side, includeMorphology));
 }
 
+function containsTokenSequence(source, sequence) {
+    if (!sequence.length || sequence.length > source.length) return false;
+    return source.some((_, start) => sequence.every((term, offset) => source[start + offset] === term));
+}
+
+function resolvedIdentityTerms(world, values) {
+    const source = (values || []).flatMap(value => tokenList(value));
+    const resolved = new Set();
+    for (const entity of world?.entities || []) {
+        const variants = [entity?.name, ...(entity?.aliases || [])]
+            .map(value => tokenList(value))
+            .filter(value => value.length);
+        if (!variants.some(variant => containsTokenSequence(source, variant))) continue;
+        for (const term of terms(entity?.name, true)) resolved.add(term);
+    }
+    return resolved;
+}
+
 function retrievalRecords(world) {
     return [world?.scene]
         .concat(...[
@@ -198,7 +216,8 @@ function retrievalProfile(world, recentMessages, expandedTerms) {
     const latestUser = recent.slice().reverse().find(message => message?.is_user === true)
         || recent[recent.length - 1]
         || {};
-    const direct = terms(retrievalMessageText(latestUser), true);
+    const directText = retrievalMessageText(latestUser);
+    const direct = terms(directText, true);
     const speaker = terms(latestUser?.name, true);
     const expandedGroups = (expandedTerms || [])
         .map(value => terms(value))
@@ -221,6 +240,7 @@ function retrievalProfile(world, recentMessages, expandedTerms) {
         for (const field of Object.keys(RETRIEVAL_FIELDS)) totalFieldLengths[field] += stats.fields[field].tokens.length;
         for (const term of stats.all) documentFrequency.set(term, (documentFrequency.get(term) || 0) + 1);
     }
+    for (const term of resolvedIdentityTerms(world, [latestUser?.name, directText])) direct.add(term);
     for (const term of speaker) {
         if (queryTermVariants(term, true).some(variant => identityVocabulary.has(variant))) direct.add(term);
     }
@@ -380,8 +400,8 @@ function coherentConceptMatch(stats, profile, groups) {
             || (independentBody.length >= requiredContent
                 && fieldKeepsIdentityPair(stats.fields.body)
                 && orderedCoverageWithin(stats.fields.body.tokens, ordered, requiredCoverage, 10, true))
-            || (structuredIdentityCount >= 1 && independentContent.size >= 2)
-            || independentContent.size >= 3;
+            || (structuredIdentityCount >= 1 && independentContent.size >= 3)
+            || independentContent.size >= 4;
     });
 }
 
@@ -489,15 +509,21 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
             return content.length === 0 || content.some(term => fieldHasQueryTerm(stats.fields.heading, term, true)
                 || fieldHasQueryTerm(stats.fields.body, term, true));
         });
-        const completeIdentityNames = [item?.name, ...(item?.aliases || [])]
+        const canonicalIdentityName = [...terms(item?.name)];
+        const aliasIdentityNames = (item?.aliases || [])
             .map(value => [...terms(value)])
             .filter(nameTerms => nameTerms.length);
         const expandedEntityMatch = profile.expandedGroups.some(group => {
             const identityMatchCount = [...group]
                 .filter(term => fieldHasQueryTerm(stats.fields.identity, term, true)).length;
-            const coversCompleteName = completeIdentityNames.some(nameTerms => nameTerms
-                .every(nameTerm => [...group].some(term => queryTermVariants(term, true).includes(nameTerm))));
-            return group.size === 1 ? identityMatchCount === 1 : identityMatchCount >= 2 || coversCompleteName;
+            const coversName = nameTerms => nameTerms.length > 0 && nameTerms
+                .every(nameTerm => [...group].some(term => queryTermVariants(term, true).includes(nameTerm)));
+            const coversCanonicalName = coversName(canonicalIdentityName);
+            const coveredAlias = aliasIdentityNames.find(coversName);
+            const conciseAliasMention = coveredAlias && group.size <= coveredAlias.length + 1;
+            return group.size === 1
+                ? identityMatchCount === 1
+                : identityMatchCount >= 2 || coversCanonicalName || conciseAliasMention;
         });
         const directIdentityCentral = (category === 'entity' && directIdentityMatches.size > 0)
             || (category === 'relationship' && directPairedIdentityMatch)
@@ -514,7 +540,7 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
             ? directPairedIdentityMatch || (directMatch && addressDirectContentMatch)
             : directMatch || directIdentityCentral;
         const expandedEligible = isAddressFact(item)
-            ? expandedPairedIdentityMatch || ((coherentMatch || compactMatch) && addressExpandedContentMatch)
+            ? (coherentMatch || compactMatch) && addressExpandedContentMatch
             : coherentMatch || compactMatch || expandedIdentityCentral;
         const eligible = directEligible || expandedEligible;
         const metadataScore = (Number(item.importance) || 3) + recency(item) + extra(item);
@@ -562,6 +588,20 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
 function matching(items, query, extra = () => 0, category = '', semanticRanks = new Map()) {
     return rank(items, query, extra, category, semanticRanks)
         .filter(result => result.eligible || result.semanticRank > 0);
+}
+
+function limitRelationshipPairs(results, maximumPerPair = 3) {
+    const counts = new Map();
+    return results.filter(result => {
+        const item = result?.item || result;
+        const key = [plain(item?.from).toLocaleLowerCase(), plain(item?.to).toLocaleLowerCase()]
+            .sort()
+            .join('\u0000');
+        const count = counts.get(key) || 0;
+        if (!key || count >= maximumPerPair) return false;
+        counts.set(key, count + 1);
+        return true;
+    });
 }
 
 function line(label, value) {
@@ -986,7 +1026,14 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         .map(({ item }) => `- ${item.subject} — ${item.attribute}: ${anchoredRelativeText(item.value, item)}`);
     addSection('Current state', states);
 
-    const relationships = takeMatches('Relationships', 'relationship', (world.relationships || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)), 12)
+    const relationshipMatches = limitRelationshipPairs(matching(
+        (world.relationships || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)),
+        queryTerms,
+        () => 0,
+        'relationship',
+        semanticRanks,
+    ), 3).slice(0, 12);
+    const relationships = recordSelections('Relationships', 'relationship', relationshipMatches)
         .map(({ item }) => `- ${item.from} → ${item.to} (${item.kind}): ${anchoredRelativeText(`${item.status}${item.dynamic ? `; ${item.dynamic}` : ''}`, item)}`);
     addSection('Relationships', relationships);
 
@@ -1017,7 +1064,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.116';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.117';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';

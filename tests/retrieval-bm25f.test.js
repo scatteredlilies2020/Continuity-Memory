@@ -117,9 +117,14 @@ test('an AI phrase can name an entity without selecting partial generic name ove
         entities: [
             { id: 'samael', name: 'Samael', aliases: [], type: 'character', description: 'A devil.' },
             { id: 'loot-house', name: "Old Man Rom's loot house", aliases: [], type: 'place', description: 'A building.' },
+            { id: 'elsa', name: 'Elsa Granhiert', aliases: ['client'], type: 'character', description: 'An assassin.' },
         ],
     });
-    const result = buildMemoryPrompt(target, user('Next scene.'), 3000, '', ['Samael accepts the deal', 'noble house']);
+    const result = buildMemoryPrompt(target, user('Next scene.'), 3000, '', [
+        'Samael accepts the deal',
+        'noble house',
+        'Felt considers Samael an unusually honest client',
+    ]);
     assert.deepEqual(selections(result, 'Entities').map(item => item.id), ['samael']);
 });
 
@@ -137,6 +142,21 @@ test('one multiword identity is not mistaken for both sides of a relationship', 
     assert.deepEqual(selections(paired, 'Relationships').map(item => item.id), ['samael-subaru']);
 });
 
+test('duplicate relationship variants cannot fill the relationship section', () => {
+    const target = world({
+        relationships: Array.from({ length: 6 }, (_, index) => ({
+            id: `variant-${index}`,
+            from: index % 2 ? 'Subaru Natsuki' : 'Samael',
+            to: index % 2 ? 'Samael' : 'Subaru Natsuki',
+            kind: `variant ${index}`,
+            status: 'They remain connected.',
+            dynamic: '',
+        })),
+    });
+    const result = buildMemoryPrompt(target, user('Samael and Subaru Natsuki'), 4000);
+    assert.equal(selections(result, 'Relationships').length, 3);
+});
+
 test('one multiword addressee does not retrieve every speaker address', () => {
     const target = world({
         facts: [
@@ -146,9 +166,6 @@ test('one multiword addressee does not retrieve every speaker address', () => {
     });
     const nameOnly = buildMemoryPrompt(target, user('Go on.'), 3000, '', ['Subaru Natsuki']);
     assert.deepEqual(selections(nameOnly, 'Addresses'), []);
-
-    const paired = buildMemoryPrompt(target, user('Go on.'), 3000, '', ['Samael and Subaru Natsuki']);
-    assert.deepEqual(selections(paired, 'Addresses').map(item => item.id), ['samael-subaru']);
 
     const nickname = buildMemoryPrompt(target, user('Shrubaru'), 3000);
     assert.deepEqual(selections(nickname, 'Addresses').map(item => item.id), ['samael-subaru']);
