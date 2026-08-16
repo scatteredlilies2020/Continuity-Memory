@@ -705,28 +705,42 @@ function supportConnection(seed, candidate, profile) {
     const sharedIdentities = [...seedIdentities].filter(term => candidateStats.all.has(term));
     const sharedConcepts = [...seedConcepts].filter(term =>
         candidateStats.fields.heading.unique.has(term) || candidateStats.fields.body.unique.has(term));
+    const contextFrequencyLimit = Math.max(4, Math.ceil(profile.documentCount * 0.02));
+    const sharedContext = [...profile.context]
+        .filter(term => !term.startsWith('~') && !profile.identityVocabulary.has(term))
+        .filter(term => {
+            const frequency = Number(profile.documentFrequency.get(term)) || 0;
+            return frequency > 0 && frequency <= contextFrequencyLimit && inverseDocumentFrequency(profile, term) >= 1.25;
+        })
+        .filter(term => candidateStats.fields.heading.unique.has(term) || candidateStats.fields.body.unique.has(term));
     const sourceLinked = sharesSourceRange(seed, candidate);
     const seedReferences = seedMetadata.references;
     const candidateReferences = referencedMemoryIds(candidate);
     const hierarchyLinked = seedReferences.has(candidate?.id)
         || candidateReferences.has(seed?.id)
         || [...seedReferences].some(id => candidateReferences.has(id));
+    const contextBridged = sharedIdentities.length >= 2 && sharedContext.length >= 1;
     const qualifies = (sharedIdentities.length >= 2 && sharedConcepts.length >= 1)
         || (sharedIdentities.length >= 1 && sharedConcepts.length >= 2)
         || sharedConcepts.length >= 3
+        || contextBridged
         || ((sourceLinked || hierarchyLinked) && (sharedIdentities.length >= 1 || sharedConcepts.length >= 1));
     if (!qualifies) return null;
     const conceptScore = sharedConcepts.reduce((sum, term) => sum + inverseDocumentFrequency(profile, term), 0);
+    const contextScore = sharedContext.reduce((sum, term) => sum + inverseDocumentFrequency(profile, term), 0);
     return {
         score: conceptScore
+            + contextScore * 0.75
             + sharedIdentities.length * 1.5
             + (sourceLinked ? 12 : 0)
             + (hierarchyLinked ? 10 : 0),
-        matchedTerms: [...new Set([...sharedIdentities, ...sharedConcepts])],
+        matchedTerms: [...new Set([...sharedIdentities, ...sharedConcepts, ...sharedContext])],
         sharedIdentities,
         sharedConcepts,
+        sharedContext,
         sourceLinked,
         hierarchyLinked,
+        contextBridged,
     };
 }
 
@@ -767,8 +781,11 @@ function retainSupportForSeed(seedSelection, ranked, profile, depthScale = 1) {
     // A weak primary may remain useful on its own, but it should not unlock a
     // large historical neighborhood. Stronger query evidence earns a wider,
     // still finite supporting envelope.
-    const generalQuota = Math.max(0, Math.round(seedConfidence * 6 * depthScale));
-    const sourceQuota = Math.max(0, Math.round(seedConfidence * 3.5 * depthScale));
+    const generalQuota = seedConfidence > 0 ? 1 + Math.round(seedConfidence * 6 * depthScale) : 0;
+    const sourceQuota = Math.min(
+        Math.ceil(generalQuota / 2),
+        Math.max(0, Math.round(seedConfidence * 3.5 * depthScale)),
+    );
     if (!generalQuota && !sourceQuota) return [];
 
     const byId = new Map();
