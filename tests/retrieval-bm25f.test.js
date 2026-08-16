@@ -372,3 +372,25 @@ test('one relevant AI seed cannot fan out across the entire support budget', () 
     assert.ok(support.length < 10);
     assert.ok(support.length < Math.ceil(20000 / 80));
 });
+
+test('incidental relationships remain visible without unlocking their entire history', () => {
+    const source = [{ chatKey: 'chat', from: 12, to: 19 }];
+    const target = world({
+        relationships: [{
+            id: 'banter', from: 'Aster', to: 'Beryl', kind: 'playful banter',
+            status: 'They trade a brief joke while working.', importance: 2, sources: source,
+        }],
+        facts: [{
+            id: 'old-history', subject: 'Aster', predicate: 'old expedition with Beryl',
+            value: 'They previously crossed the northern pass.', importance: 3, sources: source,
+        }],
+    });
+    const incidental = buildMemoryPrompt(target, user('Next.'), 10000, 'chat', ['Aster and Beryl trade playful banter']);
+
+    assert.deepEqual(selections(incidental, 'Relationships').map(item => item.id), ['banter']);
+    assert.deepEqual(selections(incidental, 'Supporting continuity'), []);
+
+    target.relationships[0].importance = 4;
+    const durable = buildMemoryPrompt(target, user('Next.'), 10000, 'chat', ['Aster and Beryl trade playful banter']);
+    assert.ok(selections(durable, 'Supporting continuity').some(item => item.id === 'old-history'));
+});

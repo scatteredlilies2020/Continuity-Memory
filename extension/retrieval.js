@@ -1320,6 +1320,14 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         // them again tends to recover a whole old interval instead of useful
         // prerequisites for the current query.
         .filter(selection => !['capsule', 'arc', 'era'].includes(selection.category))
+        // A relationship may be useful in the current scene without making
+        // every event behind it useful. Low-importance/incidental pairs stay
+        // visible as primaries, but expand only when directly or semantically
+        // requested; durable major relationships retain automatic depth.
+        .filter(selection => selection.category !== 'relationship'
+            || Number(selection.item?.importance) >= 4
+            || selection.result?.directEligible
+            || selection.result?.semanticRank > 0)
         // Open matters remain visible as primaries on a permissive match, but
         // only strong/direct thread evidence may unlock their wider history.
         .filter(selection => selection.category !== 'thread'
@@ -1454,7 +1462,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.124';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.125';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';
