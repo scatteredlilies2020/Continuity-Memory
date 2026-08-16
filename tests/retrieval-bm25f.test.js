@@ -242,3 +242,82 @@ test('L2 is selected by relevance and is never inserted merely because it exists
     assert.deepEqual(selections(relevant, 'L2 continuity').map(item => item.id), ['arc']);
     assert.match(relevant.prompt, /L2 continuity:/);
 });
+
+test('selected memories retrieve their supporting history without vocabulary-specific rules', () => {
+    const firstSource = [{ chatKey: 'chat', from: 10, to: 17 }];
+    const secondSource = [{ chatKey: 'chat', from: 26, to: 33 }];
+    const target = world({
+        relationships: [{
+            id: 'covenant', from: 'Aster', to: 'Beryl', kind: 'auric covenant', status: 'active',
+            dynamic: 'They currently observe a singular boundary protocol.',
+            sources: [...firstSource, ...secondSource], importance: 4,
+        }],
+        facts: [
+            {
+                id: 'origin', subject: 'Aster', predicate: 'auric covenant for Beryl',
+                value: 'They share the lantern watch and preserve each other’s agency.', sources: firstSource, importance: 4,
+            },
+            {
+                id: 'amendment', subject: 'Beryl', predicate: 'vellum covenant amendment with Aster',
+                value: 'She requires a report after any protective intervention.', sources: secondSource, importance: 3,
+            },
+            {
+                id: 'lexical-support', subject: 'Aster', predicate: 'lumenwrit safeguard for Beryl',
+                value: 'Neither partner may silently replace the other’s choice.', importance: 3,
+            },
+            {
+                id: 'unrelated', subject: 'Aster', predicate: 'picnic with Beryl',
+                value: 'They packed cake for a quiet afternoon.', importance: 3,
+            },
+            ...Array.from({ length: 10 }, (_, index) => ({
+                id: `filler-${index}`, subject: `Witness ${index}`, predicate: 'keeps an ordinary record',
+                value: 'A separate matter with no connection.', importance: 1,
+            })),
+        ],
+    });
+    target.relationships[0].kind = 'lumenwrit auric covenant';
+
+    const result = buildMemoryPrompt(target, user('What is the current singular boundary protocol?'), 2000, 'chat');
+    const support = selections(result, 'Supporting continuity');
+    const supportIds = support.map(item => item.id);
+
+    assert.deepEqual(selections(result, 'Relationships').map(item => item.id), ['covenant']);
+    assert.ok(supportIds.includes('origin'));
+    assert.ok(supportIds.includes('amendment'));
+    assert.ok(supportIds.includes('lexical-support'));
+    assert.ok(!supportIds.includes('unrelated'));
+    assert.match(result.prompt, /Supporting continuity:/);
+});
+
+test('source-history support receives priority when the continuity budget is tight', () => {
+    const firstSource = [{ chatKey: 'chat', from: 40, to: 47 }];
+    const secondSource = [{ chatKey: 'chat', from: 72, to: 79 }];
+    const target = world({
+        relationships: [{
+            id: 'accord', from: 'Neris', to: 'Orin', kind: 'vesper sigilword accord', status: 'active',
+            dynamic: 'A current obsidian boundary remains in force.', sources: [...firstSource, ...secondSource],
+        }],
+        facts: [
+            { id: 'foundation', subject: 'Neris', predicate: 'vesper accord with Orin', value: 'The first condition.', sources: firstSource },
+            { id: 'revision', subject: 'Orin', predicate: 'vesper accord with Neris', value: 'The later revision.', sources: secondSource },
+            ...Array.from({ length: 4 }, (_, index) => ({
+                id: `loose-${index}`, subject: 'Neris', predicate: `sigilword note for Orin ${index}`,
+                value: `A disconnected supporting observation ${index}.`,
+            })),
+            ...Array.from({ length: 24 }, (_, index) => ({
+                id: `filler-${index}`, subject: `Archivist ${index}`, predicate: 'files a routine notice',
+                value: 'An unrelated administrative matter.',
+            })),
+        ],
+    });
+
+    const result = buildMemoryPrompt(target, user('What is the current obsidian boundary?'), 1000, 'chat');
+    const supportIds = selections(result, 'Supporting continuity').map(item => item.id);
+
+    assert.ok(supportIds.indexOf('foundation') >= 0);
+    assert.ok(supportIds.indexOf('revision') >= 0);
+    const firstLooseIndex = supportIds.findIndex(id => id.startsWith('loose-'));
+    assert.ok(firstLooseIndex >= 0);
+    assert.ok(supportIds.indexOf('foundation') < firstLooseIndex);
+    assert.ok(supportIds.indexOf('revision') < firstLooseIndex);
+});

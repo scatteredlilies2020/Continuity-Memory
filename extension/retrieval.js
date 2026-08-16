@@ -635,6 +635,101 @@ function limitRelationshipPairs(results, maximumPerPair = 3) {
     });
 }
 
+function memorySourceRanges(item) {
+    const ranges = Array.isArray(item?.sources) ? item.sources : [];
+    if (ranges.length) return ranges;
+    if (item?.chatKey && Number.isFinite(Number(item?.from)) && Number.isFinite(Number(item?.to))) {
+        return [{ chatKey: item.chatKey, from: Number(item.from), to: Number(item.to) }];
+    }
+    return [];
+}
+
+function sharesSourceRange(left, right) {
+    return memorySourceRanges(left).some(first => overlapsSourceRange(right, first));
+}
+
+function overlapsSourceRange(item, range) {
+    return memorySourceRanges(item).some(source =>
+        source.chatKey === range?.chatKey
+        && Number(source.from) <= Number(range?.to)
+        && Number(range?.from) <= Number(source.to));
+}
+
+function referencedMemoryIds(item) {
+    return new Set([
+        ...(item?.capsuleIds || []),
+        ...(item?.arcIds || []),
+        item?.temporal?.referenceId,
+        item?.temporalAnchorId,
+    ].filter(Boolean));
+}
+
+function supportIdentityReferences(stats, profile) {
+    return new Set([...stats.all].filter(term => !term.startsWith('~') && profile.identityVocabulary.has(term)));
+}
+
+function supportConceptTerms(stats, profile) {
+    const frequencyLimit = Math.max(6, Math.ceil(profile.documentCount * 0.04));
+    const bodyTokens = stats.fields.body.tokens;
+    // Long summaries can contain an entire arc's vocabulary. Sample both ends
+    // so they contribute distinctive anchors without becoming universal links.
+    return new Set([...stats.fields.heading.unique, ...bodyTokens.slice(0, 96), ...bodyTokens.slice(-32)]
+        .filter(term => !term.startsWith('~'))
+        .filter(term => !profile.identityVocabulary.has(term))
+        .filter(term => {
+            const frequency = Number(profile.documentFrequency.get(term)) || 0;
+            return frequency > 0 && frequency <= frequencyLimit && inverseDocumentFrequency(profile, term) >= 1.25;
+        }));
+}
+
+function supportMetadata(item, profile) {
+    const cached = profile.supportMetadata?.get(item);
+    if (cached) return cached;
+    const stats = profile.recordStats.get(item) || retrievalFieldStats(item);
+    const metadata = {
+        stats,
+        identities: supportIdentityReferences(stats, profile),
+        concepts: supportConceptTerms(stats, profile),
+        references: referencedMemoryIds(item),
+    };
+    if (!profile.supportMetadata) profile.supportMetadata = new Map();
+    profile.supportMetadata.set(item, metadata);
+    return metadata;
+}
+
+function supportConnection(seed, candidate, profile) {
+    const seedMetadata = supportMetadata(seed, profile);
+    const candidateStats = profile.recordStats.get(candidate) || retrievalFieldStats(candidate);
+    const seedIdentities = seedMetadata.identities;
+    const seedConcepts = seedMetadata.concepts;
+    const sharedIdentities = [...seedIdentities].filter(term => candidateStats.all.has(term));
+    const sharedConcepts = [...seedConcepts].filter(term =>
+        candidateStats.fields.heading.unique.has(term) || candidateStats.fields.body.unique.has(term));
+    const sourceLinked = sharesSourceRange(seed, candidate);
+    const seedReferences = seedMetadata.references;
+    const candidateReferences = referencedMemoryIds(candidate);
+    const hierarchyLinked = seedReferences.has(candidate?.id)
+        || candidateReferences.has(seed?.id)
+        || [...seedReferences].some(id => candidateReferences.has(id));
+    const qualifies = (sharedIdentities.length >= 2 && sharedConcepts.length >= 1)
+        || (sharedIdentities.length >= 1 && sharedConcepts.length >= 2)
+        || sharedConcepts.length >= 3
+        || ((sourceLinked || hierarchyLinked) && (sharedIdentities.length >= 1 || sharedConcepts.length >= 1));
+    if (!qualifies) return null;
+    const conceptScore = sharedConcepts.reduce((sum, term) => sum + inverseDocumentFrequency(profile, term), 0);
+    return {
+        score: conceptScore
+            + sharedIdentities.length * 1.5
+            + (sourceLinked ? 12 : 0)
+            + (hierarchyLinked ? 10 : 0),
+        matchedTerms: [...new Set([...sharedIdentities, ...sharedConcepts])],
+        sharedIdentities,
+        sharedConcepts,
+        sourceLinked,
+        hierarchyLinked,
+    };
+}
+
 function line(label, value) {
     const body = plain(value);
     return body ? `- ${label}: ${body}` : '';
@@ -898,6 +993,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         },
         selections: [],
     };
+    const selectedMemoryRecords = [];
     const diagnosticLabel = item => plain(
         item?.title
         || item?.name
@@ -911,6 +1007,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     const recordSelections = (section, category, results, reason = '') => {
         for (const result of results) {
             const item = result?.item || result;
+            if (item?.id) selectedMemoryRecords.push({ section, category, item, result, reason });
             retrievalDiagnostics.selections.push({
                 section,
                 category,
@@ -1094,11 +1191,150 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         });
     addSection('Past events', events);
 
+    const selectedIds = new Set(selectedMemoryRecords.map(selection => selection.item.id));
+    const supportCandidates = [
+        ...((world.entities || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)).map(item => ({ category: 'entity', item }))),
+        ...(availableFacts.map(item => ({
+            category: isAddressFact(item) ? 'address' : (isAttributedBeliefFact(item) ? 'perspective' : 'fact'),
+            item,
+        }))),
+        ...((world.states || []).filter(item => sourceIsCurrent(item) && isFreshActiveState(world, item, chatKey) && !latestIsRaw(item)).map(item => ({ category: 'state', item }))),
+        ...((world.relationships || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)).map(item => ({ category: 'relationship', item }))),
+        ...((world.events || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)).map(item => ({ category: 'event', item }))),
+        ...(chronological.map(item => ({ category: 'capsule', item }))),
+        ...((world.arcs || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)).map(item => ({ category: 'arc', item }))),
+        ...((world.eras || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)).map(item => ({ category: 'era', item }))),
+        ...((world.threads || []).filter(item => sourceIsCurrent(item) && item.status === 'open' && !latestIsRaw(item)).map(item => ({ category: 'thread', item }))),
+        ...((world.backgrounds || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)).map(item => ({ category: 'background', item }))),
+    ].filter(candidate => candidate.item?.id && !selectedIds.has(candidate.item.id));
+    const supportRelevanceByItem = new Map();
+    const supportLimit = Math.max(12, Math.min(120, Math.ceil(budget / 80)));
+    const primarySupportSeeds = selectedMemoryRecords
+        .filter(selection => selection.category !== 'entity' && selection.reason !== 'latest L1')
+        .filter((selection, index, all) => all.findIndex(other => other.item.id === selection.item.id) === index)
+        .map(selection => selection.item);
+    const rankSupportWave = supportFrontier => {
+        const wave = [];
+        for (const candidate of supportCandidates) {
+            if (selectedIds.has(candidate.item.id)) continue;
+            let best = null;
+            for (const seed of supportFrontier) {
+                const connection = supportConnection(seed, candidate.item, queryTerms);
+                if (!connection || (best && connection.score <= best.connection.score)) continue;
+                best = { seed, connection };
+            }
+            if (!best) continue;
+            let relevance = supportRelevanceByItem.get(candidate.item);
+            if (!relevance) {
+                const stats = queryTerms.recordStats.get(candidate.item) || retrievalFieldStats(candidate.item);
+                relevance = {
+                    direct: queryScore(stats, queryTerms, queryTerms.direct),
+                    expanded: expandedQueryScore(stats, queryTerms),
+                };
+                supportRelevanceByItem.set(candidate.item, relevance);
+            }
+            const directRelevance = relevance.direct;
+            const expandedRelevance = relevance.expanded;
+            const activeBoost = ['active', 'open'].includes(String(candidate.item.status || '').toLocaleLowerCase()) ? 1.5 : 0;
+            const priority = best.connection.score
+                + Math.min(6, Math.log1p(Math.max(directRelevance, expandedRelevance)) * 1.5)
+                + activeBoost
+                + (Number(candidate.item.importance) || 3) * 0.1
+                + recency(candidate.item) * 0.1;
+            wave.push({
+                ...candidate,
+                seed: best.seed,
+                connection: best.connection,
+                priority,
+                score: priority,
+                directScore: directRelevance,
+                expandedScore: expandedRelevance,
+                matchedTerms: best.connection.matchedTerms,
+            });
+        }
+        wave.sort((left, right) => right.priority - left.priority
+            || String(right.item.updatedAt || '').localeCompare(String(left.item.updatedAt || '')));
+        return wave;
+    };
+    const directSupportLimit = supportLimit;
+    const rankedSupportBySeed = primarySupportSeeds.map(seed => rankSupportWave([seed]).slice(0, supportLimit));
+    const directSupport = [];
+    const directSupportById = new Map();
+    const sourceSupportLimit = Math.ceil(supportLimit * 0.5);
+    const sourceSupportBySeed = primarySupportSeeds.map((seed, seedIndex) => memorySourceRanges(seed)
+        .flatMap(range => rankedSupportBySeed[seedIndex]
+            .filter(result => overlapsSourceRange(result.item, range))
+            .slice(0, 2))
+        .filter(Boolean));
+    const maximumSourceDepth = Math.max(0, ...sourceSupportBySeed.map(ranking => ranking.length));
+    for (let sourceIndex = 0; sourceIndex < maximumSourceDepth && directSupport.length < sourceSupportLimit; sourceIndex++) {
+        const tier = sourceSupportBySeed
+            .map(ranking => ranking[sourceIndex])
+            .filter(Boolean)
+            .sort((left, right) => right.priority - left.priority
+                || String(right.item.updatedAt || '').localeCompare(String(left.item.updatedAt || '')));
+        for (const result of tier) {
+            if (directSupportById.has(result.item.id)) continue;
+            directSupportById.set(result.item.id, result);
+            directSupport.push(result);
+            if (directSupport.length >= sourceSupportLimit) break;
+        }
+    }
+    for (let rankIndex = 0; rankIndex < supportLimit && directSupport.length < directSupportLimit; rankIndex++) {
+        const tier = rankedSupportBySeed
+            .map(ranking => ranking[rankIndex])
+            .filter(Boolean)
+            .sort((left, right) => right.priority - left.priority
+                || String(right.item.updatedAt || '').localeCompare(String(left.item.updatedAt || '')));
+        for (const result of tier) {
+            if (directSupportById.has(result.item.id)) continue;
+            directSupportById.set(result.item.id, result);
+            directSupport.push(result);
+            if (directSupport.length >= directSupportLimit) break;
+        }
+    }
+    const prioritizedClosureRecords = directSupport
+        .filter((result, index, all) => all.findIndex(other => other.item.id === result.item.id) === index)
+        .slice(0, supportLimit);
+    const supportRow = ({ category, item }) => {
+        if (category === 'entity') return `- [entity] ${item.name}${item.type ? ` (${item.type})` : ''}: ${item.description}${item.aliases?.length ? `; aliases: ${item.aliases.join(', ')}` : ''}`;
+        if (category === 'address') return `- [address] ${plain(item.subject)}→${plain(addressFactAddressee(item))}: ${plain(item.value)}`;
+        if (category === 'perspective') return `- [perspective; subjective] ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)}`;
+        if (category === 'fact') return `- [fact] ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)}`;
+        if (category === 'state') return `- [state] ${item.subject} — ${item.attribute}: ${anchoredRelativeText(item.value, item)}`;
+        if (category === 'relationship') return `- [relationship] ${item.from} → ${item.to} (${item.kind}): ${anchoredRelativeText(`${item.status}${item.dynamic ? `; ${item.dynamic}` : ''}`, item)}`;
+        if (category === 'thread') return `- [open matter] ${anchoredRelativeText(`${item.title}: ${item.detail}`, item)}${item.participants?.length ? ` [${item.participants.join(', ')}]` : ''}`;
+        if (category === 'background') return `- [background] ${anchoredRelativeText(`${item.topic}: ${item.summary}`, item)}${item.participants?.length ? ` [${item.participants.join(', ')}]` : ''}`;
+        if (category === 'event') {
+            const storyTime = anchoredStoryTime(item);
+            const detail = `${item.summary}${item.consequences ? ` Consequence: ${item.consequences}` : ''}`;
+            return `- [event] ${storyTime ? `[${storyTime}] ` : ''}${anchoredRelativeText(`${item.title}: ${detail}`, item)}`;
+        }
+        if (category === 'capsule') {
+            const storyTime = anchoredStoryTime(item);
+            const sequence = [item.opening, ...(item.beats || []), item.closing].map(plain).filter(Boolean).join(' → ');
+            return `- [L1] ${storyTime ? `[${storyTime}] ` : ''}${anchoredRelativeText(`${item.title}: ${sequence}${item.emotionalArc ? ` Overall movement: ${plain(item.emotionalArc)}` : ''}`, item)}`;
+        }
+        const turns = (item.turningPoints || []).map(plain).filter(Boolean).join(' → ');
+        const threads = (item.openThreads || []).map(plain).filter(Boolean).join('; ');
+        const detail = `${plain(item.summary)}${turns ? ` Turning points: ${turns}.` : ''}${plain(item.closingState) ? ` Closing state: ${plain(item.closingState)}.` : ''}${threads ? ` Still open: ${threads}.` : ''}`;
+        return `- [${category === 'arc' ? 'L2' : 'L3'}] ${plain(item.title)}: ${detail}`;
+    };
+    for (const result of prioritizedClosureRecords) {
+        recordSelections(
+            'Supporting continuity',
+            result.category,
+            [result],
+            `supports ${diagnosticLabel(result.seed)}`,
+        );
+    }
+    addSection('Supporting continuity', prioritizedClosureRecords.map(supportRow));
+
     addFairSections(parts, sections, budget);
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.119';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.120';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';
