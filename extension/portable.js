@@ -1,5 +1,5 @@
 import { getContext } from '/scripts/st-context.js';
-import { getSettings } from './settings.js?v=0.14.0-standalone.127';
+import { getSettings } from './settings.js?v=0.14.0-standalone.128';
 import { createPortableSnapshot, PORTABLE_SCHEMA_VERSION, portableSnapshotMatches } from './portable-state.js';
 
 const METADATA_KEY = 'continuityMemory';

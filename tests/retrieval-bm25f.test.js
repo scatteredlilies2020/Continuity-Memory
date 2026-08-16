@@ -243,6 +243,51 @@ test('L2 is selected by relevance and is never inserted merely because it exists
     assert.match(relevant.prompt, /L2 continuity:/);
 });
 
+test('older L1 evidence must occur within one beat or neighboring beats', () => {
+    const capsule = (id, from, title, passages) => ({
+        id,
+        chatKey: 'chat',
+        from,
+        to: from + 7,
+        title,
+        storyTime: '',
+        location: '',
+        participants: ['Rem', 'Samael'],
+        opening: passages[0],
+        beats: passages.slice(1, -1),
+        emotionalArc: '',
+        closing: passages.at(-1),
+        importance: 3,
+    });
+    const target = world({
+        capsules: [
+            capsule('scattered', 10, 'Balcony investigation', [
+                'A black cord was found beneath the latch.',
+                'The witness described a hurried escape.',
+                'A gold crest appeared in an old inventory.',
+                'Rain delayed the search.',
+                'A discarded cloak was recovered elsewhere.',
+            ]),
+            capsule('adjacent', 20, 'Preparing to depart', [
+                'Rem lifted her black traveling cloak from the chair.',
+                'Samael fastened its blue cord beside the Mathers crest.',
+                'They prepared to leave together.',
+            ]),
+            capsule('latest-1', 30, 'Later scene one', ['They crossed the hall.']),
+            capsule('latest-2', 40, 'Later scene two', ['They checked the carriage.']),
+            capsule('latest-3', 50, 'Current scene', ['They waited by the door.']),
+        ],
+    });
+    const result = buildMemoryPrompt(target, user('Continue.'), 4000, '', [
+        'Samael hands Rem her black traveling cloak with a blue cord and Mathers crest',
+    ], 'chat');
+    const querySelected = selections(result, 'Recent continuity')
+        .filter(item => item.reason !== 'latest L1');
+
+    assert.deepEqual(querySelected.map(item => item.id), ['adjacent']);
+    assert.equal(querySelected[0].passageLocalized, true);
+});
+
 test('selected memories retrieve their supporting history without vocabulary-specific rules', () => {
     const firstSource = [{ chatKey: 'chat', from: 10, to: 17 }];
     const secondSource = [{ chatKey: 'chat', from: 26, to: 33 }];

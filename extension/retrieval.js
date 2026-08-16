@@ -158,6 +158,29 @@ function retrievalFieldStats(item) {
     return { fields, all };
 }
 
+function capsulePassageStats(item, profile) {
+    const cached = profile.passageStats?.get(item);
+    if (cached) return cached;
+    const passages = [item?.opening, ...(item?.beats || []), item?.closing]
+        .map(plain)
+        .filter(Boolean);
+    const windows = passages.flatMap((passage, index) => [
+        passage,
+        index + 1 < passages.length ? `${passage} ${passages[index + 1]}` : '',
+    ]).filter(Boolean);
+    const localizedWindows = [...windows, plain(item?.emotionalArc)].filter(Boolean);
+    const stats = (localizedWindows.length ? localizedWindows : [plain(item?.title)])
+        .filter(Boolean)
+        .map(passage => retrievalFieldStats({
+            title: item?.title,
+            participants: item?.participants,
+            passage,
+        }));
+    const result = stats.length ? stats : [profile.recordStats.get(item) || retrievalFieldStats(item)];
+    profile.passageStats?.set(item, result);
+    return result;
+}
+
 function searchableTerms(item) {
     return retrievalFieldStats(item).all;
 }
@@ -259,6 +282,7 @@ function retrievalProfile(world, recentMessages, expandedTerms) {
         documentFrequency,
         averageFieldLengths,
         recordStats,
+        passageStats: new Map(),
         identityVocabulary,
     };
 }
@@ -489,6 +513,7 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
             documentFrequency: new Map([...query].map(term => [term, 1])),
             averageFieldLengths: Object.fromEntries(Object.keys(RETRIEVAL_FIELDS).map(field => [field, 1])),
             recordStats: new Map(),
+            passageStats: new Map(),
             identityVocabulary: new Set(),
         };
     const prepared = (items || []).map((item, index) => {
@@ -505,6 +530,14 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
         const directMatch = directConceptMatch(stats, profile, category);
         const coherentMatch = coherentConceptMatch(stats, profile, profile.expandedGroups);
         const compactMatch = compactConceptMatch(stats, profile, profile.expandedGroups);
+        const localizedPassages = category === 'capsule' ? capsulePassageStats(item, profile) : [];
+        const passageDirectMatch = category === 'capsule'
+            ? localizedPassages.some(passage => directConceptMatch(passage, profile, category))
+            : directMatch;
+        const passageExpandedMatch = category === 'capsule'
+            ? localizedPassages.some(passage => coherentConceptMatch(passage, profile, profile.expandedGroups)
+                || compactConceptMatch(passage, profile, profile.expandedGroups))
+            : coherentMatch || compactMatch;
         const directIdentityMatches = new Set(directIdentityFields.identity || []);
         const directPairedIdentityMatch = pairedIdentityMatch(item, profile.identityFocus || profile.direct);
         const expandedPairedIdentityMatch = profile.expandedGroups
@@ -546,10 +579,10 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
         const addressExpandedContentMatch = isAddressFact(item) && (expandedFields.body || []).length > 0;
         const directEligible = isAddressFact(item)
             ? directPairedIdentityMatch || (directMatch && addressDirectContentMatch)
-            : directMatch || directIdentityCentral;
+            : passageDirectMatch || directIdentityCentral;
         const expandedEligible = isAddressFact(item)
             ? (coherentMatch || compactMatch) && addressExpandedContentMatch
-            : coherentMatch || compactMatch || expandedIdentityCentral;
+            : passageExpandedMatch || expandedIdentityCentral;
         const eligible = directEligible || expandedEligible;
         const directContentMatches = directMatches.filter(term => !queryTermVariants(term, true)
             .some(variant => profile.identityVocabulary.has(variant)));
@@ -579,6 +612,7 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
             eligible,
             directEligible,
             expandedEligible,
+            passageLocalized: category === 'capsule',
             weakDirectEvidenceKey,
             directDiminishingMultiplier: 1,
             directScore,
@@ -1144,6 +1178,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
                 supportRank: result?.supportRank || 0,
                 sourceLinked: Boolean(result?.connection?.sourceLinked),
                 hierarchyLinked: Boolean(result?.connection?.hierarchyLinked),
+                passageLocalized: Boolean(result?.passageLocalized),
                 reason,
             });
         }
@@ -1469,7 +1504,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.127';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.128';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';

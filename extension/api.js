@@ -1,5 +1,5 @@
 import { getRequestHeaders } from '/script.js';
-import { createFileStorageApi } from './file-storage.js?v=0.14.0-standalone.127';
+import { createFileStorageApi } from './file-storage.js?v=0.14.0-standalone.128';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 
 const BASE = '/api/plugins/continuity-memory';
