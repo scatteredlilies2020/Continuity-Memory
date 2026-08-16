@@ -240,9 +240,9 @@ function retrievalProfile(world, recentMessages, expandedTerms) {
         for (const field of Object.keys(RETRIEVAL_FIELDS)) totalFieldLengths[field] += stats.fields[field].tokens.length;
         for (const term of stats.all) documentFrequency.set(term, (documentFrequency.get(term) || 0) + 1);
     }
-    for (const term of resolvedIdentityTerms(world, [latestUser?.name, directText])) direct.add(term);
+    const identityFocus = new Set([...direct, ...resolvedIdentityTerms(world, [latestUser?.name, directText])]);
     for (const term of speaker) {
-        if (queryTermVariants(term, true).some(variant => identityVocabulary.has(variant))) direct.add(term);
+        if (queryTermVariants(term, true).some(variant => identityVocabulary.has(variant))) identityFocus.add(term);
     }
     const focus = new Set([...direct, ...expanded]);
     const documentCount = Math.max(1, records.length);
@@ -254,6 +254,7 @@ function retrievalProfile(world, recentMessages, expandedTerms) {
         expandedGroups,
         context,
         focus,
+        identityFocus,
         documentCount,
         documentFrequency,
         averageFieldLengths,
@@ -285,6 +286,11 @@ function queryDocumentFrequency(profile, term, includeMorphology = false) {
     const exact = Number(profile.documentFrequency?.get(variants[0])) || 0;
     if (exact) return exact;
     return variants.slice(1).reduce((sum, variant) => sum + (Number(profile.documentFrequency?.get(variant)) || 0), 0);
+}
+
+function repeatedEvidenceMultiplier(repetition) {
+    const count = Math.max(1, Number(repetition) || 1);
+    return 1 / Math.sqrt(1 + 0.75 * (count - 1));
 }
 
 function bm25fTermScore(stats, profile, term) {
@@ -478,6 +484,7 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
             expandedGroups: [],
             context: new Set(),
             focus: query,
+            identityFocus: query,
             documentCount: 1,
             documentFrequency: new Map([...query].map(term => [term, 1])),
             averageFieldLengths: Object.fromEntries(Object.keys(RETRIEVAL_FIELDS).map(field => [field, 1])),
@@ -493,12 +500,13 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
         const contextMatches = matchingTerms(profile.context);
         const focusMatches = new Set([...directMatches, ...expandedMatches]);
         const directFields = matchingFields(stats, profile.direct);
+        const directIdentityFields = matchingFields(stats, profile.identityFocus || profile.direct);
         const expandedFields = matchingFields(stats, profile.expanded, true);
         const directMatch = directConceptMatch(stats, profile, category);
         const coherentMatch = coherentConceptMatch(stats, profile, profile.expandedGroups);
         const compactMatch = compactConceptMatch(stats, profile, profile.expandedGroups);
-        const directIdentityMatches = new Set(directFields.identity || []);
-        const directPairedIdentityMatch = pairedIdentityMatch(item, profile.direct);
+        const directIdentityMatches = new Set(directIdentityFields.identity || []);
+        const directPairedIdentityMatch = pairedIdentityMatch(item, profile.identityFocus || profile.direct);
         const expandedPairedIdentityMatch = profile.expandedGroups
             .some(group => pairedIdentityMatch(item, group, true));
         const expandedRelationshipMatch = profile.expandedGroups.some(group => {
@@ -543,6 +551,15 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
             ? (coherentMatch || compactMatch) && addressExpandedContentMatch
             : coherentMatch || compactMatch || expandedIdentityCentral;
         const eligible = directEligible || expandedEligible;
+        const directContentMatches = directMatches.filter(term => !queryTermVariants(term, true)
+            .some(variant => profile.identityVocabulary.has(variant)));
+        const weakDirectEvidenceKey = directEligible
+            && !directIdentityCentral
+            && !expandedEligible
+            && directContentMatches.length === 1
+            && queryDocumentFrequency(profile, directContentMatches[0], true) > 3
+            ? directContentMatches[0]
+            : '';
         const metadataScore = (Number(item.importance) || 3) + recency(item) + extra(item);
         const localScore = Math.max(directScore, expandedScore)
             + Math.min(1.5, contextMatches.length * 0.15)
@@ -562,6 +579,8 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
             eligible,
             directEligible,
             expandedEligible,
+            weakDirectEvidenceKey,
+            directDiminishingMultiplier: 1,
             directScore,
             expandedScore,
             localScore,
@@ -574,10 +593,22 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
         .map((result, index) => [result.item, index + 1]));
     const directRanks = sourceRanks('directScore', 'directEligible');
     const expandedRanks = sourceRanks('expandedScore', 'expandedEligible');
+    const repeatedDirectEvidence = new Map();
+    const directOrder = prepared
+        .filter(result => result.directEligible && result.directScore > 0)
+        .sort((left, right) => right.directScore - left.directScore || right.localScore - left.localScore);
+    for (const result of directOrder) {
+        if (!result.weakDirectEvidenceKey) continue;
+        const repetition = (repeatedDirectEvidence.get(result.weakDirectEvidenceKey) || 0) + 1;
+        repeatedDirectEvidence.set(result.weakDirectEvidenceKey, repetition);
+        result.directDiminishingMultiplier = repeatedEvidenceMultiplier(repetition);
+    }
     for (const result of prepared) {
         result.directRank = directRanks.get(result.item) || 0;
         result.expandedRank = expandedRanks.get(result.item) || 0;
-        const directRrf = result.directRank ? 1 / (RRF_OFFSET + result.directRank) : 0;
+        const directRrf = result.directRank
+            ? result.directDiminishingMultiplier / (RRF_OFFSET + result.directRank)
+            : 0;
         const expandedRrf = result.expandedRank ? 1 / (RRF_OFFSET + result.expandedRank) : 0;
         const semanticRrf = result.semanticRank > 0 ? 1 / (RRF_OFFSET + result.semanticRank) : 0;
         result.score = (directRrf + expandedRrf + semanticRrf) * 1000 + result.localScore * 0.01;
@@ -893,6 +924,9 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
                 directScore: Number.isFinite(result?.directScore) ? Number(result.directScore.toFixed(4)) : null,
                 aiExpandedScore: Number.isFinite(result?.expandedScore) ? Number(result.expandedScore.toFixed(4)) : null,
                 directRank: result?.directRank || 0,
+                directDiminishingMultiplier: Number.isFinite(result?.directDiminishingMultiplier)
+                    ? Number(result.directDiminishingMultiplier.toFixed(4))
+                    : 1,
                 aiExpandedRank: result?.expandedRank || 0,
                 score: Number.isFinite(result?.score) ? Number(result.score.toFixed(4)) : null,
                 semanticRank: result?.semanticRank || 0,
@@ -1064,7 +1098,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.117';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.119';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';

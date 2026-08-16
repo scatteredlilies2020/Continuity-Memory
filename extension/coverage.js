@@ -1,4 +1,4 @@
-import { fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.117';
+import { fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.119';
 
 export const EXTRACTION_VERSION = 11;
 

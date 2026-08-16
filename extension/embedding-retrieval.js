@@ -1,8 +1,8 @@
 import { getRequestHeaders } from '/script.js';
 import { buildEmbeddingDocuments, buildEmbeddingQuery, semanticRanksFromResponse } from './embedding-index.js';
-import { resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.117';
-import { getSettings } from './settings.js?v=0.14.0-standalone.117';
-import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.117';
+import { resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.119';
+import { getSettings } from './settings.js?v=0.14.0-standalone.119';
+import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.119';
 
 const syncedIndexes = new Map();
 const activeSyncs = new Map();

@@ -62,6 +62,29 @@ test('BM25F favors a heading match over an incidental body match', () => {
     assert.deepEqual(heading.matchedFields.direct.heading, ['harrowing', '~harrow']);
 });
 
+test('repeated broad single-term evidence diminishes softly without excluding recall', () => {
+    const target = world({
+        events: [
+            event('current', 'Cistern investigation plan', 'Subaru will inspect Gate 4.'),
+            ...Array.from({ length: 5 }, (_, index) => event(
+                `old-plan-${index}`,
+                `Old plan ${index}`,
+                'An unrelated historical task.',
+            )),
+        ],
+    });
+    const result = buildMemoryPrompt(target, user('cistern plan'), 5000);
+    const selected = selections(result, 'Past events');
+    const current = selected.find(item => item.id === 'current');
+    const oldPlans = selected.filter(item => item.id.startsWith('old-plan-'));
+
+    assert.equal(selected.length, 6);
+    assert.equal(current.directDiminishingMultiplier, 1);
+    assert.equal(oldPlans[0].directDiminishingMultiplier, 1);
+    assert.ok(oldPlans.slice(1).every(item => item.directDiminishingMultiplier < 1));
+    assert.ok(oldPlans.at(-1).directDiminishingMultiplier < oldPlans[1].directDiminishingMultiplier);
+});
+
 test('an accurate AI phrase qualifies while a lone rare word from it does not', () => {
     const target = world({
         events: [
