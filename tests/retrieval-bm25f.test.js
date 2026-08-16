@@ -73,6 +73,32 @@ test('an accurate AI phrase qualifies while a lone rare word from it does not', 
     assert.deepEqual(selections(result, 'Past events').map(item => item.id), ['accurate']);
 });
 
+test('generic one-word AI expansions require corpus rarity while unique ones still recall', () => {
+    const target = world({
+        events: [
+            ...Array.from({ length: 8 }, (_, index) => event(`agreement-${index}`, `Agreement ${index}`, 'Routine terms were recorded.')),
+            event('harrowing', 'The Harrowing', 'The ordeal ended at dawn.'),
+        ],
+    });
+    const generic = buildMemoryPrompt(target, user('Next scene.'), 3000, '', ['agreement']);
+    assert.deepEqual(selections(generic, 'Past events'), []);
+
+    const unique = buildMemoryPrompt(target, user('Next scene.'), 3000, '', ['Harrowing']);
+    assert.deepEqual(selections(unique, 'Past events').map(item => item.id), ['harrowing']);
+});
+
+test('separate AI keywords need several agreeing signals instead of one broad word', () => {
+    const target = world({
+        events: [
+            event('agreement', 'Felt sets the price', 'Samael accepts the terms.', ['Samael', 'Felt']),
+            event('names-only', 'Street crossing', 'They cross the street.', ['Samael', 'Felt']),
+            ...Array.from({ length: 8 }, (_, index) => event(`price-only-${index}`, `Market price ${index}`, 'A merchant updates a list.')),
+        ],
+    });
+    const result = buildMemoryPrompt(target, user('Next scene.'), 3000, '', ['Samael', 'Felt', 'price']);
+    assert.deepEqual(selections(result, 'Past events').map(item => item.id), ['agreement']);
+});
+
 test('local retrieval handles a unique term and ordinary English morphology without AI', () => {
     const target = world({
         events: [event('harrowing', 'The Harrowing', 'The ordeal ended at dawn.')],

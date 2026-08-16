@@ -242,6 +242,13 @@ function inverseDocumentFrequency(profile, term) {
     return Math.log(1 + (documents - frequency + 0.5) / (frequency + 0.5));
 }
 
+function queryDocumentFrequency(profile, term, includeMorphology = false) {
+    const variants = queryTermVariants(term, includeMorphology);
+    const exact = Number(profile.documentFrequency?.get(variants[0])) || 0;
+    if (exact) return exact;
+    return variants.slice(1).reduce((sum, variant) => sum + (Number(profile.documentFrequency?.get(variant)) || 0), 0);
+}
+
 function bm25fTermScore(stats, profile, term) {
     let weightedFrequency = 0;
     for (const [field, settings] of Object.entries(RETRIEVAL_FIELDS)) {
@@ -359,23 +366,39 @@ function coherentConceptMatch(stats, profile, groups) {
 }
 
 function compactConceptMatch(stats, profile, groups) {
-    return groups.some(group => {
+    const phraseOrRareMatch = groups.some(group => {
         if (group.size > 2) return false;
         const ordered = [...group];
         if (ordered.length === 1) {
             const [term] = ordered;
-            return !profile.identityVocabulary.has(term)
+            const rareLimit = Math.max(4, Math.ceil(profile.documentCount * 0.005));
+            const frequency = queryDocumentFrequency(profile, term, true);
+            return !queryTermVariants(term, true).some(variant => profile.identityVocabulary.has(variant))
                 && (fieldHasQueryTerm(stats.fields.heading, term, true) || fieldHasQueryTerm(stats.fields.body, term, true))
+                && frequency > 0
+                && frequency <= rareLimit
                 && inverseDocumentFrequency(profile, term) > 0;
         }
+        if (orderedCoverageWithin(stats.fields.heading.tokens, ordered, 2, 10, true)) return true;
         const anchorCount = ordered.filter(term => profile.identityVocabulary.has(term)).length;
         if (anchorCount === ordered.length) return false;
-        return orderedCoverageWithin(stats.fields.heading.tokens, ordered, 2, 10, true)
-            || orderedCoverageWithin(stats.fields.body.tokens, ordered, 2, 10, true)
+        return orderedCoverageWithin(stats.fields.body.tokens, ordered, 2, 10, true)
             || (ordered.some(term => fieldHasQueryTerm(stats.fields.identity, term, true))
                 && ordered.some(term => !profile.identityVocabulary.has(term)
                     && (fieldHasQueryTerm(stats.fields.heading, term, true) || fieldHasQueryTerm(stats.fields.body, term, true))));
     });
+    if (phraseOrRareMatch) return true;
+
+    const singletonTerms = groups.filter(group => group.size === 1).flatMap(group => [...group]);
+    const structuredIdentityMatches = singletonTerms.filter(term => queryTermVariants(term, true)
+        .some(variant => profile.identityVocabulary.has(variant))
+        && (fieldHasQueryTerm(stats.fields.identity, term, true) || fieldHasQueryTerm(stats.fields.anchor, term, true)));
+    const contentMatches = singletonTerms.filter(term => !queryTermVariants(term, true)
+        .some(variant => profile.identityVocabulary.has(variant))
+        && (fieldHasQueryTerm(stats.fields.heading, term, true) || fieldHasQueryTerm(stats.fields.body, term, true)));
+    return (structuredIdentityMatches.length >= 2 && contentMatches.length >= 1)
+        || (structuredIdentityMatches.length >= 1 && contentMatches.length >= 2)
+        || contentMatches.length >= 3;
 }
 
 function directConceptMatch(stats, profile, category = '') {
@@ -435,11 +458,14 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
         const coherentMatch = coherentConceptMatch(stats, profile, profile.expandedGroups);
         const compactMatch = compactConceptMatch(stats, profile, profile.expandedGroups);
         const directIdentityMatches = new Set(directFields.identity || []);
-        const expandedIdentityMatches = new Set(expandedFields.identity || []);
         const directPairedIdentityMatch = [...profile.direct]
             .filter(term => stats.fields.identity.unique.has(term)).length >= 2;
         const expandedPairedIdentityMatch = profile.expandedGroups.some(group => [...group]
             .filter(term => fieldHasQueryTerm(stats.fields.identity, term, true)).length >= 2);
+        const expandedSingletonIdentityPair = profile.expandedGroups
+            .filter(group => group.size === 1)
+            .flatMap(group => [...group])
+            .filter(term => fieldHasQueryTerm(stats.fields.identity, term, true)).length >= 2;
         const expandedRelationshipMatch = profile.expandedGroups.some(group => {
             const paired = [...group].filter(term => fieldHasQueryTerm(stats.fields.identity, term, true)).length >= 2;
             if (!paired) return false;
@@ -449,12 +475,17 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
                 || fieldHasQueryTerm(stats.fields.body, term, true));
         });
         const directIdentityMatch = [...profile.direct].some(term => stats.fields.identity.unique.has(term));
+        const expandedEntityMatch = profile.expandedGroups.some(group => {
+            const identityMatchCount = [...group]
+                .filter(term => fieldHasQueryTerm(stats.fields.identity, term, true)).length;
+            return group.size === 1 ? identityMatchCount === 1 : identityMatchCount >= 2;
+        });
         const directIdentityCentral = (category === 'entity' && directIdentityMatches.size > 0)
             || (category === 'relationship' && directPairedIdentityMatch)
             || (isAddressFact(item) && (directPairedIdentityMatch || directIdentityMatch));
-        const expandedIdentityCentral = (category === 'entity' && expandedIdentityMatches.size > 0)
+        const expandedIdentityCentral = (category === 'entity' && expandedEntityMatch)
             || (category === 'relationship' && expandedRelationshipMatch)
-            || (isAddressFact(item) && expandedPairedIdentityMatch);
+            || (isAddressFact(item) && (expandedPairedIdentityMatch || expandedSingletonIdentityPair));
         const matches = focusMatches.size;
         const directScore = queryScore(stats, profile, profile.direct);
         const expandedScore = expandedQueryScore(stats, profile);
