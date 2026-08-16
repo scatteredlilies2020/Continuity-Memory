@@ -39,6 +39,7 @@ const chatPath = argument('chat');
 const query = argument('query');
 const expanded = JSON.parse(argument('expanded', '[]'));
 const recentCount = Math.max(2, Number(argument('recent', '6')) || 6);
+const compact = process.argv.includes('--compact');
 if (!manifestPath || !chatPath) throw new Error('--manifest and --chat are required.');
 
 const world = await loadWorld(manifestPath);
@@ -48,9 +49,25 @@ const recent = latestUser ? [...chat.slice(-(recentCount - 1)), latestUser] : ch
 const chatKey = Object.keys(world.sources || {})[0] || '';
 const result = buildMemoryPrompt(world, recent, 12800, chatKey, expanded);
 
+const diagnostics = compact ? {
+    query: result.retrievalDiagnostics?.query,
+    selections: (result.retrievalDiagnostics?.selections || []).map(selection => ({
+        section: selection.section,
+        id: selection.id,
+        label: selection.label,
+        matchedTerms: selection.matchedTerms,
+        directScore: selection.directScore,
+        aiExpandedScore: selection.aiExpandedScore,
+        directRank: selection.directRank,
+        aiExpandedRank: selection.aiExpandedRank,
+        score: selection.score,
+        reason: selection.reason,
+    })),
+} : result.retrievalDiagnostics;
+
 console.log(JSON.stringify({
     query: latestUser?.mes || recent.at(-1)?.mes || '',
     expanded,
     estimatedTokens: result.estimatedTokens,
-    diagnostics: result.retrievalDiagnostics,
+    diagnostics,
 }, null, 2));

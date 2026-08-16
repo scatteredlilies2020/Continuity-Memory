@@ -1,7 +1,14 @@
-const STOP_WORDS = new Set('a an the and that this with from into have has had was were are for but not you your they them their she her him his its our out about just then than there here what when where who how why would could should been being also very more most some any all to of in on at as by or if it is be do we he me my up no so us'.split(' '));
-const LOW_SIGNAL_RECALL_TERMS = new Set('one tell told said says like thing things good bad still current former earlier previous previously member staff person people place time day way work working going went come came look looks know knew want wants house home room'.split(' '));
+const STOP_WORDS = new Set('a an the and that this with from into have has had was were are for but not you your they them their she her him his its our out about just then than there here what when where who how why would could should been being also very more most some any all to of in on at as by or if it is be do we he me my up no so us during between through within without among around'.split(' '));
 const CJK_RUN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
 const LIFECYCLE_GUIDANCE = 'Raw chat controls. Events and plans outside Open matters are past; current conditions appear only under Current state.';
+const BM25_K1 = 1.2;
+const RRF_OFFSET = 20;
+const RETRIEVAL_FIELDS = {
+    identity: { weight: 0.8, lengthWeight: 0.2 },
+    anchor: { weight: 0.45, lengthWeight: 0.2 },
+    heading: { weight: 2.2, lengthWeight: 0.3 },
+    body: { weight: 1, lengthWeight: 0.75 },
+};
 
 import { isFreshActiveState, latestSourceInRawTail, sourcedWhollyInRawTail } from './state-lifecycle.js';
 import { anchoredRelativeText, anchoredStoryTime } from './temporal-anchors.js';
@@ -11,30 +18,68 @@ function plain(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
 }
 
-function terms(value) {
+function englishMorphologyToken(value) {
+    if (!/^[a-z]+$/u.test(value) || value.length < 5) return '';
+    const rules = [
+        [/ization$/u, 'ize'], [/ational$/u, 'ate'], [/fulness$/u, 'ful'], [/ousness$/u, 'ous'],
+        [/iveness$/u, 'ive'], [/tional$/u, 'tion'], [/biliti$/u, 'ble'], [/aliti$/u, 'al'],
+        [/iviti$/u, 'ive'], [/ements?$/u, ''], [/ments?$/u, ''], [/ances?$/u, ''],
+        [/ences?$/u, ''], [/ness$/u, ''], [/ingly$/u, ''], [/edly$/u, ''], [/ing$/u, ''],
+        [/ed$/u, ''], [/al$/u, ''], [/e$/u, ''], [/s$/u, ''],
+    ];
+    for (const [pattern, replacement] of rules) {
+        if (!pattern.test(value)) continue;
+        const stem = value.replace(pattern, replacement);
+        return stem.length >= 4 && stem !== value ? `~${stem}` : '';
+    }
+    return '';
+}
+
+function queryTermVariants(term, includeMorphology = false) {
+    const morphology = includeMorphology && !term.startsWith('~') ? englishMorphologyToken(term) : '';
+    return morphology ? [term, morphology] : [term];
+}
+
+function fieldHasQueryTerm(field, term, includeMorphology = false) {
+    return queryTermVariants(term, includeMorphology).some(variant => field.unique.has(variant));
+}
+
+function statsHasQueryTerm(stats, term, includeMorphology = false) {
+    return Object.values(stats.fields).some(field => fieldHasQueryTerm(field, term, includeMorphology));
+}
+
+function tokenList(value, includeMorphology = false) {
     const source = plain(value);
-    const found = new Set();
+    const found = [];
     for (const run of source.match(CJK_RUN) || []) {
         const characters = [...run.toLocaleLowerCase()];
-        if (characters.length <= 4) found.add(characters.join(''));
+        if (characters.length <= 4) found.push(characters.join(''));
         if (characters.length > 1) {
-            for (let index = 0; index < characters.length - 1; index++) found.add(characters.slice(index, index + 2).join(''));
+            for (let index = 0; index < characters.length - 1; index++) found.push(characters.slice(index, index + 2).join(''));
         }
         if (characters.length > 2) {
-            for (let index = 0; index < characters.length - 2; index++) found.add(characters.slice(index, index + 3).join(''));
+            for (let index = 0; index < characters.length - 2; index++) found.push(characters.slice(index, index + 3).join(''));
         }
     }
     const nonCjk = source.replace(CJK_RUN, ' ');
-    for (const token of nonCjk.match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu) || []) {
-        const normalized = token.toLocaleLowerCase();
+    for (const token of nonCjk.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []) {
+        const normalized = token.toLocaleLowerCase().replace(/['’]s$/u, '');
         const length = [...normalized].length;
         const upperCaseIdentifier = token === token.toLocaleUpperCase() && token !== token.toLocaleLowerCase();
-        if (length >= 3 && !STOP_WORDS.has(normalized)) found.add(normalized);
-        else if (length === 2 && (!STOP_WORDS.has(normalized) || upperCaseIdentifier)) found.add(normalized);
+        if (length >= 3 && !STOP_WORDS.has(normalized)) {
+            found.push(normalized);
+            const morphology = includeMorphology ? englishMorphologyToken(normalized) : '';
+            if (morphology) found.push(morphology);
+        } else if (length === 2 && (!STOP_WORDS.has(normalized) || upperCaseIdentifier)) found.push(normalized);
         // Single Latin letters and digits produce excessive substring matches
         // (for example, the article "A" matching nearly every memory row).
     }
-    return new Set([...found].slice(-512));
+    if (found.length <= 4096) return found;
+    return [...found.slice(0, 2048), ...found.slice(-2048)];
+}
+
+function terms(value, includeMorphology = false) {
+    return new Set(tokenList(value, includeMorphology));
 }
 
 function estimatedTokens(value) {
@@ -69,22 +114,60 @@ function searchable(item) {
         .join(' '));
 }
 
-function searchableTerms(item) {
-    return terms(searchable(item));
+function textValues(value) {
+    if (Array.isArray(value)) return value.flatMap(textValues);
+    if (value && typeof value === 'object') return Object.values(value).flatMap(textValues);
+    if (typeof value === 'string' || typeof value === 'number') return [value];
+    return [];
 }
 
-function identityTerms(item) {
-    return terms([
+function retrievalFieldText(item) {
+    const identityKeys = new Set(['name', 'subject', 'from', 'to', 'aliases']);
+    const headingKeys = new Set(['title', 'topic', 'predicate', 'attribute', 'kind', 'type', 'category']);
+    const ignoredKeys = new Set(['id', 'sources', 'createdAt', 'updatedAt', 'chatKey', 'from', 'to', 'importance', 'revision', 'capsuleIds', 'arcIds']);
+    const identity = [
         item?.name,
         item?.subject,
         item?.from,
         item?.to,
-        item?.title,
-        item?.topic,
-        item?.predicate,
-        ...(item?.participants || []),
+        isAddressFact(item) ? addressFactAddressee(item) : '',
         ...(item?.aliases || []),
-    ].filter(Boolean).join(' '));
+    ].filter(Boolean).join(' ');
+    const anchor = (item?.participants || []).filter(Boolean).join(' ');
+    const heading = [...headingKeys].flatMap(key => textValues(item?.[key])).join(' ');
+    const body = Object.entries(item || {})
+        .filter(([key]) => key !== 'participants' && !identityKeys.has(key) && !headingKeys.has(key) && !ignoredKeys.has(key))
+        .flatMap(([, value]) => textValues(value))
+        .join(' ');
+    return { identity, anchor, heading, body };
+}
+
+function retrievalFieldStats(item) {
+    const text = retrievalFieldText(item);
+    const fields = {};
+    const all = new Set();
+    for (const field of Object.keys(RETRIEVAL_FIELDS)) {
+        const tokens = tokenList(text[field], true);
+        const counts = new Map();
+        for (const token of tokens) {
+            counts.set(token, (counts.get(token) || 0) + 1);
+            all.add(token);
+        }
+        fields[field] = { tokens, counts, unique: new Set(tokens) };
+    }
+    return { fields, all };
+}
+
+function searchableTerms(item) {
+    return retrievalFieldStats(item).all;
+}
+
+function identityTerms(item) {
+    return terms(retrievalFieldText(item).identity);
+}
+
+function headingTerms(item) {
+    return terms(retrievalFieldText(item).heading);
 }
 
 function retrievalRecords(world) {
@@ -101,22 +184,44 @@ function retrievalProfile(world, recentMessages, expandedTerms) {
     const latestUser = recent.slice().reverse().find(message => message?.is_user === true)
         || recent[recent.length - 1]
         || {};
-    const direct = terms(retrievalMessageText(latestUser));
-    const expanded = terms((expandedTerms || []).join(' '));
+    const direct = terms(retrievalMessageText(latestUser), true);
+    const expandedGroups = (expandedTerms || [])
+        .map(value => terms(value))
+        .filter(group => group.size);
+    const expanded = new Set(expandedGroups.flatMap(group => [...group]));
     const context = terms(recent
         .filter(message => message !== latestUser)
         .map(retrievalMessageText)
         .join(' '));
     const focus = new Set([...direct, ...expanded]);
-    const frequencies = new Map([...focus].map(term => [term, 0]));
     const records = retrievalRecords(world);
+    const recordStats = new Map();
+    const documentFrequency = new Map();
+    const identityVocabulary = new Set();
+    const totalFieldLengths = Object.fromEntries(Object.keys(RETRIEVAL_FIELDS).map(field => [field, 0]));
     for (const item of records) {
-        const haystack = searchableTerms(item);
-        for (const term of focus) if (haystack.has(term)) frequencies.set(term, frequencies.get(term) + 1);
+        const stats = retrievalFieldStats(item);
+        recordStats.set(item, stats);
+        for (const term of stats.fields.identity.unique) identityVocabulary.add(term);
+        for (const term of stats.fields.anchor.unique) identityVocabulary.add(term);
+        for (const field of Object.keys(RETRIEVAL_FIELDS)) totalFieldLengths[field] += stats.fields[field].tokens.length;
+        for (const term of stats.all) documentFrequency.set(term, (documentFrequency.get(term) || 0) + 1);
     }
-    const rareLimit = Math.max(4, Math.ceil(records.length * 0.02));
-    const rare = new Set([...focus].filter(term => (frequencies.get(term) || 0) <= rareLimit));
-    return { direct, expanded, context, focus, rare };
+    const documentCount = Math.max(1, records.length);
+    const averageFieldLengths = Object.fromEntries(Object.keys(RETRIEVAL_FIELDS)
+        .map(field => [field, Math.max(1, totalFieldLengths[field] / documentCount)]));
+    return {
+        direct,
+        expanded,
+        expandedGroups,
+        context,
+        focus,
+        documentCount,
+        documentFrequency,
+        averageFieldLengths,
+        recordStats,
+        identityVocabulary,
+    };
 }
 
 function recency(item) {
@@ -131,24 +236,236 @@ function semanticRank(semanticRanks, category, item) {
     return Number(semanticRanks.get(embeddingRecordKey(category, item.id))) || 0;
 }
 
+function inverseDocumentFrequency(profile, term) {
+    const documents = Math.max(1, Number(profile.documentCount) || 1);
+    const frequency = Math.max(0, Number(profile.documentFrequency?.get(term)) || 0);
+    return Math.log(1 + (documents - frequency + 0.5) / (frequency + 0.5));
+}
+
+function bm25fTermScore(stats, profile, term) {
+    let weightedFrequency = 0;
+    for (const [field, settings] of Object.entries(RETRIEVAL_FIELDS)) {
+        const fieldStats = stats.fields[field];
+        const frequency = fieldStats.counts.get(term) || 0;
+        if (!frequency) continue;
+        const averageLength = Math.max(1, profile.averageFieldLengths[field] || 1);
+        const normalizedLength = (1 - settings.lengthWeight)
+            + settings.lengthWeight * (fieldStats.tokens.length / averageLength);
+        weightedFrequency += settings.weight * frequency / Math.max(0.1, normalizedLength);
+    }
+    if (!weightedFrequency) return 0;
+    const morphologyWeight = term.startsWith('~') ? 0.35 : 1;
+    return morphologyWeight * inverseDocumentFrequency(profile, term)
+        * ((BM25_K1 + 1) * weightedFrequency / (BM25_K1 + weightedFrequency));
+}
+
+function queryScore(stats, profile, queryTerms, includeMorphology = false) {
+    return [...queryTerms].reduce((score, term) => {
+        const variants = queryTermVariants(term, includeMorphology);
+        const exact = bm25fTermScore(stats, profile, variants[0]);
+        const matched = exact || variants.slice(1).reduce((sum, variant) => sum + bm25fTermScore(stats, profile, variant), 0);
+        return score + matched;
+    }, 0);
+}
+
+function expandedQueryScore(stats, profile) {
+    const scores = profile.expandedGroups
+        .map(group => {
+            const matched = [...group].filter(term => statsHasQueryTerm(stats, term, true));
+            const base = queryScore(stats, profile, group, true);
+            const coherence = matched.length >= 2
+                ? matched.reduce((sum, term) => sum + inverseDocumentFrequency(profile, term), 0)
+                    * Math.min(0.3, 0.1 * (matched.length - 1))
+                : 0;
+            return base + coherence;
+        })
+        .filter(score => score > 0)
+        .sort((left, right) => right - left);
+    if (!scores.length) return 0;
+    return scores[0] + scores.slice(1).reduce((sum, score) => sum + score * 0.2, 0);
+}
+
+function matchingFields(stats, source, includeMorphology = false) {
+    const matches = {};
+    for (const field of Object.keys(RETRIEVAL_FIELDS)) {
+        const fieldMatches = [...source].filter(term => fieldHasQueryTerm(stats.fields[field], term, includeMorphology));
+        if (fieldMatches.length) matches[field] = fieldMatches;
+    }
+    return matches;
+}
+
+function orderedPairWithin(tokens, orderedTerms, window = 8) {
+    for (let left = 0; left < orderedTerms.length - 1; left++) {
+        for (let right = left + 1; right < orderedTerms.length; right++) {
+            const first = orderedTerms[left];
+            const second = orderedTerms[right];
+            for (let index = 0; index < tokens.length; index++) {
+                if (tokens[index] !== first) continue;
+                const end = Math.min(tokens.length, index + window + 1);
+                if (tokens.slice(index + 1, end).includes(second)) return true;
+            }
+        }
+    }
+    return false;
+}
+
+function orderedCoverageWithin(tokens, orderedTerms, required, window = 10, includeMorphology = false) {
+    if (required <= 0) return true;
+    for (let queryStart = 0; queryStart < orderedTerms.length; queryStart++) {
+        for (let tokenStart = 0; tokenStart < tokens.length; tokenStart++) {
+            if (!queryTermVariants(orderedTerms[queryStart], includeMorphology).includes(tokens[tokenStart])) continue;
+            let matches = 1;
+            let lastQuery = queryStart;
+            const end = Math.min(tokens.length, tokenStart + window + 1);
+            for (let tokenIndex = tokenStart + 1; tokenIndex < end; tokenIndex++) {
+                const nextQuery = orderedTerms.findIndex((term, index) => index > lastQuery
+                    && queryTermVariants(term, includeMorphology).includes(tokens[tokenIndex]));
+                if (nextQuery < 0) continue;
+                matches++;
+                lastQuery = nextQuery;
+                if (matches >= required) return true;
+            }
+        }
+    }
+    return false;
+}
+
+function coherentConceptMatch(stats, profile, groups) {
+    return groups.some(group => {
+        const ordered = [...group];
+        const identityMatches = ordered.filter(term => fieldHasQueryTerm(stats.fields.identity, term, true));
+        const globalIdentityTerms = ordered.filter(term => queryTermVariants(term, true)
+            .some(variant => profile.identityVocabulary.has(variant)));
+        const structuredIdentityMatches = ordered.filter(term => fieldHasQueryTerm(stats.fields.identity, term, true)
+            || fieldHasQueryTerm(stats.fields.anchor, term, true));
+        const anchored = new Set([...identityMatches, ...globalIdentityTerms]);
+        const independentHeading = ordered.filter(term => fieldHasQueryTerm(stats.fields.heading, term, true) && !anchored.has(term));
+        const independentBody = ordered.filter(term => fieldHasQueryTerm(stats.fields.body, term, true) && !anchored.has(term));
+        const independentContent = new Set([...independentHeading, ...independentBody]);
+        const requiredCoverage = Math.max(2, Math.ceil(ordered.length * 0.6), globalIdentityTerms.length >= 2 ? 3 : 0);
+        const requiredContent = globalIdentityTerms.length >= 2 && ordered.length > 3 ? 2 : 1;
+        const identityPairRequired = globalIdentityTerms.length >= 2;
+        const fieldKeepsIdentityPair = field => !identityPairRequired
+            || structuredIdentityMatches.length >= 2
+            || globalIdentityTerms.filter(term => fieldHasQueryTerm(field, term, true)).length >= 2;
+        return (independentHeading.length >= requiredContent
+                && fieldKeepsIdentityPair(stats.fields.heading)
+                && orderedCoverageWithin(stats.fields.heading.tokens, ordered, requiredCoverage, 10, true))
+            || (independentBody.length >= requiredContent
+                && fieldKeepsIdentityPair(stats.fields.body)
+                && orderedCoverageWithin(stats.fields.body.tokens, ordered, requiredCoverage, 10, true))
+            || (identityMatches.length >= (identityPairRequired ? 2 : 1) && independentContent.size >= 2);
+    });
+}
+
+function compactConceptMatch(stats, profile, groups) {
+    return groups.some(group => {
+        if (group.size > 2) return false;
+        const ordered = [...group];
+        if (ordered.length === 1) {
+            const [term] = ordered;
+            return !profile.identityVocabulary.has(term)
+                && (fieldHasQueryTerm(stats.fields.heading, term, true) || fieldHasQueryTerm(stats.fields.body, term, true))
+                && inverseDocumentFrequency(profile, term) > 0;
+        }
+        const anchorCount = ordered.filter(term => profile.identityVocabulary.has(term)).length;
+        if (anchorCount === ordered.length) return false;
+        return orderedCoverageWithin(stats.fields.heading.tokens, ordered, 2, 10, true)
+            || orderedCoverageWithin(stats.fields.body.tokens, ordered, 2, 10, true)
+            || (ordered.some(term => fieldHasQueryTerm(stats.fields.identity, term, true))
+                && ordered.some(term => !profile.identityVocabulary.has(term)
+                    && (fieldHasQueryTerm(stats.fields.heading, term, true) || fieldHasQueryTerm(stats.fields.body, term, true))));
+    });
+}
+
+function directConceptMatch(stats, profile, category = '') {
+    const ordered = [...profile.direct];
+    const concepts = ordered.filter(term => !profile.identityVocabulary.has(term));
+    const surfaceConcepts = concepts.filter(term => !term.startsWith('~'));
+    const matchedHeading = concepts.filter(term => stats.fields.heading.unique.has(term));
+    const matchedBody = concepts.filter(term => stats.fields.body.unique.has(term));
+    const matchedSurfaceHeading = surfaceConcepts.filter(term => stats.fields.heading.unique.has(term));
+    const matchedSurfaceBody = surfaceConcepts.filter(term => stats.fields.body.unique.has(term));
+    const allSurfaceHeadingMatches = ordered.filter(term => !term.startsWith('~')
+        && stats.fields.heading.unique.has(term));
+    const identityMatch = ordered.some(term => stats.fields.identity.unique.has(term));
+    const anchorMatch = ordered.some(term => stats.fields.anchor.unique.has(term));
+    const anchoredContentMatch = matchedHeading.length > 0
+        || orderedPairWithin(stats.fields.body.tokens, matchedSurfaceBody)
+        || matchedBody.some(term => term.startsWith('~'))
+        || [...matchedHeading, ...matchedBody].some(term => (profile.documentFrequency.get(term) || 0) <= 3);
+    if (category === 'state' && identityMatch && (matchedHeading.length || matchedBody.length)) return true;
+    if ((identityMatch || anchorMatch) && anchoredContentMatch) return true;
+    if (surfaceConcepts.length <= 1 && matchedHeading.length) return true;
+    if (orderedPairWithin(stats.fields.heading.tokens, allSurfaceHeadingMatches)) return true;
+    if (surfaceConcepts.length <= 2 && (matchedHeading.length || matchedBody.length)) return true;
+    const maximumSingleMatchFrequency = surfaceConcepts.length <= 1 ? 3 : 1;
+    if ([...matchedHeading, ...matchedBody].some(term => (profile.documentFrequency.get(term) || 0) <= maximumSingleMatchFrequency
+        && inverseDocumentFrequency(profile, term) >= 1.25)) return true;
+    return orderedPairWithin(stats.fields.heading.tokens, matchedSurfaceHeading)
+        || orderedPairWithin(stats.fields.body.tokens, matchedSurfaceBody);
+}
+
 function rank(items, query, extra = () => 0, category = '', semanticRanks = new Map()) {
     const profile = query?.focus instanceof Set
         ? query
-        : { direct: query, expanded: new Set(), context: new Set(), focus: query, rare: query };
+        : {
+            direct: query,
+            expanded: new Set(),
+            expandedGroups: [],
+            context: new Set(),
+            focus: query,
+            documentCount: 1,
+            documentFrequency: new Map([...query].map(term => [term, 1])),
+            averageFieldLengths: Object.fromEntries(Object.keys(RETRIEVAL_FIELDS).map(field => [field, 1])),
+            recordStats: new Map(),
+            identityVocabulary: new Set(),
+        };
     const prepared = (items || []).map((item, index) => {
-        const haystack = searchableTerms(item);
-        const identities = identityTerms(item);
-        const matchingTerms = source => [...source].filter(term => haystack.has(term));
+        const stats = profile.recordStats.get(item) || retrievalFieldStats(item);
+        const matchingTerms = (source, includeMorphology = false) => [...source]
+            .filter(term => statsHasQueryTerm(stats, term, includeMorphology));
         const directMatches = matchingTerms(profile.direct);
-        const expandedMatches = matchingTerms(profile.expanded);
+        const expandedMatches = matchingTerms(profile.expanded, true);
         const contextMatches = matchingTerms(profile.context);
         const focusMatches = new Set([...directMatches, ...expandedMatches]);
-        const identityMatch = directMatches.some(term => identities.has(term));
-        const rareMatch = [...focusMatches].some(term => profile.rare.has(term) && !LOW_SIGNAL_RECALL_TERMS.has(term));
+        const directFields = matchingFields(stats, profile.direct);
+        const expandedFields = matchingFields(stats, profile.expanded, true);
+        const directMatch = directConceptMatch(stats, profile, category);
+        const coherentMatch = coherentConceptMatch(stats, profile, profile.expandedGroups);
+        const compactMatch = compactConceptMatch(stats, profile, profile.expandedGroups);
+        const directIdentityMatches = new Set(directFields.identity || []);
+        const expandedIdentityMatches = new Set(expandedFields.identity || []);
+        const directPairedIdentityMatch = [...profile.direct]
+            .filter(term => stats.fields.identity.unique.has(term)).length >= 2;
+        const expandedPairedIdentityMatch = profile.expandedGroups.some(group => [...group]
+            .filter(term => fieldHasQueryTerm(stats.fields.identity, term, true)).length >= 2);
+        const expandedRelationshipMatch = profile.expandedGroups.some(group => {
+            const paired = [...group].filter(term => fieldHasQueryTerm(stats.fields.identity, term, true)).length >= 2;
+            if (!paired) return false;
+            const content = [...group].filter(term => !queryTermVariants(term, true)
+                .some(variant => profile.identityVocabulary.has(variant)));
+            return content.length === 0 || content.some(term => fieldHasQueryTerm(stats.fields.heading, term, true)
+                || fieldHasQueryTerm(stats.fields.body, term, true));
+        });
+        const directIdentityMatch = [...profile.direct].some(term => stats.fields.identity.unique.has(term));
+        const directIdentityCentral = (category === 'entity' && directIdentityMatches.size > 0)
+            || (category === 'relationship' && directPairedIdentityMatch)
+            || (isAddressFact(item) && (directPairedIdentityMatch || directIdentityMatch));
+        const expandedIdentityCentral = (category === 'entity' && expandedIdentityMatches.size > 0)
+            || (category === 'relationship' && expandedRelationshipMatch)
+            || (isAddressFact(item) && expandedPairedIdentityMatch);
         const matches = focusMatches.size;
-        const eligible = identityMatch || rareMatch || matches >= 2;
-        const localScore = matches * 8 + directMatches.length * 4 + Math.min(3, contextMatches.length)
-            + (Number(item.importance) || 3) + recency(item) + extra(item) - index * 0.00001;
+        const directScore = queryScore(stats, profile, profile.direct);
+        const expandedScore = expandedQueryScore(stats, profile);
+        const directEligible = directMatch || directIdentityCentral;
+        const expandedEligible = coherentMatch || compactMatch || expandedIdentityCentral;
+        const eligible = directEligible || expandedEligible;
+        const metadataScore = (Number(item.importance) || 3) + recency(item) + extra(item);
+        const localScore = Math.max(directScore, expandedScore)
+            + Math.min(1.5, contextMatches.length * 0.15)
+            + metadataScore * 0.01
+            - index * 0.000001;
         return {
             item,
             matches,
@@ -156,20 +473,32 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
             directMatches,
             expandedMatches,
             contextMatches,
+            matchedFields: {
+                direct: directFields,
+                aiExpanded: expandedFields,
+            },
             eligible,
+            directEligible,
+            expandedEligible,
+            directScore,
+            expandedScore,
             localScore,
             semanticRank: semanticRank(semanticRanks, category, item),
         };
     });
-    if (!(semanticRanks instanceof Map) || !semanticRanks.size) {
-        return prepared.map(result => ({ ...result, score: result.localScore })).sort((a, b) => b.score - a.score);
-    }
-    const localOrder = prepared.filter(result => result.matches > 0).sort((a, b) => b.localScore - a.localScore);
-    const localRanks = new Map(localOrder.map((result, index) => [result.item, index + 1]));
+    const sourceRanks = (scoreKey, eligibilityKey) => new Map(prepared
+        .filter(result => result[eligibilityKey] && result[scoreKey] > 0)
+        .sort((left, right) => right[scoreKey] - left[scoreKey] || right.localScore - left.localScore)
+        .map((result, index) => [result.item, index + 1]));
+    const directRanks = sourceRanks('directScore', 'directEligible');
+    const expandedRanks = sourceRanks('expandedScore', 'expandedEligible');
     for (const result of prepared) {
-        const lexicalRrf = result.matches > 0 ? 1 / (20 + localRanks.get(result.item)) : 0;
-        const semanticRrf = result.semanticRank > 0 ? 1 / (20 + result.semanticRank) : 0;
-        result.score = (lexicalRrf + semanticRrf) * 1000 + result.localScore * 0.01;
+        result.directRank = directRanks.get(result.item) || 0;
+        result.expandedRank = expandedRanks.get(result.item) || 0;
+        const directRrf = result.directRank ? 1 / (RRF_OFFSET + result.directRank) : 0;
+        const expandedRrf = result.expandedRank ? 1 / (RRF_OFFSET + result.expandedRank) : 0;
+        const semanticRrf = result.semanticRank > 0 ? 1 / (RRF_OFFSET + result.semanticRank) : 0;
+        result.score = (directRrf + expandedRrf + semanticRrf) * 1000 + result.localScore * 0.01;
     }
     return prepared.sort((a, b) => b.score - a.score);
 }
@@ -438,9 +767,20 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         query: {
             direct: [...queryTerms.direct],
             aiExpanded: [...queryTerms.expanded],
+            aiExpandedGroups: queryTerms.expandedGroups.map(group => [...group]),
         },
         selections: [],
     };
+    const diagnosticLabel = item => plain(
+        item?.title
+        || item?.name
+        || item?.topic
+        || (item?.predicate ? `${item?.subject || ''} — ${item.predicate}` : '')
+        || (item?.attribute ? `${item?.subject || ''} — ${item.attribute}` : '')
+        || (item?.from || item?.to ? `${item?.from || '?'} → ${item?.to || '?'}${item?.kind ? ` (${item.kind})` : ''}` : '')
+        || item?.subject
+        || item?.id,
+    );
     const recordSelections = (section, category, results, reason = '') => {
         for (const result of results) {
             const item = result?.item || result;
@@ -448,11 +788,16 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
                 section,
                 category,
                 id: item?.id || null,
-                label: plain(item?.title || item?.name || item?.topic || item?.subject || item?.id),
+                label: diagnosticLabel(item),
                 matchedTerms: result?.matchedTerms || [],
                 directMatches: result?.directMatches || [],
                 aiExpandedMatches: result?.expandedMatches || [],
                 contextMatches: result?.contextMatches || [],
+                matchedFields: result?.matchedFields || {},
+                directScore: Number.isFinite(result?.directScore) ? Number(result.directScore.toFixed(4)) : null,
+                aiExpandedScore: Number.isFinite(result?.expandedScore) ? Number(result.expandedScore.toFixed(4)) : null,
+                directRank: result?.directRank || 0,
+                aiExpandedRank: result?.expandedRank || 0,
                 score: Number.isFinite(result?.score) ? Number(result.score.toFixed(4)) : null,
                 semanticRank: result?.semanticRank || 0,
                 reason,
@@ -616,7 +961,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.113';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.114';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';
