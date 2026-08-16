@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, extname, resolve } from 'node:path';
 import { buildMemoryPrompt } from '../extension/retrieval.js';
 
 function argument(name, fallback = '') {
@@ -13,12 +13,20 @@ async function readJson(path) {
 
 async function loadWorld(manifestPath) {
     const manifest = await readJson(manifestPath);
+    const manifestDirectory = dirname(manifestPath);
+    const shardDirectory = resolve(manifestDirectory, `${basename(manifestPath, extname(manifestPath))}.shards`);
     const world = { ...manifest };
     delete world.shards;
     for (const [category, descriptors] of Object.entries(manifest.shards || {})) {
         const values = [];
         for (const descriptor of descriptors) {
-            const shard = await readJson(resolve(dirname(manifestPath), descriptor.file));
+            let shard;
+            try {
+                shard = await readJson(resolve(manifestDirectory, descriptor.file));
+            } catch (error) {
+                if (error?.code !== 'ENOENT') throw error;
+                shard = await readJson(resolve(shardDirectory, descriptor.file));
+            }
             if (Array.isArray(shard.data)) values.push(...shard.data);
             else if (shard.data && typeof shard.data === 'object') Object.assign(values, shard.data);
         }
@@ -43,7 +51,9 @@ const compact = process.argv.includes('--compact');
 if (!manifestPath || !chatPath) throw new Error('--manifest and --chat are required.');
 
 const world = await loadWorld(manifestPath);
-const chat = await loadChat(chatPath);
+const dropLast = Math.max(0, Math.round(Number(argument('drop-last', '0')) || 0));
+const loadedChat = await loadChat(chatPath);
+const chat = dropLast ? loadedChat.slice(0, -dropLast) : loadedChat;
 const latestUser = query ? { name: 'User', is_user: true, mes: query } : null;
 const recent = latestUser ? [...chat.slice(-(recentCount - 1)), latestUser] : chat.slice(-recentCount);
 const chatKey = Object.keys(world.sources || {})[0] || '';

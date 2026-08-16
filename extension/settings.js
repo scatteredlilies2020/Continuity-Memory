@@ -1,10 +1,10 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.114';
+import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.115';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
-import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.14.0-standalone.114';
+import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.14.0-standalone.115';
 
 export const EXTENSION_NAME = 'continuityMemory';
 
@@ -212,6 +212,17 @@ export function getSettings() {
             settings.eraSystemPrompt = PROMPT_DEFAULTS.eraSystemPrompt;
         }
         settings.scenarioNeutralPromptVersion = 2;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.retrievalImmediacyPromptVersion || 0) < 1) {
+        const previousDefaults = [
+            'Expand a roleplay or simulation memory query. Return only {"terms":["..."]} with at most 20 short synonyms, aliases, roles, related actors, concepts, or paraphrases. Never answer the conversation.',
+            'Expand a roleplay or simulation memory query by meaning, not by a fixed cue-word list. Resolve short guidance, pronouns, implied participants, time references, and intent from the supplied conversation. Include concise subject, action, object, aliases, synonyms, related actors, concepts, paraphrases, and equivalent wording in the conversation\'s main language when the latest query uses another language. Return only {"terms":["..."]} with at most 20 short terms. Never answer the conversation.',
+        ];
+        if (!settings.retrievalSystemPrompt || previousDefaults.includes(settings.retrievalSystemPrompt)) {
+            settings.retrievalSystemPrompt = PROMPT_DEFAULTS.retrievalSystemPrompt;
+        }
+        settings.retrievalImmediacyPromptVersion = 1;
         saveSettingsDebounced();
     }
     if (Number(settings.promptPunctuationVersion || 0) < 1) {

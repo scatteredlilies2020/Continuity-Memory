@@ -170,6 +170,20 @@ function headingTerms(item) {
     return terms(retrievalFieldText(item).heading);
 }
 
+function identitySideMatches(source, value, includeMorphology = false) {
+    const side = [...terms(value)];
+    return side.length > 0 && side.some(nameTerm => [...source]
+        .some(term => queryTermVariants(term, includeMorphology).includes(nameTerm)));
+}
+
+function pairedIdentityMatch(item, source, includeMorphology = false) {
+    const sides = isAddressFact(item)
+        ? [item?.subject, addressFactAddressee(item)]
+        : [item?.from, item?.to];
+    return sides.every(side => plain(side))
+        && sides.every(side => identitySideMatches(source, side, includeMorphology));
+}
+
 function retrievalRecords(world) {
     return [world?.scene]
         .concat(...[
@@ -185,6 +199,7 @@ function retrievalProfile(world, recentMessages, expandedTerms) {
         || recent[recent.length - 1]
         || {};
     const direct = terms(retrievalMessageText(latestUser), true);
+    const speaker = terms(latestUser?.name, true);
     const expandedGroups = (expandedTerms || [])
         .map(value => terms(value))
         .filter(group => group.size);
@@ -193,7 +208,6 @@ function retrievalProfile(world, recentMessages, expandedTerms) {
         .filter(message => message !== latestUser)
         .map(retrievalMessageText)
         .join(' '));
-    const focus = new Set([...direct, ...expanded]);
     const records = retrievalRecords(world);
     const recordStats = new Map();
     const documentFrequency = new Map();
@@ -207,6 +221,10 @@ function retrievalProfile(world, recentMessages, expandedTerms) {
         for (const field of Object.keys(RETRIEVAL_FIELDS)) totalFieldLengths[field] += stats.fields[field].tokens.length;
         for (const term of stats.all) documentFrequency.set(term, (documentFrequency.get(term) || 0) + 1);
     }
+    for (const term of speaker) {
+        if (queryTermVariants(term, true).some(variant => identityVocabulary.has(variant))) direct.add(term);
+    }
+    const focus = new Set([...direct, ...expanded]);
     const documentCount = Math.max(1, records.length);
     const averageFieldLengths = Object.fromEntries(Object.keys(RETRIEVAL_FIELDS)
         .map(field => [field, Math.max(1, totalFieldLengths[field] / documentCount)]));
@@ -458,23 +476,17 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
         const coherentMatch = coherentConceptMatch(stats, profile, profile.expandedGroups);
         const compactMatch = compactConceptMatch(stats, profile, profile.expandedGroups);
         const directIdentityMatches = new Set(directFields.identity || []);
-        const directPairedIdentityMatch = [...profile.direct]
-            .filter(term => stats.fields.identity.unique.has(term)).length >= 2;
-        const expandedPairedIdentityMatch = profile.expandedGroups.some(group => [...group]
-            .filter(term => fieldHasQueryTerm(stats.fields.identity, term, true)).length >= 2);
-        const expandedSingletonIdentityPair = profile.expandedGroups
-            .filter(group => group.size === 1)
-            .flatMap(group => [...group])
-            .filter(term => fieldHasQueryTerm(stats.fields.identity, term, true)).length >= 2;
+        const directPairedIdentityMatch = pairedIdentityMatch(item, profile.direct);
+        const expandedPairedIdentityMatch = profile.expandedGroups
+            .some(group => pairedIdentityMatch(item, group, true));
         const expandedRelationshipMatch = profile.expandedGroups.some(group => {
-            const paired = [...group].filter(term => fieldHasQueryTerm(stats.fields.identity, term, true)).length >= 2;
+            const paired = pairedIdentityMatch(item, group, true);
             if (!paired) return false;
             const content = [...group].filter(term => !queryTermVariants(term, true)
                 .some(variant => profile.identityVocabulary.has(variant)));
             return content.length === 0 || content.some(term => fieldHasQueryTerm(stats.fields.heading, term, true)
                 || fieldHasQueryTerm(stats.fields.body, term, true));
         });
-        const directIdentityMatch = [...profile.direct].some(term => stats.fields.identity.unique.has(term));
         const completeIdentityNames = [item?.name, ...(item?.aliases || [])]
             .map(value => [...terms(value)])
             .filter(nameTerms => nameTerms.length);
@@ -487,15 +499,21 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
         });
         const directIdentityCentral = (category === 'entity' && directIdentityMatches.size > 0)
             || (category === 'relationship' && directPairedIdentityMatch)
-            || (isAddressFact(item) && (directPairedIdentityMatch || directIdentityMatch));
+            || (isAddressFact(item) && directPairedIdentityMatch);
         const expandedIdentityCentral = (category === 'entity' && expandedEntityMatch)
             || (category === 'relationship' && expandedRelationshipMatch)
-            || (isAddressFact(item) && (expandedPairedIdentityMatch || expandedSingletonIdentityPair));
+            || (isAddressFact(item) && expandedPairedIdentityMatch);
         const matches = focusMatches.size;
         const directScore = queryScore(stats, profile, profile.direct);
         const expandedScore = expandedQueryScore(stats, profile);
-        const directEligible = directMatch || directIdentityCentral;
-        const expandedEligible = coherentMatch || compactMatch || expandedIdentityCentral;
+        const addressDirectContentMatch = isAddressFact(item) && (directFields.body || []).length > 0;
+        const addressExpandedContentMatch = isAddressFact(item) && (expandedFields.body || []).length > 0;
+        const directEligible = isAddressFact(item)
+            ? directPairedIdentityMatch || (directMatch && addressDirectContentMatch)
+            : directMatch || directIdentityCentral;
+        const expandedEligible = isAddressFact(item)
+            ? expandedPairedIdentityMatch || ((coherentMatch || compactMatch) && addressExpandedContentMatch)
+            : coherentMatch || compactMatch || expandedIdentityCentral;
         const eligible = directEligible || expandedEligible;
         const metadataScore = (Number(item.importance) || 3) + recency(item) + extra(item);
         const localScore = Math.max(directScore, expandedScore)
@@ -997,7 +1015,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.114';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.115';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';

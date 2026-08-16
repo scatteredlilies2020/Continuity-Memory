@@ -110,6 +110,37 @@ test('an AI phrase can name an entity without selecting partial generic name ove
     assert.deepEqual(selections(result, 'Entities').map(item => item.id), ['samael']);
 });
 
+test('one multiword identity is not mistaken for both sides of a relationship', () => {
+    const target = world({
+        relationships: [
+            { id: 'ram-subaru', from: 'Ram', to: 'Subaru Natsuki', kind: 'coworker', status: 'They work together.', dynamic: '' },
+            { id: 'samael-subaru', from: 'Samael', to: 'Subaru Natsuki', kind: 'banter', status: 'They trade barbs.', dynamic: '' },
+        ],
+    });
+    const nameOnly = buildMemoryPrompt(target, user('Go on.'), 3000, '', ['Subaru Natsuki']);
+    assert.deepEqual(selections(nameOnly, 'Relationships'), []);
+
+    const paired = buildMemoryPrompt(target, user('Go on.'), 3000, '', ['Samael and Subaru Natsuki banter']);
+    assert.deepEqual(selections(paired, 'Relationships').map(item => item.id), ['samael-subaru']);
+});
+
+test('one multiword addressee does not retrieve every speaker address', () => {
+    const target = world({
+        facts: [
+            { id: 'ram-subaru', subject: 'Ram', predicate: 'calls Subaru Natsuki', category: 'form of address', value: 'Barusu' },
+            { id: 'samael-subaru', subject: 'Samael', predicate: 'calls Subaru Natsuki', category: 'form of address', value: 'Shrubaru' },
+        ],
+    });
+    const nameOnly = buildMemoryPrompt(target, user('Go on.'), 3000, '', ['Subaru Natsuki']);
+    assert.deepEqual(selections(nameOnly, 'Addresses'), []);
+
+    const paired = buildMemoryPrompt(target, user('Go on.'), 3000, '', ['Samael and Subaru Natsuki']);
+    assert.deepEqual(selections(paired, 'Addresses').map(item => item.id), ['samael-subaru']);
+
+    const nickname = buildMemoryPrompt(target, user('Shrubaru'), 3000);
+    assert.deepEqual(selections(nickname, 'Addresses').map(item => item.id), ['samael-subaru']);
+});
+
 test('local retrieval handles a unique term and ordinary English morphology without AI', () => {
     const target = world({
         events: [event('harrowing', 'The Harrowing', 'The ordeal ended at dawn.')],
