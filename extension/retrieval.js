@@ -152,6 +152,10 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
         return {
             item,
             matches,
+            matchedTerms: [...focusMatches],
+            directMatches,
+            expandedMatches,
+            contextMatches,
             eligible,
             localScore,
             semanticRank: semanticRank(semanticRanks, category, item),
@@ -430,6 +434,37 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     if (!world) return { prompt: '', estimatedTokens: 0 };
     const semanticAnchors = [...terms(embeddingAnchorText(world, semanticRanks))];
     const queryTerms = retrievalProfile(world, recentMessages, [...(expandedTerms || []), ...semanticAnchors]);
+    const retrievalDiagnostics = {
+        query: {
+            direct: [...queryTerms.direct],
+            aiExpanded: [...queryTerms.expanded],
+        },
+        selections: [],
+    };
+    const recordSelections = (section, category, results, reason = '') => {
+        for (const result of results) {
+            const item = result?.item || result;
+            retrievalDiagnostics.selections.push({
+                section,
+                category,
+                id: item?.id || null,
+                label: plain(item?.title || item?.name || item?.topic || item?.subject || item?.id),
+                matchedTerms: result?.matchedTerms || [],
+                directMatches: result?.directMatches || [],
+                aiExpandedMatches: result?.expandedMatches || [],
+                contextMatches: result?.contextMatches || [],
+                score: Number.isFinite(result?.score) ? Number(result.score.toFixed(4)) : null,
+                semanticRank: result?.semanticRank || 0,
+                reason,
+            });
+        }
+        return results;
+    };
+    const takeMatches = (section, category, items, limit, extra = () => 0) => recordSelections(
+        section,
+        category,
+        matching(items, queryTerms, extra, category, semanticRanks).slice(0, limit),
+    );
     const budget = Math.max(1000, Number(budgetTokens));
     const guidance = String(injectionInstruction ?? DEFAULT_INJECTION_INSTRUCTION).trim();
     const parts = { value: `<continuity>\n${guidance}${guidance ? '\n' : ''}${LIFECYCLE_GUIDANCE}\n` };
@@ -461,22 +496,22 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         ]);
     }
 
-    const addressForms = matching(availableFacts.filter(isAddressFact), queryTerms, () => 12, 'fact', semanticRanks)
-        .slice(0, 12)
+    const addressForms = takeMatches('Addresses', 'fact', availableFacts.filter(isAddressFact), 12, () => 12)
         .map(({ item }) => `${plain(item.subject)}→${plain(addressFactAddressee(item))}: ${plain(item.value)}`);
     addSection('Addresses', addressForms.length ? [`- ${addressForms.join(' | ')}`] : []);
 
     const correctionRecords = world.corrections || [];
     const recentCorrections = correctionRecords.slice(-2);
     const recentCorrectionIds = new Set(recentCorrections.map(item => item.id));
-    const relevantCorrections = matching(correctionRecords.filter(item => !recentCorrectionIds.has(item.id)), queryTerms, () => 6, 'correction', semanticRanks)
-        .slice(0, 6).map(({ item }) => item);
+    const relevantCorrections = takeMatches('User corrections', 'correction', correctionRecords.filter(item => !recentCorrectionIds.has(item.id)), 6, () => 6)
+        .map(({ item }) => item);
+    recordSelections('User corrections', 'correction', recentCorrections, 'latest correction');
     const selectedCorrections = [...relevantCorrections, ...recentCorrections]
         .filter((item, index, all) => all.findIndex(other => other.id === item.id) === index);
     addSection('User corrections', selectedCorrections.map(item =>
         `- ${plain(item.instruction || item.summary)}`.slice(0, 900)));
 
-    const selectedEras = matching((world.eras || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)), queryTerms, undefined, 'era', semanticRanks).slice(0, 2);
+    const selectedEras = takeMatches('L3 continuity', 'era', (world.eras || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)), 2);
     const eraRows = selectedEras
         .map(({ item }) => {
             const storyTime = anchoredStoryTime(item);
@@ -490,7 +525,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     addSection('L3 continuity', eraRows);
 
     const coveredArcIds = new Set(selectedEras.flatMap(({ item }) => item.arcIds || []));
-    const selectedArcs = matching((world.arcs || []).filter(item => sourceIsCurrent(item) && !coveredArcIds.has(item.id) && !whollyRaw(item)), queryTerms, undefined, 'arc', semanticRanks).slice(0, 2);
+    const selectedArcs = takeMatches('L2 continuity', 'arc', (world.arcs || []).filter(item => sourceIsCurrent(item) && !coveredArcIds.has(item.id) && !whollyRaw(item)), 2);
     const arcRows = selectedArcs
         .map(({ item }) => {
             const storyTime = anchoredStoryTime(item);
@@ -515,8 +550,9 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         ...selectedEras.flatMap(({ item }) => item.capsuleIds || []),
         ...selectedArcs.flatMap(({ item }) => item.capsuleIds || []),
     ]);
-    const relevant = matching(chronological.filter(item => !latestIds.has(item.id) && !coveredCapsuleIds.has(item.id)), queryTerms, undefined, 'capsule', semanticRanks)
-        .slice(0, 2).map(({ item }) => item);
+    const relevant = takeMatches('Recent continuity', 'capsule', chronological.filter(item => !latestIds.has(item.id) && !coveredCapsuleIds.has(item.id)), 2)
+        .map(({ item }) => item);
+    recordSelections('Recent continuity', 'capsule', latest, 'latest L1');
     const selectedCapsules = [...relevant, ...latest]
         .filter((item, index, all) => all.findIndex(other => other.id === item.id) === index)
         .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')) || Number(a.from ?? 0) - Number(b.from ?? 0));
@@ -530,42 +566,42 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     });
     addSection('Recent continuity', capsuleRows);
 
-    const activeThreads = matching((world.threads || []).filter(item => sourceIsCurrent(item) && item.status === 'open' && !latestIsRaw(item)), queryTerms, () => 4, 'thread', semanticRanks)
-        .slice(0, 10).map(({ item }) => `- ${anchoredRelativeText(`${item.title}: ${item.detail}`, item)}${item.participants?.length ? ` [${item.participants.join(', ')}]` : ''}`);
+    const activeThreads = takeMatches('Open matters', 'thread', (world.threads || []).filter(item => sourceIsCurrent(item) && item.status === 'open' && !latestIsRaw(item)), 10, () => 4)
+        .map(({ item }) => `- ${anchoredRelativeText(`${item.title}: ${item.detail}`, item)}${item.participants?.length ? ` [${item.participants.join(', ')}]` : ''}`);
     addSection('Open matters', activeThreads);
 
-    const backgrounds = matching((world.backgrounds || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)), queryTerms, item => item.status === 'active' ? 1 : 0, 'background', semanticRanks)
-        .slice(0, 12).map(({ item }) => {
+    const backgrounds = takeMatches('Background', 'background', (world.backgrounds || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)), 12, item => item.status === 'active' ? 1 : 0)
+        .map(({ item }) => {
             const qualifiers = [item.status, item.certainty].map(plain).filter(Boolean).join(', ');
             return `- ${anchoredRelativeText(`${item.topic}${qualifiers ? ` [${qualifiers}]` : ''}: ${item.summary}`, item)}${item.participants?.length ? ` [${item.participants.join(', ')}]` : ''}`;
         });
     addSection('Background', backgrounds);
 
-    const entities = matching((world.entities || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)), queryTerms, undefined, 'entity', semanticRanks).slice(0, 12)
+    const entities = takeMatches('Entities', 'entity', (world.entities || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)), 12)
         .map(({ item }) => `- ${item.name}${item.type ? ` (${item.type})` : ''}: ${item.description}${item.aliases?.length ? `; aliases: ${item.aliases.join(', ')}` : ''}`);
     addSection('Entities', entities);
 
-    const states = matching((world.states || []).filter(item => sourceIsCurrent(item) && isFreshActiveState(world, item, chatKey) && !latestIsRaw(item)), queryTerms, item => item.value ? 2 : 0, 'state', semanticRanks).slice(0, 16)
+    const states = takeMatches('Current state', 'state', (world.states || []).filter(item => sourceIsCurrent(item) && isFreshActiveState(world, item, chatKey) && !latestIsRaw(item)), 16, item => item.value ? 2 : 0)
         .map(({ item }) => `- ${item.subject} — ${item.attribute}: ${anchoredRelativeText(item.value, item)}`);
     addSection('Current state', states);
 
-    const relationships = matching((world.relationships || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)), queryTerms, undefined, 'relationship', semanticRanks).slice(0, 12)
+    const relationships = takeMatches('Relationships', 'relationship', (world.relationships || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)), 12)
         .map(({ item }) => `- ${item.from} → ${item.to} (${item.kind}): ${anchoredRelativeText(`${item.status}${item.dynamic ? `; ${item.dynamic}` : ''}`, item)}`);
     addSection('Relationships', relationships);
 
-    const perspectives = matching(availableFacts.filter(isAttributedBeliefFact), queryTerms, item => item.persistence === 'persistent' ? 2 : 0, 'fact', semanticRanks).slice(0, 16)
+    const perspectives = takeMatches('Character perspectives (not established facts)', 'fact', availableFacts.filter(isAttributedBeliefFact), 16, item => item.persistence === 'persistent' ? 2 : 0)
         .map(({ item }) => `- ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)} [subjective; not an established fact]`);
     addSection('Character perspectives (not established facts)', perspectives);
 
-    const facts = matching(availableFacts.filter(item => !isAttributedBeliefFact(item) && !isAddressFact(item)), queryTerms, item => item.persistence === 'persistent' ? 2 : 0, 'fact', semanticRanks).slice(0, 18)
+    const facts = takeMatches('Facts', 'fact', availableFacts.filter(item => !isAttributedBeliefFact(item) && !isAddressFact(item)), 18, item => item.persistence === 'persistent' ? 2 : 0)
         .map(({ item }) => {
             const qualifier = item.persistence && item.persistence !== 'persistent' ? ` [${item.persistence}]` : '';
             return `- ${item.subject} — ${item.predicate}${qualifier}: ${anchoredRelativeText(item.value, item)}`;
         });
     addSection('Facts', facts);
 
-    const selectedEvents = matching((world.events || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)), queryTerms, undefined, 'event', semanticRanks)
-        .slice(0, 12).map(({ item }) => item);
+    const selectedEvents = takeMatches('Past events', 'event', (world.events || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)), 12)
+        .map(({ item }) => item);
     const events = orderEventsChronologically(selectedEvents, chatKey, world.capsules || [])
         .map(item => {
             const storyTime = anchoredStoryTime(item);
@@ -578,7 +614,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
 
     addFairSections(parts, sections, budget);
     parts.value += '</continuity>';
-    return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value) };
+    return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
 import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.113';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';

@@ -1081,6 +1081,7 @@ export function renderRuntime() {
         thinkingMode: settings.thinkingMode,
         thinkingControl: runtime.thinkingControl || null,
         retrievalAssist: runtime.retrievalAssist || { mode: settings.retrievalMode },
+        retrieval: runtime.retrievalDiagnostics || null,
         embeddingIndex: runtime.embeddingIndex || null,
         chatMemory: runtime.world?.name || null,
         memoryRevision: runtime.world?.revision ?? null,

@@ -368,7 +368,7 @@ async function refreshInjection(useRetrievalAssist = false, strictEmbedding = fa
         : collectMemoryEligibleMessages(getContext().chat || []);
     const coverage = getProcessingCoverage(world, sourceMessages);
     const invalidSourceRanges = findInvalidExtractionRanges(world, sourceMessages, getChatKey());
-    const { prompt, estimatedTokens } = buildMemoryPrompt(
+    const { prompt, estimatedTokens, retrievalDiagnostics } = buildMemoryPrompt(
         world,
         recent,
         budget.tokens,
@@ -389,7 +389,7 @@ async function refreshInjection(useRetrievalAssist = false, strictEmbedding = fa
         placement.role,
     );
     const placementStatus = managerApplied ? 'Prompt Manager placement' : settings.injectionPosition === 'at-depth' ? `chat depth ${placement.depth}` : 'main-prompt placement';
-    updateRuntime({ lastInjection: prompt, lastInjectionTokens: estimatedTokens, injectionBudget: budget, injectionStatus: prompt ? `Ready to inject approximately ${estimatedTokens} tokens via ${placementStatus} (${budget.mode} budget: ${budget.tokens} tokens).` : 'The selected memory has no injectable records yet.' });
+    updateRuntime({ lastInjection: prompt, lastInjectionTokens: estimatedTokens, retrievalDiagnostics, injectionBudget: budget, injectionStatus: prompt ? `Ready to inject approximately ${estimatedTokens} tokens via ${placementStatus} (${budget.mode} budget: ${budget.tokens} tokens).` : 'The selected memory has no injectable records yet.' });
 }
 
 function scheduleInjectionRefresh() {
