@@ -475,10 +475,15 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
                 || fieldHasQueryTerm(stats.fields.body, term, true));
         });
         const directIdentityMatch = [...profile.direct].some(term => stats.fields.identity.unique.has(term));
+        const completeIdentityNames = [item?.name, ...(item?.aliases || [])]
+            .map(value => [...terms(value)])
+            .filter(nameTerms => nameTerms.length);
         const expandedEntityMatch = profile.expandedGroups.some(group => {
             const identityMatchCount = [...group]
                 .filter(term => fieldHasQueryTerm(stats.fields.identity, term, true)).length;
-            return group.size === 1 ? identityMatchCount === 1 : identityMatchCount >= 2;
+            const coversCompleteName = completeIdentityNames.some(nameTerms => nameTerms
+                .every(nameTerm => [...group].some(term => queryTermVariants(term, true).includes(nameTerm))));
+            return group.size === 1 ? identityMatchCount === 1 : identityMatchCount >= 2 || coversCompleteName;
         });
         const directIdentityCentral = (category === 'entity' && directIdentityMatches.size > 0)
             || (category === 'relationship' && directPairedIdentityMatch)

@@ -99,6 +99,17 @@ test('separate AI keywords need several agreeing signals instead of one broad wo
     assert.deepEqual(selections(result, 'Past events').map(item => item.id), ['agreement']);
 });
 
+test('an AI phrase can name an entity without selecting partial generic name overlap', () => {
+    const target = world({
+        entities: [
+            { id: 'samael', name: 'Samael', aliases: [], type: 'character', description: 'A devil.' },
+            { id: 'loot-house', name: "Old Man Rom's loot house", aliases: [], type: 'place', description: 'A building.' },
+        ],
+    });
+    const result = buildMemoryPrompt(target, user('Next scene.'), 3000, '', ['Samael accepts the deal', 'noble house']);
+    assert.deepEqual(selections(result, 'Entities').map(item => item.id), ['samael']);
+});
+
 test('local retrieval handles a unique term and ordinary English morphology without AI', () => {
     const target = world({
         events: [event('harrowing', 'The Harrowing', 'The ordeal ended at dawn.')],
