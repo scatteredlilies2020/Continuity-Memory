@@ -778,11 +778,26 @@ function queryEvidenceConfidence(selection, profile) {
 function retainSupportForSeed(seedSelection, ranked, profile, depthScale = 1) {
     if (!ranked.length) return [];
     const seedConfidence = queryEvidenceConfidence(seedSelection, profile);
+    const indirectRelationship = seedSelection.category === 'relationship'
+        && !seedSelection.result?.directEligible
+        && !(seedSelection.result?.semanticRank > 0);
+    // An AI-expanded relationship can be useful even when the user's short
+    // prompt does not name it. Let it recover a little surrounding history,
+    // but require every supporting record to independently match the expanded
+    // query or a rare bridge from recent context. A shared source alone is not
+    // enough. This avoids turning an AI-assigned importance value into a hard
+    // retrieval decision.
+    const eligibleRanked = indirectRelationship
+        ? ranked.filter(result => queryEvidenceConfidence({ item: result.item, result }, profile) >= 0.2
+            || result.connection.contextBridged)
+        : ranked;
+    if (!eligibleRanked.length) return [];
     // A weak primary may remain useful on its own, but it should not unlock a
     // large historical neighborhood. Stronger query evidence earns a wider,
     // still finite supporting envelope.
-    const generalQuota = seedConfidence > 0 ? 1 + Math.round(seedConfidence * 6 * depthScale) : 0;
-    const sourceQuota = Math.min(
+    const evidenceQuota = seedConfidence > 0 ? 1 + Math.round(seedConfidence * 6 * depthScale) : 0;
+    const generalQuota = indirectRelationship ? Math.min(2, evidenceQuota) : evidenceQuota;
+    const sourceQuota = indirectRelationship ? 0 : Math.min(
         Math.ceil(generalQuota / 2),
         Math.max(0, Math.round(seedConfidence * 3.5 * depthScale)),
     );
@@ -790,7 +805,7 @@ function retainSupportForSeed(seedSelection, ranked, profile, depthScale = 1) {
 
     const byId = new Map();
     const sourcePreferred = memorySourceRanges(seedSelection.item)
-        .flatMap(range => ranked.filter(result => overlapsSourceRange(result.item, range)).slice(0, 2));
+        .flatMap(range => eligibleRanked.filter(result => overlapsSourceRange(result.item, range)).slice(0, 2));
     for (const result of sourcePreferred) {
         if (byId.size >= sourceQuota || byId.has(result.item.id)) continue;
         byId.set(result.item.id, {
@@ -801,9 +816,9 @@ function retainSupportForSeed(seedSelection, ranked, profile, depthScale = 1) {
         });
     }
 
-    const bestPriority = Math.max(0.0001, ranked[0].priority);
-    for (let index = 0; index < ranked.length && byId.size < generalQuota; index++) {
-        const result = ranked[index];
+    const bestPriority = Math.max(0.0001, eligibleRanked[0].priority);
+    for (let index = 0; index < eligibleRanked.length && byId.size < generalQuota; index++) {
+        const result = eligibleRanked[index];
         if (byId.has(result.item.id)) continue;
         const connectionStrength = 1 - Math.exp(-result.connection.score / 10);
         const queryRelevance = queryEvidenceConfidence({ item: result.item, result }, profile);
@@ -1320,14 +1335,6 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         // them again tends to recover a whole old interval instead of useful
         // prerequisites for the current query.
         .filter(selection => !['capsule', 'arc', 'era'].includes(selection.category))
-        // A relationship may be useful in the current scene without making
-        // every event behind it useful. Low-importance/incidental pairs stay
-        // visible as primaries, but expand only when directly or semantically
-        // requested; durable major relationships retain automatic depth.
-        .filter(selection => selection.category !== 'relationship'
-            || Number(selection.item?.importance) >= 4
-            || selection.result?.directEligible
-            || selection.result?.semanticRank > 0)
         // Open matters remain visible as primaries on a permissive match, but
         // only strong/direct thread evidence may unlock their wider history.
         .filter(selection => selection.category !== 'thread'
@@ -1462,7 +1469,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.125';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.126';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';

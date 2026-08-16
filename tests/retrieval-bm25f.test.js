@@ -373,7 +373,7 @@ test('one relevant AI seed cannot fan out across the entire support budget', () 
     assert.ok(support.length < Math.ceil(20000 / 80));
 });
 
-test('incidental relationships remain visible without unlocking their entire history', () => {
+test('AI-selected relationships retrieve only independently relevant support regardless of importance', () => {
     const source = [{ chatKey: 'chat', from: 12, to: 19 }];
     const target = world({
         relationships: [{
@@ -383,14 +383,51 @@ test('incidental relationships remain visible without unlocking their entire his
         facts: [{
             id: 'old-history', subject: 'Aster', predicate: 'old expedition with Beryl',
             value: 'They previously crossed the northern pass.', importance: 3, sources: source,
+        }, {
+            id: 'banter-history', subject: 'Aster', predicate: 'playful banter with Beryl',
+            value: 'Their jokes help them keep working through tense tasks.', importance: 1, sources: source,
         }],
     });
     const incidental = buildMemoryPrompt(target, user('Next.'), 10000, 'chat', ['Aster and Beryl trade playful banter']);
+    const incidentalSupport = selections(incidental, 'Supporting continuity').map(item => item.id);
 
     assert.deepEqual(selections(incidental, 'Relationships').map(item => item.id), ['banter']);
-    assert.deepEqual(selections(incidental, 'Supporting continuity'), []);
+    assert.ok(incidentalSupport.includes('banter-history'));
+    assert.ok(!incidentalSupport.includes('old-history'));
 
     target.relationships[0].importance = 4;
-    const durable = buildMemoryPrompt(target, user('Next.'), 10000, 'chat', ['Aster and Beryl trade playful banter']);
-    assert.ok(selections(durable, 'Supporting continuity').some(item => item.id === 'old-history'));
+    const rerated = buildMemoryPrompt(target, user('Next.'), 10000, 'chat', ['Aster and Beryl trade playful banter']);
+    assert.deepEqual(
+        selections(rerated, 'Supporting continuity').map(item => item.id),
+        incidentalSupport,
+    );
+});
+
+test('AI-selected relationships may recover history bridged by rare recent context', () => {
+    const source = [{ chatKey: 'chat', from: 12, to: 19 }];
+    const target = world({
+        relationships: [{
+            id: 'banter', from: 'Aster', to: 'Beryl', kind: 'playful banter',
+            status: 'They trade a brief joke while working.', importance: 2, sources: source,
+        }],
+        facts: [{
+            id: 'pass-history', subject: 'Aster', predicate: 'expedition with Beryl',
+            value: 'They previously crossed the northern pass together.', importance: 3, sources: source,
+        }, {
+            id: 'unrelated-history', subject: 'Aster', predicate: 'old meal with Beryl',
+            value: 'They once shared ordinary bread.', importance: 5, sources: source,
+        }, ...Array.from({ length: 8 }, (_, index) => ({
+            id: `archive-${index}`, subject: `Archivist ${index}`, predicate: 'routine filing',
+            value: 'An unrelated administrative entry.', importance: 3,
+        }))],
+    });
+    const recent = [
+        { name: 'Narrator', is_user: false, mes: 'Aster and Beryl discuss returning through the northern pass.' },
+        { name: 'User', is_user: true, mes: 'Next.' },
+    ];
+    const result = buildMemoryPrompt(target, recent, 10000, 'chat', ['Aster and Beryl trade playful banter']);
+    const supportIds = selections(result, 'Supporting continuity').map(item => item.id);
+
+    assert.ok(supportIds.includes('pass-history'));
+    assert.ok(!supportIds.includes('unrelated-history'));
 });
