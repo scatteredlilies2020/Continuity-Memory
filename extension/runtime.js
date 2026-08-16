@@ -18,6 +18,8 @@ export const runtime = {
     lastInjection: '',
     lastInjectionTokens: 0,
     injectionStatus: 'Checking memory injection…',
+    lastGenerationRetrieval: null,
+    nextRetrievalPreview: null,
     contextReduction: { mode: 'waiting', hiddenMessages: 0, hiddenTokens: 0, tailMessages: 0, tailTurns: 0, tailTokens: 0, tailBudget: 0, fixedPromptTokens: null, totalPromptTokens: null, safetyTokens: 0 },
     progress: null,
     roleplayGate: null,

@@ -4,10 +4,10 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.126';
+import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.127';
 import { worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.126';
+import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.127';
 import { clearRetrievalExpansionCache } from './semantic-retrieval.js';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
@@ -15,17 +15,18 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.126';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.126';
-import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.126';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.127';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.127';
+import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.127';
 import { completeL1MessageCount, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.126';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.126';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.126';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.127';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.127';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.127';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.126';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.126';
+import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.127';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.127';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.127';
 import { createRenderScheduler } from './render-scheduler.js';
 
 let worlds = [];
@@ -1088,6 +1089,17 @@ export function renderRuntime(refreshSettings = true) {
         : 'No chat memory loaded.');
     renderMemoryViewer();
     setElementText('#continuity_preview', runtime.lastInjection || runtime.injectionStatus || 'Checking memory injection…');
+    setElementText(
+        '#continuity_last_generation',
+        runtime.lastGenerationRetrieval?.injection
+            || 'No roleplay generation has been prepared since this chat was opened.',
+    );
+    setElementText(
+        '#continuity_last_generation_status',
+        runtime.lastGenerationRetrieval
+            ? `Captured ${new Date(runtime.lastGenerationRetrieval.capturedAt).toLocaleString()} · ${runtime.lastGenerationRetrieval.injectionTokens} tokens actually prepared for generation.`
+            : 'Waiting for the next roleplay generation.',
+    );
     setElementText('#continuity_raw', runtime.lastRawResponse || 'No extraction yet.');
     let memoryProfile = null;
     if (settings.memoryProfileId) {
@@ -1110,8 +1122,8 @@ export function renderRuntime(refreshSettings = true) {
         extractionConnection: memoryProfile || 'Current active SillyTavern model',
         thinkingMode: settings.thinkingMode,
         thinkingControl: runtime.thinkingControl || null,
-        retrievalAssist: runtime.retrievalAssist || { mode: settings.retrievalMode },
-        retrieval: runtime.retrievalDiagnostics || null,
+        lastGenerationRetrieval: retrievalSnapshotDiagnostics(runtime.lastGenerationRetrieval),
+        nextRetrievalPreview: retrievalSnapshotDiagnostics(runtime.nextRetrievalPreview),
         embeddingIndex: runtime.embeddingIndex || null,
         chatMemory: runtime.world?.name || null,
         memoryRevision: runtime.world?.revision ?? null,
@@ -1261,7 +1273,13 @@ async function deleteScope() {
     await api.deleteWorld(world.id);
     markWorldDeleted(world.id);
     await clearPortableSnapshot();
-    updateRuntime({ world: null, lastInjection: '', lastInjectionTokens: 0 });
+    updateRuntime({
+        world: null,
+        lastInjection: '',
+        lastInjectionTokens: 0,
+        lastGenerationRetrieval: null,
+        nextRetrievalPreview: null,
+    });
     await refreshWorlds();
     toast('success', 'All memory deleted without saving a copy. A new empty memory is ready.');
 }
