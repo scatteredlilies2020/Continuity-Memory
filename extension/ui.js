@@ -26,6 +26,7 @@ import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-pro
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
 import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.119';
 import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.119';
+import { createRenderScheduler } from './render-scheduler.js';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -38,6 +39,27 @@ let extractionReviewSession = null;
 let reviewRecoveryListenersInstalled = false;
 let nativeChatExportBridgeInstalled = false;
 const DIRECT_PROFILE_ID = '__direct__';
+
+function setControlValue(selector, value) {
+    const element = document.querySelector(selector);
+    if (!element) return;
+    const next = String(value ?? '');
+    if (element.value !== next) element.value = next;
+}
+
+function setElementText(selector, value) {
+    const element = document.querySelector(selector);
+    if (!element) return;
+    const next = String(value ?? '');
+    if (element.textContent !== next) element.textContent = next;
+}
+
+function setElementHtml(selector, value) {
+    const element = document.querySelector(selector);
+    if (!element) return;
+    const next = String(value ?? '');
+    if (element.innerHTML !== next) element.innerHTML = next;
+}
 
 function branchParentChatKey() {
     const parentChatId = String(getContext().chatMetadata?.main_chat || '').trim();
@@ -912,20 +934,22 @@ function renderMemoryViewer(force = false) {
     }
 }
 
-export function renderRuntime() {
+export function renderRuntime(refreshSettings = true) {
     const settings = getSettings();
-    $('#continuity_enabled').prop('checked', settings.enabled);
-    $('#continuity_notifications').prop('checked', settings.showNotifications);
-    $('#continuity_retrieval_mode').val(settings.retrievalMode);
-    $('.continuity-ai-retrieval-setting').toggle(settings.retrievalMode === 'ai-expanded');
-    $('.continuity-text-retrieval-setting').toggle(settings.retrievalMode !== 'embedding-hybrid');
-    $('.continuity-embedding-setting').toggle(settings.retrievalMode === 'embedding-hybrid');
-    $('#continuity_retrieval_messages').val(settings.retrievalQueryMessages);
-    $('#continuity_embedding_messages').val(settings.embeddingQueryMessages);
-    $('#continuity_embedding_top_k').val(settings.embeddingTopK);
-    $('#continuity_embedding_threshold').val(settings.embeddingThreshold);
-    updateEmbeddingProviderUI(settings);
-    $('#continuity_embedding_provider').text(`Provider: ${embeddingProviderDescription()}`);
+    if (refreshSettings) {
+        $('#continuity_enabled').prop('checked', settings.enabled);
+        $('#continuity_notifications').prop('checked', settings.showNotifications);
+        $('#continuity_retrieval_mode').val(settings.retrievalMode);
+        $('.continuity-ai-retrieval-setting').toggle(settings.retrievalMode === 'ai-expanded');
+        $('.continuity-text-retrieval-setting').toggle(settings.retrievalMode !== 'embedding-hybrid');
+        $('.continuity-embedding-setting').toggle(settings.retrievalMode === 'embedding-hybrid');
+        $('#continuity_retrieval_messages').val(settings.retrievalQueryMessages);
+        $('#continuity_embedding_messages').val(settings.embeddingQueryMessages);
+        $('#continuity_embedding_top_k').val(settings.embeddingTopK);
+        $('#continuity_embedding_threshold').val(settings.embeddingThreshold);
+        updateEmbeddingProviderUI(settings);
+        $('#continuity_embedding_provider').text(`Provider: ${embeddingProviderDescription()}`);
+    }
     const embedding = runtime.embeddingIndex;
     const embeddingTotal = Math.max(0, Number(embedding?.total) || 0);
     const embeddingIndexed = Math.min(embeddingTotal, Math.max(0, Number(embedding?.indexed) || 0));
@@ -963,10 +987,12 @@ export function renderRuntime() {
         .prop('disabled', embedding?.status === 'pausing')
         .html(embeddingCanResume ? '<i class="fa-solid fa-play"></i> Resume index' : '<i class="fa-solid fa-pause"></i> Pause index');
     $('#continuity_embedding_stop').toggle(embeddingActive);
-    $('#continuity_embedding_auto_sync').prop('checked', settings.embeddingAutoSync);
-    $('#continuity_auto').prop('checked', settings.autoExtract);
-    $('#continuity_review_extractions').prop('checked', settings.reviewBeforeCommit);
-    $('#continuity_jb_enabled').prop('checked', settings.jbEnabled);
+    if (refreshSettings) {
+        $('#continuity_embedding_auto_sync').prop('checked', settings.embeddingAutoSync);
+        $('#continuity_auto').prop('checked', settings.autoExtract);
+        $('#continuity_review_extractions').prop('checked', settings.reviewBeforeCommit);
+        $('#continuity_jb_enabled').prop('checked', settings.jbEnabled);
+    }
     const rollback = getTailRollbackStatus();
     $('#continuity_repair_rollback')
         .toggle(rollback.detected)
@@ -979,56 +1005,60 @@ export function renderRuntime() {
             : !latestL1.replayable
                 ? 'This older memory cannot safely replay retained L1 records. Rebuild it from scratch first.'
                 : `Undo L1 messages ${latestL1.from}–${latestL1.to}; chat messages will remain.`);
-    $('#continuity_embed_chat').prop('checked', settings.embedMemoryInChat);
-    $('#continuity_context_reduction').prop('checked', settings.contextReductionEnabled);
-    $('#continuity_tail_mode').val(settings.rawTailMode);
-    $('#continuity_tail_value').val(settings.rawTailValue);
-    updateTailLimitUI(settings);
-    $('#continuity_detail').val(settings.detail);
-    $('#continuity_budget').val(settings.injectionBudgetTokens);
-    $('#continuity_injection_position').val(settings.injectionPosition);
-    $('#continuity_injection_depth').val(settings.injectionDepth);
-    $('#continuity_injection_role').val(settings.injectionRole);
-    updateInjectionPlacementUI(settings);
-    $('#continuity_batch').val(settings.extractionBatchMessages);
-    $('#continuity_chunk').val(settings.extractionChunkTokens);
-    $('#continuity_correction_tokens').val(resolveCorrectionResponseTokens(settings.correctionResponseTokens));
-    $('#continuity_hierarchy_mode').val(settings.hierarchyMode);
-    $('#continuity_arc_group').val(settings.arcGroupSize);
-    $('#continuity_era_start').val(settings.eraStartArcs);
-    $('#continuity_era_group').val(settings.eraGroupSize);
-    $('#continuity_thinking').val(settings.thinkingMode);
-    $('#continuity_model_profile').val(settings.memoryProfileId || '');
-    $('#continuity_retrieval_profile').val(settings.retrievalProfileId || '');
-    $('#continuity_arc_profile').val(settings.arcProfileId || '');
-    $('.continuity-ai-retrieval-setting').toggle(settings.retrievalMode === 'ai-expanded');
-    $('.continuity-extraction-direct-setting').toggle(settings.memoryProfileId === DIRECT_PROFILE_ID);
-    $('.continuity-summary-direct-setting').toggle(settings.arcProfileId === DIRECT_PROFILE_ID);
     const extractionOpenRouter = settings.extractionDirectProvider === 'openrouter';
     const summaryOpenRouter = settings.summaryDirectProvider === 'openrouter';
-    $('#continuity_extraction_direct_provider').val(extractionOpenRouter ? 'openrouter' : 'custom');
-    $('#continuity_summary_direct_provider').val(summaryOpenRouter ? 'openrouter' : 'custom');
-    $('#continuity_extraction_direct_url').val(extractionOpenRouter ? settings.extractionOpenRouterUrl : settings.extractionDirectUrl).attr('placeholder', extractionOpenRouter ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1');
-    $('#continuity_extraction_direct_model').val(extractionOpenRouter ? settings.extractionOpenRouterModel : settings.extractionDirectModel);
-    $('#continuity_summary_direct_url').val(summaryOpenRouter ? settings.summaryOpenRouterUrl : settings.summaryDirectUrl).attr('placeholder', summaryOpenRouter ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1');
-    $('#continuity_summary_direct_model').val(summaryOpenRouter ? settings.summaryOpenRouterModel : settings.summaryDirectModel);
     const sharedOpenRouterSaved = Array.isArray(secret_state[SECRET_KEYS.OPENROUTER]) ? secret_state[SECRET_KEYS.OPENROUTER].length > 0 : Boolean(secret_state[SECRET_KEYS.OPENROUTER]);
-    $('#continuity_extraction_direct_key_status').text(extractionOpenRouter
-        ? (sharedOpenRouterSaved ? 'The shared OpenRouter key is saved.' : 'No shared OpenRouter key saved.')
-        : (settings.extractionDirectSecretId ? 'An extraction password is saved.' : 'No extraction password saved; keyless endpoints remain supported.'));
-    $('#continuity_summary_direct_key_status').text(summaryOpenRouter
-        ? (sharedOpenRouterSaved ? 'The shared OpenRouter key is saved.' : 'No shared OpenRouter key saved.')
-        : (settings.summaryDirectSecretId ? 'A summarizer password is saved.' : 'No summarizer password saved; keyless endpoints remain supported.'));
-    $('#continuity_extraction_prompt').val(settings.extractionSystemPrompt);
-    $('#continuity_jb_prompt').val(settings.jbPrompt);
-    $('#continuity_extraction_template').val(settings.extractionTaskTemplate);
-    $('#continuity_retrieval_prompt').val(settings.retrievalSystemPrompt);
-    $('#continuity_retrieval_template').val(settings.retrievalQueryTemplate);
-    $('#continuity_injection_prompt').val(settings.injectionInstruction);
-    $('#continuity_arc_prompt').val(settings.arcSystemPrompt);
-    $('#continuity_arc_template').val(settings.arcTaskTemplate);
-    $('#continuity_era_prompt').val(settings.eraSystemPrompt);
-    $('#continuity_era_template').val(settings.eraTaskTemplate);
+    if (refreshSettings) {
+        $('#continuity_embed_chat').prop('checked', settings.embedMemoryInChat);
+        $('#continuity_context_reduction').prop('checked', settings.contextReductionEnabled);
+        $('#continuity_tail_mode').val(settings.rawTailMode);
+        $('#continuity_tail_value').val(settings.rawTailValue);
+        updateTailLimitUI(settings);
+        $('#continuity_detail').val(settings.detail);
+        $('#continuity_budget').val(settings.injectionBudgetTokens);
+        $('#continuity_injection_position').val(settings.injectionPosition);
+        $('#continuity_injection_depth').val(settings.injectionDepth);
+        $('#continuity_injection_role').val(settings.injectionRole);
+        updateInjectionPlacementUI(settings);
+        $('#continuity_batch').val(settings.extractionBatchMessages);
+        $('#continuity_chunk').val(settings.extractionChunkTokens);
+        $('#continuity_correction_tokens').val(resolveCorrectionResponseTokens(settings.correctionResponseTokens));
+        $('#continuity_hierarchy_mode').val(settings.hierarchyMode);
+        $('#continuity_arc_group').val(settings.arcGroupSize);
+        $('#continuity_era_start').val(settings.eraStartArcs);
+        $('#continuity_era_group').val(settings.eraGroupSize);
+        $('#continuity_thinking').val(settings.thinkingMode);
+        $('#continuity_model_profile').val(settings.memoryProfileId || '');
+        $('#continuity_retrieval_profile').val(settings.retrievalProfileId || '');
+        $('#continuity_arc_profile').val(settings.arcProfileId || '');
+        $('.continuity-ai-retrieval-setting').toggle(settings.retrievalMode === 'ai-expanded');
+        $('.continuity-extraction-direct-setting').toggle(settings.memoryProfileId === DIRECT_PROFILE_ID);
+        $('.continuity-summary-direct-setting').toggle(settings.arcProfileId === DIRECT_PROFILE_ID);
+        $('#continuity_extraction_direct_provider').val(extractionOpenRouter ? 'openrouter' : 'custom');
+        $('#continuity_summary_direct_provider').val(summaryOpenRouter ? 'openrouter' : 'custom');
+        $('#continuity_extraction_direct_url').val(extractionOpenRouter ? settings.extractionOpenRouterUrl : settings.extractionDirectUrl).attr('placeholder', extractionOpenRouter ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1');
+        $('#continuity_extraction_direct_model').val(extractionOpenRouter ? settings.extractionOpenRouterModel : settings.extractionDirectModel);
+        $('#continuity_summary_direct_url').val(summaryOpenRouter ? settings.summaryOpenRouterUrl : settings.summaryDirectUrl).attr('placeholder', summaryOpenRouter ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1');
+        $('#continuity_summary_direct_model').val(summaryOpenRouter ? settings.summaryOpenRouterModel : settings.summaryDirectModel);
+        $('#continuity_extraction_direct_key_status').text(extractionOpenRouter
+            ? (sharedOpenRouterSaved ? 'The shared OpenRouter key is saved.' : 'No shared OpenRouter key saved.')
+            : (settings.extractionDirectSecretId ? 'An extraction password is saved.' : 'No extraction password saved; keyless endpoints remain supported.'));
+        $('#continuity_summary_direct_key_status').text(summaryOpenRouter
+            ? (sharedOpenRouterSaved ? 'The shared OpenRouter key is saved.' : 'No shared OpenRouter key saved.')
+            : (settings.summaryDirectSecretId ? 'A summarizer password is saved.' : 'No summarizer password saved; keyless endpoints remain supported.'));
+        // These fields can contain tens of thousands of characters. Reassigning an
+        // unchanged textarea value forces browsers to redo selection and layout work.
+        setControlValue('#continuity_extraction_prompt', settings.extractionSystemPrompt);
+        setControlValue('#continuity_jb_prompt', settings.jbPrompt);
+        setControlValue('#continuity_extraction_template', settings.extractionTaskTemplate);
+        setControlValue('#continuity_retrieval_prompt', settings.retrievalSystemPrompt);
+        setControlValue('#continuity_retrieval_template', settings.retrievalQueryTemplate);
+        setControlValue('#continuity_injection_prompt', settings.injectionInstruction);
+        setControlValue('#continuity_arc_prompt', settings.arcSystemPrompt);
+        setControlValue('#continuity_arc_template', settings.arcTaskTemplate);
+        setControlValue('#continuity_era_prompt', settings.eraSystemPrompt);
+        setControlValue('#continuity_era_template', settings.eraTaskTemplate);
+    }
     $('#continuity_memory_name').text(runtime.world?.name || (getChatKey() ? 'No stored memory yet; it will be created when processing begins.' : 'Open a chat to begin.'));
 
     const queueText = runtime.queue.length ? ` · ${runtime.queue.length} queued` : '';
@@ -1053,12 +1083,12 @@ export function renderRuntime() {
         : `Context reduction: ${reduction.mode || 'waiting'}.`);
 
     const counts = worldCounts(runtime.world);
-    $('#continuity_counts').html(runtime.world
+    setElementHtml('#continuity_counts', runtime.world
         ? Object.entries(counts).map(([name, count]) => `<span class="continuity-count">${name}: ${count}</span>`).join('')
         : 'No chat memory loaded.');
     renderMemoryViewer();
-    $('#continuity_preview').text(runtime.lastInjection || runtime.injectionStatus || 'Checking memory injection…');
-    $('#continuity_raw').text(runtime.lastRawResponse || 'No extraction yet.');
+    setElementText('#continuity_preview', runtime.lastInjection || runtime.injectionStatus || 'Checking memory injection…');
+    setElementText('#continuity_raw', runtime.lastRawResponse || 'No extraction yet.');
     let memoryProfile = null;
     if (settings.memoryProfileId) {
         if (settings.memoryProfileId === DIRECT_PROFILE_ID) {
@@ -1111,8 +1141,10 @@ export function renderRuntime() {
         error: runtime.lastError || null,
         storage: runtime.health,
     };
-    $('#continuity_diagnostics').text(JSON.stringify(diagnostic, null, 2));
+    setElementText('#continuity_diagnostics', JSON.stringify(diagnostic, null, 2));
 }
+
+const scheduleRuntimeRender = createRenderScheduler(() => renderRuntime(false));
 
 async function exportWorld() {
     if (!runtime.world) throw new Error('Open a chat and prepare its memory first.');
@@ -1616,7 +1648,10 @@ export function initUI() {
     $('#continuity_viewer_next').on('click', () => { viewerPage++; renderMemoryViewer(true); });
     $('#continuity_delete').on('click', () => deleteScope().catch(error => toast('error', error.message)));
 
-    onRuntimeChange(renderRuntime);
+    // Runtime updates often arrive in bursts while extraction or indexing is
+    // progressing. One paint-aligned refresh preserves every final state while
+    // preventing a burst from blocking SillyTavern's main browser thread.
+    onRuntimeChange(scheduleRuntimeRender);
     refreshModelProfiles();
     renderRuntime();
     void refreshWorlds().catch(error => { updateRuntime({ lastError: `Storage unavailable: ${error.message}` }); });
