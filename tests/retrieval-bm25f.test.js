@@ -207,6 +207,39 @@ test('local retrieval handles a unique term and ordinary English morphology with
     assert.deepEqual(selections(morphology, 'Open matters').map(item => item.id), ['rehearsal']);
 });
 
+test('English grammar forms cannot become rare retrieval anchors', () => {
+    const grammarOnly = world({
+        events: [event('return', 'Routine movement', "She'll return after lunch.")],
+    });
+    const weak = buildMemoryPrompt(grammarOnly, user("She’ll do it."), 2000);
+    assert.deepEqual(selections(weak, 'Past events'), []);
+    assert.ok(!weak.retrievalDiagnostics.query.direct.includes("she'll"));
+
+    const negation = buildMemoryPrompt(grammarOnly, user("I didn’t. Never."), 2000);
+    assert.deepEqual(selections(negation, 'Past events'), []);
+    assert.deepEqual(negation.retrievalDiagnostics.query.direct, []);
+
+    const meaningful = world({
+        events: [event('stationer', 'Stationer departure', "She'll visit the stationer.")],
+    });
+    const specific = buildMemoryPrompt(meaningful, user("She’ll visit the stationer."), 2000);
+    assert.deepEqual(selections(specific, 'Past events').map(item => item.id), ['stationer']);
+});
+
+test('possessives and hyphenated English forms retain their meaningful words', () => {
+    const target = world({
+        events: [
+            event('harrowing', 'The Harrowing', 'The ordeal changed them.'),
+            event('collar', 'Collar straightening', 'The uniform was corrected before departure.'),
+        ],
+    });
+    const possessive = buildMemoryPrompt(target, user("Harrowing’s"), 2000);
+    assert.deepEqual(selections(possessive, 'Past events').map(item => item.id), ['harrowing']);
+
+    const compound = buildMemoryPrompt(target, user('collar-straightening'), 2000);
+    assert.deepEqual(selections(compound, 'Past events').map(item => item.id), ['collar']);
+});
+
 test('reciprocal-rank fusion favors agreement between lexical and semantic sources', () => {
     const target = world({
         events: [

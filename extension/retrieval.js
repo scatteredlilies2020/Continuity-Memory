@@ -1,4 +1,10 @@
-const STOP_WORDS = new Set('a an the and that this with from into have has had was were are for but not you your they them their she her him his its our out about just then than there here what when where who how why would could should been being also very more most some any all to of in on at as by or if it is be do we he me my up no so us during between through within without among around'.split(' '));
+const STOP_WORDS = new Set('a an the and that this with from into have has had was were are am can did does will shall may might must for but not never neither nor you your they them their she her him his its our out about just then than there here what when where who how why would could should been being also very more most some any all to of in on at as by or if it is be do we he me my up no so us during between through within without among around'.split(' '));
+const IRREGULAR_NEGATIVE_BASES = new Map([
+    ['ca', 'can'],
+    ['wo', 'will'],
+    ['sha', 'shall'],
+    ['ai', 'am'],
+]);
 const CJK_RUN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
 const LIFECYCLE_GUIDANCE = 'Raw chat controls. Events and plans outside Open matters are past; current conditions appear only under Current state.';
 const BM25_K1 = 1.2;
@@ -48,6 +54,32 @@ function statsHasQueryTerm(stats, term, includeMorphology = false) {
     return Object.values(stats.fields).some(field => fieldHasQueryTerm(field, term, includeMorphology));
 }
 
+function englishLexicalForms(rawToken) {
+    const raw = String(rawToken || '')
+        .replace(/[’‘]/gu, "'")
+        .replace(/[‐‑‒–—]/gu, '-');
+    let normalized = raw.toLocaleLowerCase();
+    if (normalized.includes("'")) {
+        let previous = '';
+        while (previous !== normalized) {
+            previous = normalized;
+            normalized = normalized.replace(/'(?:s|ll|re|ve|d|m)$/u, '');
+        }
+        const negative = normalized.match(/^(.+)n't$/u);
+        if (negative) normalized = IRREGULAR_NEGATIVE_BASES.get(negative[1]) || negative[1];
+    }
+    const bases = normalized.includes("'") ? normalized.split("'") : [normalized];
+    const forms = [];
+    for (const base of bases.filter(Boolean)) {
+        forms.push(base);
+        if (base.includes('-')) forms.push(...base.split('-').filter(Boolean));
+    }
+    return [...new Set(forms)].map(value => ({
+        value,
+        upperCaseIdentifier: raw === raw.toLocaleUpperCase() && raw !== raw.toLocaleLowerCase(),
+    }));
+}
+
 function tokenList(value, includeMorphology = false) {
     const source = plain(value);
     const found = [];
@@ -61,16 +93,18 @@ function tokenList(value, includeMorphology = false) {
             for (let index = 0; index < characters.length - 2; index++) found.push(characters.slice(index, index + 3).join(''));
         }
     }
-    const nonCjk = source.replace(CJK_RUN, ' ');
+    const nonCjk = source.replace(CJK_RUN, ' ')
+        .replace(/[’‘]/gu, "'")
+        .replace(/[‐‑‒–—]/gu, '-');
     for (const token of nonCjk.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []) {
-        const normalized = token.toLocaleLowerCase().replace(/['’]s$/u, '');
-        const length = [...normalized].length;
-        const upperCaseIdentifier = token === token.toLocaleUpperCase() && token !== token.toLocaleLowerCase();
-        if (length >= 3 && !STOP_WORDS.has(normalized)) {
-            found.push(normalized);
-            const morphology = includeMorphology ? englishMorphologyToken(normalized) : '';
-            if (morphology) found.push(morphology);
-        } else if (length === 2 && (!STOP_WORDS.has(normalized) || upperCaseIdentifier)) found.push(normalized);
+        for (const { value: normalized, upperCaseIdentifier } of englishLexicalForms(token)) {
+            const length = [...normalized].length;
+            if (length >= 3 && !STOP_WORDS.has(normalized)) {
+                found.push(normalized);
+                const morphology = includeMorphology ? englishMorphologyToken(normalized) : '';
+                if (morphology) found.push(morphology);
+            } else if (length === 2 && (!STOP_WORDS.has(normalized) || upperCaseIdentifier)) found.push(normalized);
+        }
         // Single Latin letters and digits produce excessive substring matches
         // (for example, the article "A" matching nearly every memory row).
     }
@@ -1504,7 +1538,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.128';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.129';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';
