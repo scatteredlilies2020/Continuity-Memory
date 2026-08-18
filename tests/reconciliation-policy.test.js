@@ -1136,7 +1136,7 @@ test('corroborated explicit aliases are recovered without another model call', (
     assert.deepEqual(result.entities[0].aliases, ['Copy Ninja']);
 });
 
-test('source-supported durable L1 beats warn when no structured record covers them', () => {
+test('source-supported durable L1 commitments become open threads without another model call', () => {
     const result = extraction();
     result.sceneCapsule = { beats: ['Alice vows to protect the northern bridge permanently.'] };
     const messages = [{ name: 'Alice', text: 'I vow to protect the northern bridge permanently.' }];
@@ -1144,12 +1144,75 @@ test('source-supported durable L1 beats warn when no structured record covers th
     const missing = sanitizeReconciliationMetadata(result, {
         entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
     }, messages);
-    assert.equal(missing.warnings.length, 1);
-    assert.match(result.sceneCapsule.coverageWarnings[0], /northern bridge/);
+    assert.equal(missing.recoveredCoverage, 1);
+    assert.deepEqual(missing.warnings, []);
+    assert.deepEqual(result.threads, [{
+        targetId: '', title: 'Alice vows to protect the northern bridge permanently.',
+        detail: 'Alice vows to protect the northern bridge permanently.', status: 'open',
+        participants: ['Alice'], importance: 4,
+    }]);
+});
 
-    result.threads.push({ title: 'Protect the northern bridge', detail: 'Alice vows to protect the northern bridge permanently.' });
-    const covered = sanitizeReconciliationMetadata(result, {
+test('coverage recovery refuses a summary that disagrees with the raw action', () => {
+    const result = extraction();
+    result.sceneCapsule = { beats: ['Alice vows to destroy the northern bridge permanently.'] };
+
+    const validation = sanitizeReconciliationMetadata(result, {
         entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
-    }, messages);
-    assert.deepEqual(covered.warnings, []);
+    }, [{ name: 'Alice', text: 'I vow to protect the northern bridge permanently.' }]);
+
+    assert.equal(validation.recoveredCoverage, 0);
+    assert.equal(validation.warnings.length, 1);
+    assert.deepEqual(result.threads, []);
+});
+
+test('questions about a possible loss do not become durable events', () => {
+    const result = extraction();
+    result.sceneCapsule = { beats: ['Lucas asks whether Toska lost her lightsaber.'] };
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Lucas', text: 'Did you lose your lightsaber?' }]);
+
+    assert.equal(validation.recoveredCoverage, 0);
+    assert.deepEqual(validation.warnings, []);
+    assert.deepEqual(result.events, []);
+});
+
+test('source-supported relationship omissions become relationship records', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Alice', type: 'person', aliases: [] },
+        { name: 'Bob', type: 'person', aliases: [] },
+    );
+    result.sceneCapsule = { beats: ['Alice and Bob became allies after the battle.'] };
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Narrator', text: 'After the battle, Alice and Bob became allies.' }]);
+
+    assert.equal(validation.recoveredCoverage, 1);
+    assert.deepEqual(validation.warnings, []);
+    assert.deepEqual(result.relationships.at(-1), {
+        targetId: '', from: 'Alice', to: 'Bob', kind: 'allies', status: 'active',
+        dynamic: 'Alice and Bob became allies after the battle.', importance: 4,
+    });
+});
+
+test('source-supported role omissions become durable identity facts', () => {
+    const result = extraction();
+    result.entities.push({ name: 'Alice', type: 'person', aliases: [] });
+    result.sceneCapsule = { beats: ['Alice served as captain of the northern guard.'] };
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Alice', text: 'I served as captain of the northern guard.' }]);
+
+    assert.equal(validation.recoveredCoverage, 1);
+    assert.deepEqual(validation.warnings, []);
+    assert.deepEqual(result.facts.at(-1), {
+        targetId: '', subject: 'Alice', predicate: 'established role or designation',
+        value: 'Alice served as captain of the northern guard.', category: 'identity',
+        importance: 4, persistence: 'persistent',
+    });
 });
