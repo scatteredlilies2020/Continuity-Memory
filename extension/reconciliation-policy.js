@@ -243,6 +243,72 @@ function cleanText(value) {
     return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
+function identityReferenceParts(value) {
+    return cleanText(value).split(/\s*(?:\/|\||;)\s*/u).map(cleanText).filter(Boolean);
+}
+
+function identityReferenceTokens(value) {
+    return normalized(value)
+        .replace(/[’‘]/gu, "'")
+        .replace(/'s\b/gu, '')
+        .match(/[\p{L}\p{N}]+/gu) || [];
+}
+
+function descriptiveIdentityReferenceMatch(left, right) {
+    const leftTokens = identityReferenceTokens(left);
+    const rightTokens = identityReferenceTokens(right);
+    if (Math.min(leftTokens.length, rightTokens.length) < 2) return false;
+    const leftSet = new Set(leftTokens);
+    const rightSet = new Set(rightTokens);
+    return leftTokens.every(token => rightSet.has(token)) || rightTokens.every(token => leftSet.has(token));
+}
+
+function normalizeIdentityResolutionReferences(result) {
+    if (!Array.isArray(result?.identityResolutions)) return 0;
+    const expanded = [];
+    const seen = new Set();
+    let normalizedCount = 0;
+    for (const resolution of result.identityResolutions) {
+        const canonical = cleanText(resolution?.canonical);
+        const evidence = cleanText(resolution?.evidence);
+        const parts = identityReferenceParts(resolution?.reference);
+        if (!canonical || !evidence || !parts.length) continue;
+        if (parts.length > 1) normalizedCount += parts.length - 1;
+        for (const reference of parts) {
+            if (normalized(reference) === normalized(canonical)) continue;
+            const identity = `${normalized(reference)}|${normalized(canonical)}`;
+            if (seen.has(identity)) continue;
+            seen.add(identity);
+            expanded.push({ reference, canonical, evidence });
+        }
+    }
+    result.identityResolutions = expanded;
+    return normalizedCount;
+}
+
+function resolvedReconciliationSubject(result, world, value) {
+    const subject = canonicalMemorySubject(world, value);
+    const requested = cleanText(value);
+    for (const resolution of result?.identityResolutions || []) {
+        const canonical = cleanText(resolution?.canonical);
+        if (!canonical) continue;
+        if (normalized(requested) === normalized(canonical)) return canonical;
+        if (identityReferenceParts(resolution?.reference).some(reference =>
+            normalized(requested) === normalized(reference)
+            || descriptiveIdentityReferenceMatch(requested, reference)
+            || descriptiveIdentityReferenceMatch(subject, reference))) return canonical;
+    }
+    return subject;
+}
+
+function resolvedRelationshipPairIdentity(result, item, world = null) {
+    const endpoints = [item?.from, item?.to]
+        .map(value => normalized(resolvedReconciliationSubject(result, world, value)))
+        .filter(Boolean)
+        .sort();
+    return endpoints.length === 2 ? endpoints.join('|') : '';
+}
+
 function continuityEntityIndex(result, world) {
     const entities = [];
     const byName = new Map();
@@ -953,10 +1019,10 @@ export function findRelationshipEndpointConflicts(result, world) {
     const entityIndex = continuityEntityIndex(result, world);
     for (const [index, relationship] of (result?.relationships || []).entries()) {
         const label = `${cleanText(relationship?.from)} ↔ ${cleanText(relationship?.to)}`;
-        const from = normalized(canonicalMention(entityIndex, relationship?.from)?.name
-            || canonicalMemorySubject(evidenceWorld, relationship?.from));
-        const to = normalized(canonicalMention(entityIndex, relationship?.to)?.name
-            || canonicalMemorySubject(evidenceWorld, relationship?.to));
+        const from = normalized(resolvedReconciliationSubject(result, evidenceWorld,
+            canonicalMention(entityIndex, relationship?.from)?.name || relationship?.from));
+        const to = normalized(resolvedReconciliationSubject(result, evidenceWorld,
+            canonicalMention(entityIndex, relationship?.to)?.name || relationship?.to));
         if (from && from === to) {
             conflicts.push({
                 category: 'relationships', index, label,
@@ -1961,7 +2027,7 @@ export function removeInvalidStoredAddressFacts(world, messages = null) {
     return changed;
 }
 
-export function reconciliationTargetIsCompatible(category, incoming, existing, world = null) {
+export function reconciliationTargetIsCompatible(category, incoming, existing, world = null, result = null) {
     if (!existing) return false;
     const same = (left, right) => Boolean(normalized(left) && normalized(left) === normalized(right));
     const sameSubject = (left, right) => same(canonicalMemorySubject(world, left), canonicalMemorySubject(world, right));
@@ -1989,8 +2055,13 @@ export function reconciliationTargetIsCompatible(category, incoming, existing, w
             && incomingIdentity === stateIdentity(world, existing));
     }
     if (category === 'relationships') {
-        return Boolean(relationshipPairIdentity(incoming, world)
-            && relationshipPairIdentity(incoming, world) === relationshipPairIdentity(existing, world));
+        const incomingPair = result
+            ? resolvedRelationshipPairIdentity(result, incoming, world)
+            : relationshipPairIdentity(incoming, world);
+        const existingPair = result
+            ? resolvedRelationshipPairIdentity(result, existing, world)
+            : relationshipPairIdentity(existing, world);
+        return Boolean(incomingPair && incomingPair === existingPair);
     }
     if (category === 'threads') return same(incoming?.title, existing?.title);
     if (category === 'backgrounds') return same(incoming?.topic, existing?.topic);
@@ -2035,6 +2106,9 @@ export function reconciliationTargetWasRejected(item) {
 }
 
 export function sanitizeReconciliationMetadata(result, world, messages = null) {
+    const missingIdentityResolutions = !Array.isArray(result.identityResolutions);
+    if (missingIdentityResolutions) result.identityResolutions = [];
+    const normalizedIdentityReferences = normalizeIdentityResolutionReferences(result);
     const normalizedEpistemicFacts = normalizeEpistemicFactShapes(result, world);
     const normalizedAddresses = normalizeDirectionalAddressFacts(result, world);
     const repairedAddresses = repairReversedAddressFacts(result, world, messages);
@@ -2052,12 +2126,9 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const reconciledAddresses = reconcileGenericAddressDuplicates(result, world);
     const discardedUnsupportedAddresses = removeUnsupportedAddressValues(result, messages, world);
     const discardedPronounAddresses = removeUnsupportedPronounAddressValues(result, messages, world);
-    let ignored = discardedAddressValues + discardedUnsupportedAddresses + discardedPronounAddresses + removeInvalidAddressFacts(result);
+    let ignored = discardedAddressValues + discardedUnsupportedAddresses + discardedPronounAddresses
+        + removeInvalidAddressFacts(result) + Number(missingIdentityResolutions);
     ignored += removeUnsupportedSelfAddressFacts(result, messages, world);
-    if (!Array.isArray(result.identityResolutions)) {
-        result.identityResolutions = [];
-        ignored++;
-    }
     if (!Array.isArray(result.recordMerges)) {
         result.recordMerges = [];
         ignored++;
@@ -2072,7 +2143,7 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
             if (!item || typeof item !== 'object') continue;
             const targetId = String(item.targetId || '').trim();
             const target = targetId ? recordsById.get(targetId) : null;
-            const compatible = targetId && reconciliationTargetIsCompatible(category, item, target, world);
+            const compatible = targetId && reconciliationTargetIsCompatible(category, item, target, world, result);
             if (targetId && target && !compatible) {
                 REJECTED_TARGET_RECORDS.add(item);
                 if (category === 'relationships') {
@@ -2122,5 +2193,5 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
         ...reconciledThreads.warnings,
     ])].slice(0, 8);
     if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
-    return { ignored, recovered, recoveredAliases, recoveredBoundaries, recoveredKnowledge, recoveredIdentities, recoveredFactRelationships, recoveredCoverage, reconciledThreads: reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, reconciledStateTransitions, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, sourceAttributionConflicts, relationshipEndpointConflicts, warnings };
+    return { ignored, recovered, recoveredAliases, recoveredBoundaries, recoveredKnowledge, recoveredIdentities, normalizedIdentityReferences, recoveredFactRelationships, recoveredCoverage, reconciledThreads: reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, reconciledStateTransitions, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, sourceAttributionConflicts, relationshipEndpointConflicts, warnings };
 }

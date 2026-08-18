@@ -482,6 +482,50 @@ test('an explicit canonical description resolves a possessive person placeholder
     assert.equal(target.relationships[0].to, 'Caelen Veyr');
 });
 
+test('composite identity evidence upgrades a placeholder relationship in place', () => {
+    const target = world();
+    const chatKey = 'roleplay';
+    const first = extraction({
+        entities: [
+            { name: 'Toska', type: 'person', aliases: [], description: 'A Jedi Padawan.', importance: 5 },
+            { name: 'Toska’s former Jedi Master', type: 'person', aliases: [], description: 'A deceased Jedi Master.', importance: 5 },
+        ],
+        relationships: [{
+            from: 'Toska', to: 'Toska’s former Jedi Master', kind: 'Jedi Master and Padawan', status: 'ended by death',
+            dynamic: 'Relationship between Toska and Toska’s former Jedi Master: Toska was his Padawan and grieves him.', importance: 5,
+        }],
+        events: [],
+    });
+    sanitizeReconciliationMetadata(first, target);
+    mergeExtraction(target, first, { chatKey, from: 0, to: 7, allowStateUpdates: true });
+    const relationshipId = target.relationships[0].id;
+
+    const second = extraction({
+        entities: [{
+            name: 'Caelen Veyr', type: 'person', aliases: ['Pell'],
+            description: 'Toska’s deceased former Jedi Master, identified as Caelen Veyr.', importance: 5,
+        }],
+        identityResolutions: [{
+            reference: 'the dead Jedi / Toska’s former Master / Pell', canonical: 'Caelen Veyr',
+            evidence: 'Toska explicitly identifies her deceased former Master as Caelen Veyr and says he used the name Pell.',
+        }],
+        relationships: [{
+            targetId: relationshipId, from: 'Toska', to: 'Caelen Veyr', kind: 'Jedi Master and Padawan', status: 'ended by death',
+            dynamic: 'Relationship between Toska and Caelen Veyr: Caelen Veyr was Toska’s Jedi Master; Toska remains loyal to and grieving for him.', importance: 5,
+        }],
+        events: [],
+    });
+    const validation = sanitizeReconciliationMetadata(second, target);
+    mergeExtraction(target, second, { chatKey, from: 8, to: 15, allowStateUpdates: true });
+
+    assert.equal(validation.relationshipEndpointConflicts.length, 0);
+    assert.equal(target.entities.some(item => item.name === 'Toska’s former Jedi Master'), false);
+    assert.equal(target.relationships.length, 1);
+    assert.equal(target.relationships[0].id, relationshipId);
+    assert.equal(target.relationships[0].to, 'Caelen Veyr');
+    assert.match(target.relationships[0].dynamic, /Relationship between Toska and Caelen Veyr/u);
+});
+
 test('reversed relationship endpoints update one description-first canonical pair', () => {
     const target = world();
     const chatKey = 'roleplay';

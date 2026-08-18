@@ -1556,6 +1556,44 @@ test('identity resolution lets a stored placeholder relationship support its can
     assert.equal(validation.sourceAttributionConflicts.some(item => item.category === 'relationships'), false);
 });
 
+test('composite identity resolution canonicalizes a placeholder without triggering the stable-pair guard', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Toska', type: 'person', aliases: [] },
+        { name: 'Caelen Veyr', type: 'person', aliases: ['Pell'] },
+    );
+    result.identityResolutions.push({
+        reference: 'the dead Jedi / Toska’s former Master / Pell',
+        canonical: 'Caelen Veyr',
+        evidence: 'Toska explicitly identifies her deceased former Master as Caelen Veyr and says he used the name Pell.',
+    });
+    result.relationships.push({
+        targetId: 'relationship_former_master', from: 'Toska', to: 'Caelen Veyr',
+        kind: 'Jedi Master and Padawan', status: 'ended by death',
+        dynamic: 'Relationship between Toska and Caelen Veyr: Caelen Veyr was Toska’s Jedi Master; Toska remains loyal to and grieving for him.',
+        importance: 5,
+    });
+    const world = {
+        entities: [
+            { name: 'Toska', type: 'person', aliases: [] },
+            { name: 'Toska’s former Jedi Master', type: 'person', aliases: [] },
+        ], facts: [], states: [], threads: [], backgrounds: [],
+        relationships: [{
+            id: 'relationship_former_master', from: 'Toska', to: 'Toska’s former Jedi Master',
+            kind: 'Jedi Master and Padawan', status: 'ended by death',
+        }],
+    };
+
+    const validation = sanitizeReconciliationMetadata(result, world);
+
+    assert.equal(validation.normalizedIdentityReferences, 2);
+    assert.equal(validation.relationshipEndpointConflicts.length, 0);
+    assert.equal(result.relationships[0].targetId, 'relationship_former_master');
+    assert.deepEqual(result.identityResolutions.map(item => item.reference), [
+        'the dead Jedi', 'Toska’s former Master', 'Pell',
+    ]);
+});
+
 test('a stable relationship ID cannot change its participant pair', () => {
     const result = extraction();
     result.entities.push(

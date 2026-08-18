@@ -294,6 +294,16 @@ function descriptiveReferenceMatchesName(reference, name) {
     return referenceTokens.length >= 2 && referenceTokens.every(token => nameTokens.has(token));
 }
 
+function descriptionBeginsWithDescriptiveReference(reference, description) {
+    const referenceTokens = identityNameTokens(reference);
+    const lead = text(description).split(/[,:;.!?]/u, 1)[0];
+    const leadTokens = identityNameTokens(lead);
+    if (referenceTokens.length < 2 || !leadTokens.length) return false;
+    const firstReferenceIndex = leadTokens.indexOf(referenceTokens[0]);
+    return firstReferenceIndex >= 0 && firstReferenceIndex <= 1
+        && descriptiveReferenceMatchesName(reference, lead);
+}
+
 function applyIdentityResolution(world, raw, meta) {
     const reference = text(raw?.reference);
     const requestedCanonical = text(raw?.canonical);
@@ -305,7 +315,10 @@ function applyIdentityResolution(world, raw, meta) {
     const canonicalEntity = canonicalMatches[0];
     if (canonicalEntity.correctionId || shouldPreserveHistoricalRecord(canonicalEntity, meta)) return false;
 
-    const referenceMatches = world.entities.filter(entity => entity !== canonicalEntity && exactEntityNames(entity).includes(key(reference)));
+    const referenceMatches = world.entities.filter(entity => entity !== canonicalEntity
+        && (exactEntityNames(entity).includes(key(reference))
+            || descriptiveReferenceMatchesName(reference, entity.name)
+            || descriptiveReferenceMatchesName(entity.name, reference)));
     if (referenceMatches.length > 1) return false;
     const priorEntity = referenceMatches[0];
     if (priorEntity?.correctionId || (priorEntity && shouldPreserveHistoricalRecord(priorEntity, meta))) return false;
@@ -379,7 +392,9 @@ function applyDescriptionIdentityResolutions(world, meta) {
         const candidates = (world.entities || []).filter(entity => entity !== referenceEntity
             && personLikeEntityType(entity.type)
             && (key(entity.description).startsWith(referenceKey)
-                || (entity.aliases || []).some(value => key(value) === referenceKey)));
+                || descriptionBeginsWithDescriptiveReference(reference, entity.description)
+                || (entity.aliases || []).some(value => key(value) === referenceKey
+                    || descriptiveReferenceMatchesName(reference, value))));
         if (candidates.length !== 1) continue;
         applyIdentityResolution(world, {
             reference,
