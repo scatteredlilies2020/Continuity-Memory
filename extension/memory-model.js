@@ -1,6 +1,6 @@
 import { EXTRACTION_VERSION } from './coverage.js';
 import { isSuppressedByCorrection } from './memory-correction.js';
-import { addressFactAddressee, addressFactIdentity, entityTypesAreCompatible, isAddressFact, mergeAddressValues, reconcileGenericAddressDuplicates, reconciliationMergeIsCompatible, reconciliationTargetIsCompatible, reconciliationTargetWasRejected, relationshipPairIdentity, removeInvalidAddressFacts } from './reconciliation-policy.js';
+import { addressFactAddressee, addressFactIdentity, entityIsPersonLike, entityTypesAreCompatible, isAddressFact, mergeAddressValues, reconcileGenericAddressDuplicates, reconciliationMergeIsCompatible, reconciliationTargetIsCompatible, reconciliationTargetWasRejected, relationshipPairIdentity, removeInvalidAddressFacts } from './reconciliation-policy.js';
 import { canonicalMemorySubject, canonicalStateAttribute, stateIdentity, stateScope } from './state-lifecycle.js';
 import { buildL1TemporalAnchor, buildRelativeTemporalAnchor } from './temporal-anchors.js';
 import { randomUuid } from './uuid.js';
@@ -17,6 +17,10 @@ function clipped(value, max) {
 
 function key(value) {
     return text(value).toLocaleLowerCase();
+}
+
+function escaped(value) {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
 function id(prefix) {
@@ -125,15 +129,11 @@ const GENERIC_PERSON_ALIAS_TOKENS = new Set([
     'trooper', 'chief', 'seneschal', 'handler', 'prisoner', 'mentor', 'student', 'teacher',
 ]);
 
-function personLikeEntityType(value) {
-    return /^(?:person|character|npc|human|individual)$/iu.test(text(value));
-}
-
 function safeEntityAliases(name, type, aliases) {
     const canonicalTokens = new Set(identityNameTokens(name));
     return cleanList(aliases).filter(alias => {
         if (key(alias) === key(name)) return false;
-        if (!personLikeEntityType(type)) return true;
+        if (!entityIsPersonLike(type)) return true;
         const possessive = alias.search(/['’]s\b/iu);
         if (possessive >= 0 && (alias.slice(0, possessive).match(/[\p{L}\p{N}-]+/gu) || []).length <= 3) return false;
         const tokens = identityNameTokens(alias);
@@ -288,10 +288,19 @@ function identityNameTokens(value) {
         .match(/[\p{L}\p{N}]+/gu) || [];
 }
 
+const IDENTITY_ROLE_TOKENS = new Set([
+    'master', 'mentor', 'teacher', 'captain', 'commander', 'leader', 'handler', 'apprentice', 'student',
+    'padawan', 'pupil', 'parent', 'mother', 'father', 'brother', 'sister', 'sibling', 'spouse', 'husband',
+    'wife', 'attendant', 'retainer', 'servant', 'guardian', 'ward',
+]);
+
 function descriptiveReferenceMatchesName(reference, name) {
     const referenceTokens = identityNameTokens(reference);
     const nameTokens = new Set(identityNameTokens(name));
-    return referenceTokens.length >= 2 && referenceTokens.every(token => nameTokens.has(token));
+    return referenceTokens.length >= 2
+        && referenceTokens.some(token => IDENTITY_ROLE_TOKENS.has(token))
+        && [...nameTokens].some(token => IDENTITY_ROLE_TOKENS.has(token))
+        && referenceTokens.every(token => nameTokens.has(token));
 }
 
 function descriptionBeginsWithDescriptiveReference(reference, description) {
@@ -302,6 +311,23 @@ function descriptionBeginsWithDescriptiveReference(reference, description) {
     const firstReferenceIndex = leadTokens.indexOf(referenceTokens[0]);
     return firstReferenceIndex >= 0 && firstReferenceIndex <= 1
         && descriptiveReferenceMatchesName(reference, lead);
+}
+
+function isAttributionFallbackDescription(value) {
+    return /^Details about .+ remain disputed or attributed in this excerpt/iu.test(text(value));
+}
+
+function canonicalizedIdentityDescription(value, replacedNames, canonicalName) {
+    let description = text(value);
+    for (const name of replacedNames) {
+        const candidate = text(name);
+        if (!candidate || key(candidate) === key(canonicalName)) continue;
+        description = description.replace(
+            new RegExp(`(^|\\s)${escaped(candidate)}(?=$|[\\s,.:;!?])`, 'giu'),
+            (_match, prefix) => `${prefix}${canonicalName}`,
+        );
+    }
+    return description;
 }
 
 function applyIdentityResolution(world, raw, meta) {
@@ -341,6 +367,7 @@ function applyIdentityResolution(world, raw, meta) {
         for (const name of [priorEntity.name, ...(priorEntity.aliases || [])]) replacedNames.add(key(name));
     }
     const canonicalName = text(canonicalEntity.name);
+    const priorNames = mergePriorEntity ? [reference, priorEntity.name, ...(priorEntity.aliases || [])] : [reference];
     const resolutionSource = sourceRef(meta);
     canonicalEntity.aliases = safeEntityAliases(canonicalName, canonicalEntity.type, [
         ...(canonicalEntity.aliases || []),
@@ -349,7 +376,14 @@ function applyIdentityResolution(world, raw, meta) {
     ]);
     canonicalEntity.sources = mergedSources(canonicalEntity.sources || [], mergePriorEntity ? priorEntity?.sources || [] : [], [resolutionSource]);
     canonicalEntity.updatedAt = resolutionSource.capturedAt;
-    if (mergePriorEntity) world.entities = world.entities.filter(entity => entity !== priorEntity);
+    if (mergePriorEntity) {
+        const priorDescription = canonicalizedIdentityDescription(priorEntity.description, priorNames, canonicalName);
+        if (priorDescription && (!text(canonicalEntity.description) || isAttributionFallbackDescription(canonicalEntity.description))) {
+            canonicalEntity.description = priorDescription;
+        }
+        canonicalEntity.importance = Math.max(Number(canonicalEntity.importance || 0), Number(priorEntity.importance || 0));
+        world.entities = world.entities.filter(entity => entity !== priorEntity);
+    }
 
     const replace = value => replacedNames.has(key(value)) ? canonicalName : text(value);
     const replaceList = (value, max = 30) => cleanList(value, max).map(replace).filter(Boolean);
@@ -384,13 +418,13 @@ function applyIdentityResolution(world, raw, meta) {
 }
 
 function applyDescriptionIdentityResolutions(world, meta) {
-    const descriptivePeople = (world.entities || []).filter(entity => personLikeEntityType(entity.type)
+    const descriptivePeople = (world.entities || []).filter(entity => entityIsPersonLike(entity.type)
         && /['’]s\s+(?:former\s+|dead\s+|deceased\s+)?[\p{L}\p{N}-]+(?:\s+[\p{L}\p{N}-]+){0,3}$/iu.test(text(entity.name)));
     for (const referenceEntity of descriptivePeople) {
         const reference = text(referenceEntity.name);
         const referenceKey = key(reference);
         const candidates = (world.entities || []).filter(entity => entity !== referenceEntity
-            && personLikeEntityType(entity.type)
+            && entityIsPersonLike(entity.type)
             && (key(entity.description).startsWith(referenceKey)
                 || descriptionBeginsWithDescriptiveReference(reference, entity.description)
                 || (entity.aliases || []).some(value => key(value) === referenceKey
@@ -502,11 +536,16 @@ export function mergeExtraction(world, result, meta) {
 
     mergeArray(world, 'entities', world.entities, result.entities, item => key(item.name), meta, 'entity', (item, existing) => {
         const suppliedName = text(item.name);
+        const current = existing || world.entities.find(entity => key(entity?.name) === key(suppliedName));
         // A new entity keeps its supplied name. Fuzzy canonicalization here can
         // collapse possessive objects or descriptive people into an unrelated
         // established entity before identity resolution has evidence.
-        const canonicalName = existing?.name || suppliedName;
-        const type = existing?.type || text(item.type) || 'entity';
+        const canonicalName = current?.name || suppliedName;
+        const type = current?.type || text(item.type) || 'entity';
+        const incomingDescription = text(item.description);
+        const description = current?.description && isAttributionFallbackDescription(incomingDescription)
+            ? text(current.description)
+            : incomingDescription;
         return {
             name: canonicalName,
             type,
@@ -516,8 +555,8 @@ export function mergeExtraction(world, result, meta) {
             ])
                 .filter(alias => !(world.entities || []).some(entity => entity !== existing
                     && key(entity.name) === key(alias))),
-            description: text(item.description),
-            importance: clampImportance(item.importance),
+            description,
+            importance: Math.max(clampImportance(item.importance), clampImportance(current?.importance)),
         };
     }, preserveHistoricalRecord);
 

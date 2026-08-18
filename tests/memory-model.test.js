@@ -482,6 +482,69 @@ test('an explicit canonical description resolves a possessive person placeholder
     assert.equal(target.relationships[0].to, 'Caelen Veyr');
 });
 
+test('identity merging preserves established placeholder detail when a named role arrives with an attribution fallback', () => {
+    const target = world();
+    const reference = 'Ari Lane’s former mentor';
+    mergeExtraction(target, extraction({
+        entities: [{
+            name: reference, type: 'person', aliases: [],
+            description: 'A renowned guild master who trained Ari Lane in archival diplomacy.', importance: 5,
+        }],
+        relationships: [{
+            from: 'Ari Lane', to: reference, kind: 'former mentor and student', status: 'ended by death',
+            dynamic: 'Ari Lane was trained by her former mentor.', importance: 5,
+        }],
+        events: [],
+    }), { chatKey: 'neutral-roleplay', from: 0, to: 7, allowStateUpdates: true });
+    const relationshipId = target.relationships[0].id;
+
+    mergeExtraction(target, extraction({
+        entities: [{
+            name: 'Doctor Vale', type: 'deceased guild master', aliases: ['Vale'],
+            description: 'Details about Doctor Vale remain disputed or attributed in this excerpt; consult character perspectives and source history.',
+            importance: 4,
+        }],
+        identityResolutions: [{
+            reference, canonical: 'Doctor Vale',
+            evidence: 'Ari Lane explicitly names Doctor Vale as her former mentor.',
+        }],
+        relationships: [{
+            targetId: relationshipId, from: 'Ari Lane', to: 'Doctor Vale',
+            kind: 'former mentor and student', status: 'ended by death',
+            dynamic: 'Doctor Vale was Ari Lane’s former mentor.', importance: 5,
+        }],
+        events: [],
+    }), { chatKey: 'neutral-roleplay', from: 8, to: 15, allowStateUpdates: true });
+
+    assert.equal(target.entities.length, 1);
+    assert.equal(target.entities[0].name, 'Doctor Vale');
+    assert.equal(target.entities[0].type, 'deceased guild master');
+    assert.equal(target.entities[0].description, 'A renowned guild master who trained Ari Lane in archival diplomacy.');
+    assert.equal(target.relationships.length, 1);
+    assert.equal(target.relationships[0].id, relationshipId);
+    assert.equal(target.relationships[0].to, 'Doctor Vale');
+});
+
+test('a later attribution fallback cannot erase an established concrete entity description', () => {
+    const target = world();
+    mergeExtraction(target, extraction({
+        entities: [{
+            name: 'Doctor Vale', type: 'guild master', aliases: [],
+            description: 'A former guild master and retired council member.', importance: 5,
+        }],
+    }), { chatKey: 'guild', from: 0, to: 7, allowStateUpdates: true });
+    mergeExtraction(target, extraction({
+        entities: [{
+            name: 'Doctor Vale', type: 'person', aliases: [],
+            description: 'Details about Doctor Vale remain disputed or attributed in this excerpt; consult character perspectives and source history.',
+            importance: 3,
+        }],
+    }), { chatKey: 'guild', from: 8, to: 15, allowStateUpdates: true });
+
+    assert.equal(target.entities.length, 1);
+    assert.equal(target.entities[0].description, 'A former guild master and retired council member.');
+});
+
 test('composite identity evidence upgrades a placeholder relationship in place', () => {
     const target = world();
     const chatKey = 'roleplay';

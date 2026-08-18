@@ -254,10 +254,21 @@ function identityReferenceTokens(value) {
         .match(/[\p{L}\p{N}]+/gu) || [];
 }
 
+const IDENTITY_ROLE_TOKENS = new Set([
+    'master', 'mentor', 'teacher', 'captain', 'commander', 'leader', 'handler', 'apprentice', 'student',
+    'padawan', 'pupil', 'parent', 'mother', 'father', 'brother', 'sister', 'sibling', 'spouse', 'husband',
+    'wife', 'attendant', 'retainer', 'servant', 'guardian', 'ward',
+]);
+
+function hasIdentityRoleToken(tokens) {
+    return tokens.some(token => IDENTITY_ROLE_TOKENS.has(token));
+}
+
 function descriptiveIdentityReferenceMatch(left, right) {
     const leftTokens = identityReferenceTokens(left);
     const rightTokens = identityReferenceTokens(right);
     if (Math.min(leftTokens.length, rightTokens.length) < 2) return false;
+    if (!hasIdentityRoleToken(leftTokens) || !hasIdentityRoleToken(rightTokens)) return false;
     const leftSet = new Set(leftTokens);
     const rightSet = new Set(rightTokens);
     return leftTokens.every(token => rightSet.has(token)) || rightTokens.every(token => leftSet.has(token));
@@ -286,6 +297,71 @@ function normalizeIdentityResolutionReferences(result) {
     return normalizedCount;
 }
 
+function textMentionsIdentityVariant(value, variants) {
+    const source = cleanText(value);
+    return variants.map(cleanText).filter(Boolean).some(name =>
+        new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(name)}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(source));
+}
+
+export function discardUnsupportedIdentityResolutions(result, world, messages = null) {
+    if (!Array.isArray(result?.identityResolutions)) return 0;
+    const entities = [...(world?.entities || []), ...(result?.entities || [])];
+    const structuredNames = [
+        ...entities.flatMap(entity => [entity?.name, ...(entity?.aliases || [])]),
+        ...[...(world?.relationships || []), ...(result?.relationships || [])].flatMap(item => [item?.from, item?.to]),
+    ].map(normalized).filter(Boolean);
+    const supported = resolution => {
+        const reference = cleanText(resolution?.reference);
+        const canonical = cleanText(resolution?.canonical);
+        const evidence = cleanText(resolution?.evidence);
+        const canonicalMatches = entities.filter(entity => [entity?.name, ...(entity?.aliases || [])]
+            .some(value => normalized(value) === normalized(canonical)));
+        const canonicalNames = new Set(canonicalMatches.map(entity => normalized(entity?.name)).filter(Boolean));
+        const canonicalEstablished = canonicalNames.size === 1 || structuredNames.includes(normalized(canonical));
+        if (!reference || !canonical || !evidence || !canonicalEstablished || canonicalNames.size > 1) return false;
+        const canonicalEntity = canonicalMatches[0] || { name: canonical, aliases: [] };
+        const canonicalVariants = [canonicalEntity?.name, ...(canonicalEntity?.aliases || []), canonical];
+        const descriptor = descriptivePersonIdentityContext(reference, world);
+        if (descriptor) {
+            const ownerEntity = entities.find(entity => [entity?.name, ...(entity?.aliases || [])]
+                .some(value => normalized(value) === normalized(descriptor.owner)));
+            const ownerVariants = [descriptor.owner, ...(ownerEntity?.aliases || [])].filter(Boolean);
+            const roleWord = cleanText(descriptor.role).split(/\s+/u).at(-1);
+            const evidenceSupported = textMentionsIdentityVariant(evidence, ownerVariants)
+                && new RegExp(`\\b${escaped(roleWord)}\\b`, 'iu').test(evidence)
+                && textMentionsIdentityVariant(evidence, canonicalVariants);
+            const sourceSupported = sourceSupportsNamedIdentity(
+                messages, descriptor.owner, descriptor.role, canonicalEntity.name,
+                canonicalEntity.aliases, ownerEntity?.aliases,
+            );
+            if (evidenceSupported || sourceSupported) return true;
+            return false;
+        }
+        const directEvidence = textMentionsIdentityVariant(evidence, [reference])
+            && textMentionsIdentityVariant(evidence, canonicalVariants);
+        const directSource = (messages || []).some(message => {
+            const source = cleanText(message?.text ?? message?.mes);
+            return !COVERAGE_NON_ASSERTION.test(source)
+                && !/\b(?:might|maybe|possibly|perhaps|whether)\b/iu.test(source)
+                && textMentionsIdentityVariant(source, [reference])
+                && textMentionsIdentityVariant(source, canonicalVariants);
+        });
+        if (directEvidence || directSource) return true;
+        return false;
+    };
+    const supportByEvidenceGroup = new Map();
+    for (const resolution of result.identityResolutions) {
+        const group = `${normalized(resolution?.canonical)}|${normalized(resolution?.evidence)}`;
+        supportByEvidenceGroup.set(group, Boolean(supportByEvidenceGroup.get(group) || supported(resolution)));
+    }
+    const before = result.identityResolutions.length;
+    result.identityResolutions = result.identityResolutions.filter(resolution => supportByEvidenceGroup.get(
+        `${normalized(resolution?.canonical)}|${normalized(resolution?.evidence)}`,
+    ));
+    const discarded = before - result.identityResolutions.length;
+    return discarded;
+}
+
 function resolvedReconciliationSubject(result, world, value) {
     const subject = canonicalMemorySubject(world, value);
     const requested = cleanText(value);
@@ -299,6 +375,38 @@ function resolvedReconciliationSubject(result, world, value) {
             || descriptiveIdentityReferenceMatch(subject, reference))) return canonical;
     }
     return subject;
+}
+
+function canonicalizeResolvedIdentityReferences(result, world) {
+    const replace = value => resolvedReconciliationSubject(result, world, value);
+    let changed = 0;
+    const replaceField = (item, field) => {
+        const previous = cleanText(item?.[field]);
+        if (!previous) return;
+        const canonical = cleanText(replace(previous));
+        if (!canonical || normalized(canonical) === normalized(previous)) return;
+        item[field] = canonical;
+        changed++;
+    };
+    const replaceList = (item, field) => {
+        if (!Array.isArray(item?.[field])) return;
+        const previous = item[field].map(cleanText).filter(Boolean);
+        const canonical = [...new Set(previous.map(replace).map(cleanText).filter(Boolean))];
+        changed += previous.filter((value, index) => normalized(value) !== normalized(canonical[index])).length;
+        item[field] = canonical;
+    };
+    for (const item of result?.facts || []) replaceField(item, 'subject');
+    for (const item of result?.states || []) replaceField(item, 'subject');
+    for (const item of result?.relationships || []) {
+        replaceField(item, 'from');
+        replaceField(item, 'to');
+    }
+    for (const item of result?.events || []) replaceList(item, 'participants');
+    for (const item of result?.threads || []) replaceList(item, 'participants');
+    for (const item of result?.backgrounds || []) replaceList(item, 'participants');
+    if (result?.scene && typeof result.scene === 'object') replaceList(result.scene, 'participants');
+    if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') replaceList(result.sceneCapsule, 'participants');
+    return changed;
 }
 
 function resolvedRelationshipPairIdentity(result, item, world = null) {
@@ -495,7 +603,7 @@ export function recoverExplicitNamedIdentityResolutions(result, world, messages)
     const incoming = [...(result?.entities || [])];
     const references = new Map();
     for (const entity of existing) {
-        if (!/^(?:person|character|npc|human|individual)$/iu.test(entity?.type || 'person')) continue;
+        if (!entityIsPersonLike(entity?.type)) continue;
         const reference = cleanText(entity?.name);
         if (reference) references.set(normalized(reference), reference);
     }
@@ -516,6 +624,33 @@ export function recoverExplicitNamedIdentityResolutions(result, world, messages)
         const ownerEntity = [...existing, ...incoming].find(entity => [entity?.name, ...(entity?.aliases || [])]
             .some(name => normalized(name) === normalized(owner)));
         const ownerNames = [...new Set([owner, ...(ownerEntity?.aliases || [])].map(cleanText).filter(Boolean))];
+        const referenceRelationships = (world?.relationships || []).filter(item =>
+            [item?.from, item?.to].some(value => normalized(value) === normalized(reference))
+            && [item?.from, item?.to].some(value => normalized(value) === normalized(owner)));
+        const anchoredNames = [...new Set((world?.relationships || []).flatMap(item => {
+            if (![item?.from, item?.to].some(value => normalized(value) === normalized(owner))) return [];
+            const other = normalized(item?.from) === normalized(owner) ? cleanText(item?.to) : cleanText(item?.from);
+            if (!other || normalized(other) === normalized(reference)) return [];
+            const roleCompatible = referenceRelationships.some(stored =>
+                coverageOverlap(stored?.kind, item?.kind) >= 1
+                || (new RegExp(`\\b${escaped(roleWord)}\\b`, 'iu').test(cleanText(stored?.kind))
+                    && new RegExp(`\\b${escaped(roleWord)}\\b`, 'iu').test(cleanText(item?.kind))));
+            const entity = [...existing, ...incoming].find(candidate => entityIsPersonLike(candidate?.type)
+                && [candidate?.name, ...(candidate?.aliases || [])].some(value => normalized(value) === normalized(other)));
+            return roleCompatible && entity ? [cleanText(entity.name)] : [];
+        }))];
+        if (referenceRelationships.length && anchoredNames.length === 1) {
+            const canonical = anchoredNames[0];
+            const duplicate = result.identityResolutions.some(item => normalized(item?.reference) === normalized(reference));
+            if (!duplicate) {
+                result.identityResolutions.push({
+                    reference, canonical,
+                    evidence: `Stable relationship continuity identifies ${reference} as ${canonical}.`,
+                });
+                recovered++;
+            }
+            continue;
+        }
         const ownerMentioned = ownerNames.some(name => new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(name)}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(beatContext));
         const roleMentioned = new RegExp(`\\b${escaped(roleWord)}\\b`, 'iu').test(`${beatContext} ${reference}`);
         if (!ownerMentioned || !roleMentioned) continue;
@@ -524,7 +659,10 @@ export function recoverExplicitNamedIdentityResolutions(result, world, messages)
             if (!beat || COVERAGE_NON_ASSERTION.test(beat)
                 || /\b(?:might|maybe|possibly|perhaps|suspects?|wonders?|whether)\b/iu.test(beat)
                 || !/\b(?:identity|true name|real name|names?|named|called|known as)\b/iu.test(beat)) continue;
-            const candidates = incoming.filter(entity => /^(?:person|character|npc|human|individual)$/iu.test(entity?.type || 'person')
+            const beatOwnerMentioned = ownerNames.some(name => new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(name)}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(beat));
+            const beatRoleMentioned = new RegExp(`\\b${escaped(roleWord)}\\b`, 'iu').test(beat);
+            if (!beatOwnerMentioned && !beatRoleMentioned) continue;
+            const candidates = incoming.filter(entity => entityIsPersonLike(entity?.type)
                 && normalized(entity?.name) !== normalized(owner)
                 && normalized(entity?.name) !== normalized(reference)
                 && [entity?.name, ...(entity?.aliases || [])].some(name => new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(name)}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(beat)));
@@ -545,6 +683,8 @@ export function recoverExplicitNamedIdentityResolutions(result, world, messages)
 const COVERAGE_STOP_WORDS = new Set('a an and are as at be been being but by for from had has have he her hers him his i in into is it its of on or our she that the their them they this to was were will with you your'.split(' '));
 const COVERAGE_NON_ASSERTION = /\b(?:asks?|asked|questions?|questioned|wonders?|wondered)\s+(?:whether|if)\b/iu;
 const COVERAGE_COMMITMENT = /\b(?:agrees?|agreed|decides?|decided|intends?|intended|plans?|planned|promises?|promised|vows?|vowed)\b\s+(?:to|that|for)\b/iu;
+const DIRECT_FUTURE_COMMITMENT = /\b(?:i|we)(?:\s+[\p{L}\p{N}'’-]+){0,4}?\s*(?:['’]ll|\b(?:will|shall|am going to|are going to)\b)\s+([^.!?\n]{2,220})/iu;
+const DIRECT_FUTURE_ANCHOR = /\b(?:tomorrow|later|next\s+(?:day|morning|afternoon|evening|night|week|month|year)|eventually|after(?:ward|wards)?|after\s+|before\s+|once\s+|when\s+|upon\s+|in\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:minute|hour|day|week|month|year)s?)\b/iu;
 const COVERAGE_RELATIONSHIP = /\b(?:becomes?|became|remain(?:s|ed)?|are|were)\s+(?:close\s+)?(friends?|allies|enemies|rivals|partners|lovers|spouses?|mentor(?:s)?|students?|masters?|apprentices?)\b/iu;
 const COVERAGE_DESIGNATION = /\b(?:(?:was|is|were|are|has been|had been)\s+(?:officially\s+)?(?:named|called|appointed)|(?:serves?|served|works?|worked)\s+as|(?:holds?|held)\s+(?:the\s+)?(?:rank|title|office|position))\b/iu;
 const COVERAGE_REMAINING_STATE = /\b(?:remains?|remained)\b/iu;
@@ -678,12 +818,49 @@ function structuredCoverageRecords(result) {
         .map(item => JSON.stringify(item));
 }
 
+function futureCommitmentFromMessage(message) {
+    const source = cleanText(message?.text ?? message?.mes);
+    const speaker = cleanText(message?.name || message?.speaker);
+    if (!source || !speaker || COVERAGE_NON_ASSERTION.test(source)) return null;
+    const match = DIRECT_FUTURE_COMMITMENT.exec(source);
+    if (!match || !DIRECT_FUTURE_ANCHOR.test(match[0])) return null;
+    if (/\b(?:might|maybe|possibly|perhaps|would|could)\b/iu.test(match[0])) return null;
+    let action = cleanText(match[1]).replace(/,\s+(?:he|she|they|it|i|we)\b.*$/iu, '').trim();
+    if (!action || /^(?:not\s+)?(?:know|think|wonder|ask)\b/iu.test(action)) return null;
+    action = action.replace(/^be going\b/iu, 'go');
+    const title = `${speaker} will ${action}`.slice(0, 160);
+    return { title, detail: `${speaker} explicitly commits: ${match[0].trim()}`.slice(0, 800) };
+}
+
+export function recoverExplicitFutureCommitments(result, world, messages) {
+    if (!Array.isArray(result?.threads) || !Array.isArray(messages)) return 0;
+    let recovered = 0;
+    for (const message of messages) {
+        const commitment = futureCommitmentFromMessage(message);
+        if (!commitment) continue;
+        const candidates = [...(world?.threads || []), ...(result.threads || [])].filter(item => item?.status === 'open');
+        const terms = coverageTerms(`${commitment.title} ${commitment.detail}`);
+        const threshold = terms.size >= 6 ? 3 : 2;
+        if (candidates.some(item => coverageOverlap(`${commitment.title} ${commitment.detail}`, `${item.title || ''} ${item.detail || ''}`) >= threshold)) continue;
+        const speaker = cleanText(message?.name || message?.speaker);
+        const participants = [...new Set([
+            speaker,
+            ...coverageParticipantNames(result, world, messages, `${speaker} ${commitment.title} ${commitment.detail}`),
+        ].filter(Boolean))];
+        result.threads.push({
+            targetId: '', title: commitment.title, detail: commitment.detail,
+            status: 'open', participants, importance: 4,
+        });
+        recovered++;
+    }
+    return recovered;
+}
+
 const EXPLICIT_RELATIONSHIP_FACT_ROLE = /\b(?:apprenticeship|apprentice|student|padawan|pupil|prot[eé]g[eé]|mentor|mentee|teacher|instructor|parent|mother|father|child|son|daughter|sibling|brother|sister|spouse|husband|wife|married|friend|ally|rival|enemy|attendant|retainer|servant|employer|employee|commander|subordinate|teammate|partner|captor|captive|prisoner|guardian|ward)\b/iu;
 const NON_CANONICAL_RELATIONSHIP_FACT = /\b(?:belief|claim|allegation|rumou?r|speculation|suspicion|intention|possibility|possible|possibly|perhaps|maybe|might|may be|whether|uncertain|unconfirmed|disputed)\b/iu;
 
 function personEntity(entity) {
-    return Boolean(entity && cleanText(entity?.name)
-        && /^(?:person|character|npc|human|individual)$/iu.test(cleanText(entity?.type) || 'person'));
+    return Boolean(entity && cleanText(entity?.name) && entityIsPersonLike(entity?.type));
 }
 
 function explicitlyMentionedPeople(index, value) {
@@ -862,8 +1039,9 @@ export function recoverSourceGroundedCoverageRecords(result, world, messages) {
     return recovered;
 }
 
-const THREAD_GAP = /\b(?:not yet|has not|have not|had not|unknown|unanswered|unresolved|undecided|pending|awaits?|must (?:learn|discover|identify|find|decide)|remains? (?:unknown|unanswered|unresolved|undecided|missing|pending))\b/iu;
-const THREAD_RESOLUTION = /\b(?:answers?|answered|reveals?|revealed|discloses?|disclosed|identifies?|identified|learns?|learned|discovers?|discovered|finds?|found|recovers?|recovered|returns?|returned|arrives?|arrived|meets?|met|contacts?|contacted|reports?|reported|delivers?|delivered|presents?|presented|completes?|completed|finishes?|finished|decides?|decided|chooses?|chose|accepts?|accepted|rejects?|rejected|defeats?|defeated|destroys?|destroyed|repairs?|repaired|opens?|opened|closes?|closed|fulfills?|fulfilled|obtains?|obtained|acquires?|acquired|now knows?)\b/iu;
+const THREAD_GAP = /\b(?:not yet|has not|have not|had not|unknown|unanswered|unresolved|undecided|pending|unconfirmed|not confirmed|lacks? (?:confirmation|evidence|proof|an answer)|awaits?|must (?:learn|discover|identify|find|decide)|remains? (?:unknown|unanswered|unresolved|undecided|missing|pending|unconfirmed))\b/iu;
+const THREAD_COMMITMENT_PENDING = /\b(?:will|shall|['’]ll|going to|plans? to|intends? to|promises? to|vows? to|tomorrow|later|next (?:day|morning|afternoon|evening|night|week|month|year))\b/iu;
+const THREAD_RESOLUTION = /\b(?:answers?|answered|reveals?|revealed|discloses?|disclosed|identifies?|identified|learns?|learned|discovers?|discovered|finds?|found|recovers?|recovered|returns?|returned|departs?|departed|leaves?|left|sets? out|set out|arrives?|arrived|meets?|met|contacts?|contacted|reports?|reported|delivers?|delivered|presents?|presented|completes?|completed|finishes?|finished|decides?|decided|chooses?|chose|accepts?|accepted|rejects?|rejected|defeats?|defeated|destroys?|destroyed|repairs?|repaired|opens?|opened|closes?|closed|fulfills?|fulfilled|obtains?|obtained|acquires?|acquired|now knows?)\b/iu;
 const THREAD_MATCH_STOP_WORDS = new Set([
     ...COVERAGE_STOP_WORDS,
     'asks', 'asked', 'awaits', 'awaiting', 'current', 'detail', 'has', 'have', 'had', 'known', 'matter', 'must',
@@ -871,7 +1049,16 @@ const THREAD_MATCH_STOP_WORDS = new Set([
 ]);
 
 function threadTerms(value) {
-    return new Set([...coverageTerms(value)].filter(term => !THREAD_MATCH_STOP_WORDS.has(term)));
+    const canonical = term => {
+        if (/^(?:depart|departs|departed|departure|leaves|leave|left)$/u.test(term)) return 'depart';
+        if (/^(?:meet|meets|meeting|met)$/u.test(term)) return 'meet';
+        if (/^(?:arrive|arrives|arrived)$/u.test(term)) return 'arrive';
+        if (/^(?:report|reports|reported)$/u.test(term)) return 'report';
+        if (/^(?:deliver|delivers|delivered)$/u.test(term)) return 'deliver';
+        if (/^(?:return|returns|returned)$/u.test(term)) return 'return';
+        return term;
+    };
+    return new Set([...coverageTerms(value)].filter(term => !THREAD_MATCH_STOP_WORDS.has(term)).map(canonical));
 }
 
 function threadTopicTerms(value, result, world) {
@@ -899,12 +1086,16 @@ function threadParticipantMatch(thread, beat, world, result) {
 }
 
 function threadAliasResolutionMatch(thread, beat, world, result) {
-    const participants = (thread?.participants || []).map(value => normalized(value)).filter(Boolean);
-    if ((result?.identityResolutions || []).some(item => participants.includes(normalized(item?.reference))
+    const title = cleanText(thread?.title);
+    if ((result?.identityResolutions || []).some(item =>
+        (textMentionsIdentityVariant(title, [item?.reference])
+            || termSetOverlap(threadTerms(item?.reference), threadTerms(title)) >= 2)
         && new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(item?.canonical)}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(beat))) return true;
     return recoveryEntities(result, world).some(entity => {
         const canonical = normalized(entity.name);
-        const descriptor = entity.variants.find(value => participants.includes(normalized(value)) && normalized(value) !== canonical);
+        const descriptor = entity.variants.find(value => normalized(value) !== canonical
+            && (textMentionsIdentityVariant(title, [value])
+                || termSetOverlap(threadTerms(value), threadTerms(title)) >= 2));
         if (!descriptor) return false;
         return entity.variants.some(value => normalized(value) !== normalized(descriptor)
             && new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(value)}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(beat));
@@ -927,9 +1118,44 @@ function sourceSupportsThreadResolution(beat, messages, thread, world, result) {
     });
 }
 
+function sourceSupportsCommitmentResolution(beat, messages, thread, world, result) {
+    const threadTopic = threadTerms(`${thread?.title || ''} ${thread?.detail || ''}`);
+    const beatTopic = threadTerms(beat);
+    return (messages || []).some(message => {
+        const source = `${cleanText(message?.name || message?.speaker)}: ${cleanText(message?.text ?? message?.mes)}`;
+        if (!THREAD_RESOLUTION.test(source) || COVERAGE_NON_ASSERTION.test(source)) return false;
+        if (!threadParticipantMatch(thread, source, world, result)) return false;
+        return termSetOverlap(threadTopic, threadTerms(source)) >= 2
+            && termSetOverlap(beatTopic, threadTerms(source)) >= 3;
+    });
+}
+
 function incomingThreadFor(result, thread) {
     return (result?.threads || []).find(item => normalized(item?.targetId) === normalized(thread?.id)
         || normalized(item?.title) === normalized(thread?.title));
+}
+
+export function preserveResolvedThreadHistory(result, world) {
+    if (!Array.isArray(result?.threads) || !Array.isArray(world?.threads)) return 0;
+    const resolvedById = new Map(world.threads.filter(item => item?.status === 'resolved' && cleanText(item?.id))
+        .map(item => [normalized(item.id), item]));
+    const resolvedByTitle = new Map(world.threads.filter(item => item?.status === 'resolved' && cleanText(item?.title))
+        .map(item => [normalized(item.title), item]));
+    let preserved = 0;
+    for (const incoming of result.threads) {
+        const stored = resolvedById.get(normalized(incoming?.targetId)) || resolvedByTitle.get(normalized(incoming?.title));
+        if (!stored) continue;
+        Object.assign(incoming, {
+            targetId: stored.id,
+            title: stored.title,
+            detail: stored.detail,
+            status: 'resolved',
+            participants: stored.participants || [],
+            importance: stored.importance || incoming.importance || 3,
+        });
+        preserved++;
+    }
+    return preserved;
 }
 
 function hasUnmatchedTitleConjunction(thread, beat) {
@@ -945,12 +1171,24 @@ function hasUnmatchedTitleConjunction(thread, beat) {
     return false;
 }
 
+function successorThreadForPartialResolution(result, thread, world) {
+    const participants = new Set((thread?.participants || []).map(value => normalized(canonicalMemorySubject(world, value))).filter(Boolean));
+    const topic = threadTopicTerms(`${thread?.title || ''} ${thread?.detail || ''}`, result, world);
+    return (result?.threads || []).find(candidate => candidate?.status === 'open'
+        && normalized(candidate?.targetId) !== normalized(thread?.id)
+        && normalized(candidate?.title) !== normalized(thread?.title)
+        && (candidate?.participants || []).some(value => participants.has(normalized(canonicalMemorySubject(world, value))))
+        && termSetOverlap(topic, threadTopicTerms(`${candidate?.title || ''} ${candidate?.detail || ''}`, result, world)) >= 2);
+}
+
 export function reconcileExplicitlyResolvedThreads(result, world, messages) {
     if (!Array.isArray(result?.threads) || !Array.isArray(result?.sceneCapsule?.beats)
         || !Array.isArray(messages) || !messages.length) return { resolved: 0, warnings: [] };
     let resolved = 0;
     const warnings = [];
-    for (const thread of (world?.threads || []).filter(item => item?.status === 'open' && THREAD_GAP.test(`${item.title || ''} ${item.detail || ''}`))) {
+    for (const thread of (world?.threads || []).filter(item => item?.status === 'open'
+        && (THREAD_GAP.test(`${item.title || ''} ${item.detail || ''}`)
+            || THREAD_COMMITMENT_PENDING.test(`${item.title || ''} ${item.detail || ''}`)))) {
         const incoming = incomingThreadFor(result, thread);
         if (incoming && incoming.status !== 'open') continue;
         const topic = threadTopicTerms(`${thread.title || ''} ${thread.detail || ''}`, result, world);
@@ -962,11 +1200,15 @@ export function reconcileExplicitlyResolvedThreads(result, world, messages) {
             const beatTerms = threadTerms(beat);
             const overlap = termSetOverlap(topic, beatTerms);
             const titleOverlap = termSetOverlap(title, beatTerms);
-            if (overlap < 2 || titleOverlap < 1) continue;
-            const sourceSupported = sourceSupportsThreadResolution(beat, messages, thread, world, result);
+            const commitmentResolution = THREAD_COMMITMENT_PENDING.test(`${thread.title || ''} ${thread.detail || ''}`);
+            if (overlap < (commitmentResolution ? 1 : 2) || titleOverlap < 1) continue;
+            const sourceSupported = sourceSupportsThreadResolution(beat, messages, thread, world, result)
+                || (commitmentResolution && sourceSupportsCommitmentResolution(beat, messages, thread, world, result));
             if (!sourceSupported) continue;
             const aliasResolution = threadAliasResolutionMatch(thread, beat, world, result);
-            const required = aliasResolution ? 2 : Math.max(3, Math.min(6, Math.ceil(Math.min(topic.size, 12) * 0.3)));
+            const required = aliasResolution || commitmentResolution
+                ? 2
+                : Math.max(3, Math.min(6, Math.ceil(Math.min(topic.size, 12) * 0.3)));
             if (hasUnmatchedTitleConjunction(thread, beat)) {
                 partial ||= beat;
                 continue;
@@ -984,9 +1226,81 @@ export function reconcileExplicitlyResolvedThreads(result, world, messages) {
             }
             partial ||= beat;
         }
-        if (partial && !incoming && warnings.length < 4) warnings.push(`Potential partial resolution remains open for “${cleanText(thread.title)}”: ${partial}`);
+        if (partial && !incoming) {
+            const successor = successorThreadForPartialResolution(result, thread, world);
+            if (successor) {
+                result.threads.push({
+                    targetId: thread.id, title: thread.title,
+                    detail: `Resolved through an atomic continuity transition: ${partial}`,
+                    status: 'resolved', participants: thread.participants || [], importance: thread.importance || 3,
+                });
+                resolved++;
+            } else if (warnings.length < 4) warnings.push(`Potential partial resolution remains open for “${cleanText(thread.title)}”: ${partial}`);
+        }
     }
     return { resolved, warnings };
+}
+
+const IDENTITY_THREAD = /\b(?:identity|true name|real name|who (?:is|was|are|were))\b/iu;
+const IDENTITY_RESIDUAL_GENERIC = new Set([
+    ...THREAD_MATCH_STOP_WORDS,
+    'identity', 'name', 'named', 'real', 'true', 'canonical', 'known', 'revealed', 'identified',
+]);
+
+function identityResolutionMatchesThread(thread, resolution) {
+    const reference = cleanText(resolution?.reference);
+    const canonical = cleanText(resolution?.canonical);
+    const title = cleanText(thread?.title);
+    const text = `${title} ${thread?.detail || ''}`;
+    if (!reference || !canonical || !IDENTITY_THREAD.test(text)) return false;
+    if (textMentionsIdentityVariant(title, [reference])) return true;
+    const referenceTerms = threadTerms(reference);
+    return termSetOverlap(referenceTerms, threadTerms(title)) >= Math.min(3, Math.max(2, referenceTerms.size - 1));
+}
+
+function identityThreadResidualDetail(incoming, resolution, world, result) {
+    const detail = cleanText(incoming?.detail);
+    if (!detail || !THREAD_GAP.test(detail)) return '';
+    const entityTerms = new Set(recoveryEntities(result, world).flatMap(entity => entity.variants)
+        .flatMap(value => [...coverageTerms(value)]));
+    for (const value of [resolution?.reference, resolution?.canonical]) {
+        for (const term of coverageTerms(value)) entityTerms.add(term);
+    }
+    const topical = [...coverageTerms(detail)].filter(term => !IDENTITY_RESIDUAL_GENERIC.has(term) && !entityTerms.has(term));
+    return topical.length >= 2 ? detail : '';
+}
+
+export function reconcileResolvedIdentityThreads(result, world) {
+    if (!Array.isArray(result?.threads) || !Array.isArray(result?.identityResolutions)) return 0;
+    let resolved = 0;
+    for (const resolution of result.identityResolutions) {
+        for (const thread of (world?.threads || []).filter(item => item?.status === 'open'
+            && identityResolutionMatchesThread(item, resolution))) {
+            const incoming = incomingThreadFor(result, thread);
+            if (incoming?.status && incoming.status !== 'open') continue;
+            const residualDetail = incoming ? identityThreadResidualDetail(incoming, resolution, world, result) : '';
+            const resolvedRecord = incoming || {};
+            Object.assign(resolvedRecord, {
+                targetId: thread.id,
+                title: thread.title,
+                detail: `Resolved by explicit continuity: ${cleanText(resolution.evidence) || `${resolution.reference} is ${resolution.canonical}`}`,
+                status: 'resolved',
+                participants: thread.participants || [],
+                importance: thread.importance || 3,
+            });
+            if (!incoming) result.threads.push(resolvedRecord);
+            if (residualDetail) result.threads.push({
+                targetId: '',
+                title: `Unresolved circumstances surrounding ${cleanText(resolution.canonical)}`.slice(0, 160),
+                detail: residualDetail,
+                status: 'open',
+                participants: [...new Set([...(thread.participants || []), cleanText(resolution.canonical)].filter(Boolean))],
+                importance: thread.importance || 3,
+            });
+            resolved++;
+        }
+    }
+    return resolved;
 }
 
 function textMentionsCanonicalName(value, name) {
@@ -1418,15 +1732,6 @@ export function findTypedContinuityWarnings(result, world) {
         warnings.push('Temporal conflict: an explicit elapsed interval was supplied without identifying what it is relative to.');
     }
     return [...new Set(warnings)].slice(0, 8);
-}
-
-export function continuityAuditRetryInstruction(warnings) {
-    const items = [...new Set((warnings || []).map(cleanText).filter(Boolean))].slice(0, 8);
-    if (!items.length) return '';
-    return `CONTINUITY VALIDATION RETRY
-The previous candidate was valid JSON but failed these continuity checks:
-${items.map(item => `- ${item}`).join('\n')}
-Return a fresh, complete extraction for the same supplied messages. Correct every supported issue across the appropriate typed records. Preserve source-supported detail; do not hide a problem by deleting the event, fact, relationship, state, thread, or uncertainty that exposed it. Use only supplied messages and known continuity. If canon remains uncertain, represent it explicitly as an attributed belief, claim, knowledge boundary, or unresolved thread instead of guessing.`;
 }
 
 export function findCoverageWarnings(result, messages) {
@@ -2111,10 +2416,27 @@ const ENTITY_TYPE_FAMILIES = new Map([
     ['group', 'group'], ['organization', 'group'], ['organisation', 'group'], ['faction', 'group'], ['institution', 'group'], ['team', 'group'],
 ]);
 
-function entityTypeFamily(value) {
+const PERSON_TYPE_SIGNAL = /\b(?:person|character|individual|npc|human|adult|child|man|woman|boy|girl|captain|commander|officer|soldier|guard|pilot|agent|investigator|detective|leader|ruler|king|queen|prince|princess|emperor|empress|lord|lady|master|mentor|teacher|instructor|student|pupil|apprentice|padawan|parent|mother|father|brother|sister|sibling|spouse|husband|wife|attendant|retainer|servant|handler|prisoner|captor|captive|doctor|physician|nurse|engineer|scientist|scholar|archivist|mage|wizard|witch|priest|cleric)\b/iu;
+const PERSON_TYPE_TAIL_SIGNAL = /\b(?:person|character|individual|npc|human|adult|child|man|woman|boy|girl|captain|commander|officer|soldier|guard|pilot|agent|investigator|detective|leader|ruler|king|queen|prince|princess|emperor|empress|lord|lady|master|mentor|teacher|instructor|student|pupil|apprentice|padawan|parent|mother|father|brother|sister|sibling|spouse|husband|wife|attendant|retainer|servant|handler|prisoner|captor|captive|doctor|physician|nurse|engineer|scientist|scholar|archivist|mage|wizard|witch|priest|cleric)\s*$/iu;
+const OBJECT_TYPE_SIGNAL = /\b(?:object|item|artifact|weapon|tool|vehicle|device|equipment|book|document|letter|key|sword|gun|ship|shuttle|car|aircraft)\b/iu;
+const PLACE_TYPE_SIGNAL = /\b(?:place|location|site|region|world|planet|moon|city|town|village|district|room|building|base|station|fort|castle|house|home|road|bridge|forest|desert|island)\b/iu;
+const GROUP_TYPE_SIGNAL = /\b(?:group|organization|organisation|faction|institution|team|family|clan|guild|army|fleet|council|government|company|corporation|order)\b/iu;
+
+export function entityTypeFamily(value) {
     const type = normalized(value);
     if (!type || ['entity', 'unknown', 'other'].includes(type)) return '';
-    return ENTITY_TYPE_FAMILIES.get(type) || type;
+    const exact = ENTITY_TYPE_FAMILIES.get(type);
+    if (exact) return exact;
+    if (PERSON_TYPE_TAIL_SIGNAL.test(type) || /\b(?:dead|deceased|living)\b/iu.test(type) && PERSON_TYPE_SIGNAL.test(type)) return 'person';
+    if (OBJECT_TYPE_SIGNAL.test(type)) return 'object';
+    if (PLACE_TYPE_SIGNAL.test(type)) return 'place';
+    if (GROUP_TYPE_SIGNAL.test(type)) return 'group';
+    if (PERSON_TYPE_SIGNAL.test(type) || /\b(?:young|elderly)\b/iu.test(type)) return 'person';
+    return '';
+}
+
+export function entityIsPersonLike(value) {
+    return entityTypeFamily(value) === 'person';
 }
 
 export function entityTypesAreCompatible(left, right) {
@@ -2137,6 +2459,7 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const missingIdentityResolutions = !Array.isArray(result.identityResolutions);
     if (missingIdentityResolutions) result.identityResolutions = [];
     const normalizedIdentityReferences = normalizeIdentityResolutionReferences(result);
+    const discardedIdentityResolutions = discardUnsupportedIdentityResolutions(result, world, messages);
     const normalizedEpistemicFacts = normalizeEpistemicFactShapes(result, world);
     const normalizedAddresses = normalizeDirectionalAddressFacts(result, world);
     const repairedAddresses = repairReversedAddressFacts(result, world, messages);
@@ -2146,8 +2469,13 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const recoveredBoundaries = recoverExplicitConcealmentBoundaries(result, world);
     const recoveredKnowledge = recoverExplicitPriorKnowledge(result, world);
     const recoveredIdentities = recoverExplicitNamedIdentityResolutions(result, world, messages);
+    const canonicalizedIdentityReferences = canonicalizeResolvedIdentityReferences(result, world);
     const recoveredFactRelationships = recoverExplicitFactRelationships(result, world, messages);
-    const recoveredCoverage = recoveredFactRelationships + recoverSourceGroundedCoverageRecords(result, world, messages);
+    const recoveredSceneCoverage = recoverSourceGroundedCoverageRecords(result, world, messages);
+    const recoveredCommitments = recoverExplicitFutureCommitments(result, world, messages);
+    const recoveredCoverage = recoveredFactRelationships + recoveredSceneCoverage + recoveredCommitments;
+    const preservedResolvedThreads = preserveResolvedThreadHistory(result, world);
+    const reconciledIdentityThreads = reconcileResolvedIdentityThreads(result, world);
     const reconciledThreads = reconcileExplicitlyResolvedThreads(result, world, messages);
     const normalizedRelationshipDescriptions = normalizeRelationshipDescriptions(result);
     const reconciledStateTransitions = reconcileStatePreviousValues(result, world);
@@ -2155,6 +2483,7 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const discardedUnsupportedAddresses = removeUnsupportedAddressValues(result, messages, world);
     const discardedPronounAddresses = removeUnsupportedPronounAddressValues(result, messages, world);
     let ignored = discardedAddressValues + discardedUnsupportedAddresses + discardedPronounAddresses
+        + discardedIdentityResolutions
         + removeInvalidAddressFacts(result) + Number(missingIdentityResolutions);
     ignored += removeUnsupportedSelfAddressFacts(result, messages, world);
     if (!Array.isArray(result.recordMerges)) {
@@ -2217,15 +2546,15 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
         ...relationshipEndpointConflicts.map(item => item.warning),
         ...sourceAttributionConflicts.map(item => item.warning),
     ])];
-    const retryWarnings = [...new Set([
+    const diagnosticWarnings = [...new Set([
         ...findCoverageWarnings(result, messages),
         ...findTypedContinuityWarnings(result, world),
         ...reconciledThreads.warnings,
     ])].slice(0, 8);
     const warnings = [...new Set([
-        ...retryWarnings,
+        ...diagnosticWarnings,
         ...localWarnings,
     ])].slice(0, 8);
     if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
-    return { ignored, recovered, recoveredAliases, recoveredBoundaries, recoveredKnowledge, recoveredIdentities, normalizedIdentityReferences, recoveredFactRelationships, recoveredCoverage, reconciledThreads: reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, reconciledStateTransitions, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, sourceAttributionConflicts, relationshipEndpointConflicts, localWarnings, retryWarnings, warnings };
+    return { ignored, recovered, recoveredAliases, recoveredBoundaries, recoveredKnowledge, recoveredIdentities, normalizedIdentityReferences, discardedIdentityResolutions, canonicalizedIdentityReferences, recoveredFactRelationships, recoveredCommitments, recoveredCoverage, preservedResolvedThreads, reconciledThreads: reconciledIdentityThreads + reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, reconciledStateTransitions, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, sourceAttributionConflicts, relationshipEndpointConflicts, localWarnings, diagnosticWarnings, warnings };
 }

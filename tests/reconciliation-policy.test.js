@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { addressFactIdentity, applySourceAttributionFailClosed, canonicalFactReference, continuityAuditRetryInstruction, hasSelfAddressEvidence, mergeAddressValues, removeInvalidAddressFacts, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
+import { addressFactIdentity, applySourceAttributionFailClosed, canonicalFactReference, entityIsPersonLike, entityTypesAreCompatible, hasSelfAddressEvidence, mergeAddressValues, removeInvalidAddressFacts, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
 
 function extraction() {
     return {
@@ -158,6 +158,14 @@ test('entity target IDs require an exact identity and a compatible type family',
 
     assert.deepEqual(result.entities.map(item => item.targetId), ['', '', '', 'entity_caelen']);
     assert.equal(sanitized.ignored, 3);
+});
+
+test('specific role descriptions share the person type family without matching places or objects', () => {
+    assert.equal(entityIsPersonLike('deceased guild master'), true);
+    assert.equal(entityIsPersonLike('senior laboratory engineer'), true);
+    assert.equal(entityTypesAreCompatible('deceased guild master', 'person'), true);
+    assert.equal(entityTypesAreCompatible('laboratory engineer', 'orbital station'), false);
+    assert.equal(entityTypesAreCompatible('fleet commander', 'artifact weapon'), false);
 });
 
 test('explicit duplicate merges also require matching canonical identity', () => {
@@ -1245,6 +1253,30 @@ test('an explicit durable former-student fact recovers its missing relationship'
     }]);
 });
 
+test('objective relationship facts work with descriptive person-role entity types', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Doctor Vale', type: 'deceased guild master', aliases: [] },
+        { name: 'Ari Lane', type: 'apprentice archivist', aliases: [] },
+    );
+    result.facts.push({
+        targetId: '', subject: 'Doctor Vale', predicate: 'former student relationship',
+        value: 'Doctor Vale formerly mentored Ari Lane as an apprentice archivist.',
+        category: 'biographical history', importance: 4, persistence: 'persistent',
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{
+        name: 'Narrator',
+        text: 'Doctor Vale formerly mentored Ari Lane as an apprentice archivist in the guild archives.',
+    }]);
+
+    assert.equal(validation.recoveredFactRelationships, 1);
+    assert.equal(result.relationships.length, 1);
+    assert.deepEqual([result.relationships[0].from, result.relationships[0].to].sort(), ['Ari Lane', 'Doctor Vale']);
+});
+
 test('beliefs, uncertain claims, and facts naming several people do not synthesize relationships', () => {
     const result = extraction();
     result.entities.push(
@@ -1399,6 +1431,21 @@ test('the typed audit flags epistemic leakage, scene conflicts, and contradictor
     assert.ok(validation.warnings.some(item => /Thread lifecycle conflict/u.test(item)));
 });
 
+test('a learned claim remains an open thread when its truth still lacks confirmation', () => {
+    const result = extraction();
+    result.threads.push({
+        targetId: '', title: 'Whether the mentor concealed the archive key',
+        detail: 'Ari learned Rowan’s claim that the mentor concealed the key, but she lacks confirmation of what the mentor actually knew or intended.',
+        status: 'open', participants: ['Ari', 'Rowan'], importance: 4,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    });
+
+    assert.ok(!validation.warnings.some(item => /Thread lifecycle conflict/u.test(item)));
+});
+
 test('the typed audit flags simultaneous unique-object possession', () => {
     const result = extraction();
     result.entities.push(
@@ -1437,19 +1484,6 @@ test('identity and temporal changes require explicit transition anchors', () => 
 
     assert.ok(validation.warnings.some(item => /Identity\/role conflict/u.test(item)));
     assert.ok(validation.warnings.some(item => /Temporal conflict/u.test(item)));
-});
-
-test('continuity audit retry feedback is bounded and preserves uncertainty', () => {
-    const feedback = continuityAuditRetryInstruction([
-        'Epistemic conflict: Alice only suspects the claim.',
-        'Typed coverage gap: the consequence is missing.',
-        'Epistemic conflict: Alice only suspects the claim.',
-    ]);
-
-    assert.match(feedback, /fresh, complete extraction/u);
-    assert.match(feedback, /attributed belief, claim, knowledge boundary, or unresolved thread/u);
-    assert.equal(feedback.match(/Epistemic conflict/gu)?.length, 1);
-    assert.equal(continuityAuditRetryInstruction([]), '');
 });
 
 test('mixed character assertions cannot become one objective biographical fact', () => {
@@ -1548,7 +1582,7 @@ test('a subjective update cannot overwrite an established entity description', (
     }]);
 
     assert.ok(validation.sourceAttributionConflicts.some(item => item.category === 'entities'));
-    assert.equal(validation.retryWarnings.length, 0);
+    assert.equal(validation.diagnosticWarnings.length, 0);
     assert.ok(validation.localWarnings.some(item => /Source-attribution conflict/u.test(item)));
     assert.equal(applySourceAttributionFailClosed(result, validation.sourceAttributionConflicts), 1);
     assert.equal(result.entities[0].description, established);
@@ -1644,6 +1678,100 @@ test('composite identity resolution canonicalizes a placeholder without triggeri
     ]);
 });
 
+test('explicit naming canonicalizes a descriptive identity before stable relationship validation', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Ari Lane', type: 'person', aliases: [] },
+        { name: 'Doctor Vale', type: 'deceased guild master', aliases: ['Vale'] },
+    );
+    result.sceneCapsule = {
+        participants: ['Ari Lane', 'Doctor Vale'],
+        beats: ['Ari Lane reveals the true name of her former mentor as Doctor Vale.'],
+    };
+    result.relationships.push({
+        targetId: 'relationship_mentor', from: 'Ari Lane', to: 'Doctor Vale',
+        kind: 'former mentor and student', status: 'ended by death',
+        dynamic: 'Doctor Vale was Ari Lane’s former mentor.', importance: 4,
+    });
+    result.threads.push({
+        targetId: '', title: 'Why the mentor hid the archive', detail: 'The motive remains unknown.',
+        status: 'open', participants: ['Ari Lane', 'Ari Lane’s former mentor'], importance: 3,
+    });
+    const world = {
+        entities: [
+            { name: 'Ari Lane', type: 'person', aliases: [] },
+            { name: 'Ari Lane’s former mentor', type: 'person', aliases: [], description: 'A renowned guild master.' },
+        ], facts: [], states: [], threads: [], backgrounds: [],
+        relationships: [{
+            id: 'relationship_mentor', from: 'Ari Lane', to: 'Ari Lane’s former mentor',
+            kind: 'former mentor and student', status: 'ended by death',
+            dynamic: 'Ari Lane was trained by her former mentor.',
+        }],
+    };
+
+    const validation = sanitizeReconciliationMetadata(result, world, [{
+        name: 'Ari Lane', text: 'My former mentor was Doctor Vale. Vale trained me in the guild archives.',
+    }]);
+
+    assert.equal(validation.recoveredIdentities, 1);
+    assert.ok(validation.canonicalizedIdentityReferences >= 1);
+    assert.deepEqual(result.identityResolutions, [{
+        reference: 'Ari Lane’s former mentor', canonical: 'Doctor Vale',
+        evidence: 'Ari Lane reveals the true name of her former mentor as Doctor Vale.',
+    }]);
+    assert.equal(result.relationships[0].targetId, 'relationship_mentor');
+    assert.equal(result.relationships[0].to, 'Doctor Vale');
+    assert.deepEqual(result.threads[0].participants, ['Ari Lane', 'Doctor Vale']);
+    assert.equal(validation.relationshipEndpointConflicts.length, 0);
+});
+
+test('speculative naming never canonicalizes a descriptive identity', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Ari Lane', type: 'person', aliases: [] },
+        { name: 'Doctor Vale', type: 'deceased guild master', aliases: [] },
+    );
+    result.sceneCapsule = { beats: ['Ari Lane wonders whether her former mentor might have been Doctor Vale.'] };
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [{ name: 'Ari Lane’s former mentor', type: 'person', aliases: [] }],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Ari Lane', text: 'Could my former mentor have been Doctor Vale?' }]);
+
+    assert.equal(validation.recoveredIdentities, 0);
+    assert.deepEqual(result.identityResolutions, []);
+});
+
+test('an unsupported cross-role identity mapping is rejected before it can rewrite continuity', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Ari Lane', type: 'person', aliases: [] },
+        { name: 'Captain Rhea', type: 'fleet commander', aliases: ['Rhea'] },
+    );
+    result.identityResolutions.push({
+        reference: 'Ari Lane’s former mentor', canonical: 'Captain Rhea',
+        evidence: 'The fleet salutes Captain Rhea as she takes command.',
+    });
+    result.relationships.push({
+        targetId: 'relationship_mentor', from: 'Ari Lane', to: 'Ari Lane’s former mentor',
+        kind: 'former mentor and student', status: 'ended', dynamic: 'The former mentor trained Ari.', importance: 4,
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [
+            { name: 'Ari Lane', type: 'person', aliases: [] },
+            { name: 'Ari Lane’s former mentor', type: 'guild master', aliases: [] },
+        ], facts: [], states: [], threads: [], backgrounds: [],
+        relationships: [{
+            id: 'relationship_mentor', from: 'Ari Lane', to: 'Ari Lane’s former mentor',
+            kind: 'former mentor and student', status: 'ended', dynamic: 'The former mentor trained Ari.',
+        }],
+    }, [{ name: 'Narrator', text: 'The fleet salutes Captain Rhea as she takes command.' }]);
+
+    assert.equal(validation.discardedIdentityResolutions, 1);
+    assert.deepEqual(result.identityResolutions, []);
+    assert.equal(result.relationships[0].to, 'Ari Lane’s former mentor');
+    assert.equal(result.relationships[0].targetId, 'relationship_mentor');
+});
+
 test('a stable relationship ID cannot change its participant pair', () => {
     const result = extraction();
     result.entities.push(
@@ -1666,7 +1794,7 @@ test('a stable relationship ID cannot change its participant pair', () => {
     });
 
     assert.equal(validation.relationshipEndpointConflicts.length, 1);
-    assert.equal(validation.retryWarnings.length, 0);
+    assert.equal(validation.diagnosticWarnings.length, 0);
     assert.match(validation.relationshipEndpointConflicts[0].warning, /relationship IDs cannot change their participant pair/iu);
     assert.equal(result.relationships[0].targetId, '');
     assert.equal(applySourceAttributionFailClosed(result, validation.relationshipEndpointConflicts), 1);
@@ -1807,6 +1935,96 @@ test('an extractor-confirmed open thread is not locally overruled', () => {
     assert.equal(result.threads[0].status, 'open');
 });
 
+test('a resolved identity thread cannot stay open by moving its remaining question into the old title', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Ari Lane', type: 'person', aliases: [] },
+        { name: 'Doctor Vale', type: 'deceased guild master', aliases: [] },
+    );
+    result.identityResolutions.push({
+        reference: 'Ari Lane’s former mentor', canonical: 'Doctor Vale',
+        evidence: 'Ari identifies her former mentor as Doctor Vale.',
+    });
+    result.threads.push({
+        targetId: 'thread_identity', title: 'Ari Lane’s former mentor’s true identity',
+        detail: 'Doctor Vale is now identified, but the reason for the concealment remains unknown.',
+        status: 'open', participants: ['Ari Lane', 'Doctor Vale'], importance: 4,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [
+            { name: 'Ari Lane', type: 'person', aliases: [] },
+            { name: 'Ari Lane’s former mentor', type: 'guild master', aliases: [] },
+        ], facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_identity', title: 'Ari Lane’s former mentor’s true identity',
+            detail: 'The mentor’s identity remains unknown.', status: 'open',
+            participants: ['Ari Lane', 'Ari Lane’s former mentor'], importance: 4,
+        }],
+    }, [{ name: 'Ari Lane', text: 'My former mentor was Doctor Vale. Why the guild hid that remains unknown.' }]);
+
+    assert.equal(validation.reconciledThreads, 1);
+    assert.equal(result.threads.length, 2);
+    assert.equal(result.threads[0].targetId, 'thread_identity');
+    assert.equal(result.threads[0].status, 'resolved');
+    assert.equal(result.threads[1].targetId, '');
+    assert.equal(result.threads[1].status, 'open');
+    assert.match(result.threads[1].title, /Unresolved circumstances surrounding Doctor Vale/);
+    assert.match(result.threads[1].detail, /reason for the concealment remains unknown/);
+});
+
+test('a later unrelated identity reveal cannot rewrite an already resolved thread', () => {
+    const result = extraction();
+    result.threads.push({
+        targetId: 'thread_mentor_identity', title: 'Ari Lane’s former mentor’s true identity',
+        detail: 'The masked commander is revealed as Captain Rhea.', status: 'resolved',
+        participants: ['Ari Lane', 'Captain Rhea'], importance: 4,
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_mentor_identity', title: 'Ari Lane’s former mentor’s true identity',
+            detail: 'Resolved by explicit continuity: Ari identified Doctor Vale as her former mentor.',
+            status: 'resolved', participants: ['Ari Lane', 'Doctor Vale'], importance: 4,
+        }],
+    }, [{ name: 'Narrator', text: 'The masked commander is revealed as Captain Rhea.' }]);
+
+    assert.equal(validation.preservedResolvedThreads, 1);
+    assert.equal(result.threads[0].status, 'resolved');
+    assert.match(result.threads[0].detail, /Ari identified Doctor Vale/);
+    assert.deepEqual(result.threads[0].participants, ['Ari Lane', 'Doctor Vale']);
+});
+
+test('a source-explicit future commitment becomes an open thread even when extraction omits it', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Captain Rhea', type: 'fleet commander', aliases: ['Rhea'] },
+        { name: 'Envoy Sol', type: 'diplomat', aliases: ['Sol'] },
+    );
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Captain Rhea', text: "I tell the crew I'll be going tomorrow to meet Envoy Sol; they remain aboard." }]);
+
+    assert.equal(validation.recoveredCommitments, 1);
+    assert.equal(result.threads.length, 1);
+    assert.equal(result.threads[0].status, 'open');
+    assert.match(result.threads[0].title, /^Captain Rhea will go tomorrow to meet Envoy Sol/);
+    assert.deepEqual(result.threads[0].participants, ['Captain Rhea', 'Envoy Sol']);
+});
+
+test('speculative or unanchored future wording is not promoted into a commitment', () => {
+    const result = extraction();
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [
+        { name: 'Ari', text: 'I might meet the envoy tomorrow, perhaps.' },
+        { name: 'Ari', text: 'I will open the door.' },
+    ]);
+
+    assert.equal(validation.recoveredCommitments, 0);
+    assert.equal(result.threads.length, 0);
+});
+
 test('a speculative identity question cannot merge a descriptive person', () => {
     const result = extraction();
     result.entities.push(
@@ -1858,6 +2076,28 @@ test('an explicitly named unknown role merges through its established relationsh
     }]);
 });
 
+test('duplicate same-role relationship anchors recover a previously established named identity', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Ari Lane', type: 'person', aliases: [] },
+        { name: 'Doctor Vale', type: 'guild master', aliases: [] },
+    );
+    result.sceneCapsule = { beats: ['Ari Lane discusses her former mentor’s archived work.'] };
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: result.entities, facts: [], states: [], threads: [], backgrounds: [],
+        relationships: [
+            { from: 'Ari Lane', to: 'Ari Lane’s former mentor', kind: 'former mentor and student', status: 'ended' },
+            { from: 'Ari Lane', to: 'Doctor Vale', kind: 'former mentor and student', status: 'ended' },
+        ],
+    }, [{ name: 'Ari Lane', text: 'I review my former mentor’s archived work.' }]);
+
+    assert.equal(validation.recoveredIdentities, 1);
+    assert.deepEqual(result.identityResolutions, [{
+        reference: 'Ari Lane’s former mentor', canonical: 'Doctor Vale',
+        evidence: 'Stable relationship continuity identifies Ari Lane’s former mentor as Doctor Vale.',
+    }]);
+});
+
 test('a possible partial thread match stays open and becomes a warning', () => {
     const result = extraction();
     result.entities.push({ name: 'Alice', type: 'person', aliases: [] });
@@ -1873,7 +2113,38 @@ test('a possible partial thread match stays open and becomes a warning', () => {
     assert.equal(validation.reconciledThreads, 0);
     assert.equal(result.threads.length, 0);
     assert.match(validation.warnings.at(-1), /Potential partial resolution remains open/);
-    assert.match(validation.retryWarnings.at(-1), /Potential partial resolution remains open/);
+    assert.match(validation.diagnosticWarnings.at(-1), /Potential partial resolution remains open/);
+});
+
+test('a completed stage resolves when extraction carries its remaining stage as a new atomic thread', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Captain Rhea', type: 'fleet commander', aliases: ['Rhea'] },
+        { name: 'Envoy Sol', type: 'diplomat', aliases: ['Sol'] },
+    );
+    result.sceneCapsule = { beats: [
+        'Captain Rhea departs aboard the courier and arrives at the summit complex.',
+    ] };
+    result.threads.push({
+        targetId: '', title: 'Captain Rhea’s report to Envoy Sol',
+        detail: 'Captain Rhea has arrived, but her meeting and report to Envoy Sol have not yet occurred.',
+        status: 'open', participants: ['Captain Rhea', 'Envoy Sol'], importance: 4,
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: result.entities, facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_trip', title: 'Captain Rhea’s departure to meet Envoy Sol',
+            detail: 'Captain Rhea will depart tomorrow to meet Envoy Sol; the departure has not yet occurred.',
+            status: 'open', participants: ['Captain Rhea', 'Envoy Sol'], importance: 4,
+        }],
+    }, [{ name: 'Narrator', text: 'Captain Rhea departs aboard the courier and arrives at the summit complex.' }]);
+
+    assert.equal(validation.reconciledThreads, 1);
+    assert.equal(result.threads.length, 2);
+    assert.equal(result.threads[0].status, 'open');
+    assert.equal(result.threads[1].targetId, 'thread_trip');
+    assert.equal(result.threads[1].status, 'resolved');
+    assert.match(result.threads[1].detail, /atomic continuity transition/);
 });
 
 test('source-supported durable limitations become atomic facts', () => {
@@ -1909,5 +2180,5 @@ test('a descriptive L1 limitation that conflicts with raw chat remains only a wa
     assert.equal(validation.recoveredCoverage, 0);
     assert.equal(result.facts.length, 0);
     assert.equal(validation.warnings.length, 1);
-    assert.equal(validation.retryWarnings.length, 1);
+    assert.equal(validation.diagnosticWarnings.length, 1);
 });
