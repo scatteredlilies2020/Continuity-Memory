@@ -1216,3 +1216,178 @@ test('source-supported role omissions become durable identity facts', () => {
         importance: 4, persistence: 'persistent',
     });
 });
+
+test('an explicit later answer resolves a matching omitted open-thread update', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Toska', type: 'person', aliases: [] },
+        { name: 'Lucas Alcazar', type: 'person', aliases: ['Lucas'] },
+        { name: 'Caelen Veyr', type: 'person', aliases: ['Caelen'] },
+    );
+    result.sceneCapsule = {
+        beats: ['Toska reveals Caelen Veyr’s true name, former High Council role, wartime command, and alias Pell.'],
+    };
+    result.facts.push({
+        targetId: '', subject: 'Toska', predicate: 'knowledge of Caelen Veyr’s true identity',
+        value: 'Toska disclosed that her deceased master was Jedi Master Caelen Veyr, a former High Council member.',
+        category: 'knowledge', importance: 4, persistence: 'persistent',
+    });
+    result.threads.push({
+        targetId: 'thread_caelen_identity', title: 'Toska’s former master’s true identity',
+        detail: 'Toska has not yet answered.', status: 'open',
+        participants: ['Lucas Alcazar', 'Toska', 'Toska’s former master'], importance: 3,
+    });
+    const world = {
+        entities: [
+            { name: 'Toska', type: 'person', aliases: [] },
+            { name: 'Lucas Alcazar', type: 'person', aliases: ['Lucas'] },
+            { name: 'Toska’s former master', type: 'person', aliases: ['the Jedi Master'] },
+        ], facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_caelen_identity', title: 'Toska’s former master’s true identity',
+            detail: 'Lucas asks Toska for her deceased master’s true name and what he was before, but Toska has not yet answered.',
+            status: 'open', participants: ['Lucas Alcazar', 'Toska', 'Toska’s former master'], importance: 3,
+        }],
+    };
+
+    const validation = sanitizeReconciliationMetadata(result, world, [{
+        name: 'Toska',
+        text: 'Asked for her master’s true name, Toska answers: “Caelen Veyr. Jedi Master Caelen Veyr.” She reveals that he formerly served the High Council.',
+    }]);
+
+    assert.equal(validation.recoveredIdentities, 1);
+    assert.equal(validation.reconciledThreads, 1);
+    assert.deepEqual(validation.warnings, []);
+    assert.deepEqual(result.identityResolutions, [{
+        reference: 'Toska’s former master', canonical: 'Caelen Veyr',
+        evidence: 'Toska reveals Caelen Veyr’s true name, former High Council role, wartime command, and alias Pell.',
+    }]);
+    assert.deepEqual(result.threads, [{
+        targetId: 'thread_caelen_identity', title: 'Toska’s former master’s true identity',
+        detail: 'Resolved by explicit continuity: Toska reveals Caelen Veyr’s true name, former High Council role, wartime command, and alias Pell.',
+        status: 'resolved', participants: ['Lucas Alcazar', 'Toska', 'Toska’s former master'], importance: 3,
+    }]);
+});
+
+test('an extractor-confirmed open thread is not locally overruled', () => {
+    const result = extraction();
+    result.entities.push({ name: 'Alice', type: 'person', aliases: [] });
+    result.sceneCapsule = { beats: ['Alice reports finding one of the two missing access keys.'] };
+    result.threads.push({
+        targetId: 'thread_keys', title: 'Recover both access keys',
+        detail: 'One access key remains missing.', status: 'open', participants: ['Alice'], importance: 3,
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: result.entities, facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_keys', title: 'Recover both access keys', detail: 'Alice has not yet recovered both access keys.',
+            status: 'open', participants: ['Alice'], importance: 3,
+        }],
+    }, [{ name: 'Alice', text: 'I found one of the two missing access keys.' }]);
+
+    assert.equal(validation.reconciledThreads, 0);
+    assert.equal(result.threads[0].status, 'open');
+});
+
+test('a speculative identity question cannot merge a descriptive person', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Toska', type: 'person', aliases: [] },
+        { name: 'Caelen Veyr', type: 'person', aliases: [] },
+    );
+    result.sceneCapsule = { beats: ['Toska wonders whether her former master’s true name might be Caelen Veyr.'] };
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [
+            { name: 'Toska', type: 'person', aliases: [] },
+            { name: 'Toska’s former master', type: 'person', aliases: [] },
+        ], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Toska', text: 'Could my former master have been Caelen Veyr?' }]);
+
+    assert.equal(validation.recoveredIdentities, 0);
+    assert.deepEqual(result.identityResolutions, []);
+});
+
+test('an explicitly named unknown role merges through its established relationship anchor', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Archivist Rowan', type: 'person', aliases: ['Rowan'] },
+        { name: 'Mira Vale', type: 'person', aliases: ['Nightglass'] },
+    );
+    result.sceneCapsule = {
+        beats: [
+            'Archivist Rowan’s unnamed former student is discussed.',
+            'The unknown student is explicitly named as Nightglass.',
+        ],
+    };
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [
+            { name: 'Archivist Rowan', type: 'person', aliases: ['Rowan'] },
+            { name: 'Unnamed former student', type: 'person', aliases: [] },
+        ], facts: [], states: [], threads: [], backgrounds: [],
+        relationships: [{
+            from: 'Archivist Rowan', to: 'Unnamed former student', kind: 'former mentor and student',
+            status: 'ended', dynamic: 'The student’s identity is unknown.',
+        }],
+    }, [
+        { name: 'Investigator', text: 'Rowan kept the identity hidden. Name the former student.' },
+        { name: 'Mira Vale', text: '“Nightglass.” That was the name.' },
+    ]);
+
+    assert.equal(validation.recoveredIdentities, 1);
+    assert.deepEqual(result.identityResolutions, [{
+        reference: 'Unnamed former student', canonical: 'Mira Vale',
+        evidence: 'The unknown student is explicitly named as Nightglass.',
+    }]);
+});
+
+test('a possible partial thread match stays open and becomes a warning', () => {
+    const result = extraction();
+    result.entities.push({ name: 'Alice', type: 'person', aliases: [] });
+    result.sceneCapsule = { beats: ['Alice found the northern access key.'] };
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: result.entities, facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_keys', title: 'Recover the northern and southern access keys',
+            detail: 'Alice has not yet found either access key.', status: 'open', participants: ['Alice'], importance: 3,
+        }],
+    }, [{ name: 'Alice', text: 'I found the northern access key.' }]);
+
+    assert.equal(validation.reconciledThreads, 0);
+    assert.equal(result.threads.length, 0);
+    assert.match(validation.warnings.at(-1), /Potential partial resolution remains open/);
+});
+
+test('source-supported durable limitations become atomic facts', () => {
+    const result = extraction();
+    result.entities.push({ name: 'Toska', type: 'person', aliases: [] });
+    result.sceneCapsule = {
+        beats: ['Toska blocks a series of deliberate attacks but reveals a recurring vulnerability on the high outside line and a late response to a rib feint.'],
+    };
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{
+        name: 'Narrator',
+        text: 'Toska blocks the deliberate attacks. The high outside line is weak, and her response to the rib feint comes late.',
+    }]);
+
+    assert.equal(validation.recoveredCoverage, 1);
+    assert.deepEqual(validation.warnings, []);
+    assert.equal(result.facts.length, 1);
+    assert.equal(result.facts[0].subject, 'Toska');
+    assert.equal(result.facts[0].category, 'limitations');
+    assert.match(result.facts[0].predicate, /^observed limitation/);
+    assert.match(result.facts[0].value, /high outside line/);
+});
+
+test('a descriptive L1 limitation that conflicts with raw chat remains only a warning', () => {
+    const result = extraction();
+    result.entities.push({ name: 'Toska', type: 'person', aliases: [] });
+    result.sceneCapsule = { beats: ['Toska reveals a recurring vulnerability on the high outside line.'] };
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Narrator', text: 'Toska reveals that her low inside line is weak.' }]);
+
+    assert.equal(validation.recoveredCoverage, 0);
+    assert.equal(result.facts.length, 0);
+    assert.equal(validation.warnings.length, 1);
+});

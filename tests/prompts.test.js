@@ -61,7 +61,8 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /State is a replaceable condition/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /durable, tense-neutral identity summaries/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /unfinished matters in atomic threads/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /tense-neutral ledger entries/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Threads are atomic unresolved conditions/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /emit its targetId resolved/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Reuse supplied thread titles, background topics, canonical names, and wording/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /include a named person being visited, met, contacted, or reported to/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /exclude someone mentioned only as an object's former owner/);
