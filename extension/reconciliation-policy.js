@@ -2213,13 +2213,19 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
         return valid;
     });
     const sourceAttributionConflicts = findSourceAttributionConflicts(result, world, messages);
-    const warnings = [...new Set([
+    const localWarnings = [...new Set([
         ...relationshipEndpointConflicts.map(item => item.warning),
         ...sourceAttributionConflicts.map(item => item.warning),
+    ])];
+    const retryWarnings = [...new Set([
         ...findCoverageWarnings(result, messages),
         ...findTypedContinuityWarnings(result, world),
         ...reconciledThreads.warnings,
     ])].slice(0, 8);
+    const warnings = [...new Set([
+        ...retryWarnings,
+        ...localWarnings,
+    ])].slice(0, 8);
     if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
-    return { ignored, recovered, recoveredAliases, recoveredBoundaries, recoveredKnowledge, recoveredIdentities, normalizedIdentityReferences, recoveredFactRelationships, recoveredCoverage, reconciledThreads: reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, reconciledStateTransitions, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, sourceAttributionConflicts, relationshipEndpointConflicts, warnings };
+    return { ignored, recovered, recoveredAliases, recoveredBoundaries, recoveredKnowledge, recoveredIdentities, normalizedIdentityReferences, recoveredFactRelationships, recoveredCoverage, reconciledThreads: reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, reconciledStateTransitions, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, sourceAttributionConflicts, relationshipEndpointConflicts, localWarnings, retryWarnings, warnings };
 }

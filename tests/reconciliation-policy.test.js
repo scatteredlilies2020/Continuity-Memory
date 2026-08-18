@@ -1548,6 +1548,8 @@ test('a subjective update cannot overwrite an established entity description', (
     }]);
 
     assert.ok(validation.sourceAttributionConflicts.some(item => item.category === 'entities'));
+    assert.equal(validation.retryWarnings.length, 0);
+    assert.ok(validation.localWarnings.some(item => /Source-attribution conflict/u.test(item)));
     assert.equal(applySourceAttributionFailClosed(result, validation.sourceAttributionConflicts), 1);
     assert.equal(result.entities[0].description, established);
     assert.equal(result.facts[0].category, 'character belief');
@@ -1664,6 +1666,7 @@ test('a stable relationship ID cannot change its participant pair', () => {
     });
 
     assert.equal(validation.relationshipEndpointConflicts.length, 1);
+    assert.equal(validation.retryWarnings.length, 0);
     assert.match(validation.relationshipEndpointConflicts[0].warning, /relationship IDs cannot change their participant pair/iu);
     assert.equal(result.relationships[0].targetId, '');
     assert.equal(applySourceAttributionFailClosed(result, validation.relationshipEndpointConflicts), 1);
@@ -1870,6 +1873,7 @@ test('a possible partial thread match stays open and becomes a warning', () => {
     assert.equal(validation.reconciledThreads, 0);
     assert.equal(result.threads.length, 0);
     assert.match(validation.warnings.at(-1), /Potential partial resolution remains open/);
+    assert.match(validation.retryWarnings.at(-1), /Potential partial resolution remains open/);
 });
 
 test('source-supported durable limitations become atomic facts', () => {
@@ -1905,4 +1909,5 @@ test('a descriptive L1 limitation that conflicts with raw chat remains only a wa
     assert.equal(validation.recoveredCoverage, 0);
     assert.equal(result.facts.length, 0);
     assert.equal(validation.warnings.length, 1);
+    assert.equal(validation.retryWarnings.length, 1);
 });
