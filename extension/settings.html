@@ -22,8 +22,10 @@
             <div class="continuity-card">
                 <h4>This chat's memory</h4>
                 <div id="continuity_memory_name" class="continuity-memory-name">Preparing memory…</div>
+                <div id="continuity_attachment_status" class="continuity-attachment-status" hidden></div>
                 <div class="continuity-button-row">
                     <button id="continuity_refresh" class="menu_button"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                    <button id="continuity_detach" class="menu_button" hidden><i class="fa-solid fa-link-slash"></i> Detach attached memory</button>
                 </div>
                 <small>Created only when extraction begins, then kept separate for this chat. Briefly opening untouched chats creates no files.</small>
                 <label class="checkbox_label"><input id="continuity_embed_chat" type="checkbox"><span>Keep portable memory in chat files (global)</span></label>
@@ -488,7 +490,7 @@
             <div class="continuity-card continuity-danger">
                 <h4>Delete memory</h4>
                 <button id="continuity_delete" class="menu_button redWarningBG"><i class="fa-solid fa-trash"></i> Delete all memory</button>
-                <small>Deletes every record belonging to this chat's memory and immediately binds a verified-empty replacement. A separate source used to start a continuation is retained. If the same stored memory is attached to another chat, only this chat is detached from it. No backup of the deleted chat-specific copy is saved.</small>
+                <small>Uses the same verified-empty purge as Erase everything &amp; start over, but does not rebuild. For attached or shared memory, it detaches and retains that world unchanged instead. Use the clearly marked Detach attached memory button to remove an attachment without modifying it.</small>
             </div>
         </div>
     </div>

@@ -14,6 +14,7 @@
 .continuity-counts { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
 .continuity-count { border:1px solid var(--SmartThemeBorderColor); border-radius:6px; padding:3px 7px; }
 .continuity-memory-name { font-weight:600; padding:7px 9px; border:1px solid var(--SmartThemeBorderColor); border-radius:6px; }
+.continuity-attachment-status { margin-top:7px; padding:8px 10px; border:2px solid #d59b2b; border-radius:6px; background:rgba(213,155,43,.14); color:var(--SmartThemeBodyColor); font-weight:700; }
 .continuity-log { max-height:260px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font-size:.82em; padding:8px; border-radius:6px; background:rgba(0,0,0,.25); }
 .continuity-danger { border-color:rgba(220,70,70,.7); }
 .continuity-file-label { display:inline-flex; align-items:center; gap:5px; }

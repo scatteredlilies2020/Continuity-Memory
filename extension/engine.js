@@ -6,26 +6,26 @@ import { proxies } from '/scripts/openai.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.146';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.147';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.146';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.147';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.146';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.146';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.147';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.147';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.146';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.146';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.147';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.147';
 import { applySourceAttributionFailClosed, canonicalFactReference, continuityAuditRetryInstruction, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.146';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.146';
-import { onRuntimeStop, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.146';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.147';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.147';
+import { onRuntimeStop, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.147';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
 
@@ -1620,6 +1620,58 @@ export async function syncChangedExtractions(force = false) {
     }
 }
 
+async function persistVerifiedEmptyWorld(worldId) {
+    const clear = world => resetWorldMemory(world);
+    let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
+    clear(world);
+    try {
+        world = (await api.saveWorld(world)).world;
+    } catch (error) {
+        if (error.status !== 409) throw error;
+        world = (await api.getWorld(worldId)).world;
+        clear(world);
+        world = (await api.saveWorld(world)).world;
+    }
+    if (world?.id !== worldId) throw new Error(`Memory purge reset the wrong world (${world?.id || 'missing'} instead of ${worldId}).`);
+    const resetResiduals = freshResetResiduals(world);
+    if (resetResiduals.length) {
+        throw new Error(`Memory purge did not persist an empty world (${resetResiduals.join(', ')}).`);
+    }
+    return world;
+}
+
+export async function eraseAllMemory() {
+    if (runtime.processing) throw new Error('Wait for current processing to finish.');
+    const worldId = getBoundWorldId();
+    if (!worldId) throw new Error('Open a chat with Continuity memory first.');
+    await requireRetryStorage();
+    runtime.generation++;
+    const queued = runtime.queue.splice(0);
+    for (const job of queued) job.reject?.(new Error('Delete All cleared the processing queue.'));
+    updateRuntime({ processing: true, paused: false, status: 'deleting', progress: null, lastError: '', retryStatus: 'Erasing all Continuity memory…' });
+    try {
+        const world = await persistVerifiedEmptyWorld(worldId);
+        updateRuntime({
+            world,
+            status: 'idle',
+            progress: null,
+            lastInjection: '',
+            lastInjectionTokens: 0,
+            lastGenerationRetrieval: null,
+            nextRetrievalPreview: null,
+            retryStatus: 'All Continuity memory was erased and verified empty.',
+        });
+        await embedWorldInChat(world);
+        return { world, erased: true };
+    } catch (error) {
+        updateRuntime({ status: 'error', progress: null, lastError: error.message, retryStatus: `Delete All failed safely: ${error.message}` });
+        throw error;
+    } finally {
+        updateRuntime({ processing: false });
+        if (!runtime.paused) queueMicrotask(processQueue);
+    }
+}
+
 export async function restartL1FromScratch() {
     if (runtime.processing) throw new Error('Wait for current processing to finish.');
     const worldId = getBoundWorldId();
@@ -1641,22 +1693,7 @@ export async function restartL1FromScratch() {
     let completedChunks = 0;
     updateRuntime({ processing: true, paused: false, status: 'restarting', progress: null, lastError: '', retryStatus: 'Erasing all Continuity memory before the fresh build…' });
     try {
-        const clear = world => resetWorldMemory(world);
-        let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
-        clear(world);
-        try {
-            world = (await api.saveWorld(world)).world;
-        } catch (error) {
-            if (error.status !== 409) throw error;
-            world = (await api.getWorld(worldId)).world;
-            clear(world);
-            world = (await api.saveWorld(world)).world;
-        }
-        if (world?.id !== worldId) throw new Error(`Start Over reset the wrong memory world (${world?.id || 'missing'} instead of ${worldId}).`);
-        const resetResiduals = freshResetResiduals(world);
-        if (resetResiduals.length) {
-            throw new Error(`Start Over did not persist an empty memory world; refusing to scan stale records (${resetResiduals.join(', ')}).`);
-        }
+        const world = await persistVerifiedEmptyWorld(worldId);
         updateRuntime({ world, retryStatus: 'All old Continuity memory was erased and verified empty. Preparing the first fresh L1 chunks…' });
         await embedWorldInChat(world);
 

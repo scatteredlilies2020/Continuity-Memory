@@ -1,24 +1,24 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.14.0-standalone.146';
+import { api } from './api.js?v=0.14.0-standalone.147';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.146';
-import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.146';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.146';
-import { invalidateRuntimeWork, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.146';
-import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.146';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.146';
+import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.147';
+import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.147';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.147';
+import { invalidateRuntimeWork, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.147';
+import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.147';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.147';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.146';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.146';
-import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.146';
-import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.146';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.147';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.147';
+import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.147';
+import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.147';
 import { completeL1MessageCount, isL1StabilityProtectedMessage, resolveL1GroupSize } from './l1-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
-import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.14.0-standalone.146';
+import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.14.0-standalone.147';
 
 const PROMPT_KEY = 'continuity_memory_context';
 let lastObservedWorldId = null;
@@ -497,7 +497,12 @@ async function onChatDeleted(chatId, ownerKind) {
     if (runtime.world?.id === worldId && (runtime.processing || runtime.queue.length)) {
         invalidateRuntimeWork('Chat was deleted; discarded its active and queued memory work.');
     }
-    if (!sharedElsewhere) {
+    let attached = runtime.world?.id === worldId && Boolean(runtime.world?.continuation);
+    if (!attached && !sharedElsewhere) {
+        try { attached = Boolean((await api.getWorld(worldId)).world?.continuation); }
+        catch (error) { if (error.status !== 404) throw error; }
+    }
+    if (!sharedElsewhere && !attached) {
         try { await purgeEmbeddingIndex(worldId); }
         catch (error) { console.warn('[Continuity] Could not remove the deleted chat’s derived embedding index.', error); }
         try {
@@ -522,15 +527,23 @@ async function onChatRenamed(eventData) {
     settings.chatWorlds[newChatKey] = worldId;
     saveSettings();
     if (provisionalWorldId && provisionalWorldId !== worldId) {
-        try { await purgeEmbeddingIndex(provisionalWorldId); }
-        catch (error) { console.warn('[Continuity] Could not remove the provisional chat’s derived embedding index.', error); }
+        let provisionalAttached = runtime.world?.id === provisionalWorldId && Boolean(runtime.world?.continuation);
         try {
-            await api.deleteWorld(provisionalWorldId);
+            if (!provisionalAttached) provisionalAttached = Boolean((await api.getWorld(provisionalWorldId)).world?.continuation);
         } catch (error) {
             if (error.status !== 404) throw error;
         }
-        settings.deletedWorldIds = [...new Set([...(settings.deletedWorldIds || []), provisionalWorldId])].slice(-1000);
-        saveSettings();
+        if (!provisionalAttached) {
+            try { await purgeEmbeddingIndex(provisionalWorldId); }
+            catch (error) { console.warn('[Continuity] Could not remove the provisional chat’s derived embedding index.', error); }
+            try {
+                await api.deleteWorld(provisionalWorldId);
+            } catch (error) {
+                if (error.status !== 404) throw error;
+            }
+            settings.deletedWorldIds = [...new Set([...(settings.deletedWorldIds || []), provisionalWorldId])].slice(-1000);
+            saveSettings();
+        }
     }
     if (getChatKey() === newChatKey) await onChatChanged();
 }

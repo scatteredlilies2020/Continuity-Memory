@@ -4,10 +4,10 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.146';
+import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.147';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.146';
+import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.147';
 import { clearRetrievalExpansionCache } from './semantic-retrieval.js';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
@@ -15,18 +15,18 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.146';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.146';
-import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.146';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.147';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.147';
+import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.147';
 import { completeL1MessageCount, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.146';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.146';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.146';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.147';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.147';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.147';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.146';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.146';
-import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.146';
+import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.147';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.147';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.147';
 import { createRenderScheduler } from './render-scheduler.js';
 
 let worlds = [];
@@ -1061,6 +1061,14 @@ export function renderRuntime(refreshSettings = true) {
         setControlValue('#continuity_era_template', settings.eraTaskTemplate);
     }
     $('#continuity_memory_name').text(runtime.world?.name || (getChatKey() ? 'No stored memory yet; it will be created when processing begins.' : 'Open a chat to begin.'));
+    const attachment = runtime.world?.continuation;
+    const attached = Boolean(attachment?.originWorldId);
+    $('#continuity_attachment_status')
+        .prop('hidden', !attached)
+        .text(attached
+            ? `ATTACHED CONTINUATION MEMORY · Source: “${attachment.originName || attachment.originWorldId}” · Source ID: ${attachment.originWorldId}. This chat is using a separate attached copy; destructive actions will not delete the source memory.`
+            : '');
+    $('#continuity_detach').prop('hidden', !attached);
 
     const queueText = runtime.queue.length ? ` · ${runtime.queue.length} queued` : '';
     $('#continuity_status').text(`${runtime.paused ? 'Paused' : runtime.status}${queueText}`);
@@ -1198,11 +1206,13 @@ async function importWorld(file) {
     const alignment = verifyMemoryAlignment(parsed);
     if (!window.confirm(`${alignment.message}\n\nImport and attach this memory to the open chat?`)) return null;
     const previousWorldId = getBoundWorldId();
+    const previousAttached = previousWorldId && runtime.world?.id === previousWorldId && Boolean(runtime.world?.continuation);
+    const previousSharedElsewhere = worldIsSharedElsewhere(previousWorldId);
     const response = await api.importWorld(alignment.world);
     bindCurrentChat(response.world.id);
     updateRuntime({ world: response.world });
     await embedWorldInChat(response.world);
-    if (previousWorldId && previousWorldId !== response.world.id) {
+    if (previousWorldId && previousWorldId !== response.world.id && !previousAttached && !previousSharedElsewhere) {
         try { await purgeEmbeddingIndex(previousWorldId); }
         catch (error) { console.warn('[Continuity] Could not remove the replaced memory’s derived embedding index.', error); }
         await api.deleteWorld(previousWorldId);
@@ -1232,13 +1242,14 @@ async function startContinuationArc(file) {
     if (!window.confirm(`Start a new continuation arc from “${prepared.continuation.originName}”?\n\n${inherited} structured record(s), plus its L1/L2/L3 chronology, will be inherited. Old source messages will not be treated as messages in this new chat.${warning}`)) return null;
 
     const previousWorldId = getBoundWorldId();
+    const previousAttached = previousWorldId && runtime.world?.id === previousWorldId && Boolean(runtime.world?.continuation);
     const previousSharedElsewhere = previousWorldId && Object.entries(getSettings().chatWorlds || {})
         .some(([boundChatKey, worldId]) => boundChatKey !== chatKey && worldId === previousWorldId);
     const response = await api.importWorld(prepared);
     bindCurrentChat(response.world.id);
     updateRuntime({ world: response.world, importAlignment: { code: 'continuation-baseline', matched: 0, pending: (getContext().chat || []).length } });
     await embedWorldInChat(response.world, { force: true });
-    if (previousWorldId && previousWorldId !== response.world.id && !previousSharedElsewhere) {
+    if (previousWorldId && previousWorldId !== response.world.id && !previousAttached && !previousSharedElsewhere) {
         try { await purgeEmbeddingIndex(previousWorldId); }
         catch (error) { console.warn('[Continuity] Could not remove the replaced destination memory’s derived embedding index.', error); }
         await api.deleteWorld(previousWorldId);
@@ -1263,49 +1274,66 @@ async function cleanChatExport(file) {
     return result.removed;
 }
 
-async function deleteScope() {
-    const world = runtime.world;
-    if (!world) throw new Error('Open a chat and prepare its memory first.');
-    if (runtime.processing) throw new Error('Stop processing before deleting memory.');
-    const chatKey = getChatKey();
-    if (!chatKey) throw new Error('Open the chat whose memory should be removed.');
-    const sharedElsewhere = Object.entries(getSettings().chatWorlds || {})
-        .some(([boundChatKey, worldId]) => boundChatKey !== chatKey && worldId === world.id);
-    const warning = sharedElsewhere
-        ? `Remove “${world.name}” from this chat and start this chat with empty memory? The stored memory is also attached to another chat, so that shared copy will not be deleted.`
-        : `Permanently delete all memory in “${world.name}”? This removes every L1/L2/L3 record, its stored world, and its embedded chat-file copy. An imported continuation’s separate source memory is not deleted. This cannot be undone unless you exported this copy.`;
-    if (!window.confirm(warning)) return;
-    if (!sharedElsewhere) {
-        try { await purgeEmbeddingIndex(world.id); }
-        catch (error) { console.warn('[Continuity] Could not remove the deleted memory’s derived embedding index.', error); }
-        await api.deleteWorld(world.id);
-        markWorldDeleted(world.id);
-    }
-    await clearPortableSnapshot();
+function worldIsSharedElsewhere(worldId, chatKey = getChatKey()) {
+    return Boolean(worldId && chatKey && Object.entries(getSettings().chatWorlds || {})
+        .some(([boundChatKey, boundWorldId]) => boundChatKey !== chatKey && boundWorldId === worldId));
+}
 
-    // Bind a verified-empty replacement before refreshing. Otherwise recovery
-    // can immediately rediscover and attach a different stored copy with the
-    // same message fingerprints, making a successful deletion appear undone.
+async function detachToEmptyMemory({ confirm = true } = {}) {
+    const world = runtime.world;
+    const chatKey = getChatKey();
+    if (!world || !chatKey) throw new Error('Open a chat with attached memory first.');
+    if (runtime.processing) throw new Error('Stop processing before detaching memory.');
+    const attachment = world.continuation;
+    const sharedElsewhere = worldIsSharedElsewhere(world.id, chatKey);
+    if (!attachment && !sharedElsewhere) throw new Error('This chat is not using attached or shared memory.');
+    const sourceName = attachment?.originName || attachment?.originWorldId || world.name;
+    if (confirm && !window.confirm(`Detach “${sourceName}” from this chat? The attached stored memory and its source will not be changed or deleted. This chat will receive new, verified-empty memory.`)) return { cancelled: true };
+
+    stopEmbeddingIndexing();
     const context = getContext();
     const replacement = (await api.createWorld(`${context.name2 || 'Chat'} · ${context.chatId || 'Memory'}`)).world;
     const residuals = freshResetResiduals(replacement);
     if (residuals.length) {
         try { await api.deleteWorld(replacement.id); }
         catch (error) { console.warn('[Continuity] Could not remove a non-empty replacement memory.', error); }
-        throw new Error(`The replacement memory was not empty (${residuals.join(', ')}).`);
+        throw new Error(`The detached replacement was not empty (${residuals.join(', ')}).`);
     }
     bindCurrentChat(replacement.id);
+    await clearPortableSnapshot();
     updateRuntime({
         world: replacement,
+        importAlignment: null,
         lastInjection: '',
         lastInjectionTokens: 0,
         lastGenerationRetrieval: null,
         nextRetrievalPreview: null,
+        retryStatus: 'Attached memory was detached without modifying it. This chat now has verified-empty memory.',
     });
+    if (getSettings().embedMemoryInChat) await embedWorldInChat(replacement, { force: true });
     await refreshWorlds();
-    toast('success', sharedElsewhere
-        ? 'Memory removed from this chat; its shared copy was retained. A new empty memory is ready.'
-        : 'All memory for this chat was deleted without saving a copy. A new verified-empty memory is ready.');
+    return { detached: true, retainedWorldId: world.id, world: replacement };
+}
+
+async function deleteScope() {
+    const world = runtime.world;
+    if (!world) throw new Error('Open a chat and prepare its memory first.');
+    if (runtime.processing) throw new Error('Stop processing before deleting memory.');
+    if (world.continuation || worldIsSharedElsewhere(world.id)) {
+        const result = await detachToEmptyMemory();
+        if (!result.cancelled) toast('success', 'Attached memory retained and detached. This chat now has verified-empty memory.');
+        return result;
+    }
+    if (!window.confirm(`Erase every Continuity record in “${world.name}” and leave this chat with verified-empty memory? This is the same purge used by Erase everything & start over, without rebuilding afterward.`)) return { cancelled: true };
+    stopEmbeddingIndexing();
+    clearRetrievalExpansionCache();
+    try { await purgeEmbeddingIndex(world.id); }
+    catch (error) { console.warn('[Continuity] Could not remove the deleted memory’s derived embedding index.', error); }
+    const result = await eraseAllMemory();
+    if (!getSettings().embedMemoryInChat) await clearPortableSnapshot();
+    await refreshWorlds();
+    toast('success', 'All memory was erased and verified empty.');
+    return result;
 }
 
 async function continueFailedL1() {
@@ -1412,11 +1440,21 @@ async function restartBuild() {
     if (restorePendingExtractionReview()) return { cancelled: true, reviewPending: true };
     await ensureCurrentChatMemory(true);
     const messageCount = getContext().chat?.length || 0;
-    if (!window.confirm(`Rebuild extracted memory from the beginning for all ${messageCount} chat messages? This immediately and permanently erases all Continuity memory for this world, including reviewed corrections, corrected records, L1/L2/L3, extraction records, retrieval cache, and vectors. Every fresh L1 chunk calls the model and is saved as it completes, so Build can resume missing ranges after a failure. No backup is saved.`)) return { cancelled: true };
+    const attached = Boolean(runtime.world?.continuation || worldIsSharedElsewhere(runtime.world?.id));
+    const attachmentNotice = runtime.world?.continuation
+        ? `\n\nATTACHED MEMORY: “${runtime.world.continuation.originName || runtime.world.continuation.originWorldId}” will be detached and retained unchanged. Only this chat’s messages will be rebuilt into a new owned memory.`
+        : attached
+            ? '\n\nSHARED MEMORY: the shared world will be detached and retained unchanged. Only this chat’s messages will be rebuilt into a new owned memory.'
+            : '';
+    if (!window.confirm(`Rebuild extracted memory from the beginning for all ${messageCount} chat messages? Delete All and Start Over use the same verified-empty purge; Start Over then rebuilds automatically. Reviewed corrections, L1/L2/L3, extraction records, retrieval cache, and vectors belonging to this chat are cleared.${attachmentNotice}`)) return { cancelled: true };
     stopEmbeddingIndexing();
     clearRetrievalExpansionCache();
-    try { await purgeEmbeddingIndex(runtime.world?.id); }
-    catch (error) { console.warn('[Continuity] Could not purge the old derived embedding index before Start Over.', error); }
+    if (attached) {
+        await detachToEmptyMemory({ confirm: false });
+    } else {
+        try { await purgeEmbeddingIndex(runtime.world?.id); }
+        catch (error) { console.warn('[Continuity] Could not purge the old derived embedding index before Start Over.', error); }
+    }
     const l1 = await restartL1FromScratch();
     return finishHierarchy(l1, true, true);
 }
@@ -1615,6 +1653,9 @@ export function initUI() {
     });
 
     $('#continuity_refresh').on('click', () => refreshWorlds().catch(error => toast('error', error.message)));
+    $('#continuity_detach').on('click', () => detachToEmptyMemory()
+        .then(result => !result.cancelled && toast('success', 'Attached memory retained unchanged and detached from this chat.'))
+        .catch(error => toast('error', error.message)));
     $('#continuity_pause').on('click', () => {
         if (restorePendingExtractionReview()) return;
         if (runtime.paused) { resumeRuntime(); continueQueue(); }
