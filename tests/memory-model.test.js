@@ -737,6 +737,30 @@ test('later explicit knowledge retires the matching stale knowledge boundary', (
     assert.match(records[0].value, /has now learned/i);
 });
 
+test('later knowledge of the same subject adds detail without erasing established history', () => {
+    const target = world();
+    mergeExtraction(target, extraction({
+        facts: [{
+            subject: 'Toska', predicate: 'knowledge of Caelen Veyr',
+            value: 'Toska identifies Caelen Veyr as a Jedi Master and former Jedi Council member.',
+            category: 'knowledge', importance: 5, persistence: 'persistent',
+        }], events: [],
+    }), { chatKey: 'roleplay', from: 8, to: 15, allowStateUpdates: true });
+    const stableId = target.facts[0].id;
+
+    mergeExtraction(target, extraction({
+        facts: [{
+            targetId: stableId, subject: 'Toska', predicate: 'knowledge of Caelen Veyr',
+            value: 'Toska now knows Caelen previously trained an apprentice named Lucas Alcazar.',
+            category: 'knowledge', importance: 5, persistence: 'persistent',
+        }], events: [],
+    }), { chatKey: 'roleplay', from: 16, to: 23, allowStateUpdates: true });
+
+    const record = target.facts.find(item => item.id === stableId);
+    assert.match(record.value, /Jedi Master and former Jedi Council member/iu);
+    assert.match(record.value, /apprentice named Lucas Alcazar/iu);
+});
+
 test('a positive update mislabeled as a boundary becomes established knowledge', () => {
     const target = world();
     mergeExtraction(target, extraction({

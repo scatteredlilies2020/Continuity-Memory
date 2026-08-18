@@ -289,6 +289,27 @@ test('explicit recognition in structured narrative becomes durable prior knowled
     });
 });
 
+test('factive role knowledge preserves both the holder knowledge and the established role', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Alice Ren', type: 'person', aliases: ['Alice'] },
+        { name: 'Borin Vale', type: 'person', aliases: ['Borin'] },
+    );
+    result.sceneCapsule = { beats: [], participants: ['Alice Ren', 'Borin Vale'] };
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Narrator', text: 'Alice knows Borin held a council seat.' }]);
+
+    assert.equal(validation.recoveredKnowledge, 2);
+    assert.ok(result.facts.some(item => item.subject === 'Alice Ren'
+        && item.predicate === 'knowledge of Borin Vale'
+        && item.category === 'knowledge'));
+    assert.ok(result.facts.some(item => item.subject === 'Borin Vale'
+        && item.predicate === 'established role or designation'
+        && item.category === 'identity'
+        && /held a council seat/iu.test(item.value)));
+});
+
 test('questions and possessive action objects do not become character knowledge', () => {
     const result = extraction();
     result.entities.push(
@@ -2454,6 +2475,71 @@ test('an explicitly named unknown role merges through its established relationsh
         reference: 'Unnamed former student', canonical: 'Mira Vale',
         evidence: 'The unknown student is explicitly named as Nightglass.',
     }]);
+});
+
+test('a role-name apposition resolves a descriptive identity across a chunk boundary', () => {
+    const result = extraction();
+    result.entities.push({
+        name: 'Caelen Veyr', type: 'person', aliases: ['Master Caelen Veyr'],
+        description: 'Details about Caelen Veyr remain disputed or attributed in this excerpt; consult character perspectives and source history.',
+    });
+    result.sceneCapsule = { beats: ['Toska identifies her deceased Jedi Master as Caelen Veyr.'] };
+    const world = {
+        entities: [
+            { name: 'Toska', type: 'person', aliases: [] },
+            { name: 'Toska’s former Jedi Master', type: 'person', aliases: [], description: 'A formerly renowned Jedi Master.' },
+        ], facts: [], states: [], threads: [], backgrounds: [],
+        relationships: [{
+            from: 'Toska', to: 'Toska’s former Jedi Master', kind: 'Jedi Master and Padawan', status: 'ended',
+        }],
+    };
+
+    const validation = sanitizeReconciliationMetadata(result, world, [{
+        name: 'Toska', text: 'Caelen Veyr. Jedi Master Caelen Veyr.',
+    }]);
+
+    assert.equal(validation.recoveredIdentities, 1);
+    assert.ok(result.identityResolutions.some(item =>
+        item.reference === 'Toska’s former Jedi Master' && item.canonical === 'Caelen Veyr'));
+});
+
+test('authoritative OOC concealed identity becomes holder boundaries and removes the mixed rider', () => {
+    const result = extraction();
+    result.sceneCapsule = { beats: [], participants: ['Lucas Alcazar', 'Toska', 'Loyalist Pilot'] };
+    result.entities.push(
+        { name: 'Lucas Alcazar', type: 'person', aliases: [] },
+        { name: 'Toska', type: 'person', aliases: [] },
+        { name: 'Loyalist Pilot', type: 'person', aliases: ['pilot'] },
+    );
+    result.facts.push({
+        subject: 'Lucas Alcazar', predicate: 'former identity',
+        value: 'Lucas Alcazar was formerly Caelen Veyr’s apprentice; he is now a Sith apprentice, but his Sith name is not established and no one in the scene knows that he is Lucas.',
+        category: 'identity', importance: 5, persistence: 'persistent',
+    });
+    result.threads.push({
+        title: 'Caelen Veyr’s former apprentice',
+        detail: 'Resolved as to identity when Lucas names himself as Caelen’s former apprentice.',
+        status: 'resolved', participants: ['Lucas Alcazar', 'Toska'], importance: 4,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: result.entities, facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Lucas', text: 'Lucas Alcazar. OOC: No one knows I am Lucas. That is not my Sith name.' }]);
+
+    assert.equal(validation.recoveredOocIdentityBoundaries, 4);
+    for (const holder of ['Toska', 'Loyalist Pilot']) {
+        assert.ok(result.facts.some(item => item.subject === holder
+            && item.predicate === 'knowledge of Lucas Alcazar’s identity'
+            && item.category === 'knowledge boundary'));
+        assert.ok(result.threads.some(item => item.status === 'open'
+            && item.title.includes(holder) && item.title.includes('Lucas Alcazar')));
+    }
+    const identity = result.facts.find(item => item.subject === 'Lucas Alcazar' && item.predicate === 'former identity');
+    assert.equal(identity.value, 'Lucas Alcazar was formerly Caelen Veyr’s apprentice; he is now a Sith apprentice');
+    const historicalIdentityThread = result.threads.find(item => item.title === 'Caelen Veyr’s former apprentice');
+    assert.equal(historicalIdentityThread.status, 'resolved');
+    assert.doesNotMatch(historicalIdentityThread.detail, /names himself/iu);
+    assert.match(historicalIdentityThread.detail, /name only|knowledge boundar/iu);
 });
 
 test('duplicate same-role relationship anchors recover a previously established named identity', () => {

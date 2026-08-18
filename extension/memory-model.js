@@ -19,6 +19,34 @@ function key(value) {
     return text(value).toLocaleLowerCase();
 }
 
+function additiveKnowledgeValue(existing, incoming) {
+    const next = text(incoming?.value);
+    const prior = text(existing?.value);
+    if (!prior || !next) return next || prior;
+    const predicate = key(incoming?.predicate || existing?.predicate);
+    const incomingCategory = key(incoming?.category);
+    const existingCategory = key(existing?.category);
+    if (!predicate.startsWith('knowledge of ')
+        || incomingCategory !== 'knowledge'
+        || existingCategory !== 'knowledge') return next;
+    // Explicit epistemic transitions replace the prior boundary; positive
+    // knowledge acquired at different times is additive and must not erase
+    // older durable details merely because the extractor reused a broad
+    // “knowledge of X” predicate.
+    if (/\b(?:does not|did not|has not|had not|no longer|mistaken|wrong|retracted|disproved)\b/iu.test(next)) return next;
+    const sentences = value => text(value).split(/(?<=[.!?;])\s+/u).map(text).filter(Boolean);
+    const combined = [];
+    for (const sentence of [...sentences(prior), ...sentences(next)]) {
+        const identity = key(sentence).replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+        if (!identity || combined.some(item => {
+            const other = key(item).replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+            return other === identity || other.includes(identity) || identity.includes(other);
+        })) continue;
+        combined.push(sentence);
+    }
+    return text(combined.join(' ')).slice(0, 1600);
+}
+
 function escaped(value) {
     return String(value || '').replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
@@ -349,7 +377,10 @@ function canonicalizedIdentityDescription(value, replacedNames, canonicalName) {
             (_match, prefix) => `${prefix}${canonicalName}`,
         );
     }
-    return description;
+    return description
+        .replace(/(?:[,;]\s*)?(?:his|her|their|the\s+(?:person|figure|entity)['’]s)\s+[^.!?]{0,80}\b(?:name|identity)\b[^.!?]{0,100}\b(?:unknown|undisclosed|unidentified|unconfirmed|questioned)\b[^.!?]*(?:[.!?]|$)/giu, ' ')
+        .replace(/\s+/gu, ' ')
+        .trim();
 }
 
 function applyIdentityResolution(world, raw, meta) {
@@ -675,14 +706,19 @@ export function mergeExtraction(world, result, meta) {
 
     mergeArray(world, 'facts', world.facts, result.facts, item => addressFactIdentity(item, world) || `${key(item.subject)}|${key(item.predicate)}|${key(item.category)}`, meta, 'fact', (item, existing) => {
         const address = isAddressFact(item);
-        const subject = existing?.subject || canonicalMemorySubject(world, item.subject);
+        const incomingSubject = canonicalMemorySubject(world, item.subject);
+        const current = existing || world.facts.find(candidate =>
+            key(canonicalMemorySubject(world, candidate?.subject)) === key(incomingSubject)
+            && key(candidate?.predicate) === key(item?.predicate)
+            && key(candidate?.category) === key(item?.category));
+        const subject = current?.subject || incomingSubject;
         const addressee = address
-            ? canonicalMemorySubject(world, addressFactAddressee(existing || item))
+            ? canonicalMemorySubject(world, addressFactAddressee(current || item))
             : '';
         return {
             subject,
-            predicate: address ? `calls ${addressee}` : existing?.predicate || text(item.predicate),
-            value: address ? mergeAddressValues(existing?.value, item.value) : text(item.value),
+            predicate: address ? `calls ${addressee}` : current?.predicate || text(item.predicate),
+            value: address ? mergeAddressValues(current?.value, item.value) : additiveKnowledgeValue(current, item),
             category: address ? 'form of address' : text(item.category),
             importance: clampImportance(item.importance),
             persistence: ['temporary', 'recurring', 'persistent'].includes(item.persistence) ? item.persistence : 'persistent',
