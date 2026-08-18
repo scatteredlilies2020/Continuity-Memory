@@ -971,6 +971,229 @@ const AUDIT_OBJECT_TYPE = /^(?:object|item|artifact|weapon|tool|vehicle|device|e
 const AUDIT_IMMUTABLE_IDENTITY = /\b(?:species|race|birthplace|birth place|date of birth|parentage|biological parent|true identity|real identity)\b/iu;
 const AUDIT_ROLE_IDENTITY = /\b(?:rank|role|position|title|office|designation)\b/iu;
 const AUDIT_TEMPORAL_TRANSITION = /\b(?:former|previous|prior|now|currently|became|becomes|promoted|demoted|appointed|retired|replaced|succeeded)\b/iu;
+const AUDIT_ATTRIBUTED_CATEGORY = /^(?:(?:(?:former\s+)?character|attributed|subjective|unconfirmed|disputed|alleged|rumou?red)\s+)?(?:belief|claim|allegation|rumou?r|report|suspicion|speculation|perspective|uncertainty)\b/iu;
+const AUDIT_ATTRIBUTED_PREDICATE = /^(?:belief|claim|allegation|rumou?r|report|suspicion|speculation|perspective) about\s/iu;
+const AUDIT_ATTRIBUTION_VERB = /\b(?:believes?|believed|claims?|claimed|alleges?|alleged|reports?|reported|rumou?rs?|rumou?red|suspects?|suspected|speculates?|speculated|thinks?|thought|assumes?|assumed|infers?|inferred|concludes?|concluded|remembers?|remembered|recalls?|recalled|says?|said|tells?|told|states?|stated|insists?|insisted|argues?|argued)\b/iu;
+const AUDIT_ACTIVE_ATTRIBUTION_VERB = /(?:believes?|believed|claims?|claimed|alleges?|alleged|reports?|reported|rumou?rs?|rumou?red|suspects?|suspected|speculates?|speculated|thinks?|thought|assumes?|assumed|infers?|inferred|concludes?|concluded|remembers?|remembered|recalls?|recalled|says?|said|states?|stated|insists?|insisted|argues?|argued)/iu;
+const AUDIT_SOURCE_SUBJECTIVE = /(?:[“”"]|\b(?:i|we)\s+(?:say|said|tell|told|claim|claimed|state|stated|insist|insisted|argue|argued|believe|believed|think|thought|suspect|suspected|remember|remembered|recall|recalled)\b|\b(?:according to|in (?:his|her|their|my|our) (?:view|memory|belief)|appears?|appeared|seems?|seemed|probably|possibly|perhaps|maybe|might|unconfirmed|disputed)\b|\b(?:belief|claim|allegation|rumou?r|report|record|dossier|testimony|perspective|inference|conclusion|memory)\b)/iu;
+const AUDIT_SOURCE_AUTHORITATIVE = /\bOOC\s*:\s*(?:correction|canon|canonical|fact|established|actually|retcon)\b/iu;
+const AUDIT_HISTORICAL_RELATIONSHIP = /\b(?:former|previous|prior|once|used to|had been|was|were|trained|raised|parent|apprentice|student|mentor)\b/iu;
+const AUDIT_ENTITY_HISTORY = /\b(?:former|formerly|previous|prior|once|used to|served|commanded|member|trained|born|birth|parentage|biological parent|true identity|real identity)\b/iu;
+
+function epistemicFactShape(item) {
+    return AUDIT_ATTRIBUTED_CATEGORY.test(cleanText(item?.category))
+        || AUDIT_ATTRIBUTED_PREDICATE.test(cleanText(item?.predicate));
+}
+
+function entityNamedBeforeAttributionVerb(index, value) {
+    const source = cleanText(value);
+    const people = index.entities.filter(personEntity);
+    const namesFor = entity => {
+        const names = [entity.name, ...(entity.aliases || [])].map(cleanText).filter(Boolean);
+        for (const part of cleanText(entity.name).split(/\s+/u)) {
+            if (part.length < 3) continue;
+            const owners = people.filter(candidate => [candidate.name, ...(candidate.aliases || [])]
+                .some(name => cleanText(name).split(/\s+/u).some(candidatePart => normalized(candidatePart) === normalized(part))));
+            if (owners.length === 1) names.push(part);
+        }
+        return [...new Set(names)];
+    };
+    const matches = people.filter(entity => namesFor(entity).some(name => new RegExp(
+            `(?:^|[^\\p{L}\\p{N}])${escaped(name)}(?:$|[^\\p{L}\\p{N}])\\s*(?:(?:explicitly|reportedly|allegedly|firmly|privately|now|still)\\s+){0,3}${AUDIT_ACTIVE_ATTRIBUTION_VERB.source}\\b`,
+            'iu',
+        ).test(source)));
+    return matches.length === 1 ? matches[0] : null;
+}
+
+function attributedPredicateLabel(item) {
+    const predicate = cleanText(item?.predicate);
+    const dash = predicate.match(/[—–]\s*(.+)$/u);
+    if (dash?.[1]) return cleanText(dash[1]);
+    return predicate.replace(/^(?:belief|claim|allegation|rumou?r|report|suspicion|speculation|perspective) about\s+[^:—–]+[:—–]?\s*/iu, '').trim()
+        || cleanText(item?.category)
+        || 'claim';
+}
+
+export function normalizeEpistemicFactShapes(result, world) {
+    if (!Array.isArray(result?.facts)) return 0;
+    const index = continuityEntityIndex(result, world);
+    let normalizedFacts = 0;
+    for (const fact of result.facts) {
+        if (!epistemicFactShape(fact)) continue;
+        const currentCategory = normalized(fact?.category);
+        const currentPredicate = cleanText(fact?.predicate);
+        const explicitHolder = entityNamedBeforeAttributionVerb(index, fact?.value);
+        if ((currentCategory === 'character belief' || currentCategory === 'former character belief')
+            && AUDIT_ATTRIBUTED_PREDICATE.test(currentPredicate)
+            && (!explicitHolder || normalized(explicitHolder.name) === normalized(fact?.subject))) continue;
+        const subjectHolder = canonicalMention(index, fact?.subject);
+        const holder = explicitHolder || (/\bcharacter\b/iu.test(cleanText(fact?.category)) ? subjectHolder : null);
+        if (!personEntity(holder)) continue;
+        const predicateTopicText = currentPredicate.match(/^(?:belief|claim|allegation|rumou?r|report|suspicion|speculation|perspective) about\s+(.+?)(?:\s*[—–:]\s*|$)/iu)?.[1];
+        const predicateTopic = predicateTopicText ? (canonicalMention(index, predicateTopicText)?.name || cleanText(predicateTopicText)) : '';
+        const topic = explicitlyMentionedPeople(index, `${cleanText(fact?.predicate)} ${cleanText(fact?.value)}`)
+            .find(person => normalized(person.name) !== normalized(holder.name));
+        const canonicalTopic = predicateTopic && normalized(predicateTopic) !== normalized(holder.name)
+            ? predicateTopic
+            : (explicitHolder && subjectHolder && normalized(subjectHolder.name) !== normalized(holder.name)
+            ? subjectHolder.name
+            : (topic?.name || cleanText(fact?.subject)));
+        if (!canonicalTopic) continue;
+        fact.subject = holder.name;
+        fact.predicate = `belief about ${canonicalTopic} — ${attributedPredicateLabel(fact)}`;
+        fact.category = /\b(?:former|rejected|revised)\b/iu.test(cleanText(fact?.category)) ? 'former character belief' : 'character belief';
+        fact.persistence = cleanText(fact?.persistence) || 'persistent';
+        normalizedFacts++;
+    }
+    return normalizedFacts;
+}
+
+function auditEvidenceThreshold(value) {
+    return Math.max(4, Math.min(9, Math.ceil(coverageTerms(value).size * 0.42)));
+}
+
+function sourceEvidenceParts(message) {
+    const source = String(message?.text ?? message?.mes ?? '').replace(/\r/g, ' ');
+    const chunks = source.split(/\n+|(?<=[.!?])\s+(?=[\p{L}\p{N}“"'*_<])/u)
+        .map(cleanText).filter(value => value && !/^<\/?[^>]+>$/u.test(value) && value !== '```');
+    const subjective = [];
+    const objective = [];
+    for (const chunk of chunks) {
+        if (AUDIT_SOURCE_AUTHORITATIVE.test(chunk)) objective.push(chunk);
+        else if (AUDIT_SOURCE_SUBJECTIVE.test(chunk) || /^\*[^*]+\*$/u.test(chunk)) subjective.push(chunk);
+        else objective.push(chunk);
+    }
+    return { subjective, objective };
+}
+
+function strongestEvidenceWindow(reference, segments) {
+    let strongest = 0;
+    for (let index = 0; index < segments.length; index++) {
+        for (let width = 1; width <= 3 && index + width <= segments.length; width++) {
+            strongest = Math.max(strongest, coverageOverlap(reference, segments.slice(index, index + width).join(' ')));
+        }
+    }
+    return strongest;
+}
+
+function sourceEvidenceProfile(reference, messages) {
+    let subjective = 0;
+    let objective = 0;
+    for (const message of messages || []) {
+        const parts = sourceEvidenceParts(message);
+        subjective = Math.max(subjective, strongestEvidenceWindow(reference, parts.subjective));
+        objective = Math.max(objective, strongestEvidenceWindow(reference, parts.objective));
+    }
+    return { subjective, objective };
+}
+
+function storedRecordSupportsReference(reference, records, match) {
+    const threshold = auditEvidenceThreshold(reference);
+    return (records || []).some(item => match(item) && coverageOverlap(reference, JSON.stringify(item)) >= threshold);
+}
+
+function sourceOnlySubjective(reference, messages) {
+    const threshold = auditEvidenceThreshold(reference);
+    const evidence = sourceEvidenceProfile(reference, messages);
+    return evidence.subjective >= threshold && evidence.objective < threshold;
+}
+
+function resolvedAuditIdentity(result, value) {
+    const requested = normalized(value);
+    const resolution = (result?.identityResolutions || []).find(item => normalized(item?.reference) === requested);
+    return cleanText(resolution?.canonical) || cleanText(value);
+}
+
+function resolvedAuditPair(result, item) {
+    return [resolvedAuditIdentity(result, item?.from), resolvedAuditIdentity(result, item?.to)]
+        .map(normalized).filter(Boolean).sort().join('|');
+}
+
+function resolvedAuditRecordText(result, item) {
+    let source = JSON.stringify(item);
+    for (const resolution of result?.identityResolutions || []) {
+        const reference = cleanText(resolution?.reference);
+        const canonical = cleanText(resolution?.canonical);
+        if (!reference || !canonical) continue;
+        source = source.replace(new RegExp(escaped(reference), 'giu'), canonical);
+    }
+    return source;
+}
+
+export function findSourceAttributionConflicts(result, world, messages) {
+    if (!Array.isArray(messages) || !messages.length) return [];
+    const conflicts = [];
+    for (const [index, fact] of (result?.facts || []).entries()) {
+        if (epistemicFactShape(fact)
+            || AUDIT_EPISTEMIC_CATEGORY.test(`${cleanText(fact?.predicate)} ${cleanText(fact?.category)}`)
+            || isAddressFact(fact)) continue;
+        const reference = `${cleanText(fact?.subject)} ${cleanText(fact?.predicate)} ${cleanText(fact?.value)}`;
+        if (coverageTerms(reference).size < 4) continue;
+        const storedSupport = storedRecordSupportsReference(reference, world?.facts, item =>
+            normalized(canonicalMemorySubject(world, item?.subject)) === normalized(canonicalMemorySubject(world, fact?.subject))
+            && normalized(item?.predicate) === normalized(fact?.predicate)
+            && !epistemicFactShape(item));
+        if (storedSupport || !sourceOnlySubjective(reference, messages)) continue;
+        const label = `${cleanText(fact?.subject)} — ${cleanText(fact?.predicate)}`;
+        conflicts.push({
+            category: 'facts', index, label,
+            warning: `Source-attribution conflict: objective fact “${label}” is supported only by character speech, thought, report, memory, or focalized inference in this excerpt; preserve the attributed claims separately and leave canon unknown.`,
+        });
+    }
+    for (const [index, entity] of (result?.entities || []).entries()) {
+        const reference = `${cleanText(entity?.name)} ${cleanText(entity?.description)}`;
+        if (!AUDIT_ENTITY_HISTORY.test(cleanText(entity?.description)) || coverageTerms(reference).size < 5) continue;
+        if ((world?.entities || []).some(item => normalized(item?.name) === normalized(entity?.name))) continue;
+        const storedSupport = storedRecordSupportsReference(reference, world?.entities, item =>
+            normalized(item?.name) === normalized(entity?.name));
+        if (storedSupport || !sourceOnlySubjective(reference, messages)) continue;
+        conflicts.push({
+            category: 'entities', index, label: cleanText(entity?.name),
+            warning: `Source-attribution conflict: entity description for “${cleanText(entity?.name)}” presents disputed character-supplied history as objective; keep only objectively supported description and store claims under their holders.`,
+        });
+    }
+    for (const [index, relationship] of (result?.relationships || []).entries()) {
+        const reference = `${cleanText(relationship?.from)} ${cleanText(relationship?.to)} ${cleanText(relationship?.kind)} ${cleanText(relationship?.dynamic)}`;
+        if (!AUDIT_HISTORICAL_RELATIONSHIP.test(reference) || coverageTerms(reference).size < 5) continue;
+        const pairIdentity = resolvedAuditPair(result, relationship);
+        const threshold = auditEvidenceThreshold(reference);
+        const storedSupport = (world?.relationships || []).some(item => resolvedAuditPair(result, item) === pairIdentity
+            && coverageOverlap(reference, resolvedAuditRecordText(result, item)) >= threshold);
+        if (storedSupport || !sourceOnlySubjective(reference, messages)) continue;
+        const label = `${cleanText(relationship?.from)} ↔ ${cleanText(relationship?.to)}`;
+        conflicts.push({
+            category: 'relationships', index, label,
+            warning: `Source-attribution conflict: relationship “${label}” is supported only by character speech, thought, report, memory, or focalized inference; retain it as attributed claims until objectively corroborated.`,
+        });
+    }
+    return conflicts.slice(0, 8);
+}
+
+export function applySourceAttributionFailClosed(result, conflicts) {
+    const grouped = new Map();
+    for (const conflict of conflicts || []) {
+        const entries = grouped.get(conflict.category) || [];
+        entries.push(conflict);
+        grouped.set(conflict.category, entries);
+    }
+    let removed = 0;
+    for (const category of ['facts', 'relationships']) {
+        const indexes = [...new Set((grouped.get(category) || []).map(item => Number(item.index)).filter(Number.isInteger))]
+            .sort((left, right) => right - left);
+        for (const index of indexes) {
+            if (!Array.isArray(result?.[category]) || index < 0 || index >= result[category].length) continue;
+            result[category].splice(index, 1);
+            removed++;
+        }
+    }
+    for (const conflict of grouped.get('entities') || []) {
+        const entity = result?.entities?.[Number(conflict.index)];
+        if (!entity) continue;
+        entity.description = `Details about ${cleanText(entity.name)} remain disputed or attributed in this excerpt; consult character perspectives and source history.`;
+        removed++;
+    }
+    return removed;
+}
 
 function durableAuditRecords(result) {
     return ['facts', 'states', 'relationships', 'threads', 'backgrounds']
@@ -1792,6 +2015,7 @@ export function reconciliationTargetWasRejected(item) {
 }
 
 export function sanitizeReconciliationMetadata(result, world, messages = null) {
+    const normalizedEpistemicFacts = normalizeEpistemicFactShapes(result, world);
     const normalizedAddresses = normalizeDirectionalAddressFacts(result, world);
     const repairedAddresses = repairReversedAddressFacts(result, world, messages);
     const recovered = recoverExplicitAddressFacts(result, world, messages);
@@ -1860,11 +2084,13 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
         else merge.duplicateIds = duplicateIds;
         return valid;
     });
+    const sourceAttributionConflicts = findSourceAttributionConflicts(result, world, messages);
     const warnings = [...new Set([
+        ...sourceAttributionConflicts.map(item => item.warning),
         ...findCoverageWarnings(result, messages),
         ...findTypedContinuityWarnings(result, world),
         ...reconciledThreads.warnings,
     ])].slice(0, 8);
     if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
-    return { ignored, recovered, recoveredAliases, recoveredBoundaries, recoveredKnowledge, recoveredIdentities, recoveredFactRelationships, recoveredCoverage, reconciledThreads: reconciledThreads.resolved, normalizedRelationshipDescriptions, reconciledStateTransitions, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, warnings };
+    return { ignored, recovered, recoveredAliases, recoveredBoundaries, recoveredKnowledge, recoveredIdentities, recoveredFactRelationships, recoveredCoverage, reconciledThreads: reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, reconciledStateTransitions, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, sourceAttributionConflicts, warnings };
 }

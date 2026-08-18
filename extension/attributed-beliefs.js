@@ -31,7 +31,8 @@ export function isAttributedBeliefFact(item) {
     const category = normalized(item?.category);
     return category === CHARACTER_BELIEF_CATEGORY
         || category === FORMER_CHARACTER_BELIEF_CATEGORY
-        || normalized(item?.predicate).startsWith('belief about ');
+        || /^(?:(?:(?:former\s+)?character|attributed|subjective|unconfirmed|disputed|alleged|rumou?red)\s+)?(?:belief|claim|allegation|rumou?r|report|suspicion|speculation|perspective|uncertainty)\b/u.test(category)
+        || /^(?:belief|claim|allegation|rumou?r|report|suspicion|speculation|perspective) about\s/u.test(normalized(item?.predicate));
 }
 
 export function legacyBeliefToFact(item = {}) {

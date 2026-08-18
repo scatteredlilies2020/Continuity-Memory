@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { addressFactIdentity, canonicalFactReference, continuityAuditRetryInstruction, hasSelfAddressEvidence, mergeAddressValues, removeInvalidAddressFacts, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
+import { addressFactIdentity, applySourceAttributionFailClosed, canonicalFactReference, continuityAuditRetryInstruction, hasSelfAddressEvidence, mergeAddressValues, removeInvalidAddressFacts, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
 
 function extraction() {
     return {
@@ -1450,6 +1450,138 @@ test('continuity audit retry feedback is bounded and preserves uncertainty', () 
     assert.match(feedback, /attributed belief, claim, knowledge boundary, or unresolved thread/u);
     assert.equal(feedback.match(/Epistemic conflict/gu)?.length, 1);
     assert.equal(continuityAuditRetryInstruction([]), '');
+});
+
+test('mixed character assertions cannot become one objective biographical fact', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Caelen Veyr', type: 'person', aliases: ['Pell'], description: 'A Jedi whose disputed history is being discussed.' },
+        { name: 'Lucas Alcazar', type: 'person', aliases: [], description: 'A Sith questioning Toska.' },
+        { name: 'Toska', type: 'person', aliases: [], description: 'Caelen’s grieving Padawan.' },
+    );
+    result.facts.push({
+        targetId: '', subject: 'Caelen Veyr', predicate: 'former identity and service',
+        value: 'Caelen Veyr served as an investigator and member of the Jedi High Council before the Purge and commanded the Republic’s Twelfth Reconnaissance Fleet during the war.',
+        category: 'biographical history', persistence: 'persistent', importance: 5,
+    });
+    const messages = [
+        { name: 'Toska', isUser: false, text: '“Caelen Veyr served as an investigator for the High Council before the Purge. During the war, he commanded the Republic’s Twelfth Reconnaissance Fleet.”' },
+        { name: 'Lucas Alcazar', isUser: true, text: 'I tell her Caelen Veyr was in the Jedi High Council.' },
+    ];
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, messages);
+
+    assert.ok(validation.sourceAttributionConflicts.some(item => item.category === 'facts'));
+    assert.ok(validation.warnings.some(item => /Source-attribution conflict.*former identity and service/u.test(item)));
+});
+
+test('explicit claimant overrides a wrongly assigned canonical-looking belief holder', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Caelen Veyr', type: 'person', aliases: [] },
+        { name: 'Lucas Alcazar', type: 'person', aliases: [] },
+        { name: 'Toska', type: 'person', aliases: [] },
+    );
+    result.facts.push({
+        targetId: '', subject: 'Toska', predicate: 'belief about Caelen Veyr — former apprentice',
+        value: 'Lucas claims Caelen Veyr trained him before Toska.',
+        category: 'character belief', persistence: 'persistent', importance: 4,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    });
+
+    assert.equal(validation.normalizedEpistemicFacts, 1);
+    assert.equal(result.facts[0].subject, 'Lucas Alcazar');
+    assert.equal(result.facts[0].category, 'character belief');
+    assert.match(result.facts[0].predicate, /^belief about Caelen Veyr — former apprentice$/u);
+});
+
+test('historical relationships and entity descriptions inherit source uncertainty', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Caelen Veyr', type: 'person', aliases: [], description: 'Caelen Veyr formerly trained Lucas Alcazar as his Jedi apprentice in diplomacy and theory.' },
+        { name: 'Lucas Alcazar', type: 'person', aliases: [], description: 'A concealed Sith.' },
+    );
+    result.relationships.push({
+        targetId: '', from: 'Caelen Veyr', to: 'Lucas Alcazar', kind: 'former Jedi master and apprentice', status: 'ended',
+        dynamic: 'Caelen Veyr formerly trained Lucas Alcazar as his Jedi apprentice in diplomacy and theory.', importance: 4,
+    });
+    const messages = [{
+        name: 'Lucas Alcazar', isUser: true,
+        text: 'I claim, “Caelen Veyr formerly trained Lucas Alcazar as his Jedi apprentice in diplomacy and theory.”',
+    }];
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, messages);
+
+    assert.ok(validation.sourceAttributionConflicts.some(item => item.category === 'entities'));
+    assert.ok(validation.sourceAttributionConflicts.some(item => item.category === 'relationships'));
+    assert.equal(applySourceAttributionFailClosed(result, validation.sourceAttributionConflicts), 2);
+    assert.equal(result.relationships.length, 0);
+    assert.match(result.entities[0].description, /remain disputed or attributed/u);
+});
+
+test('identity resolution lets a stored placeholder relationship support its canonical name', () => {
+    const result = extraction();
+    result.identityResolutions.push({
+        reference: "Toska's Former Master",
+        canonical: 'Caelen Veyr',
+        evidence: 'Toska identifies her former Jedi Master as Caelen Veyr.',
+    });
+    result.relationships.push({
+        targetId: '', from: 'Toska', to: 'Caelen Veyr', kind: 'Jedi Master and Padawan', status: 'ended by death',
+        dynamic: 'Caelen Veyr was Toska’s former Jedi Master; Toska remains loyal to and grieving for him.', importance: 5,
+    });
+    const world = {
+        entities: [], facts: [], states: [], threads: [], backgrounds: [],
+        relationships: [{
+            id: 'relationship_former_master', from: 'Toska', to: "Toska's Former Master",
+            kind: 'Jedi Master and Padawan', status: 'ended by death',
+            dynamic: "Toska's Former Master was Toska's Jedi Master; Toska remains loyal to and grieving for him.",
+            importance: 5,
+        }],
+    };
+    const messages = [{
+        name: 'Lucas Alcazar', isUser: false,
+        text: 'Lucas reports, “Caelen Veyr was Toska’s former Jedi Master; Toska remains loyal to and grieving for him.”',
+    }];
+
+    const validation = sanitizeReconciliationMetadata(result, world, messages);
+
+    assert.equal(validation.sourceAttributionConflicts.some(item => item.category === 'relationships'), false);
+});
+
+test('explicit OOC canon and matching stored canon are not source-attribution conflicts', () => {
+    const makeResult = () => {
+        const result = extraction();
+        result.facts.push({
+            targetId: '', subject: 'Caelen Veyr', predicate: 'wartime command',
+            value: 'Caelen Veyr commanded the Republic Twelfth Reconnaissance Fleet during the war.',
+            category: 'biographical history', persistence: 'persistent', importance: 4,
+        });
+        return result;
+    };
+    const ooc = makeResult();
+    const oocValidation = sanitizeReconciliationMetadata(ooc, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'User', isUser: true, text: 'OOC: canon: Caelen Veyr commanded the Republic Twelfth Reconnaissance Fleet during the war.' }]);
+    assert.equal(oocValidation.sourceAttributionConflicts.length, 0);
+
+    const known = makeResult();
+    const knownValidation = sanitizeReconciliationMetadata(known, {
+        entities: [], states: [], relationships: [], threads: [], backgrounds: [],
+        facts: [{
+            id: 'fact_command', subject: 'Caelen Veyr', predicate: 'wartime command',
+            value: 'Caelen Veyr commanded the Republic Twelfth Reconnaissance Fleet during the war.',
+            category: 'biographical history', persistence: 'persistent', importance: 4,
+        }],
+    }, [{ name: 'Toska', isUser: false, text: '“Caelen Veyr commanded the Republic Twelfth Reconnaissance Fleet during the war.”' }]);
+    assert.equal(knownValidation.sourceAttributionConflicts.length, 0);
 });
 
 test('source-supported role omissions become durable identity facts', () => {

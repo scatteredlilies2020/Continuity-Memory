@@ -45,5 +45,7 @@ test('migrates legacy belief records, replay data, and corrections into attribut
 
 test('recognizes new attributed beliefs without a separate collection', () => {
     assert.equal(isAttributedBeliefFact({ subject: 'Alice', predicate: 'belief about Bob — motive', category: 'character belief' }), true);
+    assert.equal(isAttributedBeliefFact({ subject: 'Alice', predicate: 'claim about Bob — motive', category: 'character claim' }), true);
+    assert.equal(isAttributedBeliefFact({ subject: 'Alice', predicate: 'identity report', category: 'unconfirmed report' }), true);
     assert.equal(isAttributedBeliefFact({ subject: 'Bob', predicate: 'identity', category: 'identity' }), false);
 });

@@ -43,6 +43,22 @@ test('participant names alone do not qualify an event', () => {
     assert.deepEqual(selections(result, 'Past events'), []);
 });
 
+test('noncanonical claim categories are retrieved only as subjective perspectives', () => {
+    const target = world({
+        facts: [{
+            id: 'claim-apprentice', subject: 'Lucas Alcazar', predicate: 'claim about Caelen Veyr — former apprentice',
+            value: 'Lucas claims Caelen Veyr trained him as a Jedi apprentice.', category: 'character claim',
+            persistence: 'persistent', importance: 4,
+        }],
+    });
+
+    const result = buildMemoryPrompt(target, user('Lucas Alcazar and Caelen Veyr'), 3000);
+
+    assert.equal(selections(result, 'Facts').length, 0);
+    assert.deepEqual(selections(result, 'Character perspectives (not established facts)').map(item => item.id), ['claim-apprentice']);
+    assert.match(result.prompt, /\[subjective; not an established fact\]/u);
+});
+
 test('BM25F favors a heading match over an incidental body match', () => {
     const target = world({
         events: [
