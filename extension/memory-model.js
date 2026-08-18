@@ -1,6 +1,6 @@
 import { EXTRACTION_VERSION } from './coverage.js';
 import { isSuppressedByCorrection } from './memory-correction.js';
-import { addressFactAddressee, addressFactIdentity, isAddressFact, mergeAddressValues, reconcileGenericAddressDuplicates, reconciliationMergeIsCompatible, reconciliationTargetIsCompatible, removeInvalidAddressFacts } from './reconciliation-policy.js';
+import { addressFactAddressee, addressFactIdentity, entityTypesAreCompatible, isAddressFact, mergeAddressValues, reconcileGenericAddressDuplicates, reconciliationMergeIsCompatible, reconciliationTargetIsCompatible, reconciliationTargetWasRejected, removeInvalidAddressFacts } from './reconciliation-policy.js';
 import { canonicalMemorySubject, canonicalStateAttribute, stateIdentity, stateScope } from './state-lifecycle.js';
 import { buildL1TemporalAnchor, buildRelativeTemporalAnchor } from './temporal-anchors.js';
 import { randomUuid } from './uuid.js';
@@ -57,11 +57,16 @@ function shouldPreserveHistoricalRecord(item, meta) {
 function mergeArray(world, collection, target, incoming, identity, meta, prefix, combine, preserveExisting = false) {
     for (const raw of incoming || []) {
         if (!raw || typeof raw !== 'object') continue;
+        if (reconciliationTargetWasRejected(raw)) continue;
         let requestedTargetId = text(raw.targetId);
         let requestedIndex = requestedTargetId ? target.findIndex(item => item.id === requestedTargetId) : -1;
         const missingUntrustedTarget = requestedIndex < 0 && !meta.replayStoredExtraction;
-        if (requestedTargetId && (missingUntrustedTarget
-            || (requestedIndex >= 0 && !reconciliationTargetIsCompatible(collection, raw, target[requestedIndex], world)))) {
+        if (requestedTargetId && requestedIndex >= 0
+            && !reconciliationTargetIsCompatible(collection, raw, target[requestedIndex], world)) {
+            raw.targetId = '';
+            continue;
+        }
+        if (requestedTargetId && missingUntrustedTarget) {
             requestedTargetId = '';
             requestedIndex = -1;
             raw.targetId = '';
@@ -73,13 +78,26 @@ function mergeArray(world, collection, target, incoming, identity, meta, prefix,
         if (!identityKey) continue;
         const index = requestedIndex >= 0 ? requestedIndex : target.findIndex(item => identity(item) === identityKey);
         if (index >= 0) {
+            // A model can emit an object with the same name as a person (or
+            // vice versa). Failing closed is safer than overwriting the durable
+            // entity identity and confusing every downstream reference.
+            if (collection === 'entities' && !entityTypesAreCompatible(normalized.type, target[index].type)) {
+                raw.targetId = '';
+                continue;
+            }
             const preserve = typeof preserveExisting === 'function'
                 ? preserveExisting(target[index], normalized)
                 : preserveExisting;
             const merged = preserve || target[index].correctionId
                 ? { ...normalized, ...target[index] }
                 : { ...target[index], ...normalized };
-            if (collection === 'entities') merged.aliases = cleanList([...(target[index].aliases || []), ...(normalized.aliases || [])]);
+            if (collection === 'entities') {
+                merged.aliases = safeEntityAliases(
+                    merged.name,
+                    merged.type,
+                    [...(target[index].aliases || []), ...(normalized.aliases || [])],
+                );
+            }
             if (collection === 'facts'
                 && !target[index].correctionId
                 && (isAddressFact(target[index]) || isAddressFact(normalized))) {
@@ -98,6 +116,36 @@ function mergeArray(world, collection, target, incoming, identity, meta, prefix,
 
 function cleanList(value, max = 30) {
     return [...new Set((Array.isArray(value) ? value : []).map(text).filter(Boolean))].slice(0, max);
+}
+
+const GENERIC_PERSON_ALIAS_TOKENS = new Set([
+    'a', 'an', 'the', 'personal', 'senior', 'junior', 'former', 'dead', 'deceased', 'young', 'old',
+    'sith', 'jedi', 'lord', 'lady', 'master', 'apprentice', 'padawan', 'captor', 'captive', 'retainer',
+    'attendant', 'keeper', 'officer', 'pilot', 'commander', 'instructor', 'steward', 'servant', 'guard',
+    'trooper', 'chief', 'seneschal', 'handler', 'prisoner', 'mentor', 'student', 'teacher',
+]);
+
+function personLikeEntityType(value) {
+    return /^(?:person|character|npc|human|individual)$/iu.test(text(value));
+}
+
+function safeEntityAliases(name, type, aliases) {
+    const canonicalTokens = new Set(identityNameTokens(name));
+    return cleanList(aliases).filter(alias => {
+        if (key(alias) === key(name)) return false;
+        if (!personLikeEntityType(type)) return true;
+        const possessive = alias.search(/['’]s\b/iu);
+        if (possessive >= 0 && (alias.slice(0, possessive).match(/[\p{L}\p{N}-]+/gu) || []).length <= 3) return false;
+        const tokens = identityNameTokens(alias);
+        if (!tokens.length) return false;
+        if (tokens.some(token => canonicalTokens.has(token))) return true;
+        const significant = tokens.filter(token => !GENERIC_PERSON_ALIAS_TOKENS.has(token));
+        if (!significant.length) return false;
+        if (tokens.length >= 3 && /^(?:the|a|an)\b/iu.test(alias)) return true;
+        if (tokens.length === 1) return /^\p{Lu}/u.test(alias);
+        const words = alias.match(/[\p{L}\p{N}]+/gu) || [];
+        return words.every(word => GENERIC_PERSON_ALIAS_TOKENS.has(key(word)) || /^\p{Lu}/u.test(word));
+    });
 }
 
 function exactTextKey(value) {
@@ -233,6 +281,19 @@ function exactEntityNames(entity) {
     return [entity?.name, ...(entity?.aliases || [])].map(key).filter(Boolean);
 }
 
+function identityNameTokens(value) {
+    return key(value)
+        .replace(/[’‘]/gu, "'")
+        .replace(/'s\b/gu, '')
+        .match(/[\p{L}\p{N}]+/gu) || [];
+}
+
+function descriptiveReferenceMatchesName(reference, name) {
+    const referenceTokens = identityNameTokens(reference);
+    const nameTokens = new Set(identityNameTokens(name));
+    return referenceTokens.length >= 2 && referenceTokens.every(token => nameTokens.has(token));
+}
+
 function applyIdentityResolution(world, raw, meta) {
     const reference = text(raw?.reference);
     const requestedCanonical = text(raw?.canonical);
@@ -249,20 +310,33 @@ function applyIdentityResolution(world, raw, meta) {
     const priorEntity = referenceMatches[0];
     if (priorEntity?.correctionId || (priorEntity && shouldPreserveHistoricalRecord(priorEntity, meta))) return false;
 
+    // If the reference only matches an alias on another named entity, that
+    // alias is the contaminated part. Detach it rather than merging the named
+    // entity and rewriting all of its facts, states, and relationships.
+    const referenceIsPriorName = priorEntity && key(priorEntity.name) === key(reference);
+    const referenceDescribesPriorName = priorEntity && descriptiveReferenceMatchesName(reference, priorEntity.name);
+    const mergePriorEntity = Boolean((referenceIsPriorName || referenceDescribesPriorName)
+        && entityTypesAreCompatible(priorEntity.type, canonicalEntity.type));
+    if (priorEntity && !mergePriorEntity) {
+        priorEntity.aliases = cleanList(priorEntity.aliases || [])
+            .filter(alias => key(alias) !== key(reference)
+                && !descriptiveReferenceMatchesName(reference, alias));
+    }
+
     const replacedNames = new Set([key(reference)]);
-    if (priorEntity) {
+    if (mergePriorEntity) {
         for (const name of [priorEntity.name, ...(priorEntity.aliases || [])]) replacedNames.add(key(name));
     }
     const canonicalName = text(canonicalEntity.name);
     const resolutionSource = sourceRef(meta);
-    canonicalEntity.aliases = cleanList([
+    canonicalEntity.aliases = safeEntityAliases(canonicalName, canonicalEntity.type, [
         ...(canonicalEntity.aliases || []),
         reference,
-        ...(priorEntity ? [priorEntity.name, ...(priorEntity.aliases || [])] : []),
-    ]).filter(alias => key(alias) !== key(canonicalName));
-    canonicalEntity.sources = mergedSources(canonicalEntity.sources || [], priorEntity?.sources || [], [resolutionSource]);
+        ...(mergePriorEntity ? [priorEntity.name, ...(priorEntity.aliases || [])] : []),
+    ]);
+    canonicalEntity.sources = mergedSources(canonicalEntity.sources || [], mergePriorEntity ? priorEntity?.sources || [] : [], [resolutionSource]);
     canonicalEntity.updatedAt = resolutionSource.capturedAt;
-    if (priorEntity) world.entities = world.entities.filter(entity => entity !== priorEntity);
+    if (mergePriorEntity) world.entities = world.entities.filter(entity => entity !== priorEntity);
 
     const replace = value => replacedNames.has(key(value)) ? canonicalName : text(value);
     const replaceList = (value, max = 30) => cleanList(value, max).map(replace).filter(Boolean);
@@ -296,6 +370,25 @@ function applyIdentityResolution(world, raw, meta) {
     return true;
 }
 
+function applyDescriptionIdentityResolutions(world, meta) {
+    const descriptivePeople = (world.entities || []).filter(entity => personLikeEntityType(entity.type)
+        && /['’]s\s+(?:former\s+|dead\s+|deceased\s+)?[\p{L}\p{N}-]+(?:\s+[\p{L}\p{N}-]+){0,3}$/iu.test(text(entity.name)));
+    for (const referenceEntity of descriptivePeople) {
+        const reference = text(referenceEntity.name);
+        const referenceKey = key(reference);
+        const candidates = (world.entities || []).filter(entity => entity !== referenceEntity
+            && personLikeEntityType(entity.type)
+            && (key(entity.description).startsWith(referenceKey)
+                || (entity.aliases || []).some(value => key(value) === referenceKey)));
+        if (candidates.length !== 1) continue;
+        applyIdentityResolution(world, {
+            reference,
+            canonical: candidates[0].name,
+            evidence: `The canonical entity description explicitly identifies ${reference}.`,
+        }, meta);
+    }
+}
+
 function applyRecordMerge(world, raw, meta) {
     const category = text(raw?.category);
     if (!['facts', 'states', 'relationships', 'threads', 'backgrounds'].includes(category) || !text(raw?.evidence)) return false;
@@ -320,6 +413,40 @@ function applyRecordMerge(world, raw, meta) {
     return true;
 }
 
+const KNOWLEDGE_NEGATION = /\b(?:does not know|doesn't know|did not know|didn't know|has not learned|hasn't learned|was not told|wasn't told|has not been told|hasn't been told|is unaware|remains unaware|no knowledge of|no disclosure|deliberately concealed|kept hidden from)\b/iu;
+const KNOWLEDGE_GAIN = /\b(?:already knew|knows?|knew|learned|was told|has been told|became aware|is aware|now aware|discovered|recognizes?|recognized|identifies?|identified|recalls?|recalled|remembers?|remembered|acknowledges?|acknowledged|cites?|cited)\b/iu;
+
+function isKnowledgePredicate(item) {
+    return /^knowledge of\s+\S/iu.test(text(item?.predicate));
+}
+
+function isKnowledgeBoundaryRecord(item) {
+    const category = key(item?.category);
+    return category === 'knowledge boundary' || category === 'knowledge gap'
+        || (category === 'knowledge' && KNOWLEDGE_NEGATION.test(text(item?.value)));
+}
+
+function prepareKnowledgeTransitions(world, result, meta) {
+    for (const incoming of result?.facts || []) {
+        if (!isKnowledgePredicate(incoming)) continue;
+        const category = key(incoming.category);
+        const value = text(incoming.value);
+        if ((category === 'knowledge boundary' || category === 'knowledge gap')
+            && !KNOWLEDGE_NEGATION.test(value) && KNOWLEDGE_GAIN.test(value)) {
+            incoming.category = 'knowledge';
+            incoming.targetId = '';
+        }
+        if (key(incoming.category) !== 'knowledge' || KNOWLEDGE_NEGATION.test(value)) continue;
+        const subject = key(canonicalMemorySubject(world, incoming.subject));
+        const predicate = key(incoming.predicate);
+        world.facts = (world.facts || []).filter(existing => existing.correctionId
+            || shouldPreserveHistoricalRecord(existing, meta)
+            || !isKnowledgeBoundaryRecord(existing)
+            || key(existing.subject) !== subject
+            || key(existing.predicate) !== predicate);
+    }
+}
+
 export function mergeExtraction(world, result, meta) {
     migrateLegacyBeliefs(world);
     world.entities ||= [];
@@ -338,6 +465,7 @@ export function mergeExtraction(world, result, meta) {
     reconcileGenericAddressDuplicates(result, world);
     removeInvalidAddressFacts(result);
     normalizeAddressFacts(world);
+    prepareKnowledgeTransitions(world, result, meta);
     const l1Temporal = buildL1TemporalAnchor(world, result.sceneCapsule?.temporal, meta);
 
     if (meta.allowStateUpdates !== false && result.scene && typeof result.scene === 'object') {
@@ -359,17 +487,27 @@ export function mergeExtraction(world, result, meta) {
 
     mergeArray(world, 'entities', world.entities, result.entities, item => key(item.name), meta, 'entity', (item, existing) => {
         const suppliedName = text(item.name);
-        const canonicalName = existing?.name || canonicalMemorySubject(world, suppliedName);
+        // A new entity keeps its supplied name. Fuzzy canonicalization here can
+        // collapse possessive objects or descriptive people into an unrelated
+        // established entity before identity resolution has evidence.
+        const canonicalName = existing?.name || suppliedName;
+        const type = existing?.type || text(item.type) || 'entity';
         return {
             name: canonicalName,
-            type: text(item.type) || 'entity',
-            aliases: cleanList([...(item.aliases || []), ...(canonicalName !== suppliedName ? [suppliedName] : [])]),
+            type,
+            aliases: safeEntityAliases(canonicalName, type, [
+                ...(item.aliases || []),
+                ...(canonicalName !== suppliedName ? [suppliedName] : []),
+            ])
+                .filter(alias => !(world.entities || []).some(entity => entity !== existing
+                    && key(entity.name) === key(alias))),
             description: text(item.description),
             importance: clampImportance(item.importance),
         };
     }, preserveHistoricalRecord);
 
     for (const resolution of result.identityResolutions || []) applyIdentityResolution(world, resolution, meta);
+    applyDescriptionIdentityResolutions(world, meta);
 
     mergeArray(world, 'facts', world.facts, result.facts, item => addressFactIdentity(item, world) || `${key(item.subject)}|${key(item.predicate)}|${key(item.category)}`, meta, 'fact', (item, existing) => {
         const address = isAddressFact(item);
@@ -396,11 +534,16 @@ export function mergeExtraction(world, result, meta) {
         world.states = world.states.filter(item => item.correctionId || item.scope === 'ongoing');
         for (const raw of result.states || []) {
             if (!raw || typeof raw !== 'object') continue;
+            if (reconciliationTargetWasRejected(raw)) continue;
             let requestedTargetId = text(raw.targetId);
             let requestedIndex = requestedTargetId ? world.states.findIndex(item => item.id === requestedTargetId) : -1;
             const missingUntrustedTarget = requestedIndex < 0 && !meta.replayStoredExtraction;
-            if (requestedTargetId && (missingUntrustedTarget
-                || (requestedIndex >= 0 && !reconciliationTargetIsCompatible('states', raw, world.states[requestedIndex], world)))) {
+            if (requestedTargetId && requestedIndex >= 0
+                && !reconciliationTargetIsCompatible('states', raw, world.states[requestedIndex], world)) {
+                raw.targetId = '';
+                continue;
+            }
+            if (requestedTargetId && missingUntrustedTarget) {
                 requestedTargetId = '';
                 requestedIndex = -1;
                 raw.targetId = '';
@@ -782,11 +925,24 @@ export function undoLatestL1Extraction(world, chatKey, expectedExtractionId = ''
     };
 }
 
-export function resetWorldMemory(world) {
+export function resetWorldMemory(world, { preserveCorrections = false } = {}) {
     migrateLegacyBeliefs(world);
+    const corrections = preserveCorrections ? structuredClone(world.corrections || []) : [];
+    const correctionIds = new Set(corrections.map(item => item.id));
+    const correctedRecords = {};
+    if (preserveCorrections) {
+        for (const category of ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'threads', 'backgrounds']) {
+            correctedRecords[category] = structuredClone((world[category] || [])
+                .filter(item => correctionIds.has(item.correctionId)));
+        }
+    }
     world.scene = null;
     for (const category of ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds', 'corrections']) {
         world[category] = [];
+    }
+    if (preserveCorrections) {
+        for (const [category, records] of Object.entries(correctedRecords)) world[category] = records;
+        world.corrections = corrections;
     }
     world.sources = {};
     world.continuation = null;

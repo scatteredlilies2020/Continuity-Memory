@@ -25,6 +25,12 @@ export function canonicalMemorySubject(world, value) {
     const exact = entities.filter(entity => namesForEntity(entity).some(name => normalized(name) === normalized(source)));
     if (exact.length === 1) return text(exact[0].name);
 
+    // A possessive description names something related to its owner, not the
+    // owner. Keep it unresolved until an exact alias or explicit identity
+    // resolution exists; fuzzy token matching would turn "Toska's master"
+    // into Toska and corrupt every downstream reference.
+    if (/['’]s\b/iu.test(source)) return source;
+
     const sourceTokens = nameTokens(source);
     if (!sourceTokens.length) return source;
     const candidates = entities.filter(entity => namesForEntity(entity).some(name => {

@@ -122,6 +122,26 @@ test('canonical aliases remain compatible with stable entity and subject IDs', (
     assert.equal(result.relationships[0].targetId, 'relationship_alpha');
 });
 
+test('entity target IDs require an exact identity and a compatible type family', () => {
+    const result = extraction();
+    result.entities.push(
+        { targetId: 'entity_toska', name: 'Toska’s deceased Jedi Master', type: 'person' },
+        { targetId: 'entity_caelen', name: 'Caelen Veyr’s lightsaber', type: 'object' },
+        { targetId: 'entity_caelen', name: 'Caelen Veyr', type: 'object' },
+        { targetId: 'entity_caelen', name: 'Caelen', type: 'character' },
+    );
+    const sanitized = sanitizeReconciliationMetadata(result, {
+        entities: [
+            { id: 'entity_toska', name: 'Toska', type: 'person', aliases: [] },
+            { id: 'entity_caelen', name: 'Caelen Veyr', type: 'person', aliases: ['Caelen'] },
+        ],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    });
+
+    assert.deepEqual(result.entities.map(item => item.targetId), ['', '', '', 'entity_caelen']);
+    assert.equal(sanitized.ignored, 3);
+});
+
 test('explicit duplicate merges also require matching canonical identity', () => {
     const result = extraction();
     result.recordMerges.push({
@@ -146,6 +166,71 @@ test('missing optional reconciliation arrays are restored for older or non-stric
     sanitizeReconciliationMetadata(result, { entities: [], facts: [], states: [], relationships: [], threads: [] });
     assert.deepEqual(result.identityResolutions, []);
     assert.deepEqual(result.recordMerges, []);
+});
+
+test('explicit concealment becomes a holder-specific knowledge boundary', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Lucas Alcazar', type: 'person', aliases: [] },
+        { name: 'Toska', type: 'person', aliases: [] },
+        { name: 'Darth Segundus', type: 'person', aliases: [] },
+    );
+    result.facts.push({
+        subject: 'Lucas Alcazar', predicate: 'intent to conceal Toska from Darth Segundus',
+        value: 'Toska remains hidden.', category: 'intention', importance: 4, persistence: 'persistent',
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, { entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [] });
+
+    assert.equal(validation.recoveredBoundaries, 1);
+    assert.deepEqual(result.facts.at(-1), {
+        targetId: '', subject: 'Darth Segundus', predicate: 'knowledge of Toska',
+        value: 'Toska is deliberately concealed from Darth Segundus; no disclosure to Darth Segundus is established.',
+        category: 'knowledge boundary', importance: 4, persistence: 'persistent',
+    });
+});
+
+test('explicit recognition in structured narrative becomes durable prior knowledge', () => {
+    const result = extraction();
+    result.entities.push({ name: 'Darth Segundus', type: 'person', aliases: [] });
+    result.sceneCapsule = {
+        beats: ['Segundus cites the archive’s kill record for Jedi Master Caelen Veyr, while Lucas disputes its classification.'],
+    };
+    const world = {
+        entities: [{ name: 'Caelen Veyr', type: 'person', aliases: ['Caelen'] }],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    };
+
+    const validation = sanitizeReconciliationMetadata(result, world);
+
+    assert.equal(validation.recoveredKnowledge, 1);
+    assert.deepEqual(result.facts[0], {
+        targetId: '', subject: 'Darth Segundus', predicate: 'knowledge of Caelen Veyr',
+        value: 'Darth Segundus cites the archive’s kill record for Jedi Master Caelen Veyr',
+        category: 'knowledge', importance: 4, persistence: 'persistent',
+    });
+});
+
+test('questions and possessive action objects do not become character knowledge', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Lucas', type: 'person', aliases: [] },
+        { name: 'Toska', type: 'person', aliases: [] },
+        { name: 'Instructor Maren', type: 'person', aliases: ['Maren'] },
+        { name: 'Commander Vess', type: 'person', aliases: ['Vess'] },
+    );
+    result.sceneCapsule = { beats: [
+        'Lucas asks whether Toska knows her master’s true identity.',
+        'Instructor Maren identifies Toska’s improvisational step as the key result.',
+        'Toska acknowledges Commander Vess’s announcement.',
+    ] };
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    });
+
+    assert.equal(validation.recoveredKnowledge, 0);
+    assert.deepEqual(result.facts, []);
 });
 
 test('invalid address placeholders are rejected while concurrent forms remain', () => {

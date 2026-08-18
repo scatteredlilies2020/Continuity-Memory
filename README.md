@@ -21,6 +21,7 @@ Continuity combines several forms of memory instead:
 - Structured records preserve facts, relationships, states, events, and compact background developments.
 - L1, L2, and L3 records maintain a chronological history.
 - Retrieval selects relevant older memories for each response.
+- Relevant events and open threads receive full detail, while a small always-present continuity ledger retains strong completed-event and unresolved-thread titles through unrelated scenes.
 - Reviewed corrections remain authoritative when extraction gets something wrong.
 
 This produces a compact working context backed by a searchable and traceable history.

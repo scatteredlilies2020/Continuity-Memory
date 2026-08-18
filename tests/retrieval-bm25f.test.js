@@ -207,6 +207,77 @@ test('local retrieval handles a unique term and ordinary English morphology with
     assert.deepEqual(selections(morphology, 'Open matters').map(item => item.id), ['rehearsal']);
 });
 
+test('open threads remain visible when the current message changes topics', () => {
+    const threads = Array.from({ length: 12 }, (_, index) => ({
+        id: `thread-${index}`,
+        title: index === 7 ? 'Deliver the kyber to Segundus' : `Unresolved matter ${index}`,
+        detail: index === 7
+            ? 'Lucas will visit Darth Segundus at the palace within three days.'
+            : `A separate commitment remains unresolved for person ${index}.`,
+        status: 'open',
+        participants: index === 7 ? ['Lucas', 'Darth Segundus'] : [`Person ${index}`],
+        importance: index === 11 ? 1 : 4,
+        updatedAt: new Date(2026, 0, index + 1).toISOString(),
+    }));
+    const result = buildMemoryPrompt(world({ threads }), user('Toska practices alone in the training hall.'), 4000);
+    const selected = selections(result, 'Open matters').map(item => item.id);
+
+    assert.deepEqual(selected, []);
+    assert.match(result.prompt, /Deliver the kyber to Segundus/);
+    assert.match(result.prompt, /Compact continuity ledger:[\s\S]*Open-thread ledger \(latest\):/);
+});
+
+test('strong completed events remain in the compact ledger when the current message changes topics', () => {
+    const target = world({
+        events: [event('old-duel', 'Duel at the moonbase', 'Lucas defeated Caelen and kept the kyber crystal.')],
+    });
+    const result = buildMemoryPrompt(target, user('Toska quietly practices breathing exercises.'), 3000);
+
+    assert.deepEqual(selections(result, 'Past events'), []);
+    assert.match(result.prompt, /Compact continuity ledger:[\s\S]*Event ledger \(latest\): Duel at the moonbase/);
+    assert.doesNotMatch(result.prompt, /kept the kyber crystal/);
+});
+
+test('the compact ledger collapses typographic duplicate thread titles', () => {
+    const target = world({ threads: [
+        { id: 'curly', title: 'Toska’s transformation', detail: 'First wording.', status: 'open', importance: 4 },
+        { id: 'straight', title: "Toska's transformation", detail: 'Duplicate wording.', status: 'open', importance: 4 },
+    ] });
+    const result = buildMemoryPrompt(target, user('An unrelated quiet moment.'), 3000);
+    const ledger = result.prompt.match(/Open-thread ledger \(latest\): ([^\n]+)/)?.[1] || '';
+
+    assert.equal((ledger.match(/transformation/gu) || []).length, 1);
+});
+
+test('duplicate open-thread wording always uses the newest canonical record', () => {
+    const target = world({ threads: [
+        { id: 'old', title: 'Audience confrontation', detail: 'Lucas is still traveling.', status: 'open', importance: 4, updatedAt: '2026-01-01T00:00:00Z' },
+        { id: 'new', title: 'Audience confrontation', detail: 'Segundus must answer Lucas after the proof is presented.', status: 'open', importance: 4, updatedAt: '2026-01-02T00:00:00Z' },
+    ] });
+    const result = buildMemoryPrompt(target, user('What about the audience confrontation?'), 3000);
+
+    assert.deepEqual(selections(result, 'Open matters').map(item => item.id), ['new']);
+    assert.match(result.prompt, /OPEN — Audience confrontation: Segundus must answer Lucas/);
+    assert.doesNotMatch(result.prompt, /still traveling/);
+});
+
+test('raw-tail threads and events retain only neutral latest ledger titles', () => {
+    const source = [{ chatKey: 'chat', from: 8, to: 15 }];
+    const target = world({
+        threads: [{ id: 'thread', title: 'Audience confrontation', detail: 'Potentially duplicated raw detail.', status: 'open', importance: 4, sources: source }],
+        events: [{ ...event('arrival', 'Palace arrival', 'Potentially duplicated raw summary.'), sources: source }],
+    });
+    const result = buildMemoryPrompt(target, user('Continue.'), 3000, 'chat', [], undefined, new Map(), {
+        rawTailRange: { from: 8, to: 15 },
+    });
+
+    assert.deepEqual(selections(result, 'Open matters'), []);
+    assert.deepEqual(selections(result, 'Past events'), []);
+    assert.match(result.prompt, /Open-thread ledger \(latest\): Audience confrontation/);
+    assert.match(result.prompt, /Event ledger \(latest\): Palace arrival/);
+    assert.doesNotMatch(result.prompt, /Potentially duplicated raw/);
+});
+
 test('English grammar forms cannot become rare retrieval anchors', () => {
     const grammarOnly = world({
         events: [event('return', 'Routine movement', "She'll return after lunch.")],

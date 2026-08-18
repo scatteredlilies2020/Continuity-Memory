@@ -6,7 +6,7 @@ const IRREGULAR_NEGATIVE_BASES = new Map([
     ['ai', 'am'],
 ]);
 const CJK_RUN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
-const LIFECYCLE_GUIDANCE = 'Raw chat controls. Events and plans outside Open matters are past; current conditions appear only under Current state.';
+const LIFECYCLE_GUIDANCE = 'Raw chat controls. Established Facts are objective canon and override Character perspectives, reports, or guesses unless raw chat or a user correction changes canon. Entity rows describe the entity itself; possessive objects and proof about someone are not that person. Events and plans outside Open matters are past; current conditions appear only under Current state.';
 const BM25_K1 = 1.2;
 const RRF_OFFSET = 20;
 const RETRIEVAL_FIELDS = {
@@ -16,12 +16,57 @@ const RETRIEVAL_FIELDS = {
     body: { weight: 1, lengthWeight: 0.75 },
 };
 
-import { isFreshActiveState, latestSourceInRawTail, sourcedWhollyInRawTail } from './state-lifecycle.js';
+import { isFreshActiveState, latestSourceInRawTail, latestSourceRange, sourcedWhollyInRawTail } from './state-lifecycle.js';
 import { anchoredRelativeText, anchoredStoryTime } from './temporal-anchors.js';
 import { retrievalMessageText } from './retrieval-query.js';
 
 function plain(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function ledgerTitleKey(value) {
+    return plain(value).replace(/[’‘]/gu, "'").toLocaleLowerCase();
+}
+
+function recordFreshness(item, chatKey = '') {
+    const source = latestSourceRange(item, chatKey);
+    const updated = Date.parse(item?.updatedAt || item?.createdAt || '') || 0;
+    return [Number(source?.to ?? -1), Number(source?.from ?? -1), updated];
+}
+
+function compareRecordFreshness(left, right, chatKey = '') {
+    const a = recordFreshness(left, chatKey);
+    const b = recordFreshness(right, chatKey);
+    return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+}
+
+function newestRecordsBy(items, identity, chatKey = '') {
+    const latest = new Map();
+    for (const item of items || []) {
+        const key = identity(item);
+        if (!key) continue;
+        const existing = latest.get(key);
+        if (!existing || compareRecordFreshness(item, existing, chatKey) >= 0) latest.set(key, item);
+    }
+    return [...latest.values()];
+}
+
+function isKnowledgeBoundaryFact(item) {
+    const category = plain(item?.category).toLocaleLowerCase();
+    if (category === 'knowledge boundary' || category === 'knowledge gap') return true;
+    if (category !== 'knowledge') return false;
+    return /\b(?:does not know|doesn't know|did not know|didn't know|has not learned|hasn't learned|was not told|wasn't told|has not been told|hasn't been told|is unaware|remains unaware|no knowledge of)\b/iu.test(plain(item?.value));
+}
+
+function isEstablishedKnowledgeFact(item) {
+    return !isKnowledgeBoundaryFact(item) && /^knowledge of\s+\S/iu.test(plain(item?.predicate));
+}
+
+function boundaryHolderIsInContext(item, query) {
+    const holderTerms = [...terms(item?.subject, true)];
+    const context = new Set([...(query?.focus || []), ...(query?.context || []), ...(query?.identityFocus || [])]);
+    return holderTerms.length > 0 && holderTerms.every(holder => [...context]
+        .some(term => queryTermVariants(term, true).includes(holder)));
 }
 
 function englishMorphologyToken(value) {
@@ -1243,6 +1288,15 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     const whollyRaw = item => sourcedWhollyInRawTail(item, chatKey, rawTailRange);
     const sourceIsCurrent = item => !sourcedFromInvalidExtraction(item, invalidSourceRanges);
     const availableFacts = (world.facts || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item));
+    const currentFocusText = [
+        ...(world.scene?.participants || []),
+        world.scene?.activity,
+        ...((recentMessages || []).slice(-4).map(message => retrievalMessageText(message))),
+    ].map(plain).filter(Boolean).join(' ').toLocaleLowerCase();
+    const explicitlyFocused = value => {
+        const needle = plain(value).toLocaleLowerCase();
+        return Boolean(needle && currentFocusText.includes(needle));
+    };
 
     if (world.scene && options.includeSceneCheckpoint !== false && sourceIsCurrent(world.scene) && !latestIsRaw(world.scene)) {
         addSection('Checkpoint', [
@@ -1267,7 +1321,30 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     const selectedCorrections = [...relevantCorrections, ...recentCorrections]
         .filter((item, index, all) => all.findIndex(other => other.id === item.id) === index);
     addSection('User corrections', selectedCorrections.map(item =>
-        `- ${plain(item.instruction || item.summary)}`.slice(0, 900)));
+        `- ${plain(item.summary || item.instruction)}`.slice(0, 900)));
+
+    const knowledgeBoundaryResults = recordSelections('Knowledge boundaries — hard constraints', 'fact', rank(
+        availableFacts.filter(isKnowledgeBoundaryFact),
+        queryTerms,
+        () => 20,
+        'fact',
+        semanticRanks,
+    ).filter(result => result.eligible || result.semanticRank > 0 || boundaryHolderIsInContext(result.item, queryTerms)).slice(0, 12));
+    addSection('Knowledge boundaries — hard constraints', knowledgeBoundaryResults.map(({ item }) =>
+        `- ${plain(item.subject)} — ${plain(item.predicate)}: ${plain(item.value)} [HARD LIMIT: world truth elsewhere does not grant this character knowledge.]`));
+
+    const sceneParticipants = new Set((world.scene?.participants || []).map(value => plain(value).toLocaleLowerCase()));
+    const establishedKnowledge = availableFacts
+        .filter(isEstablishedKnowledgeFact)
+        .filter(item => sceneParticipants.has(plain(item.subject).toLocaleLowerCase()))
+        .filter(item => explicitlyFocused(plain(item.predicate).replace(/^knowledge of\s+/iu, '')))
+        .sort((left, right) => Number(right.importance || 0) - Number(left.importance || 0)
+            || compareRecordFreshness(right, left, chatKey))
+        .slice(0, 8)
+        .map(item => ({ item }));
+    recordSelections('Established character knowledge', 'fact', establishedKnowledge, 'current participant and topic');
+    addSection('Established character knowledge', establishedKnowledge.map(({ item }) =>
+        `- ${plain(item.subject)} — ${plain(item.predicate)}: ${anchoredRelativeText(item.value, item)}`));
 
     const selectedEras = takeMatches('L3 continuity', 'era', (world.eras || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)), 2);
     const eraRows = selectedEras
@@ -1324,8 +1401,18 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     });
     addSection('Recent continuity', capsuleRows);
 
-    const activeThreads = takeMatches('Open matters', 'thread', (world.threads || []).filter(item => sourceIsCurrent(item) && item.status === 'open' && !latestIsRaw(item)), 10, () => 4)
-        .map(({ item }) => `- ${anchoredRelativeText(`${item.title}: ${item.detail}`, item)}${item.participants?.length ? ` [${item.participants.join(', ')}]` : ''}`);
+    const openThreadItems = newestRecordsBy(
+        (world.threads || []).filter(item => sourceIsCurrent(item) && item.status === 'open'),
+        item => ledgerTitleKey(item.title),
+        chatKey,
+    );
+    const rankedOpenThreads = rank(openThreadItems.filter(item => !latestIsRaw(item)), queryTerms, () => 4, 'thread', semanticRanks);
+    const activeThreadResults = recordSelections('Open matters', 'thread', rankedOpenThreads
+        .filter(result => result.eligible || result.semanticRank > 0)
+        .slice(0, 10));
+    const activeThreadIds = new Set(activeThreadResults.map(({ item }) => item.id));
+    const activeThreads = activeThreadResults
+        .map(({ item }) => `- OPEN — ${anchoredRelativeText(`${plain(item.title)}: ${plain(item.detail)}`, item)}${item.participants?.length ? ` [${item.participants.join(', ')}]` : ''}`);
     addSection('Open matters', activeThreads);
 
     const backgrounds = takeMatches('Background', 'background', (world.backgrounds || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)), 12, item => item.status === 'active' ? 1 : 0)
@@ -1335,8 +1422,30 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         });
     addSection('Background', backgrounds);
 
-    const entities = takeMatches('Entities', 'entity', (world.entities || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)), 12)
-        .map(({ item }) => `- ${item.name}${item.type ? ` (${item.type})` : ''}: ${item.description}${item.aliases?.length ? `; aliases: ${item.aliases.join(', ')}` : ''}`);
+    const entityPool = (world.entities || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item));
+    const matchedEntities = takeMatches('Entities', 'entity', entityPool, 12);
+    const matchedEntityIds = new Set(matchedEntities.map(({ item }) => item.id));
+    const focusedEntities = entityPool
+        .filter(item => !matchedEntityIds.has(item.id))
+        .filter(item => [item.name, ...(item.aliases || [])].some(explicitlyFocused))
+        .sort((left, right) => Number(right.importance || 0) - Number(left.importance || 0)
+            || compareRecordFreshness(right, left, chatKey))
+        .slice(0, Math.max(0, 12 - matchedEntities.length))
+        .map(item => ({ item }));
+    recordSelections('Entities', 'entity', focusedEntities, 'explicit current mention');
+    const entities = [...matchedEntities, ...focusedEntities]
+        .map(({ item }) => {
+            const identityFacts = availableFacts
+                .filter(fact => !isAttributedBeliefFact(fact) && !isAddressFact(fact) && !isKnowledgeBoundaryFact(fact)
+                    && plain(fact.subject).toLocaleLowerCase() === plain(item.name).toLocaleLowerCase()
+                    && fact.persistence === 'persistent'
+                    && Number(fact.importance || 0) >= 4)
+                .sort((left, right) => Number(right.importance || 0) - Number(left.importance || 0))
+                .slice(0, 2)
+                .map(fact => `${plain(fact.predicate)}: ${plain(fact.value)}`);
+            const canon = identityFacts.length ? `; established canon: ${identityFacts.join(' | ')}` : '';
+            return `- ${item.name}${item.type ? ` (${item.type})` : ''}: ${item.description}${canon}${item.aliases?.length ? `; aliases: ${item.aliases.join(', ')}` : ''}`;
+        });
     addSection('Entities', entities);
 
     const states = takeMatches('Current state', 'state', (world.states || []).filter(item => sourceIsCurrent(item) && isFreshActiveState(world, item, chatKey) && !latestIsRaw(item)), 16, item => item.value ? 2 : 0)
@@ -1358,14 +1467,16 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         .map(({ item }) => `- ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)} [subjective; not an established fact]`);
     addSection('Character perspectives (not established facts)', perspectives);
 
-    const facts = takeMatches('Facts', 'fact', availableFacts.filter(item => !isAttributedBeliefFact(item) && !isAddressFact(item)), 18, item => item.persistence === 'persistent' ? 2 : 0)
+    const facts = takeMatches('Facts', 'fact', availableFacts.filter(item => !isAttributedBeliefFact(item) && !isAddressFact(item) && !isKnowledgeBoundaryFact(item) && !isEstablishedKnowledgeFact(item)), 18, item => item.persistence === 'persistent' ? 2 : 0)
         .map(({ item }) => {
             const qualifier = item.persistence && item.persistence !== 'persistent' ? ` [${item.persistence}]` : '';
             return `- ${item.subject} — ${item.predicate}${qualifier}: ${anchoredRelativeText(item.value, item)}`;
         });
     addSection('Facts', facts);
 
-    const selectedEvents = takeMatches('Past events', 'event', (world.events || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)), 12)
+    const currentEventItems = (world.events || []).filter(item => sourceIsCurrent(item));
+    const availableEvents = currentEventItems.filter(item => !whollyRaw(item));
+    const selectedEvents = takeMatches('Past events', 'event', availableEvents, 12)
         .map(({ item }) => item);
     const events = orderEventsChronologically(selectedEvents, chatKey, world.capsules || [])
         .map(item => {
@@ -1376,6 +1487,25 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
             return `- ${storyTime ? `[${storyTime}] ` : ''}${storyTimeAnchored ? body : anchoredRelativeText(body, item)}`;
         });
     addSection('Past events', events);
+
+    const selectedEventIds = new Set(selectedEvents.map(item => item.id));
+    const compactEvents = orderEventsChronologically(
+        newestRecordsBy(
+            currentEventItems.filter(item => !selectedEventIds.has(item.id)),
+            item => ledgerTitleKey(item.title),
+            chatKey,
+        ).sort((left, right) => compareRecordFreshness(right, left, chatKey)).slice(0, 12),
+        chatKey,
+        world.capsules || [],
+    );
+    const compactThreads = openThreadItems
+        .filter(item => !activeThreadIds.has(item.id))
+        .sort((left, right) => compareRecordFreshness(right, left, chatKey))
+        .slice(0, 12);
+    addSection('Compact continuity ledger', [
+        compactEvents.length ? `- Event ledger (latest): ${compactEvents.map(item => plain(item.title)).join(' → ')}` : '',
+        compactThreads.length ? `- Open-thread ledger (latest): ${compactThreads.map(item => plain(item.title)).join('; ')}` : '',
+    ]);
 
     const selectedIds = new Set(selectedMemoryRecords.map(selection => selection.item.id));
     const supportCandidates = [
@@ -1538,7 +1668,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.129';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.136';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';

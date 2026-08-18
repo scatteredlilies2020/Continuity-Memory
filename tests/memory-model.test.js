@@ -4,6 +4,7 @@ import { buildEmbeddingDocuments } from '../extension/embedding-index.js';
 import { EXTRACTION_VERSION } from '../extension/coverage.js';
 import { addDerivedArc, addDerivedEra, compactHierarchyFields, getLatestL1UndoStatus, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from '../extension/memory-model.js';
 import { buildMemoryPrompt, orderEventsChronologically } from '../extension/retrieval.js';
+import { sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
 
 function world() {
     return {
@@ -162,7 +163,7 @@ test('stable target IDs update values while preserving canonical fact identity',
     assert.deepEqual(target.facts[0].sources.map(source => [source.from, source.to]), [[0, 7], [8, 15]]);
 });
 
-test('an unrelated fact target ID cannot overwrite a canonical fact', () => {
+test('an incompatible known fact target is discarded instead of becoming a false new fact', () => {
     const target = world();
     const cleanup = extraction({
         facts: [{ targetId: '', subject: 'Team 7', predicate: 'cleanup responsibility', value: 'Repair Training Ground Three.', category: 'accountability', importance: 3, persistence: 'persistent' }],
@@ -179,12 +180,12 @@ test('an unrelated fact target ID cannot overwrite a canonical fact', () => {
     });
     mergeExtraction(target, schedule, { chatKey: 'chat', from: 120, to: 127, allowStateUpdates: true });
 
-    assert.equal(target.facts.length, 2);
+    assert.equal(target.facts.length, 1);
     assert.equal(target.facts[0].id, cleanupId);
     assert.equal(target.facts[0].predicate, 'cleanup responsibility');
     assert.equal(target.facts[0].value, 'Repair Training Ground Three.');
-    assert.equal(target.facts[1].predicate, 'training and service structure');
-    assert.equal(schedule.facts[0].targetId, target.facts[1].id);
+    assert.equal(target.facts.some(item => item.predicate === 'training and service structure'), false);
+    assert.equal(schedule.facts[0].targetId, '');
 });
 
 test('compact background strands update by stable topic and inject only when relevant', () => {
@@ -217,7 +218,7 @@ test('compact background strands update by stable topic and inject only when rel
     assert.doesNotMatch(unrelated.prompt, /provincial militarization/);
 });
 
-test('an unrelated background target ID cannot fuse separate strands', () => {
+test('an incompatible known background target is discarded instead of becoming a false new strand', () => {
     const target = world();
     const first = extraction({
         backgrounds: [{ targetId: '', topic: 'Courier collapse after the mountain crossing', summary: 'The exhausted courier fell asleep at a roadside shelter.', status: 'active', certainty: 'confirmed', participants: ['Courier', 'Traveler'], importance: 2 }],
@@ -230,16 +231,15 @@ test('an unrelated background target ID cannot fuse separate strands', () => {
     });
     mergeExtraction(target, unrelated, { chatKey: 'simulation', from: 8, to: 15, allowStateUpdates: true });
 
-    assert.equal(target.backgrounds.length, 2);
+    assert.equal(target.backgrounds.length, 1);
     assert.equal(target.backgrounds[0].id, originalId);
     assert.match(target.backgrounds[0].summary, /roadside shelter/);
     assert.deepEqual(target.backgrounds[0].sources.map(source => [source.from, source.to]), [[0, 7]]);
-    assert.equal(target.backgrounds[1].topic, 'Council response to the warehouse incident');
-    assert.deepEqual(target.backgrounds[1].sources.map(source => [source.from, source.to]), [[8, 15]]);
-    assert.notEqual(unrelated.backgrounds[0].targetId, originalId);
+    assert.equal(target.backgrounds.some(item => item.topic === 'Council response to the warehouse incident'), false);
+    assert.equal(unrelated.backgrounds[0].targetId, '');
 });
 
-test('an unrelated state target ID cannot overwrite another subject or attribute', () => {
+test('an incompatible known state target is discarded instead of becoming false current state', () => {
     const target = world();
     target.entities.push(
         { id: 'entity_alpha', name: 'Alpha', aliases: [] },
@@ -256,9 +256,9 @@ test('an unrelated state target ID cannot overwrite another subject or attribute
     });
     mergeExtraction(target, unrelated, { chatKey: 'simulation', from: 8, to: 15, allowStateUpdates: true });
 
-    assert.equal(target.states.length, 2);
+    assert.equal(target.states.length, 1);
     assert.equal(target.states.find(item => item.id === originalId).value, 'North gate');
-    assert.equal(target.states.find(item => item.subject === 'Beta').value, 'Bandaged hand');
+    assert.equal(target.states.some(item => item.subject === 'Beta'), false);
 });
 
 test('validated exact-identity merge instructions consolidate prior duplicates and preserve provenance', () => {
@@ -344,6 +344,75 @@ test('stored target IDs remain replay-safe after records are rebuilt from extrac
     assert.equal(replayed.facts[0].value, 'Grid power restored; generator retained for emergencies');
 });
 
+test('replay cannot collapse a named actor into a related person or possessive object through reused entity IDs', () => {
+    const target = world();
+    const chatKey = 'roleplay';
+    const toskaId = 'entity_toska';
+    const caelenId = 'entity_caelen';
+
+    mergeExtraction(target, extraction({
+        scene: null,
+        sceneCapsule: null,
+        entities: [
+            { targetId: toskaId, name: 'Toska', type: 'person', aliases: [], description: 'A Jedi Padawan.', importance: 5 },
+            { targetId: toskaId, name: 'Toska’s deceased Jedi Master', type: 'person', aliases: ['Toska’s Master'], description: 'Her deceased Master.', importance: 4 },
+        ],
+        facts: [{ targetId: '', subject: 'Toska', predicate: 'rank', value: 'Jedi Padawan', category: 'identity', importance: 5, persistence: 'persistent' }],
+        states: [], relationships: [], events: [], threads: [],
+    }), { chatKey, from: 0, to: 7, allowStateUpdates: true, replayStoredExtraction: true });
+
+    mergeExtraction(target, extraction({
+        scene: null,
+        sceneCapsule: null,
+        entities: [{ targetId: caelenId, name: 'Caelen Veyr', type: 'person', aliases: ['Master Caelen Veyr'], description: 'A deceased Jedi Master and former Council member.', importance: 5 }],
+        identityResolutions: [{ reference: 'Toska’s Master', canonical: 'Caelen Veyr', evidence: 'Toska names her former Master as Caelen Veyr.' }],
+        facts: [{ targetId: '', subject: 'Caelen Veyr', predicate: 'former identity and service', value: 'Jedi Master and former Jedi Council member', category: 'identity', importance: 5, persistence: 'persistent' }],
+        states: [], relationships: [], events: [], threads: [],
+    }), { chatKey, from: 8, to: 15, allowStateUpdates: true, replayStoredExtraction: true });
+
+    mergeExtraction(target, extraction({
+        scene: null,
+        sceneCapsule: null,
+        entities: [
+            { targetId: caelenId, name: 'Caelen Veyr', type: 'person', aliases: ['Caelen'], description: 'A deceased Jedi Master and former Council member.', importance: 5 },
+            { targetId: '', name: 'Caelen Veyr’s lightsaber', type: 'object', aliases: ['Caelen’s lightsaber'], description: 'His worn lightsaber hilt.', importance: 3 },
+            { targetId: caelenId, name: 'Caelen Veyr', type: 'object', aliases: ['blue crystal'], description: 'A blue proof crystal.', importance: 3 },
+        ],
+        facts: [], states: [], relationships: [], events: [], threads: [],
+    }), { chatKey, from: 16, to: 23, allowStateUpdates: true, replayStoredExtraction: true });
+
+    const toska = target.entities.find(item => item.name === 'Toska');
+    const caelen = target.entities.find(item => item.name === 'Caelen Veyr');
+    const saber = target.entities.find(item => item.name === 'Caelen Veyr’s lightsaber');
+    assert.ok(toska);
+    assert.equal(toska.type, 'person');
+    assert.doesNotMatch(toska.aliases.join(' '), /Master/);
+    assert.deepEqual(toska.aliases, []);
+    assert.ok(caelen);
+    assert.equal(caelen.type, 'person');
+    assert.match(caelen.description, /Jedi Master/);
+    assert.equal(target.entities.some(item => item.name === 'Toska’s deceased Jedi Master'), false);
+    assert.ok(saber);
+    assert.equal(saber.type, 'object');
+    assert.notEqual(saber.id, caelen.id);
+    assert.equal(target.entities.some(item => item.type === 'object' && item.name === 'Caelen Veyr'), false);
+    assert.equal(target.facts.find(item => item.predicate === 'rank').subject, 'Toska');
+});
+
+test('retrieval appends high-importance established identity canon to a matching entity', () => {
+    const target = world();
+    target.entities.push({ id: 'caelen', name: 'Caelen Veyr', type: 'person', aliases: ['Caelen'], description: 'A deceased Jedi.', importance: 5, sources: [] });
+    target.facts.push({
+        id: 'caelen-service', subject: 'Caelen Veyr', predicate: 'former identity and service',
+        value: 'Jedi Master and former Jedi Council member', category: 'identity', importance: 5,
+        persistence: 'persistent', sources: [],
+    });
+
+    const injected = buildMemoryPrompt(target, [{ name: 'User', mes: 'What did Caelen Veyr do?' }], 2000, 'roleplay');
+    assert.match(injected.prompt, /Caelen Veyr \(person\).*established canon: former identity and service: Jedi Master and former Jedi Council member/i);
+    assert.match(injected.prompt, /Established Facts are objective canon/);
+});
+
 test('narrative identity resolutions migrate and deduplicate durable references', () => {
     const target = world();
     const chatKey = 'chat';
@@ -375,6 +444,141 @@ test('narrative identity resolutions migrate and deduplicate durable references'
     assert.deepEqual(target.entities.find(item => item.name === 'Itachi Uchiha').aliases, ['Itachi', reference]);
     assert.deepEqual(target.events[0].participants, ['Sasuke Uchiha', 'Itachi Uchiha']);
     assert.deepEqual(target.threads[0].participants, ['Sasuke Uchiha', 'Itachi Uchiha']);
+});
+
+test('person aliases reject relationship roles while retaining names and codenames', () => {
+    const target = world();
+    mergeExtraction(target, extraction({
+        entities: [{
+            name: 'Lucas Alcazar', type: 'person',
+            aliases: ["Toska's captor", 'Sith apprentice', 'Darth Lucifer', 'Lucas'],
+            description: 'A Sith known as Darth Lucifer.', importance: 5,
+        }],
+        events: [],
+    }), { chatKey: 'roleplay', from: 0, to: 7, allowStateUpdates: true });
+
+    assert.deepEqual(target.entities.find(item => item.name === 'Lucas Alcazar').aliases, ['Darth Lucifer', 'Lucas']);
+});
+
+test('an explicit canonical description resolves a possessive person placeholder without model reconciliation', () => {
+    const target = world();
+    const reference = "Toska's former Jedi master";
+    mergeExtraction(target, extraction({
+        entities: [{ name: reference, type: 'person', aliases: [], description: 'Toska remembers her former Master.', importance: 4 }],
+        relationships: [{ from: 'Toska', to: reference, kind: 'Jedi Master and Padawan', status: 'ended', dynamic: '', importance: 4 }],
+        events: [],
+    }), { chatKey: 'roleplay', from: 0, to: 7, allowStateUpdates: true });
+    assert.equal(target.relationships[0].to, reference);
+    mergeExtraction(target, extraction({
+        entities: [{
+            name: 'Caelen Veyr', type: 'person', aliases: ['Caelen'],
+            description: `${reference} and a former Jedi Council member.`, importance: 5,
+        }],
+        events: [],
+    }), { chatKey: 'roleplay', from: 8, to: 15, allowStateUpdates: true });
+
+    assert.equal(target.entities.some(item => item.name === reference), false);
+    assert.ok(target.entities.find(item => item.name === 'Caelen Veyr'));
+    assert.equal(target.relationships[0].to, 'Caelen Veyr');
+});
+
+test('a clean zero-correction replay preserves identity, prior knowledge, secrecy, and current meeting continuity', () => {
+    const target = world();
+    const chatKey = 'roleplay';
+    const first = extraction({
+        scene: null,
+        entities: [
+            { name: 'Lucas Alcazar', type: 'person', aliases: ["Toska's captor"], description: "A Sith who killed Toska's former Jedi master.", importance: 5 },
+            { name: 'Toska', type: 'person', aliases: ['Jedi Padawan'], description: 'A captive Padawan.', importance: 5 },
+            { name: 'Darth Segundus', type: 'person', aliases: ["Lucas's master"], description: "Lucas's Sith master.", importance: 5 },
+            { name: "Toska's former Jedi master", type: 'person', aliases: [], description: 'A formerly renowned Jedi Master.', importance: 5 },
+        ],
+        facts: [{ subject: 'Lucas Alcazar', predicate: 'intent to conceal Toska from Darth Segundus', value: 'Toska remains hidden.', category: 'intention', importance: 5, persistence: 'persistent' }],
+        relationships: [{ from: 'Toska', to: "Toska's former Jedi master", kind: 'Jedi Master and Padawan', status: 'ended', dynamic: '', importance: 5 }],
+        events: [], threads: [],
+    });
+    sanitizeReconciliationMetadata(first, target, []);
+    mergeExtraction(target, first, { chatKey, from: 0, to: 7, allowStateUpdates: true });
+
+    const identity = extraction({
+        scene: null,
+        entities: [{ name: 'Caelen Veyr', type: 'person', aliases: ['Caelen'], description: "Toska's former Jedi master and a former Council member.", importance: 5 }],
+        facts: [{ subject: 'Caelen Veyr', predicate: 'former identity and service', value: 'Jedi Master and former Jedi Council member', category: 'biography', importance: 5, persistence: 'persistent' }],
+        relationships: [], events: [], threads: [],
+    });
+    sanitizeReconciliationMetadata(identity, target, []);
+    mergeExtraction(target, identity, { chatKey, from: 8, to: 15, allowStateUpdates: true });
+
+    const recognition = extraction({
+        scene: { location: 'Audience chamber', time: 'Morning', participants: ['Lucas Alcazar', 'Darth Segundus'], activity: "Lucas presents Caelen Veyr's proof to Segundus.", mood: 'Confrontational' },
+        sceneCapsule: {
+            ...extraction().sceneCapsule,
+            title: 'Earlier masked call', participants: ['Lucas Alcazar', 'Darth Segundus', 'Caelen Veyr'],
+            beats: ['Segundus cites the archive record for Jedi Master Caelen Veyr, while Lucas disputes its classification.'],
+        },
+        entities: [], facts: [], relationships: [], threads: [],
+        events: [{ title: 'Segundus cites Caelen record', summary: 'Segundus cites the archive record for Jedi Master Caelen Veyr.', participants: ['Lucas Alcazar', 'Darth Segundus', 'Caelen Veyr'], location: 'Comms sanctum', storyTime: 'Earlier', consequences: '', importance: 5, temporal: { frame: 'main narrative', relation: 'same-period', elapsed: '', certainty: 'explicit' } }],
+    });
+    sanitizeReconciliationMetadata(recognition, target, []);
+    mergeExtraction(target, recognition, { chatKey, from: 80, to: 87, allowStateUpdates: true });
+
+    assert.deepEqual(target.corrections, []);
+    assert.equal(target.entities.some(item => item.name === "Toska's former Jedi master"), false);
+    assert.equal(target.relationships.find(item => /Jedi Master and Padawan/i.test(item.kind)).to, 'Caelen Veyr');
+    assert.ok(target.facts.some(item => item.subject === 'Darth Segundus' && item.predicate === 'knowledge of Toska' && item.category === 'knowledge boundary'));
+    assert.ok(target.facts.some(item => item.subject === 'Darth Segundus' && item.predicate === 'knowledge of Caelen Veyr' && item.category === 'knowledge'));
+
+    const injected = buildMemoryPrompt(target, [{ name: 'Lucas', mes: 'Did you know it was a Jedi Council Member there?' }], 5000, chatKey);
+    assert.match(injected.prompt, /Established character knowledge:[\s\S]*Darth Segundus — knowledge of Caelen Veyr/i);
+    assert.match(injected.prompt, /Caelen Veyr \(person\).*Jedi Master and former Jedi Council member/i);
+
+    const secrecy = buildMemoryPrompt(target, [{ name: 'Lucas', mes: 'Does Darth Segundus know Toska?' }], 5000, chatKey);
+    assert.match(secrecy.prompt, /Darth Segundus — knowledge of Toska.*HARD LIMIT/i);
+});
+
+test('later explicit knowledge retires the matching stale knowledge boundary', () => {
+    const target = world();
+    mergeExtraction(target, extraction({
+        facts: [{
+            subject: 'Darth Segundus', predicate: 'knowledge of Toska',
+            value: 'Toska is deliberately concealed from Darth Segundus; no disclosure is established.',
+            category: 'knowledge boundary', importance: 5, persistence: 'persistent',
+        }], events: [],
+    }), { chatKey: 'roleplay', from: 0, to: 7, allowStateUpdates: true });
+
+    mergeExtraction(target, extraction({
+        facts: [{
+            subject: 'Darth Segundus', predicate: 'knowledge of Toska',
+            value: 'Darth Segundus has now learned that Toska is alive.',
+            category: 'knowledge', importance: 5, persistence: 'persistent',
+        }], events: [],
+    }), { chatKey: 'roleplay', from: 8, to: 15, allowStateUpdates: true });
+
+    const records = target.facts.filter(item => item.subject === 'Darth Segundus' && item.predicate === 'knowledge of Toska');
+    assert.equal(records.length, 1);
+    assert.equal(records[0].category, 'knowledge');
+    assert.match(records[0].value, /has now learned/i);
+});
+
+test('a positive update mislabeled as a boundary becomes established knowledge', () => {
+    const target = world();
+    mergeExtraction(target, extraction({
+        facts: [{
+            subject: 'Darth Segundus', predicate: 'knowledge of Toska', value: 'Darth Segundus does not know Toska exists.',
+            category: 'knowledge boundary', importance: 5, persistence: 'persistent',
+        }], events: [],
+    }), { chatKey: 'roleplay', from: 0, to: 7, allowStateUpdates: true });
+
+    mergeExtraction(target, extraction({
+        facts: [{
+            subject: 'Darth Segundus', predicate: 'knowledge of Toska', value: 'Darth Segundus is now aware of Toska.',
+            category: 'knowledge boundary', importance: 5, persistence: 'persistent',
+        }], events: [],
+    }), { chatKey: 'roleplay', from: 8, to: 15, allowStateUpdates: true });
+
+    const record = target.facts.find(item => item.subject === 'Darth Segundus' && item.predicate === 'knowledge of Toska');
+    assert.equal(record.category, 'knowledge');
+    assert.match(record.value, /now aware/i);
 });
 
 test('identity resolution fails closed without one unambiguous canonical entity', () => {
@@ -631,6 +835,39 @@ test('retrieval reserves room for every populated memory category', () => {
         'Past events',
     ]) assert.match(result.prompt, new RegExp(`${heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:`));
     assert.ok(result.estimatedTokens <= 1000);
+});
+
+test('retrieval makes a relevant character knowledge boundary an explicit hard constraint', () => {
+    const target = world();
+    target.entities.push(
+        { id: 'lucas', name: 'Lucas Alcazar', type: 'person', aliases: ['Lucas'], description: 'A Sith.', importance: 5 },
+        { id: 'segundus', name: 'Darth Segundus', type: 'person', aliases: ['Segundus'], description: 'Lucas’s master.', importance: 5 },
+        { id: 'toska', name: 'Toska', type: 'person', aliases: [], description: 'Hidden at Lucas’s moonbase.', importance: 5 },
+    );
+    target.facts.push({
+        id: 'segundus-toska-boundary',
+        subject: 'Darth Segundus',
+        predicate: 'knowledge of Toska',
+        value: 'Does not know Toska exists or that Lucas took her alive; Lucas has provided no disclosure or evidence until an explicit later disclosure.',
+        category: 'knowledge boundary',
+        persistence: 'persistent',
+        importance: 5,
+    });
+    target.events.push({
+        id: 'toska-capture', title: 'Lucas captures Toska', summary: 'Lucas secretly takes Toska alive.',
+        participants: ['Lucas Alcazar', 'Toska'], importance: 5,
+    });
+
+    const result = buildMemoryPrompt(target, [
+        { name: 'Narrator', is_user: false, mes: 'Darth Segundus studies Lucas across the audience chamber.' },
+        { name: 'User', is_user: true, mes: 'I ask Segundus whether he expected me to die.' },
+    ], 2200, 'chat', ['Darth Segundus reaction to Lucas']);
+
+    assert.match(result.prompt, /Knowledge boundaries — hard constraints:/);
+    assert.match(result.prompt, /Darth Segundus — knowledge of Toska: Does not know Toska exists/i);
+    assert.match(result.prompt, /HARD LIMIT: world truth elsewhere does not grant this character knowledge/i);
+    assert.doesNotMatch(result.prompt, /exact anchor unavailable/i);
+    assert.equal(result.prompt.match(/knowledge of Toska/g)?.length, 1);
 });
 
 test('retrieval does not fill category space with unrelated memories', () => {
@@ -1230,6 +1467,32 @@ test('full reset erases every memory layer while preserving the bound world iden
     for (const category of ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds', 'corrections']) {
         assert.deepEqual(target[category], []);
     }
+    assert.deepEqual(target.sources, {});
+});
+
+test('fresh rebuild reset preserves reviewed corrections and corrected guardrail records', () => {
+    const target = world();
+    target.entities.push({ id: 'ordinary', name: 'Ordinary record' });
+    target.facts.push({
+        id: 'corrected-fact', subject: 'Darth Segundus', predicate: 'knowledge of Toska',
+        value: 'Darth Segundus does not know Toska exists.', category: 'knowledge boundary',
+        persistence: 'persistent', importance: 5, correctionId: 'correction-1',
+        sources: [{ kind: 'correction', correctionId: 'correction-1' }],
+    });
+    target.corrections = [{
+        id: 'correction-1', summary: 'Segundus does not know Toska exists.', operations: [{
+            action: 'add', category: 'facts', recordId: 'corrected-fact', beforeSelector: '',
+            after: { subject: 'Darth Segundus', predicate: 'knowledge of Toska', value: 'Darth Segundus does not know Toska exists.', category: 'knowledge boundary', persistence: 'persistent', importance: 5 },
+        }],
+    }];
+
+    resetWorldMemory(target, { preserveCorrections: true });
+
+    assert.deepEqual(target.entities, []);
+    assert.equal(target.corrections.length, 1);
+    assert.equal(target.facts.length, 1);
+    assert.equal(target.facts[0].id, 'corrected-fact');
+    assert.equal(target.facts[0].correctionId, 'correction-1');
     assert.deepEqual(target.sources, {});
 });
 

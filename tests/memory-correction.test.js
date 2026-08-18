@@ -86,7 +86,8 @@ test('reviewed correction updates established records and invalidates only conta
     assert.ok(buildEmbeddingDocuments(world).some(item => item.key.startsWith('correction:')));
     const injected = buildMemoryPrompt(world, [{ name: 'User', mes: 'What did Sasuke know about Elizabeth?' }], 2000, 'chat');
     assert.match(injected.prompt, /User corrections:/);
-    assert.match(injected.prompt, /already knew Elizabeth/i);
+    assert.match(injected.prompt, /knew Elizabeth before the meeting/i);
+    assert.doesNotMatch(injected.prompt, /beforehand/i);
 });
 
 test('a newly asserted historical event is propagated into L1 before hierarchy rebuilding', () => {

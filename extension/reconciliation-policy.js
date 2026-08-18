@@ -239,6 +239,141 @@ export function recoverExplicitEntityAliases(result, messages) {
     return recovered;
 }
 
+function cleanText(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function continuityEntityIndex(result, world) {
+    const entities = [];
+    const byName = new Map();
+    for (const item of [...(world?.entities || []), ...(result?.entities || [])]) {
+        const name = cleanText(item?.name);
+        if (!name) continue;
+        const identity = normalized(name);
+        const existing = byName.get(identity);
+        if (existing) existing.aliases = [...new Set([...existing.aliases, ...(item.aliases || []).map(cleanText).filter(Boolean)])];
+        else {
+            const entity = { name, type: cleanText(item?.type), aliases: (item.aliases || []).map(cleanText).filter(Boolean) };
+            byName.set(identity, entity);
+            entities.push(entity);
+        }
+    }
+    const variants = new Map();
+    for (const entity of entities) {
+        const candidates = [entity.name, ...entity.aliases];
+        const parts = entity.name.split(/\s+/u).filter(Boolean);
+        if (parts.length > 1 && !/['’]s\b/iu.test(entity.name)) candidates.push(parts.at(-1));
+        for (const candidate of candidates) {
+            const variant = normalized(candidate);
+            if (!variant) continue;
+            const matches = variants.get(variant) || [];
+            if (!matches.includes(entity)) matches.push(entity);
+            variants.set(variant, matches);
+        }
+    }
+    return { entities, variants };
+}
+
+function canonicalMention(index, value) {
+    const source = normalized(value);
+    if (!source) return null;
+    const matches = [...index.variants.entries()]
+        .filter(([variant, entities]) => entities.length === 1 && new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(variant)}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(source))
+        .sort((left, right) => right[0].length - left[0].length);
+    return matches[0]?.[1]?.[0] || null;
+}
+
+function hasNonPossessiveEntityMention(entity, value) {
+    const source = normalized(value);
+    const name = cleanText(entity?.name);
+    const parts = name.split(/\s+/u).filter(Boolean);
+    const candidates = [name, ...(entity?.aliases || [])];
+    if (parts.length > 1 && !/['’]s\b/iu.test(name)) candidates.push(parts.at(-1));
+    return candidates.map(normalized).filter(Boolean).some(candidate =>
+        new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(candidate)}(?!['’]s\\b)(?:$|[^\\p{L}\\p{N}])`, 'iu').test(source));
+}
+
+function hasKnowledgeRecord(result, world, holder, topic) {
+    const subject = normalized(holder);
+    const predicate = normalized(`knowledge of ${topic}`);
+    return [...(result?.facts || []), ...(world?.facts || [])].some(item =>
+        normalized(item?.subject) === subject && normalized(item?.predicate) === predicate);
+}
+
+export function recoverExplicitConcealmentBoundaries(result, world) {
+    if (!Array.isArray(result?.facts)) return 0;
+    const index = continuityEntityIndex(result, world);
+    let recovered = 0;
+    for (const fact of [...result.facts]) {
+        const predicate = cleanText(fact?.predicate);
+        let topicText = '';
+        let holderText = '';
+        const directed = predicate.match(/\b(?:conceal|hide)\s+(.+?)\s+from\s+(.+)$/iu);
+        const concealedFrom = predicate.match(/\b(?:concealment|secrecy|hidden)\s+from\s+(.+)$/iu);
+        if (directed) {
+            topicText = directed[1];
+            holderText = directed[2];
+        } else if (concealedFrom) {
+            topicText = cleanText(fact.subject);
+            holderText = concealedFrom[1];
+        } else continue;
+        const topic = canonicalMention(index, topicText)?.name || cleanText(topicText);
+        const holder = canonicalMention(index, holderText)?.name || cleanText(holderText);
+        if (!topic || !holder || normalized(topic) === normalized(holder) || hasKnowledgeRecord(result, world, holder, topic)) continue;
+        result.facts.push({
+            targetId: '',
+            subject: holder,
+            predicate: `knowledge of ${topic}`,
+            value: `${topic} is deliberately concealed from ${holder}; no disclosure to ${holder} is established.`,
+            category: 'knowledge boundary',
+            importance: Math.max(3, Math.min(5, Number(fact.importance || 3))),
+            persistence: 'persistent',
+        });
+        recovered++;
+    }
+    return recovered;
+}
+
+export function recoverExplicitPriorKnowledge(result, world) {
+    if (!Array.isArray(result?.facts)) return 0;
+    const index = continuityEntityIndex(result, world);
+    const strings = [
+        ...(result?.sceneCapsule?.beats || []),
+        ...(result?.events || []).flatMap(item => [item?.summary, item?.consequences]),
+    ].map(cleanText).filter(Boolean);
+    const knowledgeVerb = /\b(?:already\s+)?(?:knows?|knew|recognizes?|recognized|identifies?|identified|cites?|cited|recalls?|recalled|remembers?|remembered|acknowledges?|acknowledged)\b/iu;
+    let recovered = 0;
+    for (const source of strings) {
+        const clauses = source.split(/\s+(?:while|whereas|but)\s+|(?<=[.!?;])\s+/iu).map(cleanText).filter(Boolean);
+        for (const clause of clauses) {
+            const verb = clause.match(knowledgeVerb);
+            if (!verb || verb.index == null) continue;
+            if (/\b(?:asks?|asked|wonders?|wondered|questions?|questioned)\s+(?:whether|if)\b/iu.test(clause.slice(0, verb.index))) continue;
+            const actor = canonicalMention(index, clause.slice(0, verb.index));
+            if (!actor || !/^(?:person|character|npc|human|individual)$/iu.test(actor.type || 'person')) continue;
+            const remainder = clause.slice(verb.index + verb[0].length);
+            const topic = canonicalMention(index, remainder);
+            if (!topic || !hasNonPossessiveEntityMention(topic, remainder)
+                || normalized(topic.name) === normalized(actor.name)
+                || hasKnowledgeRecord(result, world, actor.name, topic.name)) continue;
+            const evidence = clause
+                .replace(new RegExp(`^${escaped(actor.name.split(/\s+/u).at(-1))}\\b`, 'iu'), actor.name)
+                .replace(/[,:;]+$/u, '');
+            result.facts.push({
+                targetId: '',
+                subject: actor.name,
+                predicate: `knowledge of ${topic.name}`,
+                value: evidence,
+                category: 'knowledge',
+                importance: 4,
+                persistence: 'persistent',
+            });
+            recovered++;
+        }
+    }
+    return recovered;
+}
+
 const COVERAGE_CUE = /\b(?:agrees?|appoints?|assigned|becomes?|called|calls?|decides?|discovers?|injured|intends?|learns?|loses?|named|plans?|promises?|receives?|remains?|reveals?|suffers?|vows?|wounded)\b/iu;
 const COVERAGE_STOP_WORDS = new Set('a an and are as at be been being but by for from had has have he her hers him his i in into is it its of on or our she that the their them they this to was were will with you your'.split(' '));
 
@@ -899,7 +1034,15 @@ export function reconciliationTargetIsCompatible(category, incoming, existing, w
     if (!existing) return false;
     const same = (left, right) => Boolean(normalized(left) && normalized(left) === normalized(right));
     const sameSubject = (left, right) => same(canonicalMemorySubject(world, left), canonicalMemorySubject(world, right));
-    if (category === 'entities') return sameSubject(incoming?.name, existing?.name);
+    if (category === 'entities') {
+        // Entity target IDs are identity anchors. Fuzzy subject resolution is
+        // useful for facts, but is unsafe here: "Toska's Master" must never be
+        // allowed to claim Toska's ID merely because the names share a token.
+        const incomingName = normalized(incoming?.name);
+        const exactNames = [existing?.name, ...(existing?.aliases || [])].map(normalized).filter(Boolean);
+        if (!incomingName || !exactNames.includes(incomingName)) return false;
+        return entityTypesAreCompatible(incoming?.type, existing?.type);
+    }
     if (category === 'facts') {
         if (isAddressFact(incoming) || isAddressFact(existing)) {
             const incomingIdentity = addressFactIdentity(incoming, world);
@@ -924,8 +1067,33 @@ export function reconciliationTargetIsCompatible(category, incoming, existing, w
     return false;
 }
 
+const ENTITY_TYPE_FAMILIES = new Map([
+    ['person', 'person'], ['character', 'person'], ['individual', 'person'], ['npc', 'person'], ['human', 'person'],
+    ['object', 'object'], ['item', 'object'], ['artifact', 'object'], ['weapon', 'object'], ['tool', 'object'], ['vehicle', 'object'],
+    ['place', 'place'], ['location', 'place'], ['site', 'place'], ['region', 'place'], ['world', 'place'],
+    ['group', 'group'], ['organization', 'group'], ['organisation', 'group'], ['faction', 'group'], ['institution', 'group'], ['team', 'group'],
+]);
+
+function entityTypeFamily(value) {
+    const type = normalized(value);
+    if (!type || ['entity', 'unknown', 'other'].includes(type)) return '';
+    return ENTITY_TYPE_FAMILIES.get(type) || type;
+}
+
+export function entityTypesAreCompatible(left, right) {
+    const leftFamily = entityTypeFamily(left);
+    const rightFamily = entityTypeFamily(right);
+    return !leftFamily || !rightFamily || leftFamily === rightFamily;
+}
+
 export function reconciliationMergeIsCompatible(category, canonical, duplicate, world = null) {
     return reconciliationTargetIsCompatible(category, duplicate, canonical, world);
+}
+
+const REJECTED_TARGET_RECORDS = new WeakSet();
+
+export function reconciliationTargetWasRejected(item) {
+    return Boolean(item && typeof item === 'object' && REJECTED_TARGET_RECORDS.has(item));
 }
 
 export function sanitizeReconciliationMetadata(result, world, messages = null) {
@@ -934,6 +1102,8 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const recovered = recoverExplicitAddressFacts(result, world, messages);
     const discardedAddressValues = removeCrossDirectionAddressContamination(result, world, messages);
     const recoveredAliases = recoverExplicitEntityAliases(result, messages);
+    const recoveredBoundaries = recoverExplicitConcealmentBoundaries(result, world);
+    const recoveredKnowledge = recoverExplicitPriorKnowledge(result, world);
     const reconciledAddresses = reconcileGenericAddressDuplicates(result, world);
     const discardedUnsupportedAddresses = removeUnsupportedAddressValues(result, messages, world);
     const discardedPronounAddresses = removeUnsupportedPronounAddressValues(result, messages, world);
@@ -955,9 +1125,12 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
         for (const item of result[category] || []) {
             if (!item || typeof item !== 'object') continue;
             const targetId = String(item.targetId || '').trim();
-            const compatible = targetId
-                && reconciliationTargetIsCompatible(category, item, recordsById.get(targetId), world);
-            if (targetId && !compatible) ignored++;
+            const target = targetId ? recordsById.get(targetId) : null;
+            const compatible = targetId && reconciliationTargetIsCompatible(category, item, target, world);
+            if (targetId && target && !compatible) {
+                REJECTED_TARGET_RECORDS.add(item);
+                ignored++;
+            } else if (targetId && !compatible) ignored++;
             item.targetId = compatible ? targetId : '';
         }
     }
@@ -988,5 +1161,5 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     });
     const warnings = findCoverageWarnings(result, messages);
     if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
-    return { ignored, recovered, recoveredAliases, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, warnings };
+    return { ignored, recovered, recoveredAliases, recoveredBoundaries, recoveredKnowledge, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, warnings };
 }
