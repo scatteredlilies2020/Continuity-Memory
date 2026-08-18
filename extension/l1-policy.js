@@ -23,6 +23,10 @@ export function completeL1Messages(messages, groupSize = DEFAULT_L1_GROUP_SIZE) 
     return source.slice(0, completeL1MessageCount(source.length, groupSize));
 }
 
+export function latestCompleteL1MessageIndex(messages, groupSize = DEFAULT_L1_GROUP_SIZE) {
+    return Number(completeL1Messages(messages, groupSize).at(-1)?.index ?? -1);
+}
+
 export function partitionL1StabilityBuffer(messages, bufferMessages = L1_STABILITY_BUFFER_MESSAGES) {
     const source = Array.isArray(messages) ? messages : [];
     const requested = Math.max(0, Math.round(Number(bufferMessages) || 0));

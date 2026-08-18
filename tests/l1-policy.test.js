@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { completeL1MessageCount, completeL1Messages, isL1StabilityProtectedMessage, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages, validateL1GroupSize } from '../extension/l1-policy.js';
+import { completeL1MessageCount, completeL1Messages, isL1StabilityProtectedMessage, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages, validateL1GroupSize } from '../extension/l1-policy.js';
 
 test('L1 defaults to complete groups of eight messages', () => {
     assert.equal(resolveL1GroupSize(), 8);
@@ -12,6 +12,12 @@ test('L1 defaults to complete groups of eight messages', () => {
 test('L1 leaves an incomplete recent tail unselected', () => {
     const messages = Array.from({ length: 18 }, (_, index) => ({ index }));
     assert.deepEqual(completeL1Messages(messages).map(item => item.index), Array.from({ length: 16 }, (_, index) => index));
+});
+
+test('latest complete L1 boundary ignores an incomplete stable tail', () => {
+    const messages = Array.from({ length: 182 }, (_, index) => ({ index }));
+    assert.equal(latestCompleteL1MessageIndex(messages, 8), 175);
+    assert.equal(latestCompleteL1MessageIndex(messages.slice(0, 7), 8), -1);
 });
 
 test('L1 stability keeps the latest two eligible messages out of extraction', () => {

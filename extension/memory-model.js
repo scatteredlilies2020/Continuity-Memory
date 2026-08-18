@@ -518,6 +518,103 @@ function prepareKnowledgeTransitions(world, result, meta) {
     }
 }
 
+function applyActiveScene(world, result, meta, l1Temporal) {
+    if (result.scene && typeof result.scene === 'object') {
+        world.scene = common({
+            ...(world.scene || {}),
+            location: text(result.scene.location),
+            time: text(result.scene.time),
+            participants: canonicalList(world, result.scene.participants),
+            activity: text(result.scene.activity),
+            mood: text(result.scene.mood),
+            temporal: l1Temporal,
+        }, meta, 'scene');
+    }
+}
+
+function applyActiveStates(world, result, meta, l1Temporal) {
+    // Scene state is a replaceable snapshot, not historical memory. Advancing
+    // the active timeline retires the previous scene snapshot automatically.
+    // Ongoing state is retained for reconciliation until an explicit update
+    // or clear; retrieval still requires confirmation in the newest L1.
+    world.states = world.states.filter(item => item.correctionId || item.scope === 'ongoing');
+    for (const raw of result.states || []) {
+        if (!raw || typeof raw !== 'object') continue;
+        if (reconciliationTargetWasRejected(raw)) continue;
+        let requestedTargetId = text(raw.targetId);
+        let requestedIndex = requestedTargetId ? world.states.findIndex(item => item.id === requestedTargetId) : -1;
+        const missingUntrustedTarget = requestedIndex < 0 && !meta.replayStoredExtraction;
+        if (requestedTargetId && requestedIndex >= 0
+            && !reconciliationTargetIsCompatible('states', raw, world.states[requestedIndex], world)) {
+            raw.targetId = '';
+            continue;
+        }
+        if (requestedTargetId && missingUntrustedTarget) {
+            requestedTargetId = '';
+            requestedIndex = -1;
+            raw.targetId = '';
+        }
+        const requestedTarget = requestedIndex >= 0 ? world.states[requestedIndex] : null;
+        const normalized = {
+            subject: requestedTarget?.subject || canonicalMemorySubject(world, raw.subject),
+            attribute: requestedTarget?.attribute || canonicalStateAttribute(raw.attribute),
+            value: text(raw.value),
+            previous: text(raw.previous),
+            importance: clampImportance(raw.importance),
+            scope: stateScope(raw.scope),
+            operation: raw.operation === 'clear' ? 'clear' : 'set',
+            temporalAnchorId: l1Temporal.anchorId,
+        };
+        if (!normalized.subject || !normalized.attribute || isSuppressedByCorrection(world, 'states', normalized, meta)) continue;
+        const identity = stateIdentity(world, normalized);
+        const index = requestedIndex >= 0 ? requestedIndex : world.states.findIndex(item => stateIdentity(world, item) === identity);
+        if (normalized.operation === 'clear') {
+            if (index >= 0) raw.targetId = world.states[index].id;
+            world.states = world.states.filter(item => item.correctionId || stateIdentity(world, item) !== identity);
+            continue;
+        }
+        if (!normalized.value) continue;
+        if (index >= 0) {
+            const existing = world.states[index];
+            const merged = existing.correctionId ? { ...normalized, ...existing } : { ...existing, ...normalized };
+            world.states[index] = common({ ...merged, id: existing.id, createdAt: existing.createdAt }, meta, 'state');
+            raw.targetId = world.states[index].id;
+        } else {
+            const created = common({ ...normalized, ...(requestedTargetId ? { id: requestedTargetId } : {}) }, meta, 'state');
+            world.states.push(created);
+            raw.targetId = created.id;
+        }
+    }
+}
+
+export function promoteStoredTailSnapshot(world, chatKey, latestCompleteIndex) {
+    migrateLegacyBeliefs(world);
+    world.states ||= [];
+    world.extractions ||= [];
+    const boundary = Number(latestCompleteIndex);
+    if (!chatKey || !Number.isFinite(boundary) || boundary < 0) return false;
+    const extraction = world.extractions
+        .filter(item => item?.chatKey === chatKey
+            && Number(item?.to) === boundary
+            && item?.result && typeof item.result === 'object')
+        .sort((a, b) => Number(b.from) - Number(a.from))[0];
+    if (!extraction || extraction.allowStateUpdates !== false) return false;
+    const result = structuredClone(extraction.result);
+    const meta = {
+        chatKey,
+        from: Number(extraction.from),
+        to: Number(extraction.to),
+        allowStateUpdates: true,
+        replayStoredExtraction: true,
+    };
+    const l1Temporal = buildL1TemporalAnchor(world, result.sceneCapsule?.temporal, meta);
+    applyActiveScene(world, result, meta, l1Temporal);
+    applyActiveStates(world, result, meta, l1Temporal);
+    extraction.allowStateUpdates = true;
+    extraction.updatedAt = new Date().toISOString();
+    return true;
+}
+
 export function mergeExtraction(world, result, meta) {
     migrateLegacyBeliefs(world);
     world.entities ||= [];
@@ -539,17 +636,7 @@ export function mergeExtraction(world, result, meta) {
     prepareKnowledgeTransitions(world, result, meta);
     const l1Temporal = buildL1TemporalAnchor(world, result.sceneCapsule?.temporal, meta);
 
-    if (meta.allowStateUpdates !== false && result.scene && typeof result.scene === 'object') {
-        world.scene = common({
-            ...(world.scene || {}),
-            location: text(result.scene.location),
-            time: text(result.scene.time),
-            participants: canonicalList(world, result.scene.participants),
-            activity: text(result.scene.activity),
-            mood: text(result.scene.mood),
-            temporal: l1Temporal,
-        }, meta, 'scene');
-    }
+    if (meta.allowStateUpdates !== false) applyActiveScene(world, result, meta, l1Temporal);
 
     // Historical backfill must not replace a record from another chat or
     // regress a later range, but newer ranges in the same chat must advance
@@ -603,60 +690,7 @@ export function mergeExtraction(world, result, meta) {
         };
     }, preserveHistoricalRecord);
 
-    if (meta.allowStateUpdates !== false) {
-        // Scene state is a replaceable snapshot, not historical memory. Advancing
-        // the active timeline retires the previous scene snapshot automatically.
-        // Ongoing state is retained for reconciliation until an explicit update
-        // or clear; retrieval still requires confirmation in the newest L1.
-        world.states = world.states.filter(item => item.correctionId || item.scope === 'ongoing');
-        for (const raw of result.states || []) {
-            if (!raw || typeof raw !== 'object') continue;
-            if (reconciliationTargetWasRejected(raw)) continue;
-            let requestedTargetId = text(raw.targetId);
-            let requestedIndex = requestedTargetId ? world.states.findIndex(item => item.id === requestedTargetId) : -1;
-            const missingUntrustedTarget = requestedIndex < 0 && !meta.replayStoredExtraction;
-            if (requestedTargetId && requestedIndex >= 0
-                && !reconciliationTargetIsCompatible('states', raw, world.states[requestedIndex], world)) {
-                raw.targetId = '';
-                continue;
-            }
-            if (requestedTargetId && missingUntrustedTarget) {
-                requestedTargetId = '';
-                requestedIndex = -1;
-                raw.targetId = '';
-            }
-            const requestedTarget = requestedIndex >= 0 ? world.states[requestedIndex] : null;
-            const normalized = {
-                subject: requestedTarget?.subject || canonicalMemorySubject(world, raw.subject),
-                attribute: requestedTarget?.attribute || canonicalStateAttribute(raw.attribute),
-                value: text(raw.value),
-                previous: text(raw.previous),
-                importance: clampImportance(raw.importance),
-                scope: stateScope(raw.scope),
-                operation: raw.operation === 'clear' ? 'clear' : 'set',
-                temporalAnchorId: l1Temporal.anchorId,
-            };
-            if (!normalized.subject || !normalized.attribute || isSuppressedByCorrection(world, 'states', normalized, meta)) continue;
-            const identity = stateIdentity(world, normalized);
-            const index = requestedIndex >= 0 ? requestedIndex : world.states.findIndex(item => stateIdentity(world, item) === identity);
-            if (normalized.operation === 'clear') {
-                if (index >= 0) raw.targetId = world.states[index].id;
-                world.states = world.states.filter(item => item.correctionId || stateIdentity(world, item) !== identity);
-                continue;
-            }
-            if (!normalized.value) continue;
-            if (index >= 0) {
-                const existing = world.states[index];
-                const merged = existing.correctionId ? { ...normalized, ...existing } : { ...existing, ...normalized };
-                world.states[index] = common({ ...merged, id: existing.id, createdAt: existing.createdAt }, meta, 'state');
-                raw.targetId = world.states[index].id;
-            } else {
-                const created = common({ ...normalized, ...(requestedTargetId ? { id: requestedTargetId } : {}) }, meta, 'state');
-                world.states.push(created);
-                raw.targetId = created.id;
-            }
-        }
-    }
+    if (meta.allowStateUpdates !== false) applyActiveStates(world, result, meta, l1Temporal);
 
     for (const relationship of result.relationships || []) {
         if (!relationship || typeof relationship !== 'object' || text(relationship.targetId)) continue;

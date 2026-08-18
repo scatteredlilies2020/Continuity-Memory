@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildEmbeddingDocuments } from '../extension/embedding-index.js';
 import { EXTRACTION_VERSION } from '../extension/coverage.js';
-import { addDerivedArc, addDerivedEra, compactHierarchyFields, freshResetResiduals, getLatestL1UndoStatus, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from '../extension/memory-model.js';
+import { addDerivedArc, addDerivedEra, compactHierarchyFields, freshResetResiduals, getLatestL1UndoStatus, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from '../extension/memory-model.js';
 import { buildMemoryPrompt, orderEventsChronologically } from '../extension/retrieval.js';
 import { sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
 
@@ -72,6 +72,36 @@ test('merges durable records and updates matching facts instead of duplicating t
     assert.equal(target.sources[meta.chatKey].lastProcessedIndex, 8);
     assert.equal(target.capsules.length, 2);
     assert.deepEqual(target.sources[meta.chatKey].processedMessages, [{ index: 0, fingerprint: 'first', version: EXTRACTION_VERSION }]);
+});
+
+test('promotes a stored historical tail snapshot without re-merging durable memory', () => {
+    const target = world();
+    const result = extraction({
+        scene: { location: 'Coruscant landing platform', time: 'Evening', participants: ['Lucas'], activity: 'Disembarking for a meeting', mood: 'Tense' },
+        states: [
+            { subject: 'Lucas', attribute: 'current location', value: 'At the Imperial Palace', previous: '', importance: 5, scope: 'ongoing', operation: 'set' },
+            { subject: 'Toska', attribute: 'current location', value: 'Remaining at the hidden moonbase', previous: '', importance: 5, scope: 'ongoing', operation: 'set' },
+        ],
+    });
+    mergeExtraction(target, result, { chatKey: 'chat', from: 168, to: 175, allowStateUpdates: false });
+    const durableCounts = Object.fromEntries(['entities', 'facts', 'relationships', 'events', 'capsules', 'threads'].map(category => [category, target[category].length]));
+
+    assert.equal(target.scene, null);
+    assert.equal(target.states.length, 0);
+    assert.equal(promoteStoredTailSnapshot(target, 'chat', 175), true);
+    assert.equal(target.scene.location, 'Coruscant landing platform');
+    assert.deepEqual(target.states.map(item => item.subject), ['Lucas', 'Toska']);
+    assert.equal(target.extractions[0].allowStateUpdates, true);
+    assert.deepEqual(Object.fromEntries(Object.keys(durableCounts).map(category => [category, target[category].length])), durableCounts);
+    assert.equal(promoteStoredTailSnapshot(target, 'chat', 175), false);
+});
+
+test('does not promote an extraction behind the latest complete L1 boundary', () => {
+    const target = world();
+    mergeExtraction(target, extraction(), { chatKey: 'chat', from: 160, to: 167, allowStateUpdates: false });
+    assert.equal(promoteStoredTailSnapshot(target, 'chat', 175), false);
+    assert.equal(target.scene, null);
+    assert.equal(target.states.length, 0);
 });
 
 test('address facts merge by direction and retain concurrent exact forms', () => {
