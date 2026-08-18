@@ -1422,6 +1422,46 @@ test('a historical mentor relationship cannot remain active after its establishe
     assert.match(result.relationships[0].dynamic, /former apprentice/);
 });
 
+test('an epistemic rider cannot contaminate or suppress the relationship asserted before it', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Toska', type: 'person', aliases: [] },
+        { name: 'Lucas Alcazar', type: 'person', aliases: ['Lucas'] },
+        { name: 'Caelen Veyr', type: 'deceased Jedi Master', aliases: ['Caelen'] },
+    );
+    result.facts.push({
+        targetId: '', subject: 'Lucas Alcazar', predicate: 'identity as Caelen Veyr’s former apprentice',
+        value: 'Lucas explicitly identifies himself as Caelen Veyr’s former apprentice, but Toska does not know that Lucas Alcazar is the Sith’s true identity.',
+        category: 'identity', importance: 5, persistence: 'persistent',
+    });
+    result.relationships.push({
+        targetId: 'relationship_toska_caelen', from: 'Toska', to: 'Caelen Veyr',
+        kind: 'former Jedi Master and Padawan', status: 'ended',
+        dynamic: 'Lucas explicitly identifies himself as Caelen Veyr’s former apprentice.', importance: 5,
+    });
+    const world = {
+        entities: result.entities, facts: [], states: [], threads: [], backgrounds: [],
+        relationships: [{
+            id: 'relationship_toska_caelen', from: 'Toska', to: 'Caelen Veyr',
+            kind: 'former Jedi Master and Padawan', status: 'ended',
+            dynamic: 'Toska was Caelen Veyr’s Padawan and remains loyal after his death.', importance: 5,
+        }],
+    };
+
+    const validation = sanitizeReconciliationMetadata(result, world, [{
+        name: 'Lucas', text: 'I was Caelen Veyr’s former apprentice. Toska does not know Lucas Alcazar is my true identity.',
+    }]);
+
+    assert.equal(validation.recoveredFactRelationships, 1);
+    assert.equal(result.relationships.length, 2);
+    const toskaCaelen = result.relationships.find(item => item.targetId === 'relationship_toska_caelen');
+    const lucasCaelen = result.relationships.find(item => [item.from, item.to].includes('Lucas Alcazar'));
+    assert.match(toskaCaelen.dynamic, /Toska was Caelen Veyr’s Padawan/);
+    assert.deepEqual([lucasCaelen.from, lucasCaelen.to].sort(), ['Caelen Veyr', 'Lucas Alcazar']);
+    assert.equal(lucasCaelen.status, 'ended');
+    assert.doesNotMatch(lucasCaelen.dynamic, /Toska does not know/);
+});
+
 test('a pending named object cannot be conflated with a different object being presented', () => {
     const result = extraction();
     result.entities.push(
@@ -2521,7 +2561,169 @@ test('a completed stage resolves when extraction carries its remaining stage as 
     assert.equal(result.threads[0].status, 'open');
     assert.equal(result.threads[1].targetId, 'thread_trip');
     assert.equal(result.threads[1].status, 'resolved');
-    assert.match(result.threads[1].detail, /atomic continuity transition/);
+    assert.match(result.threads[1].detail, /Resolved by explicit continuity|atomic continuity transition/);
+});
+
+test('preserving concealment for now cannot resolve an ongoing concealment thread', () => {
+    const result = extraction();
+    result.threads.push({
+        targetId: 'thread_conceal', title: 'Conceal Mira from the Chancellor',
+        detail: 'Resolved: Contact ended and the scrubbed relay preserved concealment for now; discovery remains a danger.',
+        status: 'resolved', participants: ['Mira', 'Chancellor'], importance: 5,
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [{ name: 'Mira', type: 'person', aliases: [] }, { name: 'Chancellor', type: 'person', aliases: [] }],
+        facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_conceal', title: 'Conceal Mira from the Chancellor',
+            detail: 'Mira must remain concealed from the Chancellor.', status: 'open',
+            participants: ['Mira', 'Chancellor'], importance: 5,
+        }],
+    }, [{ name: 'Narrator', text: 'Contact ended. The scrubbed relay preserved Mira’s concealment for now.' }]);
+
+    assert.equal(validation.reopenedUnsupportedThreads, 1);
+    assert.equal(result.threads[0].status, 'open');
+});
+
+test('preparing to recover an object while recovery is pending cannot resolve its recovery thread', () => {
+    const result = extraction();
+    result.threads.push({
+        targetId: 'thread_saber', title: 'Recover Mira’s green lightsaber',
+        detail: 'Resolved: The team secured fuel and began low-orbit descent to recover Mira’s green lightsaber; recovery is still pending.',
+        status: 'resolved', participants: ['Mira', 'Retrieval team'], importance: 4,
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [{ name: 'Mira', type: 'person', aliases: [] }, { name: 'Retrieval team', type: 'group', aliases: [] }],
+        facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_saber', title: 'Recover Mira’s green lightsaber',
+            detail: 'The green lightsaber has not yet been recovered.', status: 'open',
+            participants: ['Mira', 'Retrieval team'], importance: 4,
+        }],
+    }, [{ name: 'Narrator', text: 'The team began low-orbit descent to recover Mira’s green lightsaber. Recovery is still pending.' }]);
+
+    assert.equal(validation.reopenedUnsupportedThreads, 1);
+    assert.equal(result.threads[0].status, 'open');
+});
+
+test('a completed recovery clause resolves recovery while later transport remains pending', () => {
+    const result = extraction();
+    result.sceneCapsule = { beats: ['The retrieval team recovered Mira’s green lightsaber and is transporting it to the base.'] };
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [{ name: 'Mira', type: 'person', aliases: [] }, { name: 'Retrieval team', type: 'group', aliases: [] }],
+        facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_saber', title: 'Recover Mira’s green lightsaber',
+            detail: 'The green lightsaber has not yet been recovered.', status: 'open',
+            participants: ['Mira', 'Retrieval team'], importance: 4,
+        }],
+    }, [{ name: 'Narrator', text: 'The retrieval team recovered Mira’s green lightsaber and is transporting it to the base.' }]);
+
+    assert.equal(validation.reconciledThreads, 1);
+    assert.equal(result.threads[0].status, 'resolved');
+    assert.match(result.threads[0].detail, /recovered Mira’s green lightsaber/);
+});
+
+test('receiving a recovered object stays open while only recovery and transport are complete', () => {
+    const result = extraction();
+    result.threads.push({
+        targetId: 'thread_receive', title: 'Receive the recovered green lightsaber',
+        detail: 'Resolved: The team recovered the green lightsaber and is transporting it to Mira.',
+        status: 'resolved', participants: ['Mira', 'Retrieval team'], importance: 4,
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [{ name: 'Mira', type: 'person', aliases: [] }, { name: 'Retrieval team', type: 'group', aliases: [] }],
+        facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_receive', title: 'Receive the recovered green lightsaber',
+            detail: 'Mira has not yet received the recovered lightsaber.', status: 'open',
+            participants: ['Mira', 'Retrieval team'], importance: 4,
+        }],
+    }, [{ name: 'Narrator', text: 'The team recovered the green lightsaber and is transporting it to Mira.' }]);
+
+    assert.equal(validation.reopenedUnsupportedThreads, 1);
+    assert.equal(result.threads[0].status, 'open');
+});
+
+test('one assessor beginning work cannot complete another named assessor’s thread', () => {
+    const result = extraction();
+    result.events.push({
+        title: 'Maren finishes the warm-up', summary: 'Maren completes his warm-up assessment of Mira.',
+        consequences: 'Lucas now begins his personal assessment.', participants: ['Maren', 'Mira', 'Lucas'], importance: 4,
+    });
+    result.threads.push({
+        targetId: 'thread_lucas_assessment', title: 'Lucas’s personal assessment of Mira',
+        detail: 'Resolved: Lucas now begins his personal assessment after Maren completes the warm-up.',
+        status: 'resolved', participants: ['Lucas', 'Mira', 'Maren'], importance: 4,
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [{ name: 'Lucas', type: 'person', aliases: [] }, { name: 'Mira', type: 'person', aliases: [] }, { name: 'Maren', type: 'person', aliases: [] }],
+        facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_lucas_assessment', title: 'Lucas’s personal assessment of Mira',
+            detail: 'Lucas will assess Mira after Maren finishes.', status: 'open', participants: ['Lucas', 'Mira'], importance: 4,
+        }],
+    }, [{ name: 'Narrator', text: 'Maren completes the warm-up. Lucas begins his personal assessment of Mira.' }]);
+
+    assert.equal(validation.reopenedUnsupportedThreads, 1);
+    assert.equal(result.threads[0].status, 'open');
+});
+
+test('a refusal resolves the atomic leave decision even when a broader decision remains open', () => {
+    const result = extraction();
+    result.threads.push({
+        targetId: 'thread_leave', title: 'Mira decides whether to leave the enclave',
+        detail: 'Mira refused to leave and the hatch closed, but whether she accepts the enclave’s terms remains unresolved.',
+        status: 'open', participants: ['Mira'], importance: 4,
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [{ name: 'Mira', type: 'person', aliases: [] }], facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_leave', title: 'Mira decides whether to leave the enclave',
+            detail: 'Mira has not yet decided whether to leave.', status: 'open', participants: ['Mira'], importance: 4,
+        }],
+    }, [{ name: 'Mira', text: 'I refuse to leave. The hatch closes behind me.' }]);
+
+    assert.equal(validation.reconciledThreads, 1);
+    assert.equal(result.threads[0].status, 'resolved');
+    assert.match(result.threads[0].detail, /refused to leave/);
+});
+
+test('entering a destination resolves a stale reach-destination thread', () => {
+    const result = extraction();
+    result.sceneCapsule = { beats: ['Mira entered the hidden moon base and is now inside its training wing.'] };
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [{ name: 'Mira', type: 'person', aliases: [] }], facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_arrival', title: 'Reach the hidden moon base',
+            detail: 'Mira has not yet reached the hidden moon base.', status: 'open', participants: ['Mira'], importance: 4,
+        }],
+    }, [{ name: 'Narrator', text: 'Mira entered the hidden moon base and is now inside its training wing.' }]);
+
+    assert.equal(validation.reconciledThreads, 1);
+    assert.equal(result.threads[0].status, 'resolved');
+});
+
+test('an explicit knowledge boundary becomes a persistent open identity thread', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Mira', type: 'person', aliases: [] },
+        { name: 'Lord Ash', type: 'person', aliases: [] },
+        { name: 'Master Vale', type: 'person', aliases: [] },
+    );
+    result.facts.push({
+        targetId: '', subject: 'Lord Ash', predicate: 'identity as Master Vale’s former student',
+        value: 'Lord Ash identifies himself as Master Vale’s former student, but Mira does not know that Lord Ash is the masked ruler’s true identity.',
+        category: 'identity', importance: 5, persistence: 'persistent',
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: result.entities, facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    });
+
+    assert.equal(validation.recoveredIdentityThreads, 1);
+    const thread = result.threads.find(item => /has not recognized Lord Ash’s identity/.test(item.title));
+    assert.equal(thread.status, 'open');
+    assert.deepEqual(thread.participants, ['Mira', 'Lord Ash']);
 });
 
 test('source-supported durable limitations become atomic facts', () => {
