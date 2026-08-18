@@ -4,10 +4,10 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.145';
-import { worldCounts } from './memory-model.js';
+import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.146';
+import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.145';
+import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.146';
 import { clearRetrievalExpansionCache } from './semantic-retrieval.js';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
@@ -15,18 +15,18 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.145';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.145';
-import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.145';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.146';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.146';
+import { runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.146';
 import { completeL1MessageCount, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.145';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.145';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.145';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.146';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.146';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.146';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.145';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.145';
-import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.145';
+import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.146';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.146';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.146';
 import { createRenderScheduler } from './render-scheduler.js';
 
 let worlds = [];
@@ -1267,21 +1267,45 @@ async function deleteScope() {
     const world = runtime.world;
     if (!world) throw new Error('Open a chat and prepare its memory first.');
     if (runtime.processing) throw new Error('Stop processing before deleting memory.');
-    if (!window.confirm(`Permanently delete all memory in “${world.name}”? This removes every L1/L2/L3 record, its stored world, and its embedded chat-file copy. This cannot be undone unless you exported the memory.`)) return;
-    try { await purgeEmbeddingIndex(world.id); }
-    catch (error) { console.warn('[Continuity] Could not remove the deleted memory’s derived embedding index.', error); }
-    await api.deleteWorld(world.id);
-    markWorldDeleted(world.id);
+    const chatKey = getChatKey();
+    if (!chatKey) throw new Error('Open the chat whose memory should be removed.');
+    const sharedElsewhere = Object.entries(getSettings().chatWorlds || {})
+        .some(([boundChatKey, worldId]) => boundChatKey !== chatKey && worldId === world.id);
+    const warning = sharedElsewhere
+        ? `Remove “${world.name}” from this chat and start this chat with empty memory? The stored memory is also attached to another chat, so that shared copy will not be deleted.`
+        : `Permanently delete all memory in “${world.name}”? This removes every L1/L2/L3 record, its stored world, and its embedded chat-file copy. An imported continuation’s separate source memory is not deleted. This cannot be undone unless you exported this copy.`;
+    if (!window.confirm(warning)) return;
+    if (!sharedElsewhere) {
+        try { await purgeEmbeddingIndex(world.id); }
+        catch (error) { console.warn('[Continuity] Could not remove the deleted memory’s derived embedding index.', error); }
+        await api.deleteWorld(world.id);
+        markWorldDeleted(world.id);
+    }
     await clearPortableSnapshot();
+
+    // Bind a verified-empty replacement before refreshing. Otherwise recovery
+    // can immediately rediscover and attach a different stored copy with the
+    // same message fingerprints, making a successful deletion appear undone.
+    const context = getContext();
+    const replacement = (await api.createWorld(`${context.name2 || 'Chat'} · ${context.chatId || 'Memory'}`)).world;
+    const residuals = freshResetResiduals(replacement);
+    if (residuals.length) {
+        try { await api.deleteWorld(replacement.id); }
+        catch (error) { console.warn('[Continuity] Could not remove a non-empty replacement memory.', error); }
+        throw new Error(`The replacement memory was not empty (${residuals.join(', ')}).`);
+    }
+    bindCurrentChat(replacement.id);
     updateRuntime({
-        world: null,
+        world: replacement,
         lastInjection: '',
         lastInjectionTokens: 0,
         lastGenerationRetrieval: null,
         nextRetrievalPreview: null,
     });
     await refreshWorlds();
-    toast('success', 'All memory deleted without saving a copy. A new empty memory is ready.');
+    toast('success', sharedElsewhere
+        ? 'Memory removed from this chat; its shared copy was retained. A new empty memory is ready.'
+        : 'All memory for this chat was deleted without saving a copy. A new verified-empty memory is ready.');
 }
 
 async function continueFailedL1() {
