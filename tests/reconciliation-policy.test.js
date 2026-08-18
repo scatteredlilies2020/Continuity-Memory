@@ -1987,6 +1987,108 @@ test('an extractor-confirmed open thread is not locally overruled', () => {
     assert.equal(result.threads[0].status, 'open');
 });
 
+test('an extractor-confirmed completed thread is resolved instead of moving the goalposts', () => {
+    const result = extraction();
+    result.threads.push({
+        targetId: 'thread_history', title: 'Describe life in hiding',
+        detail: 'Toska has answered by describing deprivation, cramped training, and constant flight; broader implications remain only partly explored.',
+        status: 'open', participants: ['Toska'], importance: 3,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [{ name: 'Toska', type: 'person', aliases: [] }],
+        facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_history', title: 'Describe life in hiding', detail: 'Toska has not yet described it.',
+            status: 'open', participants: ['Toska'], importance: 3,
+        }],
+    }, [{ name: 'Toska', text: 'We ate what we found, trained in cramped rooms, and fled whenever danger came.' }]);
+
+    assert.equal(validation.reconciledThreads, 1);
+    assert.equal(result.threads[0].status, 'resolved');
+    assert.match(result.threads[0].detail, /Resolved by extracted continuity/);
+});
+
+test('an achieved atomic activity is resolved despite a vague broader-consequences goalpost', () => {
+    const result = extraction();
+    result.threads.push({
+        targetId: 'thread_garden', title: 'Toska explores the moonbase garden',
+        detail: 'Toska has reached the garden tier and begun exploring it; the extent and consequences of her broader exploration remain open.',
+        status: 'open', participants: ['Toska'], importance: 3,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [{ name: 'Toska', type: 'person', aliases: [] }],
+        facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_garden', title: 'Toska explores the moonbase garden',
+            detail: 'Toska intends to explore the garden tier.', status: 'open', participants: ['Toska'], importance: 3,
+        }],
+    }, [{ name: 'Toska', text: 'Toska enters the garden and rests her hand in its grass.' }]);
+
+    assert.equal(validation.reconciledThreads, 1);
+    assert.equal(result.threads[0].status, 'resolved');
+});
+
+test('preliminary progress cannot resolve a thread whose incoming update states the real gap', () => {
+    const result = extraction();
+    result.sceneCapsule = { beats: ['Lucas contacts the retrieval team and departs for bay four.'] };
+    result.threads.push({
+        targetId: 'thread_saber', title: 'Recover Toska’s green lightsaber',
+        detail: 'The retrieval team has been contacted, but the lightsaber remains in bay four and has not been recovered.',
+        status: 'open', participants: ['Lucas', 'Toska'], importance: 4,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [
+            { name: 'Lucas', type: 'person', aliases: [] },
+            { name: 'Toska', type: 'person', aliases: [] },
+        ], facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_saber', title: 'Recover Toska’s green lightsaber',
+            detail: 'Lucas must recover Toska’s green lightsaber.', status: 'open', participants: ['Lucas', 'Toska'], importance: 4,
+        }],
+    }, [{ name: 'Lucas', text: 'Contact the team. We are going to bay four; the saber is still there.' }]);
+
+    assert.equal(validation.reconciledThreads, 0);
+    assert.equal(result.threads[0].status, 'open');
+});
+
+test('a completed two-part task is resolved from a source-backed event even when beats split the actions', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Toska', type: 'person', aliases: [] },
+        { name: 'Nima', type: 'person', aliases: [] },
+    );
+    result.sceneCapsule = { beats: [
+        'Toska confirms the training saber still functions.',
+        'Nima returns with a medkit and applies a bacta strip.',
+    ] };
+    result.events.push({
+        title: 'Nima tends Toska',
+        summary: 'Nima recovers the training saber, fetches pain supplies in a medkit, and applies bacta to Toska.',
+        consequences: 'The saber and pain supplies are both in use.',
+        participants: ['Nima', 'Toska'], importance: 3,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: result.entities, facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_supplies', title: 'Retrieve the training saber and pain supplies',
+            detail: 'Nima must recover the training saber and obtain pain supplies; neither task is completed.',
+            status: 'open', participants: ['Nima', 'Toska'], importance: 3,
+        }],
+    }, [{
+        name: 'Nima',
+        text: 'Nima recovers the training saber, returns with the pain-supply medkit, and applies a bacta strip to Toska.',
+    }]);
+
+    assert.equal(validation.reconciledThreads, 1);
+    assert.equal(result.threads.length, 1);
+    assert.equal(result.threads[0].targetId, 'thread_supplies');
+    assert.equal(result.threads[0].status, 'resolved');
+});
+
 test('a resolved identity thread cannot stay open by moving its remaining question into the old title', () => {
     const result = extraction();
     result.entities.push(
@@ -2147,6 +2249,43 @@ test('duplicate same-role relationship anchors recover a previously established 
     assert.deepEqual(result.identityResolutions, [{
         reference: 'Ari Lane’s former mentor', canonical: 'Doctor Vale',
         evidence: 'Stable relationship continuity identifies Ari Lane’s former mentor as Doctor Vale.',
+    }]);
+});
+
+test('a different current relationship cannot hijack a named former mentor identity', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Toska', type: 'person', aliases: [] },
+        { name: 'Lucas Alcazar', type: 'person', aliases: [] },
+        { name: 'Caelen Veyr', type: 'person', aliases: [] },
+    );
+    result.sceneCapsule = { beats: [
+        'Toska identifies her deceased Jedi Master as Caelen Veyr.',
+    ] };
+    result.identityResolutions.push({
+        reference: 'Toska’s former Jedi Master', canonical: 'Lucas Alcazar',
+        evidence: 'Stable relationship continuity identifies Toska’s former Jedi Master as Lucas Alcazar.',
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [
+            { name: 'Toska', type: 'person', aliases: [] },
+            { name: 'Lucas Alcazar', type: 'person', aliases: [] },
+            { name: 'Toska’s former Jedi Master', type: 'person', aliases: [] },
+        ], facts: [], states: [], threads: [], backgrounds: [],
+        relationships: [
+            { from: 'Toska', to: 'Toska’s former Jedi Master', kind: 'former Jedi master and apprentice', status: 'ended' },
+            { from: 'Lucas Alcazar', to: 'Toska', kind: 'captor and prospective master-apprentice', status: 'active' },
+        ],
+    }, [{
+        name: 'Toska',
+        text: 'Asked for her master’s true name, Toska answers: “Jedi Master Caelen Veyr.”',
+    }]);
+
+    assert.equal(validation.discardedIdentityResolutions, 1);
+    assert.equal(validation.recoveredIdentities, 1);
+    assert.deepEqual(result.identityResolutions, [{
+        reference: 'Toska’s former Jedi Master', canonical: 'Caelen Veyr',
+        evidence: 'Toska identifies her deceased Jedi Master as Caelen Veyr.',
     }]);
 });
 
