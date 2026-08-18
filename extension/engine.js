@@ -6,26 +6,26 @@ import { proxies } from '/scripts/openai.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.144';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.145';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.144';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.145';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
-import { addDerivedArc, addDerivedEra, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
+import { addDerivedArc, addDerivedEra, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.144';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.144';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.145';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.145';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.144';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.144';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.145';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.145';
 import { applySourceAttributionFailClosed, canonicalFactReference, continuityAuditRetryInstruction, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.144';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.144';
-import { onRuntimeStop, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.144';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.145';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.145';
+import { onRuntimeStop, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.145';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
 
@@ -479,8 +479,11 @@ async function extractChunk(messages, world = runtime.world) {
                 });
                 continue;
             }
-            const failedClosedAttribution = attempt > 1
-                ? applySourceAttributionFailClosed(result, validation.sourceAttributionConflicts)
+            const failedClosedRecords = attempt > 1
+                ? applySourceAttributionFailClosed(result, [
+                    ...(validation.sourceAttributionConflicts || []),
+                    ...(validation.relationshipEndpointConflicts || []),
+                ])
                 : 0;
             const recovered = Number(validation.recovered || 0)
                 + Number(validation.recoveredAliases || 0)
@@ -499,7 +502,7 @@ async function extractChunk(messages, world = runtime.world) {
             const stateTransitions = Number(validation.reconciledStateTransitions || 0);
             const warnings = validation.warnings?.length || 0;
             updateRuntime({
-                lastValidation: `Valid structured extraction${attempt > 1 ? ' after retry' : ''}${recovered ? `; recovered ${recovered} omitted durable record(s)` : ''}${normalizedEpistemicFacts ? `; normalized ${normalizedEpistemicFacts} attributed fact(s)` : ''}${normalizedRelationships ? `; completed ${normalizedRelationships} relationship description(s)` : ''}${stateTransitions ? `; reconciled ${stateTransitions} state transition(s)` : ''}${failedClosedAttribution ? `; withheld ${failedClosedAttribution} source-unsupported objective record(s)` : ''}${repaired ? `; repaired ${repaired} reversed address value(s)` : ''}${discarded ? `; discarded ${discarded} cross-direction address value(s)` : ''}${unsupported ? `; discarded ${unsupported} unsupported address value(s)` : ''}${pronouns ? `; discarded ${pronouns} unsupported pronoun address value(s)` : ''}${reconciled ? `; reconciled ${reconciled} duplicate address record(s)` : ''}${warnings ? `; ${warnings} continuity audit warning(s)` : ''}`,
+                lastValidation: `Valid structured extraction${attempt > 1 ? ' after retry' : ''}${recovered ? `; recovered ${recovered} omitted durable record(s)` : ''}${normalizedEpistemicFacts ? `; normalized ${normalizedEpistemicFacts} attributed fact(s)` : ''}${normalizedRelationships ? `; completed ${normalizedRelationships} relationship description(s)` : ''}${stateTransitions ? `; reconciled ${stateTransitions} state transition(s)` : ''}${failedClosedRecords ? `; withheld ${failedClosedRecords} unsafe objective or identity record(s)` : ''}${repaired ? `; repaired ${repaired} reversed address value(s)` : ''}${discarded ? `; discarded ${discarded} cross-direction address value(s)` : ''}${unsupported ? `; discarded ${unsupported} unsupported address value(s)` : ''}${pronouns ? `; discarded ${pronouns} unsupported pronoun address value(s)` : ''}${reconciled ? `; reconciled ${reconciled} duplicate address record(s)` : ''}${warnings ? `; ${warnings} continuity audit warning(s)` : ''}`,
             });
             return result;
         } catch (error) {
@@ -1636,9 +1639,9 @@ export async function restartL1FromScratch() {
     for (const job of queued) job.reject?.(new Error('Start Over cleared the processing queue.'));
     const epoch = runtime.generation;
     let completedChunks = 0;
-    updateRuntime({ processing: true, paused: false, status: 'restarting', progress: null, lastError: '', retryStatus: 'Erasing extracted memory while preserving reviewed corrections before the fresh build…' });
+    updateRuntime({ processing: true, paused: false, status: 'restarting', progress: null, lastError: '', retryStatus: 'Erasing all Continuity memory before the fresh build…' });
     try {
-        const clear = world => resetWorldMemory(world, { preserveCorrections: true });
+        const clear = world => resetWorldMemory(world);
         let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
         clear(world);
         try {
@@ -1649,7 +1652,12 @@ export async function restartL1FromScratch() {
             clear(world);
             world = (await api.saveWorld(world)).world;
         }
-        updateRuntime({ world, retryStatus: 'Old extracted memory was erased; reviewed corrections remain authoritative. Preparing the first fresh L1 chunks…' });
+        if (world?.id !== worldId) throw new Error(`Start Over reset the wrong memory world (${world?.id || 'missing'} instead of ${worldId}).`);
+        const resetResiduals = freshResetResiduals(world);
+        if (resetResiduals.length) {
+            throw new Error(`Start Over did not persist an empty memory world; refusing to scan stale records (${resetResiduals.join(', ')}).`);
+        }
+        updateRuntime({ world, retryStatus: 'All old Continuity memory was erased and verified empty. Preparing the first fresh L1 chunks…' });
         await embedWorldInChat(world);
 
         const chunks = await chunkMessages(messages, resolveExtractionChunk(getSettings().extractionChunkTokens, getContext().maxContext), groupSize);
@@ -1685,7 +1693,7 @@ export async function restartL1FromScratch() {
             status: paused ? 'paused' : 'error',
             progress: null,
             lastError: error.message,
-            retryStatus: `Fresh rebuild interrupted after ${completedChunks} saved chunk(s). Old extracted memory remains erased; reviewed corrections remain authoritative. Use Build to resume missing ranges.`,
+            retryStatus: `Fresh rebuild interrupted after ${completedChunks} saved chunk(s). Old extracted memory remains erased. Use Build to resume missing ranges.`,
         });
         throw error;
     } finally {

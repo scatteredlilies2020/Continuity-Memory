@@ -947,6 +947,26 @@ export function normalizeRelationshipDescriptions(result) {
     return normalizedDescriptions;
 }
 
+export function findRelationshipEndpointConflicts(result, world) {
+    const conflicts = [];
+    const evidenceWorld = { ...(world || {}), entities: [...(world?.entities || []), ...(result?.entities || [])] };
+    const entityIndex = continuityEntityIndex(result, world);
+    for (const [index, relationship] of (result?.relationships || []).entries()) {
+        const label = `${cleanText(relationship?.from)} ↔ ${cleanText(relationship?.to)}`;
+        const from = normalized(canonicalMention(entityIndex, relationship?.from)?.name
+            || canonicalMemorySubject(evidenceWorld, relationship?.from));
+        const to = normalized(canonicalMention(entityIndex, relationship?.to)?.name
+            || canonicalMemorySubject(evidenceWorld, relationship?.to));
+        if (from && from === to) {
+            conflicts.push({
+                category: 'relationships', index, label,
+                warning: `Relationship endpoint conflict: “${label}” resolves both endpoints to the same participant; preserve the two distinct participants instead of creating a self-relationship.`,
+            });
+        }
+    }
+    return conflicts.slice(0, 4);
+}
+
 export function reconcileStatePreviousValues(result, world) {
     if (!Array.isArray(result?.states) || !Array.isArray(world?.states)) return 0;
     const evidenceWorld = { ...(world || {}), entities: [...(world?.entities || []), ...(result?.entities || [])] };
@@ -2042,6 +2062,7 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
         result.recordMerges = [];
         ignored++;
     }
+    const relationshipEndpointConflicts = findRelationshipEndpointConflicts(result, world);
 
     for (const category of TARGET_RECORD_CATEGORIES) {
         const recordsById = new Map((world?.[category] || [])
@@ -2054,6 +2075,14 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
             const compatible = targetId && reconciliationTargetIsCompatible(category, item, target, world);
             if (targetId && target && !compatible) {
                 REJECTED_TARGET_RECORDS.add(item);
+                if (category === 'relationships') {
+                    const incomingLabel = `${cleanText(item?.from)} ↔ ${cleanText(item?.to)}`;
+                    const storedLabel = `${cleanText(target?.from)} ↔ ${cleanText(target?.to)}`;
+                    relationshipEndpointConflicts.push({
+                        category, index: (result[category] || []).indexOf(item), label: incomingLabel,
+                        warning: `Relationship target conflict: “${incomingLabel}” attempted to reuse the stable ID belonging to “${storedLabel}”; relationship IDs cannot change their participant pair.`,
+                    });
+                }
                 ignored++;
             } else if (targetId && !compatible) ignored++;
             item.targetId = compatible ? targetId : '';
@@ -2086,11 +2115,12 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     });
     const sourceAttributionConflicts = findSourceAttributionConflicts(result, world, messages);
     const warnings = [...new Set([
+        ...relationshipEndpointConflicts.map(item => item.warning),
         ...sourceAttributionConflicts.map(item => item.warning),
         ...findCoverageWarnings(result, messages),
         ...findTypedContinuityWarnings(result, world),
         ...reconciledThreads.warnings,
     ])].slice(0, 8);
     if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
-    return { ignored, recovered, recoveredAliases, recoveredBoundaries, recoveredKnowledge, recoveredIdentities, recoveredFactRelationships, recoveredCoverage, reconciledThreads: reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, reconciledStateTransitions, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, sourceAttributionConflicts, warnings };
+    return { ignored, recovered, recoveredAliases, recoveredBoundaries, recoveredKnowledge, recoveredIdentities, recoveredFactRelationships, recoveredCoverage, reconciledThreads: reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, reconciledStateTransitions, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, sourceAttributionConflicts, relationshipEndpointConflicts, warnings };
 }

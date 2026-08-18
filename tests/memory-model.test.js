@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildEmbeddingDocuments } from '../extension/embedding-index.js';
 import { EXTRACTION_VERSION } from '../extension/coverage.js';
-import { addDerivedArc, addDerivedEra, compactHierarchyFields, getLatestL1UndoStatus, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from '../extension/memory-model.js';
+import { addDerivedArc, addDerivedEra, compactHierarchyFields, freshResetResiduals, getLatestL1UndoStatus, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from '../extension/memory-model.js';
 import { buildMemoryPrompt, orderEventsChronologically } from '../extension/retrieval.js';
 import { sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
 
@@ -1520,6 +1520,19 @@ test('fresh rebuild reset preserves reviewed corrections and corrected guardrail
     assert.equal(target.facts[0].id, 'corrected-fact');
     assert.equal(target.facts[0].correctionId, 'correction-1');
     assert.deepEqual(target.sources, {});
+    assert.deepEqual(freshResetResiduals(target, { allowCorrections: true }), []);
+    assert.deepEqual(freshResetResiduals(target), ['corrections:1', 'facts:1']);
+});
+
+test('fresh rebuild verification detects stale records left after a claimed reset', () => {
+    const target = world();
+    target.relationships.push({
+        id: 'relationship_stale', from: 'Lucas Alcazar', to: 'Caelen Veyr',
+        dynamic: 'Stale relationship from an earlier scan.',
+    });
+    target.sources.chat = { processedMessages: [{ index: 0, version: 18 }] };
+
+    assert.deepEqual(freshResetResiduals(target), ['sources', 'relationships:1']);
 });
 
 test('hierarchy reset deletes L2 and L3 while preserving L1 and extracted memory', () => {

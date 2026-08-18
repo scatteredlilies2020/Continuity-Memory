@@ -955,6 +955,22 @@ export function resetWorldMemory(world, { preserveCorrections = false } = {}) {
     return world;
 }
 
+export function freshResetResiduals(world, { allowCorrections = false } = {}) {
+    const correctionIds = allowCorrections
+        ? new Set((world?.corrections || []).map(item => item?.id).filter(Boolean))
+        : new Set();
+    const residuals = [];
+    if (world?.scene) residuals.push('scene');
+    if (world?.continuation) residuals.push('continuation');
+    if (Object.keys(world?.sources || {}).length) residuals.push('sources');
+    if (!allowCorrections && (world?.corrections || []).length) residuals.push(`corrections:${world.corrections.length}`);
+    for (const category of ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds']) {
+        const uncorrected = (world?.[category] || []).filter(item => !correctionIds.has(item?.correctionId));
+        if (uncorrected.length) residuals.push(`${category}:${uncorrected.length}`);
+    }
+    return residuals;
+}
+
 export function resetWorldHierarchy(world) {
     world.arcs = [];
     world.eras = [];

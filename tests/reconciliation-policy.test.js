@@ -1556,6 +1556,50 @@ test('identity resolution lets a stored placeholder relationship support its can
     assert.equal(validation.sourceAttributionConflicts.some(item => item.category === 'relationships'), false);
 });
 
+test('a stable relationship ID cannot change its participant pair', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Lucas Alcazar', type: 'person', aliases: [] },
+        { name: 'Toska', type: 'person', aliases: [] },
+        { name: 'Caelen Veyr', type: 'person', aliases: [] },
+    );
+    result.relationships.push({
+        targetId: 'relationship_lucas_toska', from: 'Lucas Alcazar', to: 'Caelen Veyr',
+        kind: 'captor and captive; prospective master and apprentice', status: 'active',
+        dynamic: 'Lucas Alcazar is coercively attempting to reshape Toska into his Sith apprentice and undermines her deceased Master, Caelen Veyr; Toska remains resistant.',
+        importance: 4,
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: result.entities, facts: [], states: [], threads: [], backgrounds: [],
+        relationships: [{
+            id: 'relationship_lucas_toska', from: 'Lucas Alcazar', to: 'Toska',
+            kind: 'captor and captive; prospective master and apprentice',
+        }],
+    });
+
+    assert.equal(validation.relationshipEndpointConflicts.length, 1);
+    assert.match(validation.relationshipEndpointConflicts[0].warning, /relationship IDs cannot change their participant pair/iu);
+    assert.equal(result.relationships[0].targetId, '');
+    assert.equal(applySourceAttributionFailClosed(result, validation.relationshipEndpointConflicts), 1);
+    assert.equal(result.relationships.length, 0);
+});
+
+test('a relationship cannot resolve both endpoints to the same participant', () => {
+    const result = extraction();
+    result.entities.push({ name: 'Caelen Veyr', type: 'person', aliases: ['Pell'] });
+    result.relationships.push({
+        targetId: '', from: 'Caelen Veyr', to: 'Pell', kind: 'former Jedi master and Padawan',
+        status: 'ended', dynamic: 'Caelen Veyr formerly trained a Padawan.', importance: 4,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: result.entities, facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    });
+
+    assert.equal(validation.relationshipEndpointConflicts.length, 1);
+    assert.match(validation.relationshipEndpointConflicts[0].warning, /same participant/u);
+});
+
 test('explicit OOC canon and matching stored canon are not source-attribution conflicts', () => {
     const makeResult = () => {
         const result = extraction();
