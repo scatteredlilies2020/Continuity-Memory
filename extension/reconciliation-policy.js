@@ -612,6 +612,115 @@ function structuredCoverageRecords(result) {
         .map(item => JSON.stringify(item));
 }
 
+const EXPLICIT_RELATIONSHIP_FACT_ROLE = /\b(?:apprenticeship|apprentice|student|padawan|pupil|prot[eé]g[eé]|mentor|mentee|teacher|instructor|parent|mother|father|child|son|daughter|sibling|brother|sister|spouse|husband|wife|married|friend|ally|rival|enemy|attendant|retainer|servant|employer|employee|commander|subordinate|teammate|partner|captor|captive|prisoner|guardian|ward)\b/iu;
+const NON_CANONICAL_RELATIONSHIP_FACT = /\b(?:belief|claim|allegation|rumou?r|speculation|suspicion|intention|possibility|possible|possibly|perhaps|maybe|might|may be|whether|uncertain|unconfirmed|disputed)\b/iu;
+
+function personEntity(entity) {
+    return Boolean(entity && cleanText(entity?.name)
+        && /^(?:person|character|npc|human|individual)$/iu.test(cleanText(entity?.type) || 'person'));
+}
+
+function explicitlyMentionedPeople(index, value) {
+    const source = cleanText(value);
+    if (!source) return [];
+    return index.entities.filter(personEntity).filter(entity => {
+        const variants = [entity.name, ...(entity.aliases || [])].map(cleanText).filter(Boolean);
+        return variants.some(name => new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(name)}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(source));
+    });
+}
+
+function relationshipEvidenceMentionsPerson(person, value) {
+    const source = cleanText(value);
+    return [person?.name, ...(person?.aliases || [])].map(cleanText).filter(Boolean)
+        .some(name => new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(name)}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(source));
+}
+
+function relationshipFactIsCorroborated(result, messages, people) {
+    const supported = value => {
+        const source = cleanText(value);
+        return EXPLICIT_RELATIONSHIP_FACT_ROLE.test(source)
+            && !NON_CANONICAL_RELATIONSHIP_FACT.test(source)
+            && people.every(person => relationshipEvidenceMentionsPerson(person, source));
+    };
+    if (Array.isArray(messages) && messages.length) {
+        const rendered = message => message
+            ? `${cleanText(message?.name || message?.speaker)}: ${cleanText(message?.text ?? message?.mes)}`
+            : '';
+        return messages.some((message, index, all) => supported([
+            rendered(all[index - 1]), rendered(message), rendered(all[index + 1]),
+        ].filter(Boolean).join(' ')));
+    }
+    return narrativeStrings(result).some(supported);
+}
+
+function relationshipKindFromFact(value) {
+    const source = cleanText(value);
+    if (/\b(?:padawan)\b/iu.test(source)) return 'Jedi master and Padawan';
+    if (/\b(?:apprenticeship|apprentice)\b/iu.test(source)) return 'master and apprentice';
+    if (/\b(?:student|pupil|teacher|instructor)\b/iu.test(source)) return 'teacher and student';
+    if (/\b(?:mentor|mentee|prot[eé]g[eé])\b/iu.test(source)) return 'mentor and protégé';
+    if (/\b(?:parent|mother|father|child|son|daughter)\b/iu.test(source)) return 'parent and child';
+    if (/\b(?:sibling|brother|sister)\b/iu.test(source)) return 'siblings';
+    if (/\b(?:spouse|husband|wife|married)\b/iu.test(source)) return 'spouses';
+    if (/\b(?:friend)\b/iu.test(source)) return 'friends';
+    if (/\b(?:ally)\b/iu.test(source)) return 'allies';
+    if (/\b(?:rival)\b/iu.test(source)) return 'rivals';
+    if (/\b(?:enemy)\b/iu.test(source)) return 'enemies';
+    if (/\b(?:captor|captive|prisoner)\b/iu.test(source)) return 'captor and captive';
+    if (/\b(?:attendant|retainer|servant)\b/iu.test(source)) return 'principal and retainer';
+    if (/\b(?:employer|employee)\b/iu.test(source)) return 'employer and employee';
+    if (/\b(?:commander|subordinate)\b/iu.test(source)) return 'commander and subordinate';
+    if (/\b(?:teammate)\b/iu.test(source)) return 'teammates';
+    if (/\b(?:guardian|ward)\b/iu.test(source)) return 'guardian and ward';
+    return 'established personal relationship';
+}
+
+function relationshipDescriptionFromFact(fact, people) {
+    const value = cleanText(fact?.value);
+    const namesPresent = people.every(person => new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(person.name)}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(value));
+    return namesPresent ? value : `${people[0].name} and ${people[1].name}: ${value}`;
+}
+
+export function recoverExplicitFactRelationships(result, world, messages = null) {
+    if (!Array.isArray(result?.facts) || !Array.isArray(result?.relationships)) return 0;
+    const index = continuityEntityIndex(result, world);
+    let recovered = 0;
+    for (const fact of result.facts) {
+        const predicate = cleanText(fact?.predicate);
+        const category = cleanText(fact?.category);
+        const value = cleanText(fact?.value);
+        const evidence = `${predicate}. ${value}`;
+        if (!value || !EXPLICIT_RELATIONSHIP_FACT_ROLE.test(evidence)
+            || NON_CANONICAL_RELATIONSHIP_FACT.test(`${predicate} ${category}`)
+            || NON_CANONICAL_RELATIONSHIP_FACT.test(value)
+            || normalized(fact?.persistence) === 'temporary') continue;
+        const subject = canonicalMention(index, fact?.subject);
+        const mentioned = explicitlyMentionedPeople(index, value);
+        const people = [...new Map([subject, ...mentioned].filter(personEntity).map(person => [normalized(person.name), person])).values()];
+        if (people.length !== 2 || !relationshipFactIsCorroborated(result, messages, people)) continue;
+        const candidate = { from: people[0].name, to: people[1].name };
+        const pairIdentity = relationshipPairIdentity(candidate, { ...(world || {}), entities: index.entities });
+        if (!pairIdentity || result.relationships.some(item => relationshipPairIdentity(item, world) === pairIdentity)) continue;
+        const stored = (world?.relationships || []).find(item => relationshipPairIdentity(item, world) === pairIdentity);
+        const description = relationshipDescriptionFromFact(fact, people);
+        const priorDescription = cleanText(stored?.dynamic);
+        const dynamic = priorDescription && coverageOverlap(priorDescription, description) < 3
+            ? `${priorDescription} ${description}`.slice(0, 1200)
+            : description;
+        result.relationships.push({
+            targetId: cleanText(stored?.id),
+            from: cleanText(stored?.from) || people[0].name,
+            to: cleanText(stored?.to) || people[1].name,
+            kind: cleanText(stored?.kind) || relationshipKindFromFact(evidence),
+            status: cleanText(stored?.status) || (/\b(?:former|previous|prior|ex-|ended|deceased|dead|late)\b/iu.test(evidence) ? 'ended' : 'active'),
+            dynamic,
+            importance: Math.max(3, Math.min(5, Number(fact?.importance || stored?.importance || 3))),
+        });
+        recovered++;
+    }
+    return recovered;
+}
+
 function uncoveredDurableBeats(result, messages) {
     if (!Array.isArray(result?.sceneCapsule?.beats) || !Array.isArray(messages) || !messages.length) return [];
     const source = messages.map(message => `${cleanText(message?.name || message?.speaker)}: ${cleanText(message?.text ?? message?.mes)}`).join('\n');
@@ -1522,7 +1631,8 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const recoveredBoundaries = recoverExplicitConcealmentBoundaries(result, world);
     const recoveredKnowledge = recoverExplicitPriorKnowledge(result, world);
     const recoveredIdentities = recoverExplicitNamedIdentityResolutions(result, world, messages);
-    const recoveredCoverage = recoverSourceGroundedCoverageRecords(result, world, messages);
+    const recoveredFactRelationships = recoverExplicitFactRelationships(result, world, messages);
+    const recoveredCoverage = recoveredFactRelationships + recoverSourceGroundedCoverageRecords(result, world, messages);
     const reconciledThreads = reconcileExplicitlyResolvedThreads(result, world, messages);
     const reconciledAddresses = reconcileGenericAddressDuplicates(result, world);
     const discardedUnsupportedAddresses = removeUnsupportedAddressValues(result, messages, world);
@@ -1581,5 +1691,5 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     });
     const warnings = [...findCoverageWarnings(result, messages), ...reconciledThreads.warnings];
     if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
-    return { ignored, recovered, recoveredAliases, recoveredBoundaries, recoveredKnowledge, recoveredIdentities, recoveredCoverage, reconciledThreads: reconciledThreads.resolved, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, warnings };
+    return { ignored, recovered, recoveredAliases, recoveredBoundaries, recoveredKnowledge, recoveredIdentities, recoveredFactRelationships, recoveredCoverage, reconciledThreads: reconciledThreads.resolved, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, warnings };
 }

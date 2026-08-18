@@ -1217,6 +1217,100 @@ test('source-supported relationship omissions become relationship records', () =
     });
 });
 
+test('an explicit durable former-student fact recovers its missing relationship', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Lucas Alcazar', type: 'person', aliases: [] },
+        { name: 'Caelen Veyr', type: 'person', aliases: ['Caelen'] },
+        { name: 'Toska', type: 'person', aliases: [] },
+    );
+    result.facts.push({
+        targetId: '', subject: 'Caelen Veyr', predicate: 'prior apprenticeship',
+        value: 'Lucas Alcazar identifies himself as Caelen Veyr’s former apprentice; Caelen trained him in theory and diplomacy.',
+        category: 'background', importance: 4, persistence: 'persistent',
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{
+        name: 'Lucas Alcazar', text: 'Lucas Alcazar was Caelen Veyr’s former apprentice and trained under him before the Order fell.',
+    }]);
+
+    assert.equal(validation.recoveredFactRelationships, 1);
+    assert.equal(validation.recoveredCoverage, 1);
+    assert.deepEqual(result.relationships, [{
+        targetId: '', from: 'Caelen Veyr', to: 'Lucas Alcazar', kind: 'master and apprentice', status: 'ended',
+        dynamic: 'Lucas Alcazar identifies himself as Caelen Veyr’s former apprentice; Caelen trained him in theory and diplomacy.',
+        importance: 4,
+    }]);
+});
+
+test('beliefs, uncertain claims, and facts naming several people do not synthesize relationships', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Alice', type: 'person', aliases: [] },
+        { name: 'Bob', type: 'person', aliases: [] },
+        { name: 'Carol', type: 'person', aliases: [] },
+    );
+    result.facts.push(
+        {
+            targetId: '', subject: 'Alice', predicate: 'belief about Bob',
+            value: 'Alice believes Bob might be her former mentor.', category: 'character belief',
+            importance: 3, persistence: 'persistent',
+        },
+        {
+            targetId: '', subject: 'Alice', predicate: 'training history',
+            value: 'Alice, Bob, and Carol were students at the same academy.', category: 'background',
+            importance: 3, persistence: 'persistent',
+        },
+    );
+    result.sceneCapsule = { beats: [
+        'Alice believes Bob might be her former mentor.',
+        'Alice, Bob, and Carol were students at the same academy.',
+    ] };
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    });
+
+    assert.equal(validation.recoveredFactRelationships, 0);
+    assert.deepEqual(result.relationships, []);
+});
+
+test('fact relationship recovery updates one stored pair and preserves its prior description', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Alice', type: 'person', aliases: [] },
+        { name: 'Bob', type: 'person', aliases: [] },
+    );
+    result.facts.push({
+        targetId: '', subject: 'Alice', predicate: 'training history',
+        value: 'Alice was Bob’s former mentor during the winter campaign.', category: 'background',
+        importance: 4, persistence: 'persistent',
+    });
+    const world = {
+        entities: result.entities,
+        facts: [], states: [], threads: [], backgrounds: [],
+        relationships: [{
+            id: 'relationship_alice_bob', from: 'Bob', to: 'Alice', kind: 'traveling companions', status: 'active',
+            dynamic: 'Alice and Bob crossed the northern frontier together.', importance: 3,
+        }],
+    };
+
+    const validation = sanitizeReconciliationMetadata(result, world, [{
+        name: 'Bob', text: 'Alice was my former mentor during the winter campaign.',
+    }]);
+
+    assert.equal(validation.recoveredFactRelationships, 1);
+    assert.equal(result.relationships.length, 1);
+    assert.equal(result.relationships[0].targetId, 'relationship_alice_bob');
+    assert.equal(result.relationships[0].from, 'Bob');
+    assert.equal(result.relationships[0].to, 'Alice');
+    assert.match(result.relationships[0].dynamic, /crossed the northern frontier/);
+    assert.equal(result.relationships[0].status, 'active');
+    assert.match(result.relationships[0].dynamic, /was Bob’s former mentor/);
+});
+
 test('source-supported role omissions become durable identity facts', () => {
     const result = extraction();
     result.entities.push({ name: 'Alice', type: 'person', aliases: [] });
