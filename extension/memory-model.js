@@ -148,6 +148,28 @@ function safeEntityAliases(name, type, aliases) {
     });
 }
 
+function removeCrossEntityCanonicalAliases(entities) {
+    const owners = new Map();
+    for (const entity of entities || []) {
+        const identity = key(entity?.name);
+        if (!identity) continue;
+        const matches = owners.get(identity) || [];
+        matches.push(entity);
+        owners.set(identity, matches);
+    }
+    let removed = 0;
+    for (const entity of entities || []) {
+        const before = entity.aliases || [];
+        entity.aliases = before.filter(alias => {
+            const matches = owners.get(key(alias)) || [];
+            const keep = !matches.some(owner => owner !== entity);
+            if (!keep) removed++;
+            return keep;
+        });
+    }
+    return removed;
+}
+
 function exactTextKey(value) {
     return text(value).toLocaleLowerCase().replace(/[.!?]+$/u, '');
 }
@@ -562,6 +584,7 @@ export function mergeExtraction(world, result, meta) {
 
     for (const resolution of result.identityResolutions || []) applyIdentityResolution(world, resolution, meta);
     applyDescriptionIdentityResolutions(world, meta);
+    removeCrossEntityCanonicalAliases(world.entities);
 
     mergeArray(world, 'facts', world.facts, result.facts, item => addressFactIdentity(item, world) || `${key(item.subject)}|${key(item.predicate)}|${key(item.category)}`, meta, 'fact', (item, existing) => {
         const address = isAddressFact(item);

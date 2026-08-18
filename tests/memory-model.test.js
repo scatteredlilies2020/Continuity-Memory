@@ -460,6 +460,20 @@ test('person aliases reject relationship roles while retaining names and codenam
     assert.deepEqual(target.entities.find(item => item.name === 'Lucas Alcazar').aliases, ['Darth Lucifer', 'Lucas']);
 });
 
+test('one canonical character name cannot remain another character alias', () => {
+    const target = world();
+    mergeExtraction(target, extraction({
+        entities: [
+            { name: 'Alice Carter', type: 'person', aliases: ['Alice'], description: 'An injured trainee.', importance: 5 },
+            { name: 'Doctor Vale', type: 'deceased person', aliases: ['Vale', 'Alice Carter'], description: 'Alice’s deceased mentor.', importance: 5 },
+        ],
+        events: [],
+    }), { chatKey: 'roleplay', from: 0, to: 7, allowStateUpdates: true });
+
+    assert.deepEqual(target.entities.find(item => item.name === 'Alice Carter').aliases, ['Alice']);
+    assert.deepEqual(target.entities.find(item => item.name === 'Doctor Vale').aliases, ['Vale']);
+});
+
 test('an explicit canonical description resolves a possessive person placeholder without model reconciliation', () => {
     const target = world();
     const reference = "Toska's former Jedi master";

@@ -1364,6 +1364,101 @@ export function reconcileStatePreviousValues(result, world) {
     return reconciled;
 }
 
+// A stable state ID owns one subject/attribute pair. Models sometimes preserve
+// that ID and the exact previous value while accidentally substituting a
+// different nearby character name. In that narrow case the transition chain is
+// stronger evidence than the rewritten subject, so retain the owner and the new
+// detail instead of either corrupting the state or discarding the update.
+export function repairStableStateOwners(result, world) {
+    if (!Array.isArray(result?.states) || !Array.isArray(world?.states)) return 0;
+    const byId = new Map(world.states.map(item => [cleanText(item?.id), item]).filter(([id]) => id));
+    let repaired = 0;
+    for (const item of result.states) {
+        const stored = byId.get(cleanText(item?.targetId));
+        if (!stored
+            || normalized(item?.subject) === normalized(stored?.subject)
+            || canonicalStateAttribute(item?.attribute) !== canonicalStateAttribute(stored?.attribute)
+            || !normalized(item?.previous)
+            || !normalized(stored?.value)
+            || normalized(item?.previous) !== normalized(stored?.value)) continue;
+        item.subject = cleanText(stored.subject);
+        repaired++;
+    }
+    return repaired;
+}
+
+function latestStructuredPositions(messages) {
+    for (const message of [...(messages || [])].reverse()) {
+        const source = String(message?.text ?? message?.mes ?? '');
+        const matches = [...source.matchAll(/(?:^|[\r\n])\s*(?:positions?|present characters?|participants?)\s*=\s*([^\r\n]+)/giu)];
+        const value = cleanText(matches.at(-1)?.[1]);
+        if (value) return value;
+    }
+    return '';
+}
+
+function entityIsEstablishedDead(entity, result, world) {
+    const name = cleanText(entity?.name);
+    if (!name) return false;
+    if (/\b(?:dead|deceased)\b/iu.test(`${cleanText(entity?.type)} ${cleanText(entity?.description)}`)) return true;
+    return [...(world?.states || []), ...(result?.states || [])].some(item =>
+        normalized(item?.subject) === normalized(name)
+        && /\b(?:condition|status|life|alive|health)\b/iu.test(cleanText(item?.attribute))
+        && /\b(?:dead|deceased|killed)\b/iu.test(cleanText(item?.value)));
+}
+
+function textMentionsEntity(value, entity) {
+    return [entity?.name, ...(entity?.aliases || [])].some(name => textMentionsCanonicalName(value, name));
+}
+
+// Scene participants are an active-scene snapshot, not every person referenced
+// by dialogue, memories, possessions, or backstory. Prefer an explicit current
+// Positions/Participants field when present, supplement it with names in the
+// scene activity, and keep a deceased off-screen reference out of the cast.
+export function reconcileSceneParticipants(result, world, messages = null) {
+    if (!result?.scene || typeof result.scene !== 'object') return 0;
+    const original = [...new Set((result.scene.participants || []).map(cleanText).filter(Boolean))];
+    const positions = latestStructuredPositions(messages);
+    const activity = cleanText(result.scene.activity);
+    const evidence = cleanText(`${positions} ${activity}`);
+    const entities = [];
+    const seen = new Set();
+    for (const entity of [...(world?.entities || []), ...(result?.entities || [])]) {
+        const name = cleanText(entity?.name);
+        if (!name || seen.has(normalized(name))) continue;
+        seen.add(normalized(name));
+        entities.push(entity);
+    }
+    for (const message of messages || []) {
+        const name = cleanText(message?.name);
+        const representedByLivingEntity = entities.some(entity => !entityIsEstablishedDead(entity, result, world)
+            && [entity.name, ...(entity.aliases || [])].some(alias => normalized(alias) === normalized(name)));
+        if (!name || seen.has(normalized(name)) || representedByLivingEntity || !textMentionsCanonicalName(evidence, name)) continue;
+        seen.add(normalized(name));
+        entities.push({ name, type: 'person', aliases: [] });
+    }
+
+    let participants = positions
+        ? original.filter(name => {
+            const entity = entities.find(candidate => normalized(candidate.name) === normalized(name));
+            return entity ? textMentionsEntity(evidence, entity) : textMentionsCanonicalName(evidence, name);
+        })
+        : [...original];
+    for (const entity of entities) {
+        if (textMentionsEntity(evidence, entity)) participants.push(cleanText(entity.name));
+    }
+    participants = [...new Set(participants.map(cleanText).filter(Boolean))]
+        .filter(name => {
+            const entity = entities.find(candidate => normalized(candidate.name) === normalized(name));
+            return !entity || !entityIsEstablishedDead(entity, result, world)
+                || textMentionsCanonicalName(evidence, entity.name);
+        });
+
+    if (JSON.stringify(participants) === JSON.stringify(original)) return 0;
+    result.scene.participants = participants;
+    return 1;
+}
+
 const AUDIT_EPISTEMIC_CATEGORY = /\b(?:belief|claim|knowledge|rumou?r|report|uncertain|allegation|speculation|intention)\b/iu;
 const AUDIT_SUBJECTIVE_VALUE = /\b(?:believes?|thinks?|suspects?|claims?|alleges?|rumou?rs?|rumou?red|reportedly)\b/iu;
 const AUDIT_POSSESSION_ATTRIBUTE = /\b(?:possession|possesses|inventory|ownership|carrying|carries|holds|equipment)\b/iu;
@@ -2478,7 +2573,9 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const reconciledIdentityThreads = reconcileResolvedIdentityThreads(result, world);
     const reconciledThreads = reconcileExplicitlyResolvedThreads(result, world, messages);
     const normalizedRelationshipDescriptions = normalizeRelationshipDescriptions(result);
+    const repairedStateOwners = repairStableStateOwners(result, world);
     const reconciledStateTransitions = reconcileStatePreviousValues(result, world);
+    const reconciledSceneParticipants = reconcileSceneParticipants(result, world, messages);
     const reconciledAddresses = reconcileGenericAddressDuplicates(result, world);
     const discardedUnsupportedAddresses = removeUnsupportedAddressValues(result, messages, world);
     const discardedPronounAddresses = removeUnsupportedPronounAddressValues(result, messages, world);
@@ -2556,5 +2653,5 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
         ...localWarnings,
     ])].slice(0, 8);
     if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
-    return { ignored, recovered, recoveredAliases, recoveredBoundaries, recoveredKnowledge, recoveredIdentities, normalizedIdentityReferences, discardedIdentityResolutions, canonicalizedIdentityReferences, recoveredFactRelationships, recoveredCommitments, recoveredCoverage, preservedResolvedThreads, reconciledThreads: reconciledIdentityThreads + reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, reconciledStateTransitions, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, sourceAttributionConflicts, relationshipEndpointConflicts, localWarnings, diagnosticWarnings, warnings };
+    return { ignored, recovered, recoveredAliases, recoveredBoundaries, recoveredKnowledge, recoveredIdentities, normalizedIdentityReferences, discardedIdentityResolutions, canonicalizedIdentityReferences, recoveredFactRelationships, recoveredCommitments, recoveredCoverage, preservedResolvedThreads, reconciledThreads: reconciledIdentityThreads + reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, repairedStateOwners, reconciledStateTransitions, reconciledSceneParticipants, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, sourceAttributionConflicts, relationshipEndpointConflicts, localWarnings, diagnosticWarnings, warnings };
 }

@@ -122,6 +122,58 @@ test('canonical aliases remain compatible with stable entity and subject IDs', (
     assert.equal(result.relationships[0].targetId, 'relationship_alpha');
 });
 
+test('stable state transitions repair a substituted owner and scene positions ground the active cast', () => {
+    const result = extraction();
+    result.states.push({
+        targetId: 'state_alice_condition', subject: 'Doctor Vale', attribute: 'physical condition',
+        value: 'Bruised, bleeding, and unable to bear weight on her left wrist.',
+        previous: 'Winded with a raw left wrist.', scope: 'ongoing', operation: 'set', importance: 4,
+    });
+    result.scene = {
+        location: 'Training hall', time: 'Morning', participants: ['Doctor Vale', 'Bob'],
+        activity: 'Bob helps Alice sit up after the assessment.', mood: 'Painful',
+    };
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [
+            { name: 'Alice', type: 'person', aliases: [] },
+            { name: 'Bob', type: 'person', aliases: [] },
+            { name: 'Doctor Vale', type: 'deceased person', aliases: [] },
+        ],
+        facts: [], relationships: [], threads: [], backgrounds: [],
+        states: [
+            { id: 'state_alice_condition', subject: 'Alice', attribute: 'physical condition', value: 'Winded with a raw left wrist.', scope: 'ongoing' },
+            { id: 'state_vale_condition', subject: 'Doctor Vale', attribute: 'condition', value: 'Deceased.', scope: 'ongoing' },
+        ],
+    }, [{
+        name: 'Narrator',
+        text: '<stat>\nPositions = Alice beside the wall | Bob kneeling beside her\nInventory = Doctor Vale’s old journal\n</stat>\nBob helps Alice sit up.',
+    }]);
+
+    assert.equal(result.states[0].subject, 'Alice');
+    assert.equal(result.states[0].targetId, 'state_alice_condition');
+    assert.equal(result.states[0].value, 'Bruised, bleeding, and unable to bear weight on her left wrist.');
+    assert.deepEqual(result.scene.participants, ['Bob', 'Alice']);
+    assert.equal(validation.repairedStateOwners, 1);
+    assert.equal(validation.reconciledSceneParticipants, 1);
+});
+
+test('a different owner cannot hijack a stable state ID without the transition chain', () => {
+    const result = extraction();
+    result.states.push({
+        targetId: 'state_alice_location', subject: 'Bob', attribute: 'location',
+        value: 'North gate', previous: 'Unknown', scope: 'ongoing', operation: 'set', importance: 3,
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [{ name: 'Alice', type: 'person', aliases: [] }, { name: 'Bob', type: 'person', aliases: [] }],
+        facts: [], relationships: [], threads: [], backgrounds: [],
+        states: [{ id: 'state_alice_location', subject: 'Alice', attribute: 'location', value: 'South gate', scope: 'ongoing' }],
+    });
+    assert.equal(result.states[0].subject, 'Bob');
+    assert.equal(result.states[0].targetId, '');
+    assert.equal(validation.repairedStateOwners, 0);
+    assert.ok(validation.ignored >= 1);
+});
+
 test('relationship target IDs are compatible across reversed endpoints and evolving type wording', () => {
     const result = extraction();
     result.relationships.push({
