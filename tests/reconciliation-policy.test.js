@@ -1526,6 +1526,54 @@ test('historical relationships and entity descriptions inherit source uncertaint
     assert.match(result.entities[0].description, /remain disputed or attributed/u);
 });
 
+test('a subjective update cannot overwrite an established entity description', () => {
+    const result = extraction();
+    result.entities.push({
+        targetId: 'entity_caelen', name: 'Caelen Veyr', type: 'person', aliases: ['Pell'],
+        description: 'Toska’s former Jedi Master, whose strict restraint is now interpreted by Toska as fear-driven suppression of her potential.',
+        importance: 4,
+    });
+    result.facts.push({
+        targetId: '', subject: 'Toska', predicate: 'belief about Caelen Veyr — fear and suppression',
+        value: 'Toska is beginning to believe Caelen kept her power small because he feared her potential.',
+        category: 'character belief', importance: 4, persistence: 'persistent',
+    });
+    const established = 'Toska’s deceased former Jedi Master, known as Pell while in hiding.';
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [{ id: 'entity_caelen', name: 'Caelen Veyr', type: 'person', aliases: ['Pell'], description: established }],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{
+        name: 'Toska', isUser: false,
+        text: 'Toska says, “Maybe Caelen kept me small because he was afraid of what I could become.”',
+    }]);
+
+    assert.ok(validation.sourceAttributionConflicts.some(item => item.category === 'entities'));
+    assert.equal(applySourceAttributionFailClosed(result, validation.sourceAttributionConflicts), 1);
+    assert.equal(result.entities[0].description, established);
+    assert.equal(result.facts[0].category, 'character belief');
+});
+
+test('objective narration may still update an established entity description', () => {
+    const result = extraction();
+    result.entities.push({
+        targetId: 'entity_caelen', name: 'Caelen Veyr', type: 'person', aliases: ['Pell'],
+        description: 'Toska’s deceased former Jedi Master, known as Pell while hiding on the desert planet and carrying a blue lightsaber.',
+        importance: 4,
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [{
+            id: 'entity_caelen', name: 'Caelen Veyr', type: 'person', aliases: ['Pell'],
+            description: 'Toska’s deceased former Jedi Master, known as Pell while in hiding.',
+        }],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{
+        name: 'Narrator', isUser: false,
+        text: 'Caelen Veyr lived under the name Pell on the desert planet. His blue lightsaber lay beside his body in the abandoned hut.',
+    }]);
+
+    assert.equal(validation.sourceAttributionConflicts.some(item => item.category === 'entities'), false);
+});
+
 test('identity resolution lets a stored placeholder relationship support its canonical name', () => {
     const result = extraction();
     result.identityResolutions.push({

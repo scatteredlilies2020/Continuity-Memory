@@ -1184,6 +1184,23 @@ function sourceOnlySubjective(reference, messages) {
     return evidence.subjective >= threshold && evidence.objective < threshold;
 }
 
+function novelEntityDescriptionTerms(entity, existing) {
+    const baseline = new Set(coverageTerms(`${cleanText(entity?.name)} ${cleanText(existing?.description)}`));
+    return new Set([...coverageTerms(entity?.description)].filter(term => !baseline.has(term)));
+}
+
+function descriptionDuplicatesAttributedPerspective(result, entity, existing) {
+    const novel = novelEntityDescriptionTerms(entity, existing);
+    if (novel.size < 2) return false;
+    const required = Math.max(2, Math.min(4, Math.ceil(novel.size * 0.25)));
+    return (result?.facts || []).some(fact => {
+        if (!epistemicFactShape(fact)
+            && !AUDIT_EPISTEMIC_CATEGORY.test(`${cleanText(fact?.predicate)} ${cleanText(fact?.category)}`)) return false;
+        const terms = coverageTerms(`${cleanText(fact?.predicate)} ${cleanText(fact?.value)}`);
+        return [...novel].filter(term => terms.has(term)).length >= required;
+    });
+}
+
 function resolvedAuditIdentity(result, value) {
     const requested = normalized(value);
     const resolution = (result?.identityResolutions || []).find(item => normalized(item?.reference) === requested);
@@ -1228,14 +1245,20 @@ export function findSourceAttributionConflicts(result, world, messages) {
     }
     for (const [index, entity] of (result?.entities || []).entries()) {
         const reference = `${cleanText(entity?.name)} ${cleanText(entity?.description)}`;
-        if (!AUDIT_ENTITY_HISTORY.test(cleanText(entity?.description)) || coverageTerms(reference).size < 5) continue;
-        if ((world?.entities || []).some(item => normalized(item?.name) === normalized(entity?.name))) continue;
-        const storedSupport = storedRecordSupportsReference(reference, world?.entities, item =>
+        if (coverageTerms(reference).size < 5) continue;
+        const existing = (world?.entities || []).find(item => normalized(item?.name) === normalized(entity?.name));
+        if (existing && normalized(existing.description) === normalized(entity.description)) continue;
+        const novelTerms = novelEntityDescriptionTerms(entity, existing);
+        if (existing && novelTerms.size < 2) continue;
+        const duplicatesPerspective = descriptionDuplicatesAttributedPerspective(result, entity, existing);
+        if (!duplicatesPerspective && !AUDIT_ENTITY_HISTORY.test(cleanText(entity?.description)) && !existing) continue;
+        const storedSupport = !existing && storedRecordSupportsReference(reference, world?.entities, item =>
             normalized(item?.name) === normalized(entity?.name));
-        if (storedSupport || !sourceOnlySubjective(reference, messages)) continue;
+        if (storedSupport || (!duplicatesPerspective && !sourceOnlySubjective(reference, messages))) continue;
         conflicts.push({
             category: 'entities', index, label: cleanText(entity?.name),
-            warning: `Source-attribution conflict: entity description for “${cleanText(entity?.name)}” presents disputed character-supplied history as objective; keep only objectively supported description and store claims under their holders.`,
+            replacementDescription: existing ? cleanText(existing.description) : null,
+            warning: `Source-attribution conflict: entity description update for “${cleanText(entity?.name)}” presents character belief, interpretation, or disputed history as objective; retain the prior established description and store the perspective under its holder.`,
         });
     }
     for (const [index, relationship] of (result?.relationships || []).entries()) {
@@ -1252,7 +1275,10 @@ export function findSourceAttributionConflicts(result, world, messages) {
             warning: `Source-attribution conflict: relationship “${label}” is supported only by character speech, thought, report, memory, or focalized inference; retain it as attributed claims until objectively corroborated.`,
         });
     }
-    return conflicts.slice(0, 8);
+    const priority = { entities: 0, relationships: 1, facts: 2 };
+    return conflicts
+        .sort((left, right) => (priority[left.category] ?? 3) - (priority[right.category] ?? 3))
+        .slice(0, 24);
 }
 
 export function applySourceAttributionFailClosed(result, conflicts) {
@@ -1275,7 +1301,9 @@ export function applySourceAttributionFailClosed(result, conflicts) {
     for (const conflict of grouped.get('entities') || []) {
         const entity = result?.entities?.[Number(conflict.index)];
         if (!entity) continue;
-        entity.description = `Details about ${cleanText(entity.name)} remain disputed or attributed in this excerpt; consult character perspectives and source history.`;
+        entity.description = conflict.replacementDescription !== null && conflict.replacementDescription !== undefined
+            ? cleanText(conflict.replacementDescription)
+            : `Details about ${cleanText(entity.name)} remain disputed or attributed in this excerpt; consult character perspectives and source history.`;
         removed++;
     }
     return removed;
