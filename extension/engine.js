@@ -6,26 +6,26 @@ import { proxies } from '/scripts/openai.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.142';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.143';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.142';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.143';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.142';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.142';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.143';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.143';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.142';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.142';
-import { canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.142';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.142';
-import { onRuntimeStop, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.142';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.143';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.143';
+import { canonicalFactReference, continuityAuditRetryInstruction, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.143';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.143';
+import { onRuntimeStop, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.143';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
 
@@ -463,12 +463,22 @@ async function extractChunk(messages, world = runtime.world) {
     const prepared = prepareExtractionPrompts(messages, world);
     const { prompt, fallbackPrompt, systemPrompt } = prepared;
     let lastError;
+    let auditRetry = '';
     for (let attempt = 1; attempt <= 2; attempt++) {
         try {
-            const raw = await requestExtraction(prompt, systemPrompt, fallbackPrompt);
+            const attemptPrompt = auditRetry ? `${prompt}\n\n${auditRetry}` : prompt;
+            const attemptFallbackPrompt = auditRetry ? `${fallbackPrompt}\n\n${auditRetry}` : fallbackPrompt;
+            const raw = await requestExtraction(attemptPrompt, systemPrompt, attemptFallbackPrompt);
             updateRuntime({ lastRawResponse: String(raw).slice(0, 30000) });
             const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
             const { result, validation } = validateResult(parsed, world, messages);
+            if (attempt === 1 && validation.warnings?.length) {
+                auditRetry = continuityAuditRetryInstruction(validation.warnings);
+                updateRuntime({
+                    lastValidation: `Structured extraction requires one continuity-audit retry: ${validation.warnings.length} issue(s).`,
+                });
+                continue;
+            }
             const recovered = Number(validation.recovered || 0)
                 + Number(validation.recoveredAliases || 0)
                 + Number(validation.recoveredBoundaries || 0)
@@ -481,9 +491,11 @@ async function extractChunk(messages, world = runtime.world) {
             const unsupported = Number(validation.discardedUnsupportedAddresses || 0);
             const pronouns = Number(validation.discardedPronounAddresses || 0);
             const reconciled = Number(validation.reconciledAddresses || 0);
+            const normalizedRelationships = Number(validation.normalizedRelationshipDescriptions || 0);
+            const stateTransitions = Number(validation.reconciledStateTransitions || 0);
             const warnings = validation.warnings?.length || 0;
             updateRuntime({
-                lastValidation: `Valid structured extraction${attempt > 1 ? ' after retry' : ''}${recovered ? `; recovered ${recovered} omitted durable record(s)` : ''}${repaired ? `; repaired ${repaired} reversed address value(s)` : ''}${discarded ? `; discarded ${discarded} cross-direction address value(s)` : ''}${unsupported ? `; discarded ${unsupported} unsupported address value(s)` : ''}${pronouns ? `; discarded ${pronouns} unsupported pronoun address value(s)` : ''}${reconciled ? `; reconciled ${reconciled} duplicate address record(s)` : ''}${warnings ? `; ${warnings} L1 coverage warning(s)` : ''}`,
+                lastValidation: `Valid structured extraction${attempt > 1 ? ' after retry' : ''}${recovered ? `; recovered ${recovered} omitted durable record(s)` : ''}${normalizedRelationships ? `; completed ${normalizedRelationships} relationship description(s)` : ''}${stateTransitions ? `; reconciled ${stateTransitions} state transition(s)` : ''}${repaired ? `; repaired ${repaired} reversed address value(s)` : ''}${discarded ? `; discarded ${discarded} cross-direction address value(s)` : ''}${unsupported ? `; discarded ${unsupported} unsupported address value(s)` : ''}${pronouns ? `; discarded ${pronouns} unsupported pronoun address value(s)` : ''}${reconciled ? `; reconciled ${reconciled} duplicate address record(s)` : ''}${warnings ? `; ${warnings} continuity audit warning(s)` : ''}`,
             });
             return result;
         } catch (error) {

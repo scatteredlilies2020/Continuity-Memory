@@ -1,4 +1,4 @@
-import { canonicalMemorySubject, stateIdentity } from './state-lifecycle.js';
+import { canonicalMemorySubject, canonicalStateAttribute, isActiveState, stateIdentity } from './state-lifecycle.js';
 
 export const TARGET_RECORD_CATEGORIES = Object.freeze(['entities', 'facts', 'states', 'relationships', 'threads', 'backgrounds']);
 
@@ -923,6 +923,175 @@ export function reconcileExplicitlyResolvedThreads(result, world, messages) {
     return { resolved, warnings };
 }
 
+function textMentionsCanonicalName(value, name) {
+    const source = cleanText(value);
+    const target = cleanText(name);
+    return Boolean(source && target
+        && new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(target)}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(source));
+}
+
+export function normalizeRelationshipDescriptions(result) {
+    if (!Array.isArray(result?.relationships)) return 0;
+    let normalizedDescriptions = 0;
+    for (const item of result.relationships) {
+        const from = cleanText(item?.from);
+        const to = cleanText(item?.to);
+        if (!from || !to) continue;
+        const dynamic = cleanText(item?.dynamic);
+        if (dynamic && textMentionsCanonicalName(dynamic, from) && textMentionsCanonicalName(dynamic, to)) continue;
+        const prefix = `Relationship between ${from} and ${to}:`;
+        const fallback = [cleanText(item?.kind), cleanText(item?.status)].filter(Boolean).join('; ');
+        item.dynamic = `${prefix} ${dynamic || fallback || 'established connection.'}`.trim().slice(0, 1200);
+        normalizedDescriptions++;
+    }
+    return normalizedDescriptions;
+}
+
+export function reconcileStatePreviousValues(result, world) {
+    if (!Array.isArray(result?.states) || !Array.isArray(world?.states)) return 0;
+    const evidenceWorld = { ...(world || {}), entities: [...(world?.entities || []), ...(result?.entities || [])] };
+    const byId = new Map(world.states.map(item => [cleanText(item?.id), item]).filter(([id]) => id));
+    const byIdentity = new Map(world.states.map(item => [stateIdentity(evidenceWorld, item), item]).filter(([identity]) => identity));
+    let reconciled = 0;
+    for (const item of result.states) {
+        const stored = byId.get(cleanText(item?.targetId)) || byIdentity.get(stateIdentity(evidenceWorld, item));
+        if (!stored) continue;
+        const changed = normalized(item?.value) !== normalized(stored?.value) || normalized(item?.operation) === 'clear';
+        if (!changed || normalized(item?.previous) === normalized(stored?.value)) continue;
+        item.previous = cleanText(stored?.value);
+        reconciled++;
+    }
+    return reconciled;
+}
+
+const AUDIT_EPISTEMIC_CATEGORY = /\b(?:belief|claim|knowledge|rumou?r|report|uncertain|allegation|speculation|intention)\b/iu;
+const AUDIT_SUBJECTIVE_VALUE = /\b(?:believes?|thinks?|suspects?|claims?|alleges?|rumou?rs?|rumou?red|reportedly)\b/iu;
+const AUDIT_POSSESSION_ATTRIBUTE = /\b(?:possession|possesses|inventory|ownership|carrying|carries|holds|equipment)\b/iu;
+const AUDIT_OBJECT_TYPE = /^(?:object|item|artifact|weapon|tool|vehicle|device|equipment)$/iu;
+const AUDIT_IMMUTABLE_IDENTITY = /\b(?:species|race|birthplace|birth place|date of birth|parentage|biological parent|true identity|real identity)\b/iu;
+const AUDIT_ROLE_IDENTITY = /\b(?:rank|role|position|title|office|designation)\b/iu;
+const AUDIT_TEMPORAL_TRANSITION = /\b(?:former|previous|prior|now|currently|became|becomes|promoted|demoted|appointed|retired|replaced|succeeded)\b/iu;
+
+function durableAuditRecords(result) {
+    return ['facts', 'states', 'relationships', 'threads', 'backgrounds']
+        .flatMap(key => Array.isArray(result?.[key]) ? result[key] : [])
+        .map(item => JSON.stringify(item));
+}
+
+function consequenceCovered(event, records) {
+    const excluded = new Set((event?.participants || []).flatMap(coverageTerms));
+    const terms = [...coverageTerms(event?.consequences)].filter(term => !excluded.has(term));
+    if (terms.length < 2) return true;
+    return records.some(record => {
+        const recordTerms = coverageTerms(record);
+        const matches = terms.filter(term => recordTerms.has(term)).length;
+        return matches >= Math.max(2, Math.min(4, Math.ceil(terms.length * 0.4)));
+    });
+}
+
+function sceneStateWarnings(result, world) {
+    const sceneLocation = cleanText(result?.scene?.location || result?.sceneCapsule?.location);
+    if (!sceneLocation) return [];
+    const evidenceWorld = { ...(world || {}), entities: [...(world?.entities || []), ...(result?.entities || [])] };
+    const participants = new Set([...(result?.scene?.participants || []), ...(result?.sceneCapsule?.participants || [])]
+        .map(value => normalized(canonicalMemorySubject(evidenceWorld, value))).filter(Boolean));
+    return (result?.states || []).filter(item => normalized(canonicalStateAttribute(item?.attribute)) === 'location'
+        && normalized(item?.operation || 'set') !== 'clear'
+        && participants.has(normalized(canonicalMemorySubject(evidenceWorld, item?.subject)))
+        && normalized(item?.value) !== normalized(sceneLocation)
+        && coverageOverlap(item?.value, sceneLocation) < 2)
+        .slice(0, 2)
+        .map(item => `Scene/state conflict: ${cleanText(item.subject)} is placed at “${cleanText(item.value)}” while the current scene is “${sceneLocation}”.`);
+}
+
+function possessionWarnings(result, world) {
+    const evidenceWorld = { ...(world || {}), entities: [...(world?.entities || []), ...(result?.entities || [])] };
+    const finalStates = new Map((world?.states || []).filter(isActiveState)
+        .map(item => [stateIdentity(evidenceWorld, item), item]));
+    for (const item of result?.states || []) {
+        const identity = stateIdentity(evidenceWorld, item);
+        if (!identity) continue;
+        if (normalized(item?.operation) === 'clear') finalStates.delete(identity);
+        else finalStates.set(identity, item);
+    }
+    const ownersByObject = new Map();
+    for (const item of finalStates.values()) {
+        if (!AUDIT_POSSESSION_ATTRIBUTE.test(cleanText(item?.attribute))) continue;
+        const object = canonicalMention(continuityEntityIndex(result, world), item?.value);
+        if (!object || !AUDIT_OBJECT_TYPE.test(cleanText(object?.type))) continue;
+        const objectName = cleanText(object.name);
+        const owners = ownersByObject.get(normalized(objectName)) || { objectName, subjects: new Set() };
+        owners.subjects.add(cleanText(canonicalMemorySubject(evidenceWorld, item?.subject)));
+        ownersByObject.set(normalized(objectName), owners);
+    }
+    return [...ownersByObject.values()].filter(item => item.subjects.size > 1).slice(0, 2)
+        .map(item => `Possession conflict: ${item.objectName} is simultaneously assigned to ${[...item.subjects].join(' and ')} without a supported transfer or shared-ownership explanation.`);
+}
+
+function factConsistencyWarnings(result, world) {
+    const warnings = [];
+    for (const fact of result?.facts || []) {
+        const identityText = `${cleanText(fact?.predicate)} ${cleanText(fact?.category)}`;
+        if (!AUDIT_EPISTEMIC_CATEGORY.test(identityText) && AUDIT_SUBJECTIVE_VALUE.test(cleanText(fact?.value))) {
+            warnings.push(`Epistemic conflict: “${cleanText(fact.subject)} — ${cleanText(fact.predicate)}” contains a belief, claim, or uncertainty but is categorized as objective.`);
+        }
+        if (!AUDIT_IMMUTABLE_IDENTITY.test(identityText) && !AUDIT_ROLE_IDENTITY.test(identityText)) continue;
+        const stored = (world?.facts || []).find(item => normalized(canonicalMemorySubject(world, item?.subject)) === normalized(canonicalMemorySubject(world, fact?.subject))
+            && normalized(item?.predicate) === normalized(fact?.predicate)
+            && normalized(item?.category) === normalized(fact?.category));
+        if (!stored || normalized(stored?.value) === normalized(fact?.value) || coverageOverlap(stored?.value, fact?.value) >= 2) continue;
+        const transitionExplained = AUDIT_TEMPORAL_TRANSITION.test(`${cleanText(stored?.value)} ${cleanText(fact?.value)}`);
+        if (AUDIT_IMMUTABLE_IDENTITY.test(identityText) || !transitionExplained) {
+            warnings.push(`Identity/role conflict: ${cleanText(fact.subject)} has incompatible “${cleanText(fact.predicate)}” values without an explicit transition.`);
+        }
+    }
+    return warnings.slice(0, 3);
+}
+
+function threadLifecycleWarnings(result) {
+    const warnings = [];
+    for (const thread of result?.threads || []) {
+        const status = normalized(thread?.status);
+        const detail = cleanText(thread?.detail);
+        if (status === 'resolved' && THREAD_GAP.test(detail)) {
+            warnings.push(`Thread lifecycle conflict: resolved thread “${cleanText(thread.title)}” still describes an unresolved condition.`);
+        } else if (status === 'open' && THREAD_RESOLUTION.test(detail) && !THREAD_GAP.test(detail)) {
+            warnings.push(`Thread lifecycle conflict: open thread “${cleanText(thread.title)}” describes only a completed condition.`);
+        }
+    }
+    return warnings.slice(0, 2);
+}
+
+export function findTypedContinuityWarnings(result, world) {
+    const warnings = [];
+    const records = durableAuditRecords(result);
+    for (const event of result?.events || []) {
+        const consequences = cleanText(event?.consequences);
+        if (Number(event?.importance || 0) < 4 || !consequences || /^(?:none|n\/a|unknown)$/iu.test(consequences)) continue;
+        if (!consequenceCovered(event, records)) {
+            warnings.push(`Typed coverage gap: major event “${cleanText(event.title)}” has a consequence that is not represented as a durable fact, state, relationship, thread, or background.`);
+        }
+    }
+    warnings.push(...factConsistencyWarnings(result, world));
+    warnings.push(...sceneStateWarnings(result, world));
+    warnings.push(...possessionWarnings(result, world));
+    warnings.push(...threadLifecycleWarnings(result));
+    const temporal = result?.sceneCapsule?.temporal;
+    if (cleanText(temporal?.elapsed) && normalized(temporal?.relation) === 'unknown') {
+        warnings.push('Temporal conflict: an explicit elapsed interval was supplied without identifying what it is relative to.');
+    }
+    return [...new Set(warnings)].slice(0, 8);
+}
+
+export function continuityAuditRetryInstruction(warnings) {
+    const items = [...new Set((warnings || []).map(cleanText).filter(Boolean))].slice(0, 8);
+    if (!items.length) return '';
+    return `CONTINUITY VALIDATION RETRY
+The previous candidate was valid JSON but failed these continuity checks:
+${items.map(item => `- ${item}`).join('\n')}
+Return a fresh, complete extraction for the same supplied messages. Correct every supported issue across the appropriate typed records. Preserve source-supported detail; do not hide a problem by deleting the event, fact, relationship, state, thread, or uncertainty that exposed it. Use only supplied messages and known continuity. If canon remains uncertain, represent it explicitly as an attributed belief, claim, knowledge boundary, or unresolved thread instead of guessing.`;
+}
+
 export function findCoverageWarnings(result, messages) {
     return uncoveredDurableBeats(result, messages)
         .map(beat => `Potential durable detail remains only in L1: ${beat}`);
@@ -1634,6 +1803,8 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const recoveredFactRelationships = recoverExplicitFactRelationships(result, world, messages);
     const recoveredCoverage = recoveredFactRelationships + recoverSourceGroundedCoverageRecords(result, world, messages);
     const reconciledThreads = reconcileExplicitlyResolvedThreads(result, world, messages);
+    const normalizedRelationshipDescriptions = normalizeRelationshipDescriptions(result);
+    const reconciledStateTransitions = reconcileStatePreviousValues(result, world);
     const reconciledAddresses = reconcileGenericAddressDuplicates(result, world);
     const discardedUnsupportedAddresses = removeUnsupportedAddressValues(result, messages, world);
     const discardedPronounAddresses = removeUnsupportedPronounAddressValues(result, messages, world);
@@ -1689,7 +1860,11 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
         else merge.duplicateIds = duplicateIds;
         return valid;
     });
-    const warnings = [...findCoverageWarnings(result, messages), ...reconciledThreads.warnings];
+    const warnings = [...new Set([
+        ...findCoverageWarnings(result, messages),
+        ...findTypedContinuityWarnings(result, world),
+        ...reconciledThreads.warnings,
+    ])].slice(0, 8);
     if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
-    return { ignored, recovered, recoveredAliases, recoveredBoundaries, recoveredKnowledge, recoveredIdentities, recoveredFactRelationships, recoveredCoverage, reconciledThreads: reconciledThreads.resolved, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, warnings };
+    return { ignored, recovered, recoveredAliases, recoveredBoundaries, recoveredKnowledge, recoveredIdentities, recoveredFactRelationships, recoveredCoverage, reconciledThreads: reconciledThreads.resolved, normalizedRelationshipDescriptions, reconciledStateTransitions, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, warnings };
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { addressFactIdentity, canonicalFactReference, hasSelfAddressEvidence, mergeAddressValues, removeInvalidAddressFacts, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
+import { addressFactIdentity, canonicalFactReference, continuityAuditRetryInstruction, hasSelfAddressEvidence, mergeAddressValues, removeInvalidAddressFacts, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
 
 function extraction() {
     return {
@@ -1309,6 +1309,147 @@ test('fact relationship recovery updates one stored pair and preserves its prior
     assert.match(result.relationships[0].dynamic, /crossed the northern frontier/);
     assert.equal(result.relationships[0].status, 'active');
     assert.match(result.relationships[0].dynamic, /was Bob’s former mentor/);
+});
+
+test('relationship descriptions become self-contained without changing their asserted meaning', () => {
+    const result = extraction();
+    result.relationships.push({
+        targetId: '', from: 'Alice', to: 'Bob', kind: 'friends', status: 'active',
+        dynamic: 'They trust one another with the archive key.', importance: 4,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    });
+
+    assert.equal(validation.normalizedRelationshipDescriptions, 1);
+    assert.match(result.relationships[0].dynamic, /Relationship between Alice and Bob/);
+    assert.match(result.relationships[0].dynamic, /trust one another with the archive key/);
+});
+
+test('state transitions use the canonical stored value as their previous value', () => {
+    const result = extraction();
+    result.states.push({
+        targetId: 'state_alice_location', subject: 'Alice', attribute: 'current location',
+        value: 'North tower', previous: 'Unknown', scope: 'ongoing', operation: 'set', importance: 3,
+    });
+    const world = {
+        entities: [{ name: 'Alice', type: 'person', aliases: [] }], facts: [], relationships: [], threads: [], backgrounds: [],
+        states: [{
+            id: 'state_alice_location', subject: 'Alice', attribute: 'location', value: 'South gate',
+            previous: '', scope: 'ongoing', operation: 'set', importance: 3,
+        }],
+    };
+
+    const validation = sanitizeReconciliationMetadata(result, world);
+
+    assert.equal(validation.reconciledStateTransitions, 1);
+    assert.equal(result.states[0].previous, 'South gate');
+    assert.equal(result.states[0].targetId, 'state_alice_location');
+});
+
+test('major event consequences require a durable typed record', () => {
+    const result = extraction();
+    result.events.push({
+        title: 'Northern bridge collapse', summary: 'The northern bridge collapsed.', participants: ['Alice'],
+        consequences: 'The northern road is now impassable to supply wagons.', importance: 5,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    });
+    assert.ok(validation.warnings.some(item => /Typed coverage gap.*Northern bridge collapse/u.test(item)));
+
+    result.facts.push({
+        targetId: '', subject: 'Northern road', predicate: 'accessibility',
+        value: 'The northern road is impassable to supply wagons after the bridge collapse.',
+        category: 'infrastructure', importance: 5, persistence: 'persistent',
+    });
+    const covered = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    });
+    assert.ok(!covered.warnings.some(item => /Typed coverage gap.*Northern bridge collapse/u.test(item)));
+});
+
+test('the typed audit flags epistemic leakage, scene conflicts, and contradictory thread status', () => {
+    const result = extraction();
+    result.scene = { location: 'Harbor', participants: ['Alice'] };
+    result.facts.push({
+        targetId: '', subject: 'Alice', predicate: 'Bob’s allegiance',
+        value: 'Alice believes Bob might secretly serve the crown.', category: 'background',
+        importance: 4, persistence: 'persistent',
+    });
+    result.states.push({
+        targetId: '', subject: 'Alice', attribute: 'location', value: 'Mountain keep',
+        previous: '', scope: 'scene', operation: 'set', importance: 3,
+    });
+    result.threads.push({
+        targetId: '', title: 'Recover the archive key',
+        detail: 'The archive key remains missing and must still be recovered.', status: 'resolved',
+        participants: ['Alice'], importance: 4,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [{ name: 'Alice', type: 'person', aliases: [] }, { name: 'Bob', type: 'person', aliases: [] }],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    });
+
+    assert.ok(validation.warnings.some(item => /Epistemic conflict/u.test(item)));
+    assert.ok(validation.warnings.some(item => /Scene\/state conflict/u.test(item)));
+    assert.ok(validation.warnings.some(item => /Thread lifecycle conflict/u.test(item)));
+});
+
+test('the typed audit flags simultaneous unique-object possession', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Alice', type: 'person', aliases: [] },
+        { name: 'Bob', type: 'person', aliases: [] },
+        { name: 'Sun Key', type: 'artifact', aliases: [] },
+    );
+    result.states.push(
+        { targetId: '', subject: 'Alice', attribute: 'possession', value: 'Sun Key', scope: 'ongoing', operation: 'set', importance: 4 },
+        { targetId: '', subject: 'Bob', attribute: 'possession', value: 'Sun Key', scope: 'ongoing', operation: 'set', importance: 4 },
+    );
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    });
+
+    assert.ok(validation.warnings.some(item => /Possession conflict.*Sun Key/u.test(item)));
+});
+
+test('identity and temporal changes require explicit transition anchors', () => {
+    const result = extraction();
+    result.sceneCapsule = { temporal: { relation: 'unknown', elapsed: 'three days', certainty: 'explicit' } };
+    result.facts.push({
+        targetId: 'fact_alice_rank', subject: 'Alice', predicate: 'military rank', value: 'General',
+        category: 'identity', importance: 4, persistence: 'persistent',
+    });
+    const world = {
+        entities: [{ name: 'Alice', type: 'person', aliases: [] }], states: [], relationships: [], threads: [], backgrounds: [],
+        facts: [{
+            id: 'fact_alice_rank', subject: 'Alice', predicate: 'military rank', value: 'Captain',
+            category: 'identity', importance: 4, persistence: 'persistent',
+        }],
+    };
+
+    const validation = sanitizeReconciliationMetadata(result, world);
+
+    assert.ok(validation.warnings.some(item => /Identity\/role conflict/u.test(item)));
+    assert.ok(validation.warnings.some(item => /Temporal conflict/u.test(item)));
+});
+
+test('continuity audit retry feedback is bounded and preserves uncertainty', () => {
+    const feedback = continuityAuditRetryInstruction([
+        'Epistemic conflict: Alice only suspects the claim.',
+        'Typed coverage gap: the consequence is missing.',
+        'Epistemic conflict: Alice only suspects the claim.',
+    ]);
+
+    assert.match(feedback, /fresh, complete extraction/u);
+    assert.match(feedback, /attributed belief, claim, knowledge boundary, or unresolved thread/u);
+    assert.equal(feedback.match(/Epistemic conflict/gu)?.length, 1);
+    assert.equal(continuityAuditRetryInstruction([]), '');
 });
 
 test('source-supported role omissions become durable identity facts', () => {
