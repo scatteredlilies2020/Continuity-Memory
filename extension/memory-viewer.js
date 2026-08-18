@@ -88,9 +88,9 @@ function entry(category, item, index) {
         addTemporal(fields, item);
     } else if (category === 'relationships') {
         title = [item.from, item.to].filter(Boolean).join(' ↔ ') || title;
+        add(fields, 'Description', item.dynamic);
         add(fields, 'Type', item.kind);
         add(fields, 'Status', item.status);
-        add(fields, 'Dynamic', item.dynamic);
         addTemporal(fields, item);
     } else if (category === 'events') {
         add(fields, 'Summary', item.summary);

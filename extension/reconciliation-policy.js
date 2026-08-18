@@ -1468,13 +1468,20 @@ export function reconciliationTargetIsCompatible(category, incoming, existing, w
             && incomingIdentity === stateIdentity(world, existing));
     }
     if (category === 'relationships') {
-        return sameSubject(incoming?.from, existing?.from)
-            && sameSubject(incoming?.to, existing?.to)
-            && same(incoming?.kind, existing?.kind);
+        return Boolean(relationshipPairIdentity(incoming, world)
+            && relationshipPairIdentity(incoming, world) === relationshipPairIdentity(existing, world));
     }
     if (category === 'threads') return same(incoming?.title, existing?.title);
     if (category === 'backgrounds') return same(incoming?.topic, existing?.topic);
     return false;
+}
+
+export function relationshipPairIdentity(item, world = null) {
+    const endpoints = [item?.from, item?.to]
+        .map(value => normalized(canonicalMemorySubject(world, value)))
+        .filter(Boolean)
+        .sort();
+    return endpoints.length === 2 ? endpoints.join('|') : '';
 }
 
 const ENTITY_TYPE_FAMILIES = new Map([

@@ -1,10 +1,10 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.140';
+import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.141';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
-import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.14.0-standalone.140';
+import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.14.0-standalone.141';
 
 export const EXTENSION_NAME = 'continuityMemory';
 
@@ -327,6 +327,34 @@ export function getSettings() {
             if (promptFingerprint(settings[key]) === legacyFingerprint) settings[key] = PROMPT_DEFAULTS[key];
         }
         settings.tokenEfficientPromptVersion = 1;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.relationshipDescriptionPromptVersion || 0) < 1) {
+        let extractionPrompt = String(settings.extractionSystemPrompt || PROMPT_DEFAULTS.extractionSystemPrompt);
+        const relationshipMarker = 'Relationships hold meaningful connections or dependencies.';
+        if (!extractionPrompt.includes(RELATIONSHIP_DESCRIPTION_RULE)) {
+            extractionPrompt = extractionPrompt.includes(relationshipMarker)
+                ? extractionPrompt.replace(relationshipMarker, `${relationshipMarker} ${RELATIONSHIP_DESCRIPTION_RULE}`)
+                : `${extractionPrompt}\n${RELATIONSHIP_DESCRIPTION_RULE}`;
+        }
+        const threadMarker = 'Threads are atomic unresolved conditions.';
+        const threadRule = 'If fulfillment exposes a different unresolved question, resolve the supplied thread and create a new atomic thread with an accurate new title and empty targetId. A partial update may keep the supplied thread open only when its original titled condition itself remains unresolved; never retain a fulfilled or misleading title while moving a different question into its detail.';
+        if (!extractionPrompt.includes(threadRule)) {
+            extractionPrompt = extractionPrompt.includes(threadMarker)
+                ? extractionPrompt.replace(threadMarker, `${threadMarker} ${threadRule}`)
+                : `${extractionPrompt}\n${threadRule}`;
+        }
+        settings.extractionSystemPrompt = extractionPrompt;
+        const relationshipInjection = 'Relationship ↔ is direction-neutral: determine roles only from its Description and established facts, never from endpoint order or Type word order.';
+        let injection = String(settings.injectionInstruction || PROMPT_DEFAULTS.injectionInstruction);
+        if (!injection.includes(relationshipInjection)) {
+            const injectionMarker = 'Preserve natural address forms without explanation.';
+            injection = injection.includes(injectionMarker)
+                ? injection.replace(injectionMarker, `${relationshipInjection} ${injectionMarker}`)
+                : `${injection} ${relationshipInjection}`;
+        }
+        settings.injectionInstruction = injection;
+        settings.relationshipDescriptionPromptVersion = 1;
         saveSettingsDebounced();
     }
     if (Number(settings.relationalAddressPromptVersion || 0) < 8) {

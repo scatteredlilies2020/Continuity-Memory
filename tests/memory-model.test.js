@@ -482,6 +482,32 @@ test('an explicit canonical description resolves a possessive person placeholder
     assert.equal(target.relationships[0].to, 'Caelen Veyr');
 });
 
+test('reversed relationship endpoints update one description-first canonical pair', () => {
+    const target = world();
+    const chatKey = 'roleplay';
+    mergeExtraction(target, extraction({
+        relationships: [{
+            from: 'Toska', to: 'Nima', kind: 'mistress and personal attendant', status: 'active',
+            dynamic: 'Toska is Nima’s mistress, and Nima serves Toska as her personal attendant.', importance: 4,
+        }],
+        events: [],
+    }), { chatKey, from: 72, to: 79, allowStateUpdates: true });
+    mergeExtraction(target, extraction({
+        relationships: [{
+            from: 'Nima', to: 'Toska', kind: 'protective attendant and encouraged senior', status: 'active',
+            dynamic: 'Nima remains Toska’s personal attendant and now provides protective recovery care; Toska accepts and encourages Nima’s help.', importance: 4,
+        }],
+        events: [],
+    }), { chatKey, from: 160, to: 167, allowStateUpdates: true });
+
+    assert.equal(target.relationships.length, 1);
+    assert.equal(target.relationships[0].from, 'Toska');
+    assert.equal(target.relationships[0].to, 'Nima');
+    assert.equal(target.relationships[0].kind, 'mistress and personal attendant');
+    assert.match(target.relationships[0].dynamic, /Nima remains Toska’s personal attendant/);
+    assert.deepEqual(target.relationships[0].sources.map(source => [source.from, source.to]), [[72, 79], [160, 167]]);
+});
+
 test('a clean zero-correction replay preserves identity, prior knowledge, secrecy, and current meeting continuity', () => {
     const target = world();
     const chatKey = 'roleplay';
@@ -787,7 +813,7 @@ test('retrieval prioritizes matching buried character memory within its budget',
     const result = buildMemoryPrompt(target, [{ name: 'User', mes: 'Yui, do you still want cake before rehearsal?' }], 1200);
     assert.match(result.prompt, /Yui/);
     assert.match(result.prompt, /cake/);
-    assert.match(result.prompt, /Weekend performance/);
+    assert.match(result.prompt, /They plan to rehearse Saturday/);
     assert.match(result.prompt, /Recent continuity:/);
     assert.ok(result.estimatedTokens <= 1200);
 });

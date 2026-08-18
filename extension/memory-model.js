@@ -1,6 +1,6 @@
 import { EXTRACTION_VERSION } from './coverage.js';
 import { isSuppressedByCorrection } from './memory-correction.js';
-import { addressFactAddressee, addressFactIdentity, entityTypesAreCompatible, isAddressFact, mergeAddressValues, reconcileGenericAddressDuplicates, reconciliationMergeIsCompatible, reconciliationTargetIsCompatible, reconciliationTargetWasRejected, removeInvalidAddressFacts } from './reconciliation-policy.js';
+import { addressFactAddressee, addressFactIdentity, entityTypesAreCompatible, isAddressFact, mergeAddressValues, reconcileGenericAddressDuplicates, reconciliationMergeIsCompatible, reconciliationTargetIsCompatible, reconciliationTargetWasRejected, relationshipPairIdentity, removeInvalidAddressFacts } from './reconciliation-policy.js';
 import { canonicalMemorySubject, canonicalStateAttribute, stateIdentity, stateScope } from './state-lifecycle.js';
 import { buildL1TemporalAnchor, buildRelativeTemporalAnchor } from './temporal-anchors.js';
 import { randomUuid } from './uuid.js';
@@ -366,7 +366,7 @@ function applyIdentityResolution(world, raw, meta) {
     world.facts = deduplicateCanonicalRecords(world.facts, item => addressFactIdentity(item, world)
         || `${key(item.subject)}|${key(item.predicate)}|${key(item.category)}`);
     world.states = deduplicateCanonicalRecords(world.states, item => stateIdentity(world, item));
-    world.relationships = deduplicateCanonicalRecords(world.relationships, item => `${key(item.from)}|${key(item.to)}|${key(item.kind)}`);
+    world.relationships = deduplicateCanonicalRecords(world.relationships, item => relationshipPairIdentity(item, world));
     return true;
 }
 
@@ -581,7 +581,13 @@ export function mergeExtraction(world, result, meta) {
         }
     }
 
-    mergeArray(world, 'relationships', world.relationships, result.relationships, item => `${key(item.from)}|${key(item.to)}|${key(item.kind)}`, meta, 'relationship', (item, existing) => ({
+    for (const relationship of result.relationships || []) {
+        if (!relationship || typeof relationship !== 'object' || text(relationship.targetId)) continue;
+        const pair = relationshipPairIdentity(relationship, world);
+        const existing = pair ? world.relationships.find(item => relationshipPairIdentity(item, world) === pair) : null;
+        if (existing?.id) relationship.targetId = existing.id;
+    }
+    mergeArray(world, 'relationships', world.relationships, result.relationships, item => relationshipPairIdentity(item, world), meta, 'relationship', (item, existing) => ({
         from: existing?.from || canonicalMemorySubject(world, item.from),
         to: existing?.to || canonicalMemorySubject(world, item.to),
         kind: existing?.kind || text(item.kind) || 'relationship',
@@ -765,7 +771,7 @@ function replayIdentity(collection, item, chatKey) {
     if (collection === 'entities') return key(item.name);
     if (collection === 'facts') return addressFactIdentity(item) || `${key(item.subject)}|${key(item.predicate)}|${key(item.category)}`;
     if (collection === 'states') return stateIdentity(null, item);
-    if (collection === 'relationships') return `${key(item.from)}|${key(item.to)}|${key(item.kind)}`;
+    if (collection === 'relationships') return relationshipPairIdentity(item);
     if (collection === 'threads') return key(item.title);
     if (collection === 'backgrounds') return key(item.topic);
     if (collection === 'capsules' || collection === 'extractions') {

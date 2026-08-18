@@ -15,6 +15,7 @@ import {
     DEFAULT_RETRIEVAL_SYSTEM_PROMPT,
     EPISTEMIC_MEMORY_RULES,
     HIERARCHY_CONCISION_RULES,
+    RELATIONSHIP_DESCRIPTION_RULE,
     renderPromptTemplate,
 } from '../extension/prompts.js';
 
@@ -63,7 +64,13 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /unfinished matters in atomic threads/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Threads are atomic unresolved conditions/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /emit its targetId resolved/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Reuse supplied thread titles, background topics, canonical names, and wording/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Reuse a supplied thread title only while that exact titled condition remains open/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /one canonical relationship record/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /from and to identify the participants only/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /dynamic the authoritative self-contained description/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /never retain a fulfilled or misleading title/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, new RegExp(RELATIONSHIP_DESCRIPTION_RULE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(DEFAULT_INJECTION_INSTRUCTION, /Relationship ↔ is direction-neutral/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /include a named person being visited, met, contacted, or reported to/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /exclude someone mentioned only as an object's former owner/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /combine simultaneous values of one predicate/);
@@ -110,7 +117,7 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /consequential knowledge gaps as open threads/);
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /Most items are 2 or 3/);
     assert.match(DEFAULT_ERA_SYSTEM_PROMPT, /Most items are 2 or 3/);
-    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 8500);
+    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 10000);
     assert.ok(DEFAULT_ARC_SYSTEM_PROMPT.length < 1800);
     assert.ok(DEFAULT_ERA_SYSTEM_PROMPT.length < 1800);
 });

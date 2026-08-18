@@ -6,7 +6,7 @@ const IRREGULAR_NEGATIVE_BASES = new Map([
     ['ai', 'am'],
 ]);
 const CJK_RUN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
-const LIFECYCLE_GUIDANCE = 'Raw chat controls. Established Facts are objective canon and override Character perspectives, reports, or guesses unless raw chat or a user correction changes canon. Entity rows describe the entity itself; possessive objects and proof about someone are not that person. Events and plans outside Open matters are past; current conditions appear only under Current state.';
+const LIFECYCLE_GUIDANCE = 'Raw chat controls. Established Facts are objective canon and override Character perspectives, reports, or guesses unless raw chat or a user correction changes canon. Entity rows describe the entity itself; possessive objects and proof about someone are not that person. Relationship ↔ is direction-neutral: roles come from Description and established facts, never endpoint order or Type word order. Events and plans outside Open matters are past; current conditions appear only under Current state.';
 const BM25_K1 = 1.2;
 const RRF_OFFSET = 20;
 const RETRIEVAL_FIELDS = {
@@ -734,7 +734,7 @@ function matching(items, query, extra = () => 0, category = '', semanticRanks = 
         .filter(result => result.eligible || result.semanticRank > 0);
 }
 
-function limitRelationshipPairs(results, maximumPerPair = 3) {
+function limitRelationshipPairs(results, maximumPerPair = 1) {
     const counts = new Map();
     return results.filter(result => {
         const item = result?.item || result;
@@ -1221,7 +1221,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         || item?.topic
         || (item?.predicate ? `${item?.subject || ''} — ${item.predicate}` : '')
         || (item?.attribute ? `${item?.subject || ''} — ${item.attribute}` : '')
-        || (item?.from || item?.to ? `${item?.from || '?'} → ${item?.to || '?'}${item?.kind ? ` (${item.kind})` : ''}` : '')
+        || (item?.from || item?.to ? `${item?.from || '?'} ↔ ${item?.to || '?'}${item?.kind ? ` (${item.kind})` : ''}` : '')
         || item?.subject
         || item?.id,
     );
@@ -1288,9 +1288,11 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     const whollyRaw = item => sourcedWhollyInRawTail(item, chatKey, rawTailRange);
     const sourceIsCurrent = item => !sourcedFromInvalidExtraction(item, invalidSourceRanges);
     const availableFacts = (world.facts || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item));
+    const storedSceneIsCurrentFocus = Boolean(world.scene && options.includeSceneCheckpoint !== false
+        && sourceIsCurrent(world.scene) && !latestIsRaw(world.scene));
     const currentFocusText = [
-        ...(world.scene?.participants || []),
-        world.scene?.activity,
+        ...(storedSceneIsCurrentFocus ? world.scene?.participants || [] : []),
+        storedSceneIsCurrentFocus ? world.scene?.activity : '',
         ...((recentMessages || []).slice(-4).map(message => retrievalMessageText(message))),
     ].map(plain).filter(Boolean).join(' ').toLocaleLowerCase();
     const explicitlyFocused = value => {
@@ -1298,7 +1300,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         return Boolean(needle && currentFocusText.includes(needle));
     };
 
-    if (world.scene && options.includeSceneCheckpoint !== false && sourceIsCurrent(world.scene) && !latestIsRaw(world.scene)) {
+    if (storedSceneIsCurrentFocus) {
         addSection('Checkpoint', [
             line('Location', world.scene.location),
             line('Time', anchoredRelativeText(world.scene.time, world.scene)),
@@ -1333,7 +1335,8 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     addSection('Knowledge boundaries — hard constraints', knowledgeBoundaryResults.map(({ item }) =>
         `- ${plain(item.subject)} — ${plain(item.predicate)}: ${plain(item.value)} [HARD LIMIT: world truth elsewhere does not grant this character knowledge.]`));
 
-    const sceneParticipants = new Set((world.scene?.participants || []).map(value => plain(value).toLocaleLowerCase()));
+    const sceneParticipants = new Set((storedSceneIsCurrentFocus ? world.scene?.participants || [] : [])
+        .map(value => plain(value).toLocaleLowerCase()));
     const establishedKnowledge = availableFacts
         .filter(isEstablishedKnowledgeFact)
         .filter(item => sceneParticipants.has(plain(item.subject).toLocaleLowerCase()))
@@ -1412,7 +1415,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         .slice(0, 10));
     const activeThreadIds = new Set(activeThreadResults.map(({ item }) => item.id));
     const activeThreads = activeThreadResults
-        .map(({ item }) => `- OPEN — ${anchoredRelativeText(`${plain(item.title)}: ${plain(item.detail)}`, item)}${item.participants?.length ? ` [${item.participants.join(', ')}]` : ''}`);
+        .map(({ item }) => `- OPEN — ${anchoredRelativeText(plain(item.detail) || plain(item.title), item)}${item.participants?.length ? ` [${item.participants.join(', ')}]` : ''}`);
     addSection('Open matters', activeThreads);
 
     const backgrounds = takeMatches('Background', 'background', (world.backgrounds || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)), 12, item => item.status === 'active' ? 1 : 0)
@@ -1458,9 +1461,16 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         () => 0,
         'relationship',
         semanticRanks,
-    ), 3).slice(0, 12);
+    ), 1).slice(0, 12);
     const relationships = recordSelections('Relationships', 'relationship', relationshipMatches)
-        .map(({ item }) => `- ${item.from} → ${item.to} (${item.kind}): ${anchoredRelativeText(`${item.status}${item.dynamic ? `; ${item.dynamic}` : ''}`, item)}`);
+        .map(({ item }) => {
+            const description = plain(item.dynamic);
+            const type = plain(item.kind);
+            const status = plain(item.status);
+            const body = [description ? `Description: ${description}` : '', type ? `Type: ${type}.` : '', status ? `Status: ${status}.` : '']
+                .filter(Boolean).join(' ');
+            return `- ${item.from} ↔ ${item.to}: ${anchoredRelativeText(body, item)}`;
+        });
     addSection('Relationships', relationships);
 
     const perspectives = takeMatches('Character perspectives (not established facts)', 'fact', availableFacts.filter(isAttributedBeliefFact), 16, item => item.persistence === 'persistent' ? 2 : 0)
@@ -1504,7 +1514,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         .slice(0, 12);
     addSection('Compact continuity ledger', [
         compactEvents.length ? `- Event ledger (latest): ${compactEvents.map(item => plain(item.title)).join(' → ')}` : '',
-        compactThreads.length ? `- Open-thread ledger (latest): ${compactThreads.map(item => plain(item.title)).join('; ')}` : '',
+        compactThreads.length ? `- Open-thread ledger (latest): ${compactThreads.map(item => whollyRaw(item) ? plain(item.title) : plain(item.detail) || plain(item.title)).join('; ')}` : '',
     ]);
 
     const selectedIds = new Set(selectedMemoryRecords.map(selection => selection.item.id));
@@ -1636,7 +1646,14 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         if (category === 'perspective') return `- [perspective; subjective] ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)}`;
         if (category === 'fact') return `- [fact] ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)}`;
         if (category === 'state') return `- [state] ${item.subject} — ${item.attribute}: ${anchoredRelativeText(item.value, item)}`;
-        if (category === 'relationship') return `- [relationship] ${item.from} → ${item.to} (${item.kind}): ${anchoredRelativeText(`${item.status}${item.dynamic ? `; ${item.dynamic}` : ''}`, item)}`;
+        if (category === 'relationship') {
+            const description = plain(item.dynamic);
+            const type = plain(item.kind);
+            const status = plain(item.status);
+            const body = [description ? `Description: ${description}` : '', type ? `Type: ${type}.` : '', status ? `Status: ${status}.` : '']
+                .filter(Boolean).join(' ');
+            return `- [relationship] ${item.from} ↔ ${item.to}: ${anchoredRelativeText(body, item)}`;
+        }
         if (category === 'thread') return `- [open matter] ${anchoredRelativeText(`${item.title}: ${item.detail}`, item)}${item.participants?.length ? ` [${item.participants.join(', ')}]` : ''}`;
         if (category === 'background') return `- [background] ${anchoredRelativeText(`${item.topic}: ${item.summary}`, item)}${item.participants?.length ? ` [${item.participants.join(', ')}]` : ''}`;
         if (category === 'event') {
@@ -1668,7 +1685,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.140';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.141';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';

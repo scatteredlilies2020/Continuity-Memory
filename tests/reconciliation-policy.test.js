@@ -122,6 +122,24 @@ test('canonical aliases remain compatible with stable entity and subject IDs', (
     assert.equal(result.relationships[0].targetId, 'relationship_alpha');
 });
 
+test('relationship target IDs are compatible across reversed endpoints and evolving type wording', () => {
+    const result = extraction();
+    result.relationships.push({
+        targetId: 'relationship_toska_nima', from: 'Nima', to: 'Toska',
+        kind: 'protective attendant and encouraged senior',
+    });
+    const sanitized = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], threads: [], backgrounds: [],
+        relationships: [{
+            id: 'relationship_toska_nima', from: 'Toska', to: 'Nima',
+            kind: 'mistress and personal attendant',
+        }],
+    });
+
+    assert.equal(sanitized.ignored, 0);
+    assert.equal(result.relationships[0].targetId, 'relationship_toska_nima');
+});
+
 test('entity target IDs require an exact identity and a compatible type family', () => {
     const result = extraction();
     result.entities.push(

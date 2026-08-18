@@ -177,7 +177,22 @@ test('duplicate relationship variants cannot fill the relationship section', () 
         })),
     });
     const result = buildMemoryPrompt(target, user('Samael and Subaru Natsuki'), 4000);
-    assert.equal(selections(result, 'Relationships').length, 3);
+    assert.equal(selections(result, 'Relationships').length, 1);
+});
+
+test('relationship retrieval is neutral and puts its description before type and status', () => {
+    const target = world({
+        relationships: [{
+            id: 'lucas-segundus', from: 'Lucas Alcazar', to: 'Darth Segundus', kind: 'Sith master and apprentice',
+            status: 'active', dynamic: 'Lucas is Darth Segundus’s Sith apprentice and has arrived to report to his master.',
+        }],
+    });
+    const result = buildMemoryPrompt(target, user('Lucas reports to Darth Segundus.'), 3000);
+
+    assert.match(result.prompt, /Lucas Alcazar ↔ Darth Segundus: Description: Lucas is Darth Segundus’s Sith apprentice.*Type: Sith master and apprentice\. Status: active\./);
+    assert.doesNotMatch(result.prompt, /Lucas Alcazar → Darth Segundus/);
+    assert.match(result.prompt, /Relationship ↔ is direction-neutral/);
+    assert.match(selections(result, 'Relationships')[0].label, /Lucas Alcazar ↔ Darth Segundus/);
 });
 
 test('one multiword addressee does not retrieve every speaker address', () => {
@@ -223,7 +238,7 @@ test('open threads remain visible when the current message changes topics', () =
     const selected = selections(result, 'Open matters').map(item => item.id);
 
     assert.deepEqual(selected, []);
-    assert.match(result.prompt, /Deliver the kyber to Segundus/);
+    assert.match(result.prompt, /Lucas will visit Darth Segundus at the palace within three days/);
     assert.match(result.prompt, /Compact continuity ledger:[\s\S]*Open-thread ledger \(latest\):/);
 });
 
@@ -246,7 +261,7 @@ test('the compact ledger collapses typographic duplicate thread titles', () => {
     const result = buildMemoryPrompt(target, user('An unrelated quiet moment.'), 3000);
     const ledger = result.prompt.match(/Open-thread ledger \(latest\): ([^\n]+)/)?.[1] || '';
 
-    assert.equal((ledger.match(/transformation/gu) || []).length, 1);
+    assert.equal((ledger.match(/wording/gu) || []).length, 1);
 });
 
 test('duplicate open-thread wording always uses the newest canonical record', () => {
@@ -257,8 +272,41 @@ test('duplicate open-thread wording always uses the newest canonical record', ()
     const result = buildMemoryPrompt(target, user('What about the audience confrontation?'), 3000);
 
     assert.deepEqual(selections(result, 'Open matters').map(item => item.id), ['new']);
-    assert.match(result.prompt, /OPEN — Audience confrontation: Segundus must answer Lucas/);
+    assert.match(result.prompt, /OPEN — Segundus must answer Lucas/);
     assert.doesNotMatch(result.prompt, /still traveling/);
+});
+
+test('an open-thread ledger uses the current unresolved description instead of a fulfilled title', () => {
+    const target = world({ threads: [{
+        id: 'identity', title: 'Determine Toska’s master’s true identity', status: 'open', importance: 4,
+        detail: 'Caelen Veyr’s identity is established; why he concealed Toska’s potential remains unresolved.',
+    }] });
+    const result = buildMemoryPrompt(target, user('An unrelated palace scene.'), 3000);
+    const ledger = result.prompt.match(/Open-thread ledger \(latest\): ([^\n]+)/)?.[1] || '';
+
+    assert.match(ledger, /Caelen Veyr’s identity is established/);
+    assert.doesNotMatch(ledger, /Determine Toska’s master’s true identity/);
+});
+
+test('a pending raw tail prevents an older stored scene from focusing unrelated knowledge', () => {
+    const target = world({
+        scene: {
+            participants: ['Toska', 'Sith Temple basin'], activity: 'Toska trains with the Sith Temple basin.',
+            sources: [{ chatKey: 'chat', from: 160, to: 167 }],
+        },
+        facts: [{
+            id: 'basin-knowledge', subject: 'Toska', predicate: 'knowledge of Sith Temple basin',
+            value: 'Toska knows how the basin responds.', category: 'knowledge', persistence: 'persistent', importance: 4,
+            sources: [{ chatKey: 'chat', from: 160, to: 167 }],
+        }],
+    });
+    const result = buildMemoryPrompt(target, user('Lucas enters Darth Segundus’s palace audience.'), 3000, 'chat', [], undefined, new Map(), {
+        includeSceneCheckpoint: false,
+        rawTailRange: { from: 176, to: 181 },
+    });
+
+    assert.deepEqual(selections(result, 'Established character knowledge'), []);
+    assert.doesNotMatch(result.prompt, /Toska knows how the basin responds/);
 });
 
 test('raw-tail threads and events retain only neutral latest ledger titles', () => {
