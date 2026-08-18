@@ -975,6 +975,89 @@ export function recoverExplicitFactRelationships(result, world, messages = null)
     return recovered;
 }
 
+const HISTORICAL_MENTOR_RELATIONSHIP = /\b(?:master|mentor|teacher|instructor)\b[^.!?;]{0,80}\b(?:apprentice|padawan|student|pupil|prot[eé]g[eé])\b|\b(?:apprentice|padawan|student|pupil|prot[eé]g[eé])\b[^.!?;]{0,80}\b(?:master|mentor|teacher|instructor)\b/iu;
+const HISTORICAL_RELATIONSHIP_SIGNAL = /\b(?:former|previous|prior|once|formerly|trained|mentored|taught|before)\b/iu;
+
+function relationshipHistoryFact(result, world, relationship) {
+    const index = continuityEntityIndex(result, world);
+    const endpoints = [relationship?.from, relationship?.to].map(value => canonicalMention(index, value));
+    if (!endpoints.every(personEntity)) return null;
+    const facts = [...(world?.facts || []), ...(result?.facts || [])];
+    const fact = facts.find(item => {
+        const evidence = `${cleanText(item?.subject)} ${cleanText(item?.predicate)} ${cleanText(item?.value)}`;
+        return /\b(?:apprentice|padawan|student|pupil|prot[eé]g[eé]|mentee)\b/iu.test(evidence)
+            && HISTORICAL_RELATIONSHIP_SIGNAL.test(evidence)
+            && !NON_CANONICAL_RELATIONSHIP_FACT.test(`${cleanText(item?.predicate)} ${cleanText(item?.category)}`)
+            && endpoints.every(entity => textMentionsEntity(evidence, entity));
+    });
+    return fact ? { fact, endpoints } : null;
+}
+
+export function reconcileHistoricalRelationshipLifecycles(result, world) {
+    if (!Array.isArray(result?.relationships)) return 0;
+    let reconciled = 0;
+    for (const relationship of result.relationships) {
+        if (!HISTORICAL_MENTOR_RELATIONSHIP.test(cleanText(relationship?.kind))) continue;
+        const history = relationshipHistoryFact(result, world, relationship);
+        if (!history) continue;
+        if (normalized(relationship?.status) === 'ended') continue;
+        const evidence = `${cleanText(history.fact?.predicate)} ${cleanText(history.fact?.value)}`;
+        const deadEndpoint = history.endpoints.some(entity => entityIsEstablishedDead(entity, result, world));
+        if (!deadEndpoint && !HISTORICAL_RELATIONSHIP_SIGNAL.test(evidence)) continue;
+        const kind = cleanText(relationship.kind);
+        if (!/^former\b/iu.test(kind)) relationship.kind = `former ${kind}`;
+        relationship.status = 'ended';
+        relationship.dynamic = relationshipDescriptionFromFact(history.fact, history.endpoints);
+        reconciled++;
+    }
+    return reconciled;
+}
+
+const UNIQUE_OBJECT_WORD = /\b(?:lightsabers?|sabers?|swords?|blades?|weapons?|guns?|rifles?|pistols?|crystals?|kybers?|hilts?|artifacts?|relics?|devices?|vehicles?|ships?|shuttles?|keys?|documents?|letters?|cases?)\b/iu;
+const OBJECT_PENDING_STATE = /\b(?:in transit|in hyperspace|en route|pending|awaiting|preparing|on (?:the )?way|arrival (?:is )?estimated|remains? (?:at|in|under|aboard)|not yet)\b/iu;
+const OBJECT_TRANSFER_COMPLETED_STATE = /\b(?:delivers?|delivered|presents?|presented|shows?|shown|gives?|gave|given|receives?|received|now in\b[^.!?;]{0,80}\bpossession)\b/iu;
+const GENERIC_OBJECT_ANCHOR = new Set(['artifact', 'blade', 'case', 'crystal', 'device', 'document', 'gun', 'hilt', 'item', 'key', 'kyber', 'letter', 'lightsaber', 'object', 'pistol', 'relic', 'rifle', 'saber', 'ship', 'shuttle', 'sword', 'vehicle', 'weapon']);
+
+function bestReferencedUniqueObject(fact, result, world) {
+    const evidenceTerms = coverageTerms(`${fact?.subject || ''} ${fact?.predicate || ''} ${fact?.value || ''}`);
+    const entities = [...new Map([...(world?.entities || []), ...(result?.entities || [])]
+        .map(entity => [normalized(entity?.name), entity]).filter(([name]) => name)).values()];
+    const candidates = entities
+        .filter(entity => entityTypeFamily(entity?.type) === 'object' && UNIQUE_OBJECT_WORD.test(cleanText(entity?.name)))
+        .map(entity => {
+            const terms = coverageTerms([entity?.name, ...(entity?.aliases || [])].join(' '));
+            return { entity, terms, score: termSetOverlap(terms, evidenceTerms) };
+        })
+        .sort((left, right) => right.score - left.score);
+    if (!candidates[0] || candidates[0].score < 3 || candidates[0].score === candidates[1]?.score) return null;
+    return candidates[0];
+}
+
+export function discardContradictedObjectStateFacts(result, world, messages) {
+    if (!Array.isArray(result?.facts) || !Array.isArray(messages) || !messages.length) return 0;
+    const segments = messages.flatMap(message => String(message?.text ?? message?.mes ?? '')
+        .split(/[\r\n]+|[.!?]+\s+/u).map(cleanText).filter(Boolean));
+    let removed = 0;
+    result.facts = result.facts.filter(fact => {
+        const factText = `${cleanText(fact?.subject)} ${cleanText(fact?.predicate)} ${cleanText(fact?.value)}`;
+        if (!OBJECT_TRANSFER_COMPLETED_STATE.test(factText) || !UNIQUE_OBJECT_WORD.test(factText)) return true;
+        const referenced = bestReferencedUniqueObject(fact, result, world);
+        if (!referenced) return true;
+        const distinctive = [...new Set([...referenced.terms]
+            .flatMap(term => [term, ...term.split(/[-–—]/u)]))]
+            .filter(term => term && !GENERIC_OBJECT_ANCHOR.has(term));
+        if (!distinctive.length) return true;
+        const related = segments.filter(segment => UNIQUE_OBJECT_WORD.test(segment)
+            && distinctive.some(term => coverageTerms(segment).has(term)));
+        const pending = related.some(segment => OBJECT_PENDING_STATE.test(segment));
+        const completed = related.some(segment => OBJECT_TRANSFER_COMPLETED_STATE.test(segment));
+        if (!pending || completed) return true;
+        removed++;
+        return false;
+    });
+    return removed;
+}
+
 function uncoveredDurableBeats(result, messages) {
     if (!Array.isArray(result?.sceneCapsule?.beats) || !Array.isArray(messages) || !messages.length) return [];
     const source = messages.map(message => `${cleanText(message?.name || message?.speaker)}: ${cleanText(message?.text ?? message?.mes)}`).join('\n');
@@ -1050,10 +1133,36 @@ export function recoverSourceGroundedCoverageRecords(result, world, messages) {
     return recovered;
 }
 
-const THREAD_GAP = /\b(?:not yet|has not|have not|had not|does not|do not|did not|is not|are not|was not|were not|continues? to|unknown|unanswered|unresolved|undecided|pending|unconfirmed|incomplete|not (?:complete|completed|done|confirmed|established|disclosed|answered|accepted|met|delivered)|no (?:answer|decision|confirmation|evidence|proof)|neither\b[^.!?;]{0,160}\b(?:complete|completed|done|obtained|recovered)|lacks? (?:confirmation|evidence|proof|an answer)|awaits?|must (?:learn|discover|identify|find|decide)|still (?:required|needed|missing|pending|unresolved|unconfirmed)|remains? (?:unknown|unanswered|unresolved|undecided|missing|pending|unconfirmed|incomplete|open|hidden|concealed|undisclosed))\b/iu;
-const THREAD_COMMITMENT_PENDING = /\b(?:will|shall|['’]ll|going to|plans? to|intends? to|promises? to|vows? to|tomorrow|later|next (?:day|morning|afternoon|evening|night|week|month|year))\b/iu;
-const THREAD_RESOLUTION = /\b(?:answers?|answered|reveals?|revealed|discloses?|disclosed|identifies?|identified|learns?|learned|discovers?|discovered|finds?|found|recovers?|recovered|returns?|returned|departs?|departed|leaves?|left|sets? out|set out|arrives?|arrived|meets?|met|contacts?|contacted|reports?|reported|delivers?|delivered|presents?|presented|completes?|completed|finishes?|finished|decides?|decided|chooses?|chose|accepts?|accepted|rejects?|rejected|defeats?|defeated|destroys?|destroyed|repairs?|repaired|opens?|opened|closes?|closed|fulfills?|fulfilled|obtains?|obtained|acquires?|acquired|now knows?)\b/iu;
+const THREAD_GAP = /\b(?:not yet|has not|have not|had not|does not|do not|did not|is not|are not|was not|were not|continues? to|seek(?:s|ing)? to (?:determine|learn|discover|identify|find|decide|understand)|tr(?:y|ies|ied|ying) to (?:determine|learn|discover|identify|find|decide|understand)|unknown|unanswered|unresolved|undecided|pending|unconfirmed|incomplete|not (?:complete|completed|done|confirmed|established|disclosed|answered|accepted|met|delivered)|no (?:answer|decision|confirmation|evidence|proof)|neither\b[^.!?;]{0,160}\b(?:complete|completed|done|obtained|recovered)|lacks? (?:confirmation|evidence|proof|an answer)|awaits?|must (?:learn|discover|identify|find|decide|preserve|maintain|continue|keep)|still (?:required|needed|missing|pending|unresolved|unconfirmed)|remains? (?:unknown|unanswered|unresolved|undecided|missing|pending|unconfirmed|incomplete|open|hidden|concealed|undisclosed))\b/iu;
+const THREAD_COMMITMENT_PENDING = /\b(?:must|will|shall|['’]ll|going to|plans? to|intends? to|promises? to|vows? to|prepar(?:e|es|ed|ing) to|en route|in transit|heading to|on (?:the )?way to|arrival (?:is )?expected|tomorrow|later|next (?:day|morning|afternoon|evening|night|week|month|year))\b/iu;
+const THREAD_RESOLUTION = /\b(?:answers?|answered|reveals?|revealed|discloses?|disclosed|identifies?|identified|learns?|learned|discovers?|discovered|finds?|found|recovers?|recovered|secures?|secured|logs?|logged|establishes?|established|returns?|returned|departs?|departed|leaves?|left|sets? out|set out|arrives?|arrived|meets?|met|contacts?|contacted|reports?|reported|delivers?|delivered|presents?|presented|completes?|completed|finishes?|finished|decides?|decided|chooses?|chose|accepts?|accepted|rejects?|rejected|defeats?|defeated|destroys?|destroyed|repairs?|repaired|opens?|opened|closes?|closed|fulfills?|fulfilled|obtains?|obtained|acquires?|acquired|now knows?)\b/iu;
 const THREAD_VAGUE_RESIDUAL = /\b(?:extent|consequences|broader (?:history|implications|meaning|exploration)|further (?:exploration|evaluation)|what (?:this|that) means)\b[^.!?;]{0,160}\b(?:open|unexplored|unclear|unknown|unresolved|incomplete|partly explored)\b/iu;
+const THREAD_ACTION_RESOLUTION_RULES = [
+    [/\b(?:accept|agree|approval|approve|consent)\b/iu, /\b(?:accepts?|accepted|agrees?|agreed|approves?|approved|consents?|consented|rejects?|rejected|refuses?|refused|declines?|declined|decides?|decided)\b/iu],
+    [/\b(?:recover|recovery|retrieve|retrieval|obtain|acquire)\b/iu, /\b(?:recovers?|recovered|retrieves?|retrieved|obtains?|obtained|acquires?|acquired|finds?|found|locates?|located|secures?|secured|logged\s+.+\b(?:case|rack|storage|holding))\b/iu],
+    [/\b(?:depart|departure|travel|journey|arrive|arrival)\b/iu, /\b(?:departs?|departed|leaves?|left|travels?|traveled|journeys?|journeyed|arrives?|arrived|sets? out|set out)\b/iu],
+    [/\b(?:deliver|present)\b/iu, /\b(?:delivers?|delivered|presents?|presented|gives?|gave|hands?|handed)\b/iu],
+    [/\b(?:report|account|explain)\b/iu, /\b(?:reported|reports\b[^.!?;]{0,80}\bto|gave\b[^.!?;]{0,80}\breport|gives\b[^.!?;]{0,80}\breport|delivered\b[^.!?;]{0,80}\breport|explains?|explained|discloses?|disclosed)\b/iu],
+    [/\b(?:meet|meeting|audience)\b/iu, /\b(?:meets?|met|audience (?:begins?|began|occurs?|occurred|concludes?|concluded))\b/iu],
+    [/\b(?:request|contact|channel)\b/iu, /\b(?:answers?|answered|responds?|responded|contacts?|contacted|live contact|establishes?|established|opens?\b[^.!?;]{0,80}\bchannel|channel\b[^.!?;]{0,80}\bopens?)\b/iu],
+    [/\b(?:respond|response|choose|choice|decide|decision)\b/iu, /\b(?:responds?|responded|answers?|answered|chooses?|chose|decides?|decided|accepts?|accepted|rejects?|rejected|retains?|retained|refuses?|refused)\b/iu],
+    [/\b(?:leave|remain|stay)\b/iu, /\b(?:leaves?|left|remains?|remained|stays?|stayed|chooses?|chose|refuses? to leave|refused to leave)\b/iu],
+    [/\b(?:reveal|disclose|identify|identity|true name|who (?:is|was|are|were))\b/iu, /\b(?:reveals?|revealed|discloses?|disclosed|identifies?|identified|answers?|answered|names?|named|learns?|learned|discovers?|discovered)\b/iu],
+    [/\b(?:fulfill|complete|completion)\b/iu, /\b(?:fulfills?|fulfilled|completes?|completed|finishes?|finished|delivers?|delivered|meets?|met|arrives?|arrived)\b/iu],
+];
+
+function threadResolutionActionMatches(thread, evidence) {
+    const title = cleanText(thread?.title);
+    for (const [titlePattern, evidencePattern] of THREAD_ACTION_RESOLUTION_RULES) {
+        if (titlePattern.test(title)) return evidencePattern.test(cleanText(evidence));
+    }
+    return true;
+}
+
+function threadHasSpecificResolutionAction(thread) {
+    const title = cleanText(thread?.title);
+    return THREAD_ACTION_RESOLUTION_RULES.some(([titlePattern]) => titlePattern.test(title));
+}
 const THREAD_MATCH_STOP_WORDS = new Set([
     ...COVERAGE_STOP_WORDS,
     'asks', 'asked', 'awaits', 'awaiting', 'current', 'detail', 'has', 'have', 'had', 'known', 'matter', 'must',
@@ -1068,9 +1177,12 @@ function threadTerms(value) {
         if (/^(?:report|reports|reported)$/u.test(term)) return 'report';
         if (/^(?:deliver|delivers|delivered)$/u.test(term)) return 'deliver';
         if (/^(?:return|returns|returned)$/u.test(term)) return 'return';
+        if (/^(?:recover|recovers|recovered|recovery|retrieve|retrieves|retrieved|retrieval)$/u.test(term)) return 'recover';
+        if (/^(?:channel|contact|contacts|contacted|request|requests|requested)$/u.test(term)) return 'contact';
         return term;
     };
-    return new Set([...coverageTerms(value)].filter(term => !THREAD_MATCH_STOP_WORDS.has(term)).map(canonical));
+    const expanded = [...coverageTerms(value)].flatMap(term => [term, ...term.split(/[-–—]/u)]);
+    return new Set(expanded.filter(term => term && !THREAD_MATCH_STOP_WORDS.has(term)).map(canonical));
 }
 
 function threadTopicTerms(value, result, world) {
@@ -1142,6 +1254,16 @@ function sourceSupportsCommitmentResolution(beat, messages, thread, world, resul
     });
 }
 
+function sourceSupportsThreadAction(messages, thread, world, result) {
+    return (messages || []).some(message => {
+        const source = `${cleanText(message?.name || message?.speaker)}: ${cleanText(message?.text ?? message?.mes)}`;
+        return THREAD_RESOLUTION.test(source)
+            && !COVERAGE_NON_ASSERTION.test(source)
+            && threadResolutionActionMatches(thread, source)
+            && threadParticipantMatch(thread, source, world, result);
+    });
+}
+
 function incomingThreadFor(result, thread) {
     return (result?.threads || []).find(item => normalized(item?.targetId) === normalized(thread?.id)
         || normalized(item?.title) === normalized(thread?.title));
@@ -1159,12 +1281,66 @@ export function resolveCompletedIncomingThreads(result) {
         if (normalized(thread?.status) !== 'open'
             || (!THREAD_RESOLUTION.test(detail) && !startedAtomicAction)
             || (THREAD_GAP.test(detail) && !vagueResidual)
+            || (!startedAtomicAction && !threadResolutionActionMatches(thread, detail))
             || THREAD_COMMITMENT_PENDING.test(`${thread?.title || ''} ${detail}`)) continue;
         thread.status = 'resolved';
         thread.detail = `Resolved by extracted continuity: ${detail}`;
         resolved++;
     }
     return resolved;
+}
+
+function storedOpenThreadFor(result, world, incoming) {
+    return (world?.threads || []).find(item => item?.status === 'open'
+        && (normalized(item?.id) === normalized(incoming?.targetId)
+            || normalized(item?.title) === normalized(incoming?.title)));
+}
+
+export function reopenUnsupportedResolvedThreads(result, world, messages, modelResolvedThreads = null) {
+    if (!Array.isArray(result?.threads) || !Array.isArray(messages) || !messages.length) return 0;
+    let reopened = 0;
+    for (const incoming of result.threads) {
+        if (normalized(incoming?.status) !== 'resolved') continue;
+        if (modelResolvedThreads instanceof Set && !modelResolvedThreads.has(incoming)) continue;
+        const stored = storedOpenThreadFor(result, world, incoming);
+        const resolvedDetail = cleanText(incoming?.detail).replace(/^Resolved(?:(?: by| through)[^:]*)?:\s*/iu, '');
+        const narrowedResolution = /^Resolved as to\b/iu.test(resolvedDetail);
+        const historicalGapResolved = /\bunanswered\b[^.!?;]{0,160}\b(?:led to|resulted in|ended (?:when|with))\b/iu.test(resolvedDetail)
+            && THREAD_RESOLUTION.test(resolvedDetail);
+        const explicitUnfinished = ((THREAD_GAP.test(resolvedDetail) && !historicalGapResolved)
+            || THREAD_COMMITMENT_PENDING.test(resolvedDetail))
+            && !THREAD_VAGUE_RESIDUAL.test(resolvedDetail)
+            && !narrowedResolution;
+        if (!stored && !explicitUnfinished) continue;
+        const baseline = stored || incoming;
+        const candidates = [
+            resolvedDetail,
+            ...(result?.sceneCapsule?.beats || []),
+            ...(result?.events || []).flatMap(item => [item?.summary, item?.consequences]),
+            ...(result?.backgrounds || []).map(item => item?.summary),
+        ].map(cleanText).filter(Boolean);
+        const topic = threadTopicTerms(`${baseline?.title || ''} ${baseline?.detail || ''}`, result, world);
+        const specificAction = threadHasSpecificResolutionAction(baseline);
+        const supported = narrowedResolution || (!explicitUnfinished && cleanText(incoming?.detail).length <= 1800 && candidates.some((evidence, index) =>
+            THREAD_RESOLUTION.test(evidence)
+            && threadResolutionActionMatches(baseline, evidence)
+            && termSetOverlap(topic, threadTopicTerms(evidence, result, world)) >= (specificAction ? 1 : 2)
+            && (!THREAD_GAP.test(evidence) || (index === 0 && historicalGapResolved))
+            && !THREAD_COMMITMENT_PENDING.test(evidence)
+            && (sourceSupportsThreadResolution(evidence, messages, baseline, world, result)
+                || (index === 0 && specificAction))));
+        if (supported) continue;
+        Object.assign(incoming, {
+            targetId: stored?.id || incoming.targetId || '',
+            title: stored?.title || incoming.title,
+            detail: stored?.detail || resolvedDetail,
+            status: 'open',
+            participants: stored?.participants || incoming.participants || [],
+            importance: stored?.importance || incoming.importance || 3,
+        });
+        reopened++;
+    }
+    return reopened;
 }
 
 export function preserveResolvedThreadHistory(result, world) {
@@ -1221,8 +1397,8 @@ export function reconcileExplicitlyResolvedThreads(result, world, messages) {
     const resolutionEvidence = [
         ...(result.sceneCapsule.beats || []),
         ...(result.events || []).flatMap(item => [item?.summary, item?.consequences]),
+        ...(result.backgrounds || []).map(item => item?.summary),
     ];
-    resolutionEvidence.push(cleanText(resolutionEvidence.join(' ')));
     for (const thread of (world?.threads || []).filter(item => item?.status === 'open'
         && (THREAD_GAP.test(`${item.title || ''} ${item.detail || ''}`)
             || THREAD_COMMITMENT_PENDING.test(`${item.title || ''} ${item.detail || ''}`)))) {
@@ -1234,24 +1410,28 @@ export function reconcileExplicitlyResolvedThreads(result, world, messages) {
         let partial = null;
         for (const rawBeat of resolutionEvidence) {
             const beat = cleanText(rawBeat);
-            if (!beat || !THREAD_RESOLUTION.test(beat) || !threadParticipantMatch(thread, beat, world, result)) continue;
+            if (!beat || !THREAD_RESOLUTION.test(beat) || !threadResolutionActionMatches(thread, beat)
+                || !threadParticipantMatch(thread, beat, world, result)) continue;
             const beatTerms = threadTerms(beat);
             const overlap = termSetOverlap(topic, beatTerms);
             const titleOverlap = termSetOverlap(title, beatTerms);
             const commitmentResolution = THREAD_COMMITMENT_PENDING.test(`${thread.title || ''} ${thread.detail || ''}`);
             if (overlap < (commitmentResolution ? 1 : 2) || titleOverlap < 1) continue;
+            const specificAction = threadHasSpecificResolutionAction(thread);
             const sourceSupported = sourceSupportsThreadResolution(beat, messages, thread, world, result)
-                || (commitmentResolution && sourceSupportsCommitmentResolution(beat, messages, thread, world, result));
+                || (commitmentResolution && sourceSupportsCommitmentResolution(beat, messages, thread, world, result))
+                || (specificAction && sourceSupportsThreadAction(messages, thread, world, result));
             if (!sourceSupported) continue;
             const aliasResolution = threadAliasResolutionMatch(thread, beat, world, result);
-            const required = aliasResolution || commitmentResolution
-                ? 2
+            const required = specificAction
+                ? (/\b(?:recover|recovery|retrieve|retrieval|request|contact|channel)\b/iu.test(cleanText(thread?.title)) ? 1 : 2)
+                : aliasResolution || commitmentResolution ? 2
                 : Math.max(3, Math.min(6, Math.ceil(Math.min(topic.size, 12) * 0.3)));
             if (hasUnmatchedTitleConjunction(thread, beat)) {
                 partial ||= beat;
                 continue;
             }
-            if (overlap >= required && (titleOverlap >= 2 || (aliasResolution && titleOverlap >= 1))) {
+            if (overlap >= required && (titleOverlap >= 2 || ((aliasResolution || specificAction) && titleOverlap >= 1))) {
                 const resolution = incoming || {};
                 Object.assign(resolution, {
                     targetId: thread.id, title: thread.title, detail: `Resolved by explicit continuity: ${beat}`,
@@ -2607,12 +2787,16 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const recoveredKnowledge = recoverExplicitPriorKnowledge(result, world);
     const recoveredIdentities = recoverExplicitNamedIdentityResolutions(result, world, messages);
     const canonicalizedIdentityReferences = canonicalizeResolvedIdentityReferences(result, world);
+    const discardedContradictedObjectFacts = discardContradictedObjectStateFacts(result, world, messages);
     const recoveredFactRelationships = recoverExplicitFactRelationships(result, world, messages);
+    const reconciledHistoricalRelationships = reconcileHistoricalRelationshipLifecycles(result, world);
     const recoveredSceneCoverage = recoverSourceGroundedCoverageRecords(result, world, messages);
     const recoveredCommitments = recoverExplicitFutureCommitments(result, world, messages);
     const recoveredCoverage = recoveredFactRelationships + recoveredSceneCoverage + recoveredCommitments;
     const preservedResolvedThreads = preserveResolvedThreadHistory(result, world);
+    const modelResolvedThreads = new Set((result?.threads || []).filter(thread => normalized(thread?.status) === 'resolved'));
     const resolvedCompletedThreads = resolveCompletedIncomingThreads(result);
+    const reopenedUnsupportedThreads = reopenUnsupportedResolvedThreads(result, world, messages, modelResolvedThreads);
     const reconciledIdentityThreads = reconcileResolvedIdentityThreads(result, world);
     const reconciledThreads = reconcileExplicitlyResolvedThreads(result, world, messages);
     const normalizedRelationshipDescriptions = normalizeRelationshipDescriptions(result);
@@ -2624,6 +2808,7 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const discardedPronounAddresses = removeUnsupportedPronounAddressValues(result, messages, world);
     let ignored = discardedAddressValues + discardedUnsupportedAddresses + discardedPronounAddresses
         + discardedIdentityResolutions
+        + discardedContradictedObjectFacts
         + removeInvalidAddressFacts(result) + Number(missingIdentityResolutions);
     ignored += removeUnsupportedSelfAddressFacts(result, messages, world);
     if (!Array.isArray(result.recordMerges)) {
@@ -2696,5 +2881,5 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
         ...localWarnings,
     ])].slice(0, 8);
     if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
-    return { ignored, recovered, recoveredAliases, recoveredBoundaries, recoveredKnowledge, recoveredIdentities, normalizedIdentityReferences, discardedIdentityResolutions, canonicalizedIdentityReferences, recoveredFactRelationships, recoveredCommitments, recoveredCoverage, preservedResolvedThreads, reconciledThreads: resolvedCompletedThreads + reconciledIdentityThreads + reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, repairedStateOwners, reconciledStateTransitions, reconciledSceneParticipants, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, sourceAttributionConflicts, relationshipEndpointConflicts, localWarnings, diagnosticWarnings, warnings };
+    return { ignored, recovered, recoveredAliases, recoveredBoundaries, recoveredKnowledge, recoveredIdentities, normalizedIdentityReferences, discardedIdentityResolutions, canonicalizedIdentityReferences, discardedContradictedObjectFacts, recoveredFactRelationships, reconciledHistoricalRelationships, recoveredCommitments, recoveredCoverage, preservedResolvedThreads, reopenedUnsupportedThreads, reconciledThreads: Math.max(0, resolvedCompletedThreads - reopenedUnsupportedThreads) + reconciledIdentityThreads + reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, repairedStateOwners, reconciledStateTransitions, reconciledSceneParticipants, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, sourceAttributionConflicts, relationshipEndpointConflicts, localWarnings, diagnosticWarnings, warnings };
 }

@@ -1395,6 +1395,57 @@ test('fact relationship recovery updates one stored pair and preserves its prior
     assert.match(result.relationships[0].dynamic, /was Bob’s former mentor/);
 });
 
+test('a historical mentor relationship cannot remain active after its established evidence says former', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Lucas Alcazar', type: 'person', aliases: ['Lucas'], description: 'Former Jedi apprentice.' },
+        { name: 'Caelen Veyr', type: 'person', aliases: ['Caelen'], description: 'Deceased Jedi Master.' },
+    );
+    result.facts.push({
+        targetId: '', subject: 'Lucas Alcazar', predicate: 'identity disclosure',
+        value: 'Lucas Alcazar identifies himself as Caelen Veyr’s former apprentice.',
+        category: 'identity', importance: 4, persistence: 'persistent',
+    });
+    result.relationships.push({
+        targetId: '', from: 'Lucas Alcazar', to: 'Caelen Veyr', kind: 'Jedi master and Padawan',
+        status: 'active', dynamic: 'Lucas argues about Caelen’s rank and displays a relic.', importance: 4,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: result.entities, facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Lucas', text: 'Lucas Alcazar was Caelen Veyr’s former apprentice.' }]);
+
+    assert.equal(validation.reconciledHistoricalRelationships, 1);
+    assert.equal(result.relationships.length, 1);
+    assert.equal(result.relationships[0].kind, 'former Jedi master and Padawan');
+    assert.equal(result.relationships[0].status, 'ended');
+    assert.match(result.relationships[0].dynamic, /former apprentice/);
+});
+
+test('a pending named object cannot be conflated with a different object being presented', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Toska', type: 'person', aliases: [] },
+        { name: 'Toska’s green-crystal lightsaber', type: 'object', aliases: [] },
+        { name: 'Caelen Veyr’s lightsaber and crystal', type: 'object', aliases: [] },
+    );
+    result.facts.push({
+        targetId: '', subject: 'Toska', predicate: 'former lightsaber status',
+        value: 'Toska’s recovered green-crystal lightsaber is now in Lucas’s possession and is shown to Segundus.',
+        category: 'possession and loss', importance: 4, persistence: 'persistent',
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: result.entities, facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [
+        { name: 'Narrator', text: 'The retrieval team remains in hyperspace with the green saber; arrival is expected later.' },
+        { name: 'Lucas', text: 'I show Segundus Caelen Veyr’s lightsaber and crystal as proof.' },
+    ]);
+
+    assert.equal(validation.discardedContradictedObjectFacts, 1);
+    assert.deepEqual(result.facts, []);
+});
+
 test('relationship descriptions become self-contained without changing their asserted meaning', () => {
     const result = extraction();
     result.relationships.push({
@@ -2052,6 +2103,141 @@ test('preliminary progress cannot resolve a thread whose incoming update states 
 
     assert.equal(validation.reconciledThreads, 0);
     assert.equal(result.threads[0].status, 'open');
+});
+
+test('preparing to recover an object is not mistaken for recovery', () => {
+    const result = extraction();
+    result.threads.push({
+        targetId: 'thread_saber', title: 'Recovery of Toska’s green lightsaber',
+        detail: 'The retrieval team is in low orbit and preparing to land to recover Toska’s saber.',
+        status: 'open', participants: ['Toska'], importance: 4,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [{ name: 'Toska', type: 'person', aliases: [] }], facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_saber', title: 'Recovery of Toska’s green lightsaber',
+            detail: 'A team will recover the saber.', status: 'open', participants: ['Toska'], importance: 4,
+        }],
+    }, [{ name: 'Narrator', text: 'The team prepares to land; the saber has not been recovered.' }]);
+
+    assert.equal(validation.reconciledThreads, 0);
+    assert.equal(result.threads[0].status, 'open');
+});
+
+test('a model-supplied resolved thread is reopened when its own detail says the action is unfinished', () => {
+    const result = extraction();
+    result.threads.push({
+        targetId: 'thread_saber', title: 'Recovery of Toska’s green lightsaber',
+        detail: 'Resolved by extracted continuity: The team is preparing to land and must still recover the saber.',
+        status: 'resolved', participants: ['Toska'], importance: 4,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [{ name: 'Toska', type: 'person', aliases: [] }], facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_saber', title: 'Recovery of Toska’s green lightsaber',
+            detail: 'A team will recover the saber.', status: 'open', participants: ['Toska'], importance: 4,
+        }],
+    }, [{ name: 'Narrator', text: 'The team is preparing to land; the saber remains at the site.' }]);
+
+    assert.equal(validation.reopenedUnsupportedThreads, 1);
+    assert.equal(result.threads[0].status, 'open');
+    assert.equal(result.threads[0].detail, 'A team will recover the saber.');
+});
+
+test('a newly introduced resolved thread becomes open when its deadline and delivery remain pending', () => {
+    const result = extraction();
+    result.threads.push({
+        targetId: '', title: 'Can Mara fulfill the three-day delivery?',
+        detail: 'Resolved by extracted continuity: Mara must deliver the archive to Sol within three days.',
+        status: 'resolved', participants: ['Mara', 'Sol'], importance: 4,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [
+            { name: 'Mara', type: 'person', aliases: [] },
+            { name: 'Sol', type: 'person', aliases: [] },
+        ], facts: [], states: [], relationships: [], backgrounds: [], threads: [],
+    }, [{ name: 'Sol', text: 'You must deliver the archive to me within three days.' }]);
+
+    assert.equal(validation.reopenedUnsupportedThreads, 1);
+    assert.equal(result.threads[0].status, 'open');
+    assert.equal(result.threads[0].detail, 'Mara must deliver the archive to Sol within three days.');
+});
+
+test('receiving somebody else’s report cannot resolve a thread to make a future report', () => {
+    const result = extraction();
+    result.threads.push({
+        targetId: 'thread_report', title: 'What will Lucas report about Caelen’s death?',
+        detail: 'Resolved by explicit continuity: Lucas entered the hall and received Maren’s damage report.',
+        status: 'resolved', participants: ['Lucas', 'Caelen'], importance: 4,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [
+            { name: 'Lucas', type: 'person', aliases: [] },
+            { name: 'Caelen', type: 'person', aliases: [] },
+            { name: 'Maren', type: 'person', aliases: [] },
+        ], facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_report', title: 'What will Lucas report about Caelen’s death?',
+            detail: 'Lucas has not yet reported Caelen’s death.', status: 'open',
+            participants: ['Lucas', 'Caelen'], importance: 4,
+        }],
+    }, [{ name: 'Maren', text: 'Lucas entered the hall and received my damage report.' }]);
+
+    assert.equal(validation.reopenedUnsupportedThreads, 1);
+    assert.equal(result.threads[0].status, 'open');
+});
+
+test('a concise completed contact update can resolve an unanswered request thread', () => {
+    const result = extraction();
+    result.threads.push({
+        targetId: 'thread_contact', title: 'Sol’s unanswered status request',
+        detail: 'Resolved: Sol’s unanswered request led to live contact with Mara on an active channel.',
+        status: 'resolved', participants: ['Sol', 'Mara'], importance: 4,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [
+            { name: 'Sol', type: 'person', aliases: [] },
+            { name: 'Mara', type: 'person', aliases: [] },
+        ], facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_contact', title: 'Sol’s unanswered status request',
+            detail: 'Sol’s request remains unanswered.', status: 'open', participants: ['Sol', 'Mara'], importance: 4,
+        }],
+    }, [{ name: 'Mara', text: 'The channel opens and I establish live contact with Sol.' }]);
+
+    assert.equal(validation.reopenedUnsupportedThreads, 0);
+    assert.equal(result.threads[0].status, 'resolved');
+});
+
+test('an unrelated completed action cannot resolve a decision thread by sharing its topic words', () => {
+    const result = extraction();
+    result.events.push({
+        title: 'Dask sanitizes the log',
+        summary: 'Dask returned to the relay and omitted the co-Sith declaration from the routine log.',
+        consequences: 'The co-Sith claim remains absent from the record.',
+        participants: ['Dask'], importance: 3,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [
+            { name: 'Darth Segundus', type: 'person', aliases: [] },
+            { name: 'Lucas', type: 'person', aliases: [] },
+            { name: 'Dask', type: 'person', aliases: [] },
+        ], facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_claim', title: 'Will Segundus accept Lucas’s co-Sith claim?',
+            detail: 'Segundus has not yet accepted or rejected the claim.', status: 'open',
+            participants: ['Darth Segundus', 'Lucas'], importance: 4,
+        }],
+    }, [{ name: 'Dask', text: 'I returned to the relay and omitted the co-Sith declaration from the log.' }]);
+
+    assert.equal(validation.reconciledThreads, 0);
+    assert.deepEqual(result.threads, []);
 });
 
 test('a completed two-part task is resolved from a source-backed event even when beats split the actions', () => {
