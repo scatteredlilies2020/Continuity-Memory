@@ -1241,12 +1241,12 @@ test('an explicit later answer resolves a matching omitted open-thread update', 
         entities: [
             { name: 'Toska', type: 'person', aliases: [] },
             { name: 'Lucas Alcazar', type: 'person', aliases: ['Lucas'] },
-            { name: 'Toska’s former master', type: 'person', aliases: ['the Jedi Master'] },
+            { name: 'Toska’s former Jedi Master', type: 'person', aliases: ['the Jedi Master'] },
         ], facts: [], states: [], relationships: [], backgrounds: [],
         threads: [{
             id: 'thread_caelen_identity', title: 'Toska’s former master’s true identity',
             detail: 'Lucas asks Toska for her deceased master’s true name and what he was before, but Toska has not yet answered.',
-            status: 'open', participants: ['Lucas Alcazar', 'Toska', 'Toska’s former master'], importance: 3,
+            status: 'open', participants: ['Lucas Alcazar', 'Toska', 'Toska’s former Jedi Master'], importance: 3,
         }],
     };
 
@@ -1259,13 +1259,13 @@ test('an explicit later answer resolves a matching omitted open-thread update', 
     assert.equal(validation.reconciledThreads, 1);
     assert.deepEqual(validation.warnings, []);
     assert.deepEqual(result.identityResolutions, [{
-        reference: 'Toska’s former master', canonical: 'Caelen Veyr',
+        reference: 'Toska’s former Jedi Master', canonical: 'Caelen Veyr',
         evidence: 'Toska reveals Caelen Veyr’s true name, former High Council role, wartime command, and alias Pell.',
     }]);
     assert.deepEqual(result.threads, [{
         targetId: 'thread_caelen_identity', title: 'Toska’s former master’s true identity',
         detail: 'Resolved by explicit continuity: Toska reveals Caelen Veyr’s true name, former High Council role, wartime command, and alias Pell.',
-        status: 'resolved', participants: ['Lucas Alcazar', 'Toska', 'Toska’s former master'], importance: 3,
+        status: 'resolved', participants: ['Lucas Alcazar', 'Toska', 'Toska’s former Jedi Master'], importance: 3,
     }]);
 });
 

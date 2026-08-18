@@ -375,8 +375,9 @@ export function recoverExplicitPriorKnowledge(result, world) {
 }
 
 const PERSON_IDENTITY_ROLE = '(?:master|mentor|teacher|captain|commander|leader|handler|apprentice|student|padawan|pupil|parent|mother|father|brother|sister)';
-const DESCRIPTIVE_PERSON_IDENTITY = new RegExp(`^(.+?)[’']s\\s+((?:(?:former|dead|deceased|missing|unknown)\\s+)?${PERSON_IDENTITY_ROLE})$`, 'iu');
-const GENERIC_PERSON_IDENTITY = new RegExp(`^(?:(?:the|an?)\\s+)?((?:(?:unknown|unnamed|unidentified|mysterious|missing)\\s+)?(?:(?:former|previous|prior|lost|missing|dead|deceased)\\s+)?(${PERSON_IDENTITY_ROLE}))(?:\\s+of\\s+(.+))?$`, 'iu');
+const PERSON_IDENTITY_SPECIALIZATION = '(?:[\\p{L}\\p{N}-]+\\s+){0,3}';
+const DESCRIPTIVE_PERSON_IDENTITY = new RegExp(`^(.+?)[’']s\\s+((?:(?:former|dead|deceased|missing|unknown)\\s+)?${PERSON_IDENTITY_SPECIALIZATION}${PERSON_IDENTITY_ROLE})$`, 'iu');
+const GENERIC_PERSON_IDENTITY = new RegExp(`^(?:(?:the|an?)\\s+)?((?:(?:unknown|unnamed|unidentified|mysterious|missing)\\s+)?(?:(?:former|previous|prior|lost|missing|dead|deceased)\\s+)?${PERSON_IDENTITY_SPECIALIZATION}(${PERSON_IDENTITY_ROLE}))(?:\\s+of\\s+(.+))?$`, 'iu');
 
 function descriptivePersonIdentityContext(reference, world) {
     const possessive = cleanText(reference).match(DESCRIPTIVE_PERSON_IDENTITY);
