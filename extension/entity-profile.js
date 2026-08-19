@@ -12,6 +12,8 @@ const TEMPORARY_PERSONALITY = /\b(?:adoring|afraid|angry|annoyed|anxious|awed|co
 const DURABLE_BEHAVIOR = /\b(?:always|characteristically|clums(?:y|ily|iness)|devoted|earnest|habit(?:ual|ually|s)?|known for|often|personality|quirk[sy]?|regularly|repeatedly|speech pattern|stammer(?:s|ed|ing)?|stumble(?:s|d|ing)?|stutter(?:s|ed|ing)?|tends? to|trips?|typically|usually)\b/iu;
 const DURABLE_ROLE = /\b(?:acolyte|adviser|advisor|agent|apprentice|attendant|background|born|captain|child|commander|council|daughter|doctor|emperor|empress|father|former|formerly|grew up|guard|heir|identity|investigator|Jedi|king|knight|leader|lieutenant|master|member|mentor|minister|mistress|mother|officer|orphan|Padawan|pilot|prince|princess|queen|refugee|role|seneschal|served|service|sister|Sith|soldier|son|student|teacher|title|trained|veteran)\b/iu;
 const TRANSIENT_ROLE = /\b(?:attending|bound for|captive|captured|confronting|currently|detained|escorting|grieving|heading to|imprisoned|now|restrained|transporting|under guard|waiting)\b/iu;
+const PROFILE_CONTROL_SYNTAX = /[|=]|```|<\/?(?:stat|background_updates)\b|\b(?:Active Threads|Characters|Current Beat|EGO|Emotions|ID|Inventory(?:\s*&\s*Objects)?|Location|Physical State|Positions|Psyche|SUPEREGO|Time\s*&\s*Weather)\s*:/iu;
+const CURRENT_ACTION_AS_TRAIT = /^(?:awaiting|complying|defending|escorting|fighting|fleeing|grieving|guarding|heading|investigating|resisting|scrutinizing|studying|surviving|transporting|watching|waiting)\b/iu;
 
 function clean(value) {
     return String(value ?? '').replace(/\s+/gu, ' ').trim();
@@ -95,15 +97,34 @@ export function mergeEntityProfiles(priorValue, incomingValue) {
     return merged;
 }
 
+// This gate deliberately decides only whether a detail has the shape of one
+// durable profile claim. Semantic meaning remains model-proposed and is checked
+// against narrative/canonical evidence by reconciliation-policy.js.
+export function characterProfileDetailIsAdmissible(field, detail) {
+    const raw = String(detail ?? '');
+    const value = clean(raw);
+    if (!value || value.length < 2 || value.length > 180 || PROFILE_CONTROL_SYNTAX.test(raw)) return false;
+    if (/^(?:unknown|none|n\/a|not established|unrevealed)$/iu.test(value)) return false;
+    if (field === 'appearance') return !TEMPORARY_APPEARANCE.test(value);
+    if (field === 'roleBackground') {
+        return !TRANSIENT_ROLE.test(value) && !TEMPORARY_PERSONALITY.test(value) && !DURABLE_APPEARANCE.test(value);
+    }
+    if (field !== 'personalityQuirks') return false;
+    return !TEMPORARY_PERSONALITY.test(value)
+        && !TEMPORARY_APPEARANCE.test(value)
+        && !DURABLE_APPEARANCE.test(value)
+        && !DURABLE_ROLE.test(value)
+        && !CURRENT_ACTION_AS_TRAIT.test(value)
+        && !/\bdown for the count\b/iu.test(value);
+}
+
 // Model-written profile fields are proposals. This classifier decides which
 // grounded details are durable enough to enter the canonical entity profile.
 export function durableCharacterProfileDetail(field, detail, evidenceWindows = []) {
     const value = clean(detail);
-    if (!value || value.length < 2 || value.length > 180) return false;
-    if (/^(?:unknown|none|n\/a|not established|unrevealed)$/iu.test(value)) return false;
-    if (field === 'appearance') return DURABLE_APPEARANCE.test(value) && !TEMPORARY_APPEARANCE.test(value);
+    if (!characterProfileDetailIsAdmissible(field, detail)) return false;
+    if (field === 'appearance') return DURABLE_APPEARANCE.test(value);
     if (field === 'roleBackground') {
-        if (TRANSIENT_ROLE.test(value) || DURABLE_APPEARANCE.test(value)) return false;
         if (DURABLE_ROLE.test(value)) return true;
         const terms = detailKey(value).split(' ').filter(term => term.length >= 3);
         return terms.length > 0 && evidenceWindows.some(window => {
@@ -114,8 +135,7 @@ export function durableCharacterProfileDetail(field, detail, evidenceWindows = [
                     .some(prefix => source.includes(`${prefix} ${detailIdentity}`));
         });
     }
-    if (field !== 'personalityQuirks' || TEMPORARY_PERSONALITY.test(value)
-        || DURABLE_APPEARANCE.test(value) || DURABLE_ROLE.test(value)) return false;
+    if (field !== 'personalityQuirks') return false;
     if (DURABLE_BEHAVIOR.test(value)) return true;
     const terms = detailKey(value).split(' ').filter(term => term.length >= 3);
     if (!terms.length) return false;

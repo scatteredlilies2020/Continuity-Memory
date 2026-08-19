@@ -2029,6 +2029,63 @@ test('typed character profiles reject scene conditions and temporary reactions e
     assert.equal(validation.discardedCharacterProfileDetails, 5);
 });
 
+test('generated status panels cannot become character-profile evidence', () => {
+    const result = extraction();
+    result.entities.push({
+        name: 'Toska', type: 'person', aliases: [], importance: 5, description: '',
+        characterProfile: {
+            roleBackground: [
+                'Jedi Padawan',
+                'afraid 😠 | Pilot: disciplined loyalty 🫡 Psyche = Toska | ID: survive',
+                'former Jedi Council member',
+            ],
+            appearance: ['shoulder-length brown hair', 'blue eyes'],
+            personalityQuirks: ['dusty', 'defending Caelen’s secrecy while scrutinizing Lucas'],
+        },
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{
+        name: 'Narrator', isUser: false,
+        text: `<stat>
+\`\`\`
+Physical State = Toska is dusty and firmly restrained
+Emotions = Toska: afraid 😠 | Pilot: disciplined loyalty 🫡
+Psyche = Toska | ID: survive | EGO: comply while watching
+Characters = Toska | captive Jedi Padawan; Caelen Veyr | former Jedi Council member
+\`\`\`
+</stat>
+
+Toska is a Jedi Padawan. Toska has shoulder-length brown hair and blue eyes. Toska defends Caelen's secrecy while scrutinizing Lucas.`,
+    }]);
+
+    assert.deepEqual(result.entities[0].profile, {
+        roleBackground: ['Jedi Padawan'],
+        appearance: ['shoulder-length brown hair', 'blue eyes'],
+    });
+    assert.doesNotMatch(result.entities[0].description, /Pilot|Psyche|Council|dusty|defending/iu);
+    assert.equal(validation.discardedCharacterProfileDetails, 4);
+});
+
+test('a contaminated stored profile field is not allowed to perpetuate itself', () => {
+    const result = extraction();
+    result.entities.push({ targetId: 'toska', name: 'Toska', type: 'person', aliases: [], importance: 5, description: '' });
+    sanitizeReconciliationMetadata(result, {
+        entities: [{
+            id: 'toska', name: 'Toska', type: 'person', aliases: [],
+            description: 'Role/background: Jedi Padawan, afraid | Pilot: vigilant, former Jedi Council member; Appearance: blue eyes.',
+            profile: {
+                roleBackground: ['Jedi Padawan', 'afraid | Pilot: vigilant', 'former Jedi Council member'],
+                appearance: ['blue eyes'],
+            },
+        }],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Narrator', isUser: false, text: 'Toska has blue eyes.' }]);
+
+    assert.deepEqual(result.entities[0].profile, { appearance: ['blue eyes'] });
+    assert.doesNotMatch(result.entities[0].description, /Pilot|Council|Padawan/iu);
+});
+
 test('typed profile grammar accepts genre-neutral roles and enduring traits', () => {
     const result = extraction();
     result.entities.push({

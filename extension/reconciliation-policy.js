@@ -1,5 +1,5 @@
 import { canonicalMemorySubject, canonicalStateAttribute, isActiveState, stateIdentity } from './state-lifecycle.js';
-import { durableCharacterProfileDetail, entityProfile as storedEntityProfile, formatEntityProfile, normalizeEntityProfile } from './entity-profile.js';
+import { characterProfileDetailIsAdmissible, durableCharacterProfileDetail, entityProfile as storedEntityProfile, formatEntityProfile, normalizeEntityProfile } from './entity-profile.js';
 
 export const TARGET_RECORD_CATEGORIES = Object.freeze(['entities', 'facts', 'states', 'relationships', 'threads', 'backgrounds']);
 
@@ -2962,7 +2962,7 @@ function sourceEvidenceParts(message) {
 }
 
 function characterProfileObjectiveParts(message) {
-    const source = String(message?.text ?? message?.mes ?? '').replace(/\r/g, ' ');
+    const source = stripGeneratedProfileControlBlocks(String(message?.text ?? message?.mes ?? '')).replace(/\r/g, ' ');
     return source.split(/\n+|(?<=[.!?])\s+(?=[\p{L}\p{N}“"'*_<])/u)
         .map(cleanText)
         .map(chunk => {
@@ -2977,6 +2977,16 @@ function characterProfileObjectiveParts(message) {
         })
         .map(chunk => cleanText(chunk.replace(/^\*+|\*+$/gu, '')))
         .filter(Boolean);
+}
+
+function stripGeneratedProfileControlBlocks(value) {
+    let source = String(value ?? '');
+    for (const tag of ['stat', 'background_updates']) {
+        const paired = new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}\\s*>`, 'giu');
+        const unclosed = new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*$`, 'giu');
+        source = source.replace(paired, ' ').replace(unclosed, ' ');
+    }
+    return source.replace(/```[\s\S]*?```/gu, block => /\b(?:Active Threads|Characters|Current Beat|EGO|Emotions|ID|Physical State|Positions|Psyche|SUPEREGO|Time\s*&\s*Weather)\s*=/iu.test(block) ? ' ' : block);
 }
 
 function strongestEvidenceWindow(reference, segments) {
@@ -3105,7 +3115,11 @@ function characterProfileDetailSupported(detail, entity, existing, objectiveWind
     // retain source wording, so semantic paraphrase must not become a loophole
     // through which one unsupported adjective can ride beside valid details.
     const threshold = terms.length;
-    if (existing && characterProfileSupportCount(terms, cleanText(existing?.description)) >= threshold) return true;
+    // A legacy free-form biography may seed its one-time typed conversion. A
+    // typed profile must never validate new proposals through its own rendered
+    // description, because that would make earlier contamination self-proving.
+    if (existing && !Object.keys(storedEntityProfile(existing)).length
+        && characterProfileSupportCount(terms, cleanText(existing?.description)) >= threshold) return true;
     return objectiveWindows.some(window => characterProfileSupportCount(terms, window) >= threshold);
 }
 
@@ -3253,9 +3267,11 @@ export function sanitizeStructuredCharacterProfiles(result, world, messages) {
         const hadStoredProfile = Object.keys(prior).length > 0;
         if (!CHARACTER_PROFILE_ORDER.some(key => characterProfileDetails(incoming[key]).length
             || characterProfileDetails(derived[key]).length || characterProfileDetails(prior[key]).length)) continue;
-        const safe = Object.fromEntries(CHARACTER_PROFILE_ORDER.map(key => [key,
-            characterProfileDetails(prior[key]).filter(detail => !isBareEntityIdentity(detail)),
-        ]).filter(([, details]) => details.length));
+        const safe = Object.fromEntries(CHARACTER_PROFILE_ORDER.map(key => {
+            const details = characterProfileDetails(prior[key]);
+            const contaminated = details.some(detail => !characterProfileDetailIsAdmissible(key, detail));
+            return [key, contaminated ? [] : details.filter(detail => !isBareEntityIdentity(detail))];
+        }).filter(([, details]) => details.length));
         let entityDiscarded = 0;
         for (const key of CHARACTER_PROFILE_ORDER) {
             const supported = [];
