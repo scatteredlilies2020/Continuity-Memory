@@ -90,6 +90,7 @@ test('a validated character profile replacement cannot re-merge rejected stored 
             description: 'Role/background: Caelen Veyr’s former apprentice.',
             profile: { roleBackground: ['Caelen Veyr’s former apprentice'] },
             _validatedProfileReplace: true,
+            _profileValidationVersion: EXTRACTION_VERSION,
         }],
         events: [],
     });
@@ -98,6 +99,7 @@ test('a validated character profile replacement cannot re-merge rejected stored 
 
     assert.deepEqual(target.entities[0].profile, { roleBackground: ['Caelen Veyr’s former apprentice'] });
     assert.equal(target.entities[0].description, 'Role/background: Caelen Veyr’s former apprentice.');
+    assert.equal(target.entities[0].profileValidationVersion, EXTRACTION_VERSION);
     assert.equal('_validatedProfileReplace' in target.entities[0], false);
 });
 

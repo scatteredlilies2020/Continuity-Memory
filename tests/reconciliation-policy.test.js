@@ -2171,7 +2171,7 @@ test('canonical record prose removes first and second person while retaining sup
     assert.equal(validation.discardedNonThirdPersonProseRecords, 1);
 });
 
-test('a contaminated stored profile field is not allowed to perpetuate itself', () => {
+test('one malformed imported profile detail does not erase valid sibling details', () => {
     const result = extraction();
     result.entities.push({ targetId: 'toska', name: 'Toska', type: 'person', aliases: [], importance: 5, description: '' });
     sanitizeReconciliationMetadata(result, {
@@ -2186,8 +2186,28 @@ test('a contaminated stored profile field is not allowed to perpetuate itself', 
         facts: [], states: [], relationships: [], threads: [], backgrounds: [],
     }, [{ name: 'Narrator', isUser: false, text: 'Toska has blue eyes.' }]);
 
-    assert.deepEqual(result.entities[0].profile, { appearance: ['blue eyes'] });
-    assert.doesNotMatch(result.entities[0].description, /Pilot|Council|Padawan/iu);
+    assert.deepEqual(result.entities[0].profile, {
+        roleBackground: ['Jedi Padawan', 'former Jedi Council member'], appearance: ['blue eyes'],
+    });
+    assert.doesNotMatch(result.entities[0].description, /Pilot/iu);
+});
+
+test('an older locally extracted profile is re-grounded detail by detail under the new validator', () => {
+    const result = extraction();
+    result.entities.push({ targetId: 'lucas', name: 'Lucas', type: 'person', aliases: [], importance: 5, description: '' });
+    sanitizeReconciliationMetadata(result, {
+        entities: [{
+            id: 'lucas', name: 'Lucas', type: 'person', aliases: [],
+            description: 'Role/background: former Council member, Caelen’s former apprentice; Appearance: blue eyes.',
+            profile: {
+                roleBackground: ['former Council member', 'Caelen’s former apprentice'], appearance: ['blue eyes'],
+            },
+        }],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+        sources: { chat: { processedMessages: [{ index: 0, fingerprint: 'old', version: 1 }] } },
+    }, [{ name: 'Narrator', isUser: false, text: 'Lucas was Caelen’s former apprentice.' }]);
+
+    assert.deepEqual(result.entities[0].profile, { roleBackground: ['Caelen’s former apprentice'] });
 });
 
 test('typed profile grammar accepts genre-neutral roles and enduring traits', () => {
@@ -2406,6 +2426,79 @@ test('an entity possessive object cannot make another person trait evidence for 
 
     assert.deepEqual(result.entities[0].profile, {});
     assert.equal(validation.discardedCharacterProfileDetails, 1);
+});
+
+test('local pronoun ownership works in a multi-character scene without sharing the trait', () => {
+    const result = extraction();
+    result.entities.push(
+        {
+            name: 'Mara', type: 'person', aliases: [], importance: 4, description: '',
+            characterProfile: { roleBackground: [], appearance: ['green eyes'], personalityQuirks: [] },
+        },
+        {
+            name: 'John', type: 'person', aliases: [], importance: 4, description: '',
+            characterProfile: { roleBackground: [], appearance: ['green eyes'], personalityQuirks: [] },
+        },
+    );
+    sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Narrator', isUser: false, text: 'Mara enters beside John. She has green eyes.' }]);
+
+    assert.deepEqual(result.entities.find(item => item.name === 'Mara').profile, { appearance: ['green eyes'] });
+    assert.deepEqual(result.entities.find(item => item.name === 'John').profile, {});
+});
+
+test('obvious field mismatches are reclassified without banning durable conditional traits', () => {
+    const result = extraction();
+    result.entities.push({
+        name: 'Ilyra', type: 'person', aliases: [], importance: 4, description: '',
+        characterProfile: {
+            roleBackground: ['traditionalist'],
+            appearance: [],
+            personalityQuirks: ['eyes turn silver when casting magic'],
+        },
+    });
+    sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Narrator', isUser: false, text: 'Ilyra is a traditionalist. Ilyra’s eyes turn silver when casting magic.' }]);
+
+    assert.deepEqual(result.entities[0].profile, {
+        appearance: ['eyes turn silver when casting magic'], personalityQuirks: ['traditionalist'],
+    });
+});
+
+test('field repair defers to valid model semantics when a phrase has mixed cues', () => {
+    const result = extraction();
+    result.entities.push({
+        name: 'Rook', type: 'person', aliases: [], importance: 4, description: '',
+        characterProfile: {
+            roleBackground: ['scarred veteran'],
+            appearance: [],
+            personalityQuirks: ['short-tempered'],
+        },
+    });
+    sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Narrator', isUser: false, text: 'Rook is a scarred veteran. Rook is short-tempered by nature.' }]);
+
+    assert.deepEqual(result.entities[0].profile, {
+        roleBackground: ['scarred veteran'], personalityQuirks: ['short-tempered'],
+    });
+});
+
+test('appositive character introductions support genre-neutral profiles', () => {
+    const result = extraction();
+    result.entities.push({
+        name: 'K-7', type: 'person', aliases: [], importance: 3, description: '',
+        characterProfile: { roleBackground: ['court automaton'], appearance: ['brass skin'], personalityQuirks: [] },
+    });
+    sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Narrator', isUser: false, text: 'The court automaton K-7 has brass skin.' }]);
+
+    assert.deepEqual(result.entities[0].profile, {
+        roleBackground: ['court automaton'], appearance: ['brass skin'],
+    });
 });
 
 test('identity resolution lets a stored placeholder relationship support its canonical name', () => {

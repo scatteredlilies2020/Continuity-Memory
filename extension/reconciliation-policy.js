@@ -1,6 +1,7 @@
 import { canonicalMemorySubject, canonicalStateAttribute, isActiveState, stateIdentity } from './state-lifecycle.js';
-import { characterProfileDetailIsAdmissible, durableCharacterProfileDetail, entityProfile as storedEntityProfile, formatEntityProfile, normalizeEntityProfile } from './entity-profile.js';
+import { canonicalCharacterProfileField, characterProfileDetailIsAdmissible, durableCharacterProfileDetail, entityProfile as storedEntityProfile, formatEntityProfile, normalizeEntityProfile } from './entity-profile.js';
 import { canonicalProseIsThirdPerson, thirdPersonOnlyProse } from './canonical-prose.js';
+import { EXTRACTION_VERSION } from './coverage.js';
 
 export const TARGET_RECORD_CATEGORIES = Object.freeze(['entities', 'facts', 'states', 'relationships', 'threads', 'backgrounds']);
 
@@ -3142,7 +3143,21 @@ function characterProfileSubjectPattern(entity) {
 }
 
 function characterProfileHasExplicitSubject(segment, entity) {
-    return Boolean(characterProfileSubjectPattern(entity)?.test(cleanText(segment)));
+    const source = cleanText(segment);
+    if (characterProfileSubjectPattern(entity)?.test(source)) return true;
+    const variants = [entity?.name, ...(entity?.aliases || [])].map(cleanText).filter(Boolean);
+    for (const variant of variants) {
+        const identity = escaped(variant);
+        // Appositive subjects such as "The court mage Aria" are common in
+        // introductions. A preposition before the name marks it as contextual
+        // instead ("the guard beside Aria") and must not claim the sentence.
+        const appositive = source.match(new RegExp(`^(?:[\\s*“”"'‘’([{]*)(?:a|an|the)\\s+([^,.]{1,70}?)\\s+${identity}\\b`, 'iu'));
+        if (appositive && !/\b(?:against|around|before|behind|beside|by|for|from|near|of|over|to|under|with)\b/iu.test(appositive[1])) return true;
+        // Handle a narrow, unambiguous inverted construction without treating
+        // every name before a verb as its grammatical subject.
+        if (new RegExp(`^(?:[\\s*“”"'‘’([{]*)(?:across from|behind|beside|near)\\b[^.!?]{0,80}\\b(?:sat|stood|waited)\\s+${identity}\\b`, 'iu').test(source)) return true;
+    }
+    return false;
 }
 
 function characterProfilePronounLed(segment) {
@@ -3154,11 +3169,7 @@ function characterProfileEvidenceWindows(entity, objectiveSequences, people) {
     const otherPeople = people.filter(person => normalized(person?.name) !== normalized(entity?.name));
     const windows = [];
     for (const segments of objectiveSequences) {
-        const namedSubjects = new Set(people
-            .filter(person => segments.some(segment => characterProfileHasExplicitSubject(segment, person)))
-            .map(person => normalized(person?.name)).filter(Boolean));
-        const targetIsOnlyNamedSubject = namedSubjects.size === 1 && namedSubjects.has(normalized(entity?.name));
-        let targetIntroduced = false;
+        let activeSubject = '';
         for (let index = 0; index < segments.length; index++) {
             // A self-introduction can explicitly resolve immediately preceding
             // pronoun-led description to the named speaker. Walk backward only
@@ -3168,7 +3179,7 @@ function characterProfileEvidenceWindows(entity, objectiveSequences, people) {
                 `\\b(?:I\\s+am|I['’]m|my\\s+name\\s+is)\\s+${escaped(variant)}\\b`, 'iu',
             ).test(segments[index]));
             if (selfIntroduction) {
-                targetIntroduced = true;
+                activeSubject = normalized(entity?.name);
                 let start = index;
                 for (let prior = index - 1; prior >= 0 && prior >= index - 3; prior--) {
                     if (otherPeople.some(person => textMentionsEntity(segments[prior], person))) break;
@@ -3176,16 +3187,25 @@ function characterProfileEvidenceWindows(entity, objectiveSequences, people) {
                     windows.push(segments.slice(start, index + 1).join(' '));
                 }
             }
-            if (characterProfileHasExplicitSubject(segments[index], entity)) {
-                targetIntroduced = true;
-                windows.push(segments[index]);
+            const explicitSubjects = [...new Set(people
+                .filter(person => characterProfileHasExplicitSubject(segments[index], person))
+                .map(person => normalized(person?.name)).filter(Boolean))];
+            if (explicitSubjects.length === 1) {
+                activeSubject = explicitSubjects[0];
+                if (activeSubject === normalized(entity?.name)) windows.push(segments[index]);
                 continue;
             }
-            // Pronouns are accepted only in a sequence whose sole explicit
-            // person-subject is this entity. This preserves ordinary single-
-            // character prose while refusing ambiguous multi-character scenes.
-            if (targetIntroduced && targetIsOnlyNamedSubject && characterProfilePronounLed(segments[index])) {
-                windows.push(segments[index]);
+            if (explicitSubjects.length > 1) {
+                activeSubject = '';
+                continue;
+            }
+            // A leading pronoun continues only the immediately active named
+            // subject. An intervening environment or abstract-subject sentence
+            // clears the anchor instead of reaching backward speculatively.
+            if (activeSubject && characterProfilePronounLed(segments[index])) {
+                if (activeSubject === normalized(entity?.name)) windows.push(segments[index]);
+            } else if (!selfIntroduction) {
+                activeSubject = '';
             }
         }
     }
@@ -3218,6 +3238,17 @@ function mergeCharacterProfileDetails(priorValue, incomingDetails) {
         if (!duplicate) merged.push(detail);
     }
     return merged.join(', ');
+}
+
+function characterProfileNeedsVersionAudit(existing, world) {
+    const entityVersion = Number(existing?.profileValidationVersion || 0);
+    if (entityVersion) return entityVersion !== EXTRACTION_VERSION;
+    const processedVersions = Object.values(world?.sources || {})
+        .flatMap(source => source?.processedMessages || [])
+        .map(item => Number(item?.version || 0)).filter(Boolean);
+    // Imported or hand-authored memory without extraction provenance remains
+    // accepted memory. A locally extracted older profile is re-grounded once.
+    return processedVersions.length > 0 && processedVersions.some(version => version !== EXTRACTION_VERSION);
 }
 
 function canonicalRecordProfileRoles(entity, result, world, messages) {
@@ -3285,11 +3316,12 @@ function sourceDerivedCharacterProfile(entity, objectiveWindows, messages, resul
     const appearanceCue = /\b(?:bald|beard|build|cheek(?:ed|s)?|complexion|ear[sd]?|eye[sd]?|face|facial|freckle[sd]?|hair|height|horn[sd]?|markings?|moustache|mustache|scar(?:red|s)?|short|skin|stature|tall|tattoo(?:ed|s)?|voice|wing[sd]?|blood|bruise|dust|grime|injur|mud|tear|wound)\b/iu;
     const roleCue = /\b(?:acolyte|adviser|advisor|agent|apprentice|attendant|captain|commander|council|doctor|emperor|empress|guard|heir|investigator|Jedi|king|knight|leader|lieutenant|mage|master|member|mentor|minister|mistress|officer|Padawan|pilot|prince|princess|queen|seneschal|Sith|soldier|student|teacher|veteran)\b/iu;
     const worldviewCue = /\b(?:adherent|belie(?:f|fs|ve[sd]?)|believer|creed|devout|ideology|principle|worldview)\b/iu;
+    const behaviorCue = /\b(?:always|characteristically|habit(?:ual|ually)?|often|quirk|regularly|repeatedly|stammer|stumble|stutter|temper(?:ament|ed)?|typically|usually)\b|\bby nature\b/iu;
     const addObserved = detail => {
         const value = cleanText(detail);
-        if (appearanceCue.test(value)) add('appearance', value);
-        else if (worldviewCue.test(value)) add('personalityQuirks', value);
-        else if (/^(?:a|an|the)\s+/iu.test(value) || roleCue.test(value)) add('roleBackground', value);
+        if (/^(?:a|an|the)\s+/iu.test(value) || roleCue.test(value)) add('roleBackground', value);
+        else if (worldviewCue.test(value) || behaviorCue.test(value)) add('personalityQuirks', value.replace(/\s+by nature$/iu, ''));
+        else if (appearanceCue.test(value)) add('appearance', value);
         else add('personalityQuirks', value.replace(/\s+by nature$/iu, ''));
     };
     for (const window of objectiveWindows) {
@@ -3351,35 +3383,49 @@ export function sanitizeStructuredCharacterProfiles(result, world, messages) {
         const derived = sourceDerivedCharacterProfile(entity, objectiveWindows, messages, result, world);
         const prior = storedEntityProfile(existing);
         const hadStoredProfile = Object.keys(prior).length > 0;
+        const versionAudit = characterProfileNeedsVersionAudit(existing, world);
         if (!CHARACTER_PROFILE_ORDER.some(key => characterProfileDetails(incoming[key]).length
             || characterProfileDetails(derived[key]).length || characterProfileDetails(prior[key]).length)) continue;
-        const safe = Object.fromEntries(CHARACTER_PROFILE_ORDER.map(key => {
-            const details = characterProfileDetails(prior[key]);
-            const contaminated = details.some(detail => !characterProfileDetailIsAdmissible(key, detail));
-            return [key, contaminated ? [] : details.filter(detail => !isBareEntityIdentity(detail))];
-        }).filter(([, details]) => details.length));
+        const safe = {};
         let entityDiscarded = 0;
+        // Preserve or reject prior details independently. One malformed sibling
+        // must never erase valid appearance, history, or personality details.
         for (const key of CHARACTER_PROFILE_ORDER) {
-            const supported = [];
+            const priorDetails = characterProfileDetails(prior[key]);
+            for (const detail of priorDetails) {
+                if (!isBareEntityIdentity(detail) && characterProfileDetailIsAdmissible(key, detail)
+                    && (!versionAudit || characterProfileDetailSupported(detail, entity, null, objectiveWindows))) {
+                    safe[key] ||= [];
+                    safe[key].push(detail);
+                }
+            }
+        }
+        const supportedByField = Object.fromEntries(CHARACTER_PROFILE_ORDER.map(key => [key, []]));
+        for (const key of CHARACTER_PROFILE_ORDER) {
             for (const detail of characterProfileDetails(incoming[key] || [])) {
+                const destination = canonicalCharacterProfileField(key, detail);
                 if (!isBareEntityIdentity(detail)
                     && characterProfileDetailSupported(detail, entity, existing, objectiveWindows)
-                    && durableCharacterProfileDetail(key, detail, objectiveWindows)) supported.push(detail);
+                    && destination
+                    && durableCharacterProfileDetail(destination, detail, objectiveWindows)) supportedByField[destination].push(detail);
                 else {
                     discarded++;
                     entityDiscarded++;
                 }
             }
-            for (const detail of derived[key]) {
-                if (!isBareEntityIdentity(detail)) supported.push(detail);
+        }
+        for (const key of CHARACTER_PROFILE_ORDER) {
+            for (const detail of derived[key]) if (!isBareEntityIdentity(detail)) supportedByField[key].push(detail);
+            if (supportedByField[key].length) {
+                safe[key] = characterProfileDetails(mergeCharacterProfileDetails(safe[key], supportedByField[key]));
             }
-            if (supported.length) safe[key] = characterProfileDetails(mergeCharacterProfileDetails(prior[key], supported));
         }
         entity.profile = normalizeEntityProfile(safe);
         // The safe profile already contains every retained prior detail plus
         // supported incoming details. Tell the memory merger to replace, not
         // union, so details rejected during revalidation cannot resurrect.
         entity._validatedProfileReplace = true;
+        entity._profileValidationVersion = EXTRACTION_VERSION;
         const safeDescription = formatEntityProfile(entity.profile);
         if (safeDescription) entity.description = safeDescription;
         else if (hadStoredProfile) entity.description = '';

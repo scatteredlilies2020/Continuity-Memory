@@ -1091,6 +1091,9 @@ export function mergeExtraction(world, result, meta) {
         const profile = entityIsPersonLike(type)
             ? mergeEntityProfiles(item?._validatedProfileReplace ? {} : current, item)
             : {};
+        const profileValidationVersion = entityIsPersonLike(type) && item?._validatedProfileReplace
+            ? Number(item?._profileValidationVersion || 0)
+            : Number(current?.profileValidationVersion || 0);
         const typedDescription = formatEntityProfile(profile);
         const description = typedDescription || mergeStableEntityDescription(current?.description, incomingDescription, type);
         return {
@@ -1104,6 +1107,7 @@ export function mergeExtraction(world, result, meta) {
                     && key(entity.name) === key(alias))),
             description,
             ...(Object.keys(profile).length ? { profile } : {}),
+            ...(profileValidationVersion ? { profileValidationVersion } : {}),
             importance: Math.max(clampImportance(item.importance), clampImportance(current?.importance)),
         };
     }, preserveHistoricalRecord, result);
