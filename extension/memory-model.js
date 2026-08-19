@@ -6,6 +6,7 @@ import { buildL1TemporalAnchor, buildRelativeTemporalAnchor } from './temporal-a
 import { randomUuid } from './uuid.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { formatEntityProfile, mergeEntityProfiles } from './entity-profile.js';
+import { thirdPersonOnlyProse } from './canonical-prose.js';
 
 function text(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -300,7 +301,7 @@ function exactTextKey(value) {
 export function compactHierarchyFields(result, turningPointLimit = 8, openThreadLimit = 12) {
     const seen = new Set();
     const take = value => {
-        const cleaned = text(value);
+        const cleaned = thirdPersonOnlyProse(text(value));
         const key = exactTextKey(cleaned);
         if (!key || seen.has(key)) return '';
         seen.add(key);

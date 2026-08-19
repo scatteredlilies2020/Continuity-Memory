@@ -2112,6 +2112,65 @@ Toska is a Jedi Padawan. Toska has blue eyes. Toska stutters.`,
     assert.equal(validation.discardedCharacterProfileDetails, 6);
 });
 
+test('immersive second-person premises cannot leak into a third-person entity profile', () => {
+    const result = extraction();
+    result.entities.push({
+        name: 'Darth Segundus', type: 'person', aliases: ['Segundus'], importance: 4, description: '',
+        characterProfile: {
+            roleBackground: [
+                'firm believer of the Rule of Two',
+                'would not allow you to gain an apprentice so the best course of action is to hide the would be apprentice until the time is right',
+                'Lucas Alcazar’s Sith Master',
+            ],
+            appearance: [], personalityQuirks: [],
+        },
+    });
+    result.relationships.push({
+        targetId: '', from: 'Lucas Alcazar', to: 'Darth Segundus', kind: 'Sith master and apprentice', status: 'active',
+        dynamic: 'Darth Segundus is Lucas Alcazar’s Sith Master and controls his assignments.', importance: 4,
+    });
+    sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{
+        name: 'Narrator', isUser: false,
+        text: 'Your Master, Darth Segundus, sent you to the desert. Darth Segundus is a firm believer of the Rule of Two and would not allow you to gain an apprentice, so the best course of action is to hide the would-be apprentice until the time is right.',
+    }]);
+
+    assert.deepEqual(result.entities[0].profile, {
+        roleBackground: ['Lucas Alcazar’s Sith Master'],
+        personalityQuirks: ['firm believer of the Rule of Two'],
+    });
+    assert.doesNotMatch(result.entities[0].description, /\b(?:I|me|my|we|us|our|you|your)\b/u);
+    assert.doesNotMatch(result.entities[0].description, /best course|hide the would/iu);
+});
+
+test('canonical record prose removes first and second person while retaining supported third-person clauses', () => {
+    const result = extraction();
+    result.facts.push({ targetId: '', subject: 'Lucas', predicate: 'orders you to wait', value: 'You must remain here.', category: 'order', persistence: 'temporary', importance: 2 });
+    result.relationships.push({
+        targetId: '', from: 'Lucas', to: 'Toska', kind: 'captor and captive', status: 'active', importance: 4,
+        dynamic: 'Lucas holds Toska captive; you should not attempt escape.',
+    });
+    result.events.push({
+        title: 'Lucas returns', summary: 'Lucas returns to the moonbase. You should prepare for training.',
+        consequences: 'Toska sees Lucas arrive.', participants: ['Lucas', 'Toska'], importance: 3,
+    });
+    result.threads.push({
+        targetId: '', title: 'Toska awaits training', detail: 'Toska awaits Lucas’s evaluation. You must train later.',
+        status: 'open', participants: ['Toska', 'Lucas'], importance: 3,
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, []);
+
+    assert.deepEqual(result.facts, []);
+    assert.equal(result.relationships[0].dynamic, 'Lucas holds Toska captive;');
+    assert.equal(result.events[0].summary, 'Lucas returns to the moonbase.');
+    assert.equal(result.threads[0].detail, 'Toska awaits Lucas’s evaluation.');
+    assert.ok(validation.discardedNonThirdPersonProseFields >= 4);
+    assert.equal(validation.discardedNonThirdPersonProseRecords, 1);
+});
+
 test('a contaminated stored profile field is not allowed to perpetuate itself', () => {
     const result = extraction();
     result.entities.push({ targetId: 'toska', name: 'Toska', type: 'person', aliases: [], importance: 5, description: '' });

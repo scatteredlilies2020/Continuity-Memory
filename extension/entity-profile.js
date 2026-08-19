@@ -1,3 +1,5 @@
+import { canonicalProseIsThirdPerson } from './canonical-prose.js';
+
 const PROFILE_FIELDS = Object.freeze(['roleBackground', 'appearance', 'personalityQuirks']);
 
 const PROFILE_LABELS = Object.freeze({
@@ -10,8 +12,10 @@ const TEMPORARY_APPEARANCE = /\b(?:bleed(?:ing)?|blood(?:ied|y)?|bruis(?:e|ed|in
 const DURABLE_APPEARANCE = /\b(?:age[ds]?|bald|beard|build|cheek(?:ed|s)?|complexion|ear[sd]?|eye[sd]?|face|facial|freckle[sd]?|hair|height|horn[sd]?|markings?|moustache|mustache|scar(?:red|s)?|short|skin|species|stature|tall|tattoo(?:ed|s)?|voice|wing[sd]?)\b/iu;
 const TEMPORARY_PERSONALITY = /\b(?:adoring|afraid|angry|annoyed|anxious|awed|conflicted|confused|defiant|desperate|distressed|embarrassed|enraged|fearful|frightened|furious|grieving|guilty|happy|hesitant|hopeful|horrified|hostile|jealous|nervous|proud|relieved|resentful|sad|scared|shocked|suspicious|terrified|uncertain|upset|wary|worried)\b/iu;
 const DURABLE_BEHAVIOR = /\b(?:always|characteristically|clums(?:y|ily|iness)|devoted|earnest|habit(?:ual|ually|s)?|known for|often|personality|quirk[sy]?|regularly|repeatedly|speech pattern|stammer(?:s|ed|ing)?|stumble(?:s|d|ing)?|stutter(?:s|ed|ing)?|tends? to|trips?|typically|usually)\b/iu;
+const DURABLE_WORLDVIEW = /\b(?:adherent|belie(?:f|fs|ve[sd]?)|believer|creed|devout|ideology|principle|worldview)\b/iu;
 const DURABLE_ROLE = /\b(?:acolyte|adviser|advisor|agent|apprentice|attendant|background|born|captain|child|commander|council|daughter|doctor|emperor|empress|father|former|formerly|grew up|guard|heir|identity|investigator|Jedi|king|knight|leader|lieutenant|master|member|mentor|minister|mistress|mother|officer|orphan|Padawan|pilot|prince|princess|queen|refugee|role|seneschal|served|service|sister|Sith|soldier|son|student|teacher|title|trained|veteran)\b/iu;
 const TRANSIENT_ROLE = /\b(?:attending|bound for|captive|captured|confronting|currently|detained|escorting|grieving|heading to|imprisoned|now|restrained|transporting|under guard|waiting)\b/iu;
+const NON_BIOGRAPHICAL_ROLE = /\b(?:best course of action|belie(?:f|fs|ve[sd]?)|believer|could|hide|intend(?:s|ed|ing)?|plan(?:s|ned|ning)?|should|trying to|until the time|would)\b/iu;
 const PROFILE_CONTROL_SYNTAX = /[|=]|```|<\/?(?:stat|background_updates)\b|\b(?:Active Threads|Characters|Current Beat|EGO|Emotions|ID|Inventory(?:\s*&\s*Objects)?|Location|Physical State|Positions|Psyche|SUPEREGO|Time\s*&\s*Weather)\s*:/iu;
 const CURRENT_ACTION_AS_TRAIT = /^(?:awaiting|complying|defending|escorting|fighting|fleeing|grieving|guarding|heading|investigating|resisting|scrutinizing|studying|surviving|transporting|watching|waiting)\b/iu;
 
@@ -103,11 +107,12 @@ export function mergeEntityProfiles(priorValue, incomingValue) {
 export function characterProfileDetailIsAdmissible(field, detail) {
     const raw = String(detail ?? '');
     const value = clean(raw);
-    if (!value || value.length < 2 || value.length > 180 || PROFILE_CONTROL_SYNTAX.test(raw)) return false;
+    if (!value || value.length < 2 || value.length > 180 || PROFILE_CONTROL_SYNTAX.test(raw) || !canonicalProseIsThirdPerson(raw)) return false;
     if (/^(?:unknown|none|n\/a|not established|unrevealed)$/iu.test(value)) return false;
     if (field === 'appearance') return !TEMPORARY_APPEARANCE.test(value);
     if (field === 'roleBackground') {
-        return !TRANSIENT_ROLE.test(value) && !TEMPORARY_PERSONALITY.test(value) && !DURABLE_APPEARANCE.test(value);
+        return !TRANSIENT_ROLE.test(value) && !NON_BIOGRAPHICAL_ROLE.test(value)
+            && !TEMPORARY_PERSONALITY.test(value) && !DURABLE_APPEARANCE.test(value);
     }
     if (field !== 'personalityQuirks') return false;
     return !TEMPORARY_PERSONALITY.test(value)
@@ -136,7 +141,7 @@ export function durableCharacterProfileDetail(field, detail, evidenceWindows = [
         });
     }
     if (field !== 'personalityQuirks') return false;
-    if (DURABLE_BEHAVIOR.test(value)) return true;
+    if (DURABLE_BEHAVIOR.test(value) || DURABLE_WORLDVIEW.test(value)) return true;
     const terms = detailKey(value).split(' ').filter(term => term.length >= 3);
     if (!terms.length) return false;
     return evidenceWindows.some(window => {

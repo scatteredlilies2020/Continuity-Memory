@@ -1,5 +1,6 @@
 import { canonicalMemorySubject, canonicalStateAttribute, isActiveState, stateIdentity } from './state-lifecycle.js';
 import { characterProfileDetailIsAdmissible, durableCharacterProfileDetail, entityProfile as storedEntityProfile, formatEntityProfile, normalizeEntityProfile } from './entity-profile.js';
+import { canonicalProseIsThirdPerson, thirdPersonOnlyProse } from './canonical-prose.js';
 
 export const TARGET_RECORD_CATEGORIES = Object.freeze(['entities', 'facts', 'states', 'relationships', 'threads', 'backgrounds']);
 
@@ -3253,9 +3254,11 @@ function sourceDerivedCharacterProfile(entity, objectiveWindows, messages, resul
     const possession = new RegExp(`(?:^|[^\\p{L}\\p{N}])(?:${grammaticalSubject}|he|she|they)\\s+(?:has|had)\\s+([^.!?]{2,160})`, 'giu');
     const appearanceCue = /\b(?:bald|beard|build|cheek(?:ed|s)?|complexion|ear[sd]?|eye[sd]?|face|facial|freckle[sd]?|hair|height|horn[sd]?|markings?|moustache|mustache|scar(?:red|s)?|short|skin|stature|tall|tattoo(?:ed|s)?|voice|wing[sd]?|blood|bruise|dust|grime|injur|mud|tear|wound)\b/iu;
     const roleCue = /\b(?:acolyte|adviser|advisor|agent|apprentice|attendant|captain|commander|council|doctor|emperor|empress|guard|heir|investigator|Jedi|king|knight|leader|lieutenant|mage|master|member|mentor|minister|mistress|officer|Padawan|pilot|prince|princess|queen|seneschal|Sith|soldier|student|teacher|veteran)\b/iu;
+    const worldviewCue = /\b(?:adherent|belie(?:f|fs|ve[sd]?)|believer|creed|devout|ideology|principle|worldview)\b/iu;
     const addObserved = detail => {
         const value = cleanText(detail);
         if (appearanceCue.test(value)) add('appearance', value);
+        else if (worldviewCue.test(value)) add('personalityQuirks', value);
         else if (/^(?:a|an|the)\s+/iu.test(value) || roleCue.test(value)) add('roleBackground', value);
         else add('personalityQuirks', value.replace(/\s+by nature$/iu, ''));
     };
@@ -4497,9 +4500,58 @@ export function reconciliationTargetWasRejected(item) {
     return Boolean(item && typeof item === 'object' && REJECTED_TARGET_RECORDS.has(item));
 }
 
+function sanitizeCanonicalThirdPersonProse(result) {
+    let trimmed = 0;
+    let discarded = 0;
+    const sanitizeField = (record, field, allowExactWording = false) => {
+        if (!record || allowExactWording) return false;
+        const before = cleanText(record[field]);
+        if (!before || canonicalProseIsThirdPerson(before)) return false;
+        record[field] = thirdPersonOnlyProse(before);
+        trimmed++;
+        return Boolean(before && !record[field]);
+    };
+    const sanitizeList = (record, field) => {
+        if (!record || !Array.isArray(record[field])) return;
+        const before = record[field];
+        record[field] = before.map(thirdPersonOnlyProse).filter(Boolean);
+        trimmed += before.length - record[field].length;
+    };
+    const sanitizeRecords = (category, requiredFields, optionalFields = [], exactWording = () => false) => {
+        if (!Array.isArray(result?.[category])) return;
+        result[category] = result[category].filter(record => {
+            let lostRequired = false;
+            for (const field of requiredFields) lostRequired = sanitizeField(record, field, exactWording(record, field)) || lostRequired;
+            for (const field of optionalFields) sanitizeField(record, field, exactWording(record, field));
+            if (lostRequired) discarded++;
+            return !lostRequired;
+        });
+    };
+
+    for (const field of ['activity', 'mood']) sanitizeField(result?.scene, field);
+    for (const field of ['title', 'opening', 'emotionalArc', 'closing']) sanitizeField(result?.sceneCapsule, field);
+    sanitizeList(result?.sceneCapsule, 'beats');
+    if (Array.isArray(result?.entities)) {
+        for (const entity of result.entities) sanitizeField(entity, 'description');
+    }
+    sanitizeRecords('identityResolutions', ['evidence']);
+    sanitizeRecords('recordMerges', ['evidence']);
+    sanitizeRecords('facts', ['predicate', 'value'], [], (record, field) => field === 'value' && isAddressFact(record));
+    sanitizeRecords('states', ['attribute', 'value'], ['previous']);
+    sanitizeRecords('relationships', ['kind', 'status', 'dynamic']);
+    sanitizeRecords('events', ['title', 'summary'], ['consequences']);
+    sanitizeRecords('threads', ['title', 'detail']);
+    sanitizeRecords('backgrounds', ['topic', 'summary']);
+    const warnings = trimmed || discarded
+        ? [`Third-person canonical prose: withheld ${trimmed} first/second-person field(s) and ${discarded} dependent record(s); exact address-form values remain unchanged.`]
+        : [];
+    return { trimmed, discarded, warnings };
+}
+
 export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const missingIdentityResolutions = !Array.isArray(result.identityResolutions);
     if (missingIdentityResolutions) result.identityResolutions = [];
+    const thirdPersonGate = sanitizeCanonicalThirdPersonProse(result);
     normalizeMixedOwnerPersonIdentities(result, world);
     const canonicalizedEntityVariants = canonicalizeConservativeEntityVariants(result, world);
     const normalizedIdentityReferences = normalizeIdentityResolutionReferences(result);
@@ -4563,7 +4615,7 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const reconciledAddresses = reconcileGenericAddressDuplicates(result, world);
     const discardedUnsupportedAddresses = removeUnsupportedAddressValues(result, messages, world);
     const discardedPronounAddresses = removeUnsupportedPronounAddressValues(result, messages, world);
-    let ignored = discardedAddressValues + discardedUnsupportedAddresses + discardedPronounAddresses
+    let ignored = thirdPersonGate.discarded + discardedAddressValues + discardedUnsupportedAddresses + discardedPronounAddresses
         + discardedIdentityResolutions
         + discardedMalformedDesignations
         + discardedMisownedQuestionKnowledge
@@ -4632,6 +4684,7 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const sourceAttributionConflicts = findSourceAttributionConflicts(result, world, messages);
     const localWarnings = [...new Set([
         ...relationshipEndpointConflicts.map(item => item.warning),
+        ...thirdPersonGate.warnings,
         ...characterProfileGrounding.warnings,
         ...knowledgeBoundaryGate.warnings,
         ...sourceAttributionConflicts.map(item => item.warning),
@@ -4646,5 +4699,5 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
         ...localWarnings,
     ])].slice(0, 8);
     if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
-    return { ignored, recovered, recoveredAliases, recoveredBoundaries, canonicalizedEntityVariants, normalizedKnowledgePredicates: normalizedKnowledgePredicates + normalizedResolvedKnowledgePredicates, normalizedRelationalKnowledge: normalizedRelationalKnowledge + normalizedResolvedRelationalKnowledge, repairedKnowledgeMembershipOverclaims, repairedSelfIdentificationKnowledge: repairedSelfIdentificationKnowledge + repairedRecoveredSelfIdentificationKnowledge, repairedTopicKnowledgeHolders, trimmedCrossHolderAttributedClauses, normalizedKnowledgeHolders, recoveredKnowledge, recoveredIdentities, recoveredEstablishedIdentities, supersededIdentityBoundaries, recoveredOocIdentityBoundaries, discardedKnowledgeBoundaryLeaks: knowledgeBoundaryGate.discarded, normalizedIdentityEpistemicRiders, normalizedIdentityReferences, discardedIdentityResolutions, discardedMalformedDesignations, discardedMisownedQuestionKnowledge, discardedMismatchedKnowledgeTopics, canonicalizedIdentityReferences, discardedContradictedObjectFacts, repairedRelationshipDescriptions, recoveredRelationshipEntityDescriptions, recoveredIdentityRelationships, recoveredFactRelationships, reconciledHistoricalRelationships, recoveredCommitments, recoveredIdentityThreads, recoveredCoverage, preservedResolvedThreads, reopenedUnsupportedThreads, reconciledThreads: Math.max(0, resolvedCompletedThreads - reopenedUnsupportedThreads) + reconciledIdentityThreads + reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, discardedNonDurableStates: stateDurabilityGate.discarded, demotedSceneStates: stateDurabilityGate.demoted, repairedStateOwners, reconciledStateTransitions, reconciledSceneParticipants, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, discardedCharacterProfileDetails: characterProfileGrounding.discarded, sourceAttributionConflicts, relationshipEndpointConflicts, localWarnings, diagnosticWarnings, warnings };
+    return { ignored, recovered, recoveredAliases, recoveredBoundaries, canonicalizedEntityVariants, normalizedKnowledgePredicates: normalizedKnowledgePredicates + normalizedResolvedKnowledgePredicates, normalizedRelationalKnowledge: normalizedRelationalKnowledge + normalizedResolvedRelationalKnowledge, repairedKnowledgeMembershipOverclaims, repairedSelfIdentificationKnowledge: repairedSelfIdentificationKnowledge + repairedRecoveredSelfIdentificationKnowledge, repairedTopicKnowledgeHolders, trimmedCrossHolderAttributedClauses, normalizedKnowledgeHolders, recoveredKnowledge, recoveredIdentities, recoveredEstablishedIdentities, supersededIdentityBoundaries, recoveredOocIdentityBoundaries, discardedKnowledgeBoundaryLeaks: knowledgeBoundaryGate.discarded, normalizedIdentityEpistemicRiders, normalizedIdentityReferences, discardedIdentityResolutions, discardedMalformedDesignations, discardedMisownedQuestionKnowledge, discardedMismatchedKnowledgeTopics, canonicalizedIdentityReferences, discardedContradictedObjectFacts, repairedRelationshipDescriptions, recoveredRelationshipEntityDescriptions, recoveredIdentityRelationships, recoveredFactRelationships, reconciledHistoricalRelationships, recoveredCommitments, recoveredIdentityThreads, recoveredCoverage, preservedResolvedThreads, reopenedUnsupportedThreads, reconciledThreads: Math.max(0, resolvedCompletedThreads - reopenedUnsupportedThreads) + reconciledIdentityThreads + reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, discardedNonThirdPersonProseFields: thirdPersonGate.trimmed, discardedNonThirdPersonProseRecords: thirdPersonGate.discarded, discardedNonDurableStates: stateDurabilityGate.discarded, demotedSceneStates: stateDurabilityGate.demoted, repairedStateOwners, reconciledStateTransitions, reconciledSceneParticipants, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, discardedCharacterProfileDetails: characterProfileGrounding.discarded, sourceAttributionConflicts, relationshipEndpointConflicts, localWarnings, diagnosticWarnings, warnings };
 }

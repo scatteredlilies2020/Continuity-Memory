@@ -77,6 +77,7 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /characterProfile fields roleBackground, appearance, personalityQuirks/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /empty if unknown\/non-person/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /never invent/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /explicit names and third person, never I\/we\/you or player-facing advice/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /unfinished matters in atomic threads/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Threads are atomic unresolved conditions/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /emit its targetId resolved/);
@@ -135,9 +136,9 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /consequential knowledge gaps as open threads/);
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /Most items are 2 or 3/);
     assert.match(DEFAULT_ERA_SYSTEM_PROMPT, /Most items are 2 or 3/);
-    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 10300);
-    assert.ok(DEFAULT_ARC_SYSTEM_PROMPT.length < 1800);
-    assert.ok(DEFAULT_ERA_SYSTEM_PROMPT.length < 1800);
+    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 10450);
+    assert.ok(DEFAULT_ARC_SYSTEM_PROMPT.length < 1950);
+    assert.ok(DEFAULT_ERA_SYSTEM_PROMPT.length < 1950);
 });
 
 test('default structured task prompts avoid repeating full schemas', () => {
