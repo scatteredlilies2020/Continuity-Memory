@@ -3376,6 +3376,10 @@ export function sanitizeStructuredCharacterProfiles(result, world, messages) {
             if (supported.length) safe[key] = characterProfileDetails(mergeCharacterProfileDetails(prior[key], supported));
         }
         entity.profile = normalizeEntityProfile(safe);
+        // The safe profile already contains every retained prior detail plus
+        // supported incoming details. Tell the memory merger to replace, not
+        // union, so details rejected during revalidation cannot resurrect.
+        entity._validatedProfileReplace = true;
         const safeDescription = formatEntityProfile(entity.profile);
         if (safeDescription) entity.description = safeDescription;
         else if (hadStoredProfile) entity.description = '';

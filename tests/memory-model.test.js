@@ -74,6 +74,33 @@ test('merges durable records and updates matching facts instead of duplicating t
     assert.deepEqual(target.sources[meta.chatKey].processedMessages, [{ index: 0, fingerprint: 'first', version: EXTRACTION_VERSION }]);
 });
 
+test('a validated character profile replacement cannot re-merge rejected stored details', () => {
+    const target = world();
+    target.entities.push({
+        id: 'lucas', name: 'Lucas Alcazar', type: 'person', aliases: ['Lucas'], importance: 5,
+        description: 'Role/background: former Council member, Caelen Veyr’s former apprentice; Appearance: blue eyes.',
+        profile: {
+            roleBackground: ['former Council member', 'Caelen Veyr’s former apprentice'],
+            appearance: ['blue eyes'],
+        },
+    });
+    const result = extraction({
+        entities: [{
+            targetId: 'lucas', name: 'Lucas Alcazar', type: 'person', aliases: ['Lucas'], importance: 5,
+            description: 'Role/background: Caelen Veyr’s former apprentice.',
+            profile: { roleBackground: ['Caelen Veyr’s former apprentice'] },
+            _validatedProfileReplace: true,
+        }],
+        events: [],
+    });
+
+    mergeExtraction(target, result, { chatKey: 'chat', from: 8, to: 15, allowStateUpdates: true });
+
+    assert.deepEqual(target.entities[0].profile, { roleBackground: ['Caelen Veyr’s former apprentice'] });
+    assert.equal(target.entities[0].description, 'Role/background: Caelen Veyr’s former apprentice.');
+    assert.equal('_validatedProfileReplace' in target.entities[0], false);
+});
+
 test('promotes a stored historical tail snapshot without re-merging durable memory', () => {
     const target = world();
     const result = extraction({

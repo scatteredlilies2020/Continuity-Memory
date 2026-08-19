@@ -1088,7 +1088,9 @@ export function mergeExtraction(world, result, meta) {
         const canonicalName = validatedRename ? suppliedName : (current?.name || suppliedName);
         const type = current?.type || text(item.type) || 'entity';
         const incomingDescription = text(item.description);
-        const profile = entityIsPersonLike(type) ? mergeEntityProfiles(current, item) : {};
+        const profile = entityIsPersonLike(type)
+            ? mergeEntityProfiles(item?._validatedProfileReplace ? {} : current, item)
+            : {};
         const typedDescription = formatEntityProfile(profile);
         const description = typedDescription || mergeStableEntityDescription(current?.description, incomingDescription, type);
         return {
