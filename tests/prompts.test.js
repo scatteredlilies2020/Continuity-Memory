@@ -4,6 +4,7 @@ import {
     buildExtractionSystemPrompt,
     buildHierarchySystemPrompt,
     buildRetrievalSystemPrompt,
+    CHARACTER_PROFILE_RULE,
     CONTINUITY_COVERAGE_RULES,
     DEFAULT_ARC_SYSTEM_PROMPT,
     DEFAULT_ARC_TASK_TEMPLATE,
@@ -22,13 +23,13 @@ import {
 } from '../extension/prompts.js';
 
 test('JB prompt is appended to extraction instructions only when enabled', () => {
-    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', false, '<rules>custom</rules>'), `Base extraction instructions.\n\n${NO_EM_DASH_STYLE_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', false, '<rules>custom</rules>'), `Base extraction instructions.\n\n${CHARACTER_PROFILE_RULE}\n\n${NO_EM_DASH_STYLE_RULE}`);
     assert.equal(
         buildExtractionSystemPrompt('Base extraction instructions.', true, '<rules>custom</rules>'),
-        `Base extraction instructions.\n\n<rules>custom</rules>\n\n${NO_EM_DASH_STYLE_RULE}`,
+        `Base extraction instructions.\n\n<rules>custom</rules>\n\n${CHARACTER_PROFILE_RULE}\n\n${NO_EM_DASH_STYLE_RULE}`,
     );
-    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', true, '   '), `Base extraction instructions.\n\n${NO_EM_DASH_STYLE_RULE}`);
-    assert.equal(buildExtractionSystemPrompt('', true, '<rules>custom</rules>'), `<rules>custom</rules>\n\n${NO_EM_DASH_STYLE_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', true, '   '), `Base extraction instructions.\n\n${CHARACTER_PROFILE_RULE}\n\n${NO_EM_DASH_STYLE_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('', true, '<rules>custom</rules>'), `<rules>custom</rules>\n\n${CHARACTER_PROFILE_RULE}\n\n${NO_EM_DASH_STYLE_RULE}`);
     assert.match(DEFAULT_JB_PROMPT, /^<rules>[\s\S]*<\/rules>$/);
 });
 
@@ -73,6 +74,10 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /reports, logs, turns, status updates, or simulation results/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /State is a replaceable condition/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /durable, tense-neutral identity summaries/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Role\/background:/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Appearance:/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Personality\/quirks:/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Omit unknown sections, never invent/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /unfinished matters in atomic threads/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Threads are atomic unresolved conditions/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /emit its targetId resolved/);
@@ -131,7 +136,7 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /consequential knowledge gaps as open threads/);
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /Most items are 2 or 3/);
     assert.match(DEFAULT_ERA_SYSTEM_PROMPT, /Most items are 2 or 3/);
-    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 10000);
+    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 10300);
     assert.ok(DEFAULT_ARC_SYSTEM_PROMPT.length < 1800);
     assert.ok(DEFAULT_ERA_SYSTEM_PROMPT.length < 1800);
 });

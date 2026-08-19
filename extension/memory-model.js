@@ -451,13 +451,15 @@ function isAttributionFallbackDescription(value) {
     return /^Details about .+ remain disputed or attributed in this excerpt/iu.test(text(value));
 }
 
-const STABLE_ENTITY_IDENTITY_DESCRIPTION = /\b(?:alias|apprentice|commander|council|formerly?|identity|investigator|Jedi|master|member|mentor|Padawan|rank|served|Sith|student|teacher|title|trained)\b/iu;
+const STABLE_ENTITY_IDENTITY_DESCRIPTION = /\b(?:alias|appearance|apprentice|background|commander|council|formerly?|habit|identity|investigator|Jedi|master|member|mentor|Padawan|personality|quirk|rank|role|served|Sith|student|teacher|title|trained)\b/iu;
+const STRUCTURED_CHARACTER_PROFILE = /\b(?:Role\/background|Appearance|Personality\/quirks):/iu;
 
-function mergeStableEntityDescription(priorValue, incomingValue) {
+function mergeStableEntityDescription(priorValue, incomingValue, entityType = '') {
     const prior = text(priorValue);
     const incoming = text(incomingValue);
     if (!prior || isAttributionFallbackDescription(prior)) return incoming;
     if (!incoming || isAttributionFallbackDescription(incoming)) return prior;
+    if (entityIsPersonLike(entityType) && STRUCTURED_CHARACTER_PROFILE.test(incoming)) return incoming;
     const incomingTerms = new Set(identityNameTokens(incoming));
     let merged = incoming;
     for (const clause of prior.split(/(?<=[.!?])\s+/u).map(text).filter(Boolean)) {
@@ -818,7 +820,7 @@ export function mergeExtraction(world, result, meta) {
         const canonicalName = validatedRename ? suppliedName : (current?.name || suppliedName);
         const type = current?.type || text(item.type) || 'entity';
         const incomingDescription = text(item.description);
-        const description = mergeStableEntityDescription(current?.description, incomingDescription);
+        const description = mergeStableEntityDescription(current?.description, incomingDescription, type);
         return {
             name: canonicalName,
             type,

@@ -628,6 +628,35 @@ test('a later attribution fallback cannot erase an established concrete entity d
     assert.equal(target.entities[0].description, 'A former guild master and retired council member.');
 });
 
+test('recurring character profiles survive sparse updates and accept complete replacements', () => {
+    const target = world();
+    mergeExtraction(target, extraction({
+        entities: [{
+            name: 'Nima', type: 'person', aliases: [], importance: 3,
+            description: 'Role/background: base-born teenage acolyte and personal attendant; Appearance: short, round-cheeked, with uneven jaw-length black hair; Personality/quirks: earnest, devoted, stammering, and habitually clumsy.',
+        }],
+    }), { chatKey: 'rp', from: 0, to: 7, allowStateUpdates: true });
+    mergeExtraction(target, extraction({
+        entities: [{
+            name: 'Nima', type: 'person', aliases: [], importance: 3,
+            description: 'Toska’s attentive personal attendant who provides practical care.',
+        }],
+    }), { chatKey: 'rp', from: 8, to: 15, allowStateUpdates: true });
+
+    assert.match(target.entities[0].description, /base-born teenage acolyte/iu);
+    assert.match(target.entities[0].description, /uneven jaw-length black hair/iu);
+    assert.match(target.entities[0].description, /habitually clumsy/iu);
+
+    mergeExtraction(target, extraction({
+        entities: [{
+            name: 'Nima', type: 'person', aliases: [], importance: 3,
+            description: 'Role/background: Toska’s trusted personal attendant; Appearance: short, round-cheeked, with uneven jaw-length black hair; Personality/quirks: earnest, increasingly confident, stammering, and prone to comic stumbles.',
+        }],
+    }), { chatKey: 'rp', from: 16, to: 23, allowStateUpdates: true });
+
+    assert.equal(target.entities[0].description, 'Role/background: Toska’s trusted personal attendant; Appearance: short, round-cheeked, with uneven jaw-length black hair; Personality/quirks: earnest, increasingly confident, stammering, and prone to comic stumbles.');
+});
+
 test('composite identity evidence upgrades a placeholder relationship in place', () => {
     const target = world();
     const chatKey = 'roleplay';
