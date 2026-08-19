@@ -103,16 +103,19 @@ export function durableCharacterProfileDetail(field, detail, evidenceWindows = [
     if (/^(?:unknown|none|n\/a|not established|unrevealed)$/iu.test(value)) return false;
     if (field === 'appearance') return DURABLE_APPEARANCE.test(value) && !TEMPORARY_APPEARANCE.test(value);
     if (field === 'roleBackground') {
-        if (TRANSIENT_ROLE.test(value)) return false;
+        if (TRANSIENT_ROLE.test(value) || DURABLE_APPEARANCE.test(value)) return false;
         if (DURABLE_ROLE.test(value)) return true;
         const terms = detailKey(value).split(' ').filter(term => term.length >= 3);
         return terms.length > 0 && evidenceWindows.some(window => {
             const source = detailKey(window);
+            const detailIdentity = detailKey(value);
             return terms.every(term => source.split(' ').includes(term))
-                && /\b(?:became|born as|formerly|is|served as|trained as|was|works as)\b/iu.test(window);
+                && ['became', 'born as', 'formerly', 'is', 'is a', 'is an', 'served as', 'trained as', 'was', 'was a', 'was an', 'works as']
+                    .some(prefix => source.includes(`${prefix} ${detailIdentity}`));
         });
     }
-    if (field !== 'personalityQuirks' || TEMPORARY_PERSONALITY.test(value)) return false;
+    if (field !== 'personalityQuirks' || TEMPORARY_PERSONALITY.test(value)
+        || DURABLE_APPEARANCE.test(value) || DURABLE_ROLE.test(value)) return false;
     if (DURABLE_BEHAVIOR.test(value)) return true;
     const terms = detailKey(value).split(' ').filter(term => term.length >= 3);
     if (!terms.length) return false;

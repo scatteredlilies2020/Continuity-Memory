@@ -1900,9 +1900,9 @@ test('a safe canonical relationship prevents an entity role from degrading to a 
         entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
     }, [{ name: 'Narrator', text: 'Doctor Vale was Ari Lane’s former mentor. Ari now suspects Vale feared her talent.' }]);
 
-    assert.ok(validation.sourceAttributionConflicts.some(item => item.category === 'entities' && item.label === 'Doctor Vale'));
-    applySourceAttributionFailClosed(result, validation.sourceAttributionConflicts.filter(item => item.category === 'entities'));
-    assert.equal(result.entities[0].description, 'Doctor Vale was Ari Lane’s former mentor');
+    assert.equal(validation.sourceAttributionConflicts.some(item => item.category === 'entities' && item.label === 'Doctor Vale'), false);
+    assert.equal(result.entities[0].description, 'Role/background: Ari Lane’s former mentor.');
+    assert.doesNotMatch(result.entities[0].description, /feared her talent/iu);
     assert.doesNotMatch(result.entities[0].description, /remain disputed or attributed/iu);
 });
 
@@ -2021,11 +2021,11 @@ test('typed character profiles reject scene conditions and temporary reactions e
     }]);
 
     assert.deepEqual(result.entities[0].profile, {
-        roleBackground: ['personal attendant'],
+        roleBackground: ['Toska’s personal attendant'],
         appearance: ['black hair'],
         personalityQuirks: ['stutters'],
     });
-    assert.equal(result.entities[0].description, 'Role/background: personal attendant; Appearance: black hair; Personality/quirks: stutters.');
+    assert.equal(result.entities[0].description, 'Role/background: Toska’s personal attendant; Appearance: black hair; Personality/quirks: stutters.');
     assert.equal(validation.discardedCharacterProfileDetails, 5);
 });
 
@@ -2041,6 +2041,68 @@ test('typed profile grammar accepts genre-neutral roles and enduring traits', ()
 
     assert.deepEqual(result.entities[0].profile, {
         roleBackground: ['court mage'], personalityQuirks: ['sarcastic'],
+    });
+});
+
+test('a neighboring character name cannot survive as another person role', () => {
+    const result = extraction();
+    result.entities.push({
+        targetId: 'caelen', name: 'Caelen Veyr', type: 'person', aliases: ['Pell'], importance: 5, description: '',
+        characterProfile: { roleBackground: ['Toska'], appearance: [], personalityQuirks: [] },
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [{
+            id: 'caelen', name: 'Caelen Veyr', type: 'person', aliases: ['Pell'],
+            description: 'Role/background: Toska.', profile: { roleBackground: ['Toska'] },
+        }],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Narrator', isUser: false, text: 'Toska defends Caelen Veyr’s memory.' }]);
+
+    assert.deepEqual(result.entities[0].profile, {});
+    assert.equal(result.entities[0].description, '');
+    assert.equal(validation.discardedCharacterProfileDetails, 1);
+});
+
+test('source-derived profile recovery does not depend on the model proposing Nima details', () => {
+    const result = extraction();
+    result.entities.push({
+        name: 'Nima', type: 'person', aliases: [], importance: 4, description: '',
+        characterProfile: { roleBackground: ['young acolyte', 'Toska’s personal attendant'], appearance: [], personalityQuirks: [] },
+    });
+    sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [
+        { name: 'Lucas', isUser: true, text: 'OOC: A young acolyte arrives as Toska’s personal attendant. She has a stutter. Nima follows and stumbles randomly.' },
+        { name: 'Narrator', isUser: false, text: 'A young acolyte rounds the arch. She is round-cheeked, with black hair cropped unevenly at her jaw. “I’m Nima,” she says.' },
+    ]);
+
+    assert.deepEqual(result.entities[0].profile, {
+        roleBackground: ['young acolyte'],
+        appearance: ['round-cheeked', 'with black hair cropped unevenly at her jaw'],
+        personalityQuirks: ['stutters', 'habitually stumbles'],
+    });
+});
+
+test('accepted facts and relationship descriptions deterministically restore Caelen roles', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Caelen Veyr', type: 'person', aliases: ['Pell'], importance: 5, description: '', characterProfile: { roleBackground: ['Toska'], appearance: [], personalityQuirks: [] } },
+        { name: 'Toska', type: 'person', aliases: [], importance: 5, description: '', characterProfile: { roleBackground: [], appearance: [], personalityQuirks: [] } },
+    );
+    result.facts.push({
+        targetId: '', subject: 'Caelen Veyr', predicate: 'established role or designation',
+        value: 'Caelen Veyr held a Council seat.', category: 'identity', importance: 5, persistence: 'persistent',
+    });
+    result.relationships.push({
+        targetId: '', from: 'Toska', to: 'Caelen Veyr', kind: 'former Jedi master and apprentice', status: 'ended',
+        dynamic: "Toska was Caelen Veyr's Jedi Padawan.", importance: 5,
+    });
+    sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Narrator', isUser: false, text: 'Toska was Caelen Veyr’s Jedi Padawan. Caelen Veyr held a Council seat.' }]);
+
+    assert.deepEqual(result.entities.find(item => item.name === 'Caelen Veyr').profile, {
+        roleBackground: ['Jedi Master', 'former Jedi Council member'],
     });
 });
 
@@ -3098,7 +3160,7 @@ test('stored relationship roles repair a later disputed entity placeholder', () 
         }],
     }, [{ name: 'Lucas', text: 'I believe Caelen lied about his Council history.' }]);
 
-    assert.equal(result.entities[0].description, 'Caelen Veyr was Toska’s Jedi Master.');
+    assert.equal(result.entities[0].description, 'Role/background: Jedi Master.');
 });
 
 test('relationship fallback never copies a subject clause into the object participant biography', () => {
@@ -3183,7 +3245,7 @@ test('pronoun relationship descriptions restore the canonical participant role',
         entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
     }, [{ name: 'Toska', text: 'Caelen Veyr was my Jedi Master.' }]);
 
-    assert.equal(result.entities[1].description, 'Caelen Veyr was Toska’s Jedi Master.');
+    assert.equal(result.entities[1].description, 'Role/background: Jedi Master.');
 });
 
 test('knowledge taxonomy suffixes canonicalize and membership boundaries remove vague overclaims only', () => {

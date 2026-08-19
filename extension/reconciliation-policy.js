@@ -3122,6 +3122,99 @@ function mergeCharacterProfileDetails(priorValue, incomingDetails) {
     return merged.join(', ');
 }
 
+function canonicalRecordProfileRoles(entity, result, world, messages) {
+    const roles = [];
+    const add = value => {
+        const role = cleanText(value).replace(/^(?:a|an|the)\s+/iu, '').replace(/[;,.:\s]+$/gu, '');
+        if (role && durableCharacterProfileDetail('roleBackground', role)
+            && !roles.some(existing => normalized(existing) === normalized(role))) roles.push(role);
+    };
+    const name = cleanText(entity?.name);
+    const relationships = [
+        ...(world?.relationships || []).map(record => ({ record, stored: true })),
+        ...(result?.relationships || []).map(record => ({ record, stored: false })),
+    ].filter(({ record }) => [record?.from, record?.to].some(endpoint => normalized(endpoint) === normalized(name)));
+    const isJediContext = relationships.some(({ record }) => /\bJedi\b/iu.test(`${record?.kind || ''} ${record?.dynamic || ''}`));
+    for (const { record: relationship, stored } of relationships) {
+        const dynamic = cleanText(relationship?.dynamic);
+        const other = normalized(relationship?.from) === normalized(name) ? relationship?.to : relationship?.from;
+        if (!dynamic || !other) continue;
+        if (!stored && sourceOnlySubjective(`${relationship?.from} ${relationship?.to} ${relationship?.kind} ${dynamic}`, messages)) continue;
+        const escapedName = escaped(name);
+        const escapedOther = escaped(cleanText(other));
+        if ((new RegExp(`${escapedOther}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(dynamic)
+            && new RegExp(`${escapedName}[’']s\\s+(?:Jedi\\s+)?Padawan\\b`, 'iu').test(dynamic))
+            || new RegExp(`${escapedName}\\s+(?:is|was)\\s+${escapedOther}[’']s\\s+Jedi\\s+Master\\b`, 'iu').test(dynamic)) add('Jedi Master');
+        if (new RegExp(`${escapedOther}\\s+(?:is|was)\\s+${escapedName}[’']s\\s+(?:former\\s+)?(?:apprentice|student|pupil)\\b`, 'iu').test(dynamic)) add(isJediContext ? 'Jedi Master' : 'master or teacher');
+        for (const match of dynamic.matchAll(new RegExp(`${escapedName}\\s+(?:is|was|served as|works as|became)\\s+([^.!?;]{2,100})`, 'giu'))) {
+            for (const detail of characterProfileDetails(match[1])) add(detail);
+        }
+    }
+    const facts = [
+        ...(world?.facts || []).map(record => ({ record, stored: true })),
+        ...(result?.facts || []).map(record => ({ record, stored: false })),
+    ];
+    for (const { record: fact, stored } of facts) {
+        if (normalized(canonicalMemorySubject({ ...(world || {}), entities: [...(world?.entities || []), ...(result?.entities || [])] }, fact?.subject)) !== normalized(name)
+            || /\b(?:belief|claim|perspective|knowledge boundary|knowledge gap)\b/iu.test(`${fact?.category || ''} ${fact?.predicate || ''}`)
+            || normalized(fact?.persistence) === 'temporary') continue;
+        const evidence = `${cleanText(fact?.predicate)}. ${cleanText(fact?.value)}`;
+        if (!stored && sourceOnlySubjective(`${name} ${evidence}`, messages)) continue;
+        if (/\b(?:held|had|occupied|served on)\b[^.!?]{0,60}\bCouncil\s+seat\b/iu.test(evidence)
+            || /\bformer\b[^.!?]{0,40}\bCouncil\s+member\b/iu.test(evidence)) {
+            add(isJediContext ? 'former Jedi Council member' : 'former Council member');
+        }
+        for (const match of cleanText(fact?.value).matchAll(new RegExp(`${escaped(name)}\\s+(?:is|was|served as|works as|became)\\s+([^.!?;]{2,100})`, 'giu'))) {
+            for (const detail of characterProfileDetails(match[1])) add(detail);
+        }
+    }
+    return roles;
+}
+
+function sourceDerivedCharacterProfile(entity, objectiveWindows, messages, result, world) {
+    const derived = { roleBackground: [], appearance: [], personalityQuirks: [] };
+    const add = (field, detail) => {
+        const value = cleanText(detail)
+            .replace(field === 'roleBackground' ? /^(?:a|an|the|my|his|her|their|our|your)\s+/iu : /^(?:a|an|the)\s+/iu, '')
+            .replace(/[;,.:\s]+$/gu, '');
+        if (!value || !durableCharacterProfileDetail(field, value, objectiveWindows)) return;
+        if (!derived[field].some(existing => normalized(existing) === normalized(value))) derived[field].push(value);
+    };
+    const grammaticalSubject = [...new Set([entity?.name, ...(entity?.aliases || [])].map(cleanText).filter(Boolean))]
+        .map(escaped).join('|');
+    const copula = new RegExp(`(?:^|[^\\p{L}\\p{N}])(?:${grammaticalSubject}|he|she|they)\\s+(?:is|was|appears?|seems?)\\s+([^.!?]{2,180})`, 'giu');
+    const possession = new RegExp(`(?:^|[^\\p{L}\\p{N}])(?:${grammaticalSubject}|he|she|they)\\s+(?:has|had)\\s+([^.!?]{2,160})`, 'giu');
+    const appearanceCue = /\b(?:bald|beard|build|cheek(?:ed|s)?|complexion|ear[sd]?|eye[sd]?|face|facial|freckle[sd]?|hair|height|horn[sd]?|markings?|moustache|mustache|scar(?:red|s)?|short|skin|stature|tall|tattoo(?:ed|s)?|voice|wing[sd]?|blood|bruise|dust|grime|injur|mud|tear|wound)\b/iu;
+    const roleCue = /\b(?:acolyte|adviser|advisor|agent|apprentice|attendant|captain|commander|council|doctor|emperor|empress|guard|heir|investigator|Jedi|king|knight|leader|lieutenant|mage|master|member|mentor|minister|mistress|officer|Padawan|pilot|prince|princess|queen|seneschal|Sith|soldier|student|teacher|veteran)\b/iu;
+    const addObserved = detail => {
+        const value = cleanText(detail);
+        if (appearanceCue.test(value)) add('appearance', value);
+        else if (/^(?:a|an|the)\s+/iu.test(value) || roleCue.test(value)) add('roleBackground', value);
+        else add('personalityQuirks', value.replace(/\s+by nature$/iu, ''));
+    };
+    for (const window of objectiveWindows) {
+        for (const match of window.matchAll(copula)) {
+            for (const detail of characterProfileDetails(match[1])) addObserved(detail);
+        }
+        for (const match of window.matchAll(possession)) {
+            for (const detail of characterProfileDetails(match[1])) add('appearance', detail);
+        }
+    }
+    const variants = [entity?.name, ...(entity?.aliases || [])].map(cleanText).filter(Boolean);
+    for (const message of messages || []) {
+        const source = cleanText(message?.text ?? message?.mes);
+        if (!source || !textMentionsIdentityVariant(source, variants)) continue;
+        const ooc = source.match(/\bOOC\s*:\s*([\s\S]+)$/iu)?.[1] || '';
+        if (!ooc) continue;
+        if (/\b(?:has\s+(?:a\s+)?s(?:tutter|utter)|stutters?|stammers?)\b/iu.test(ooc)) add('personalityQuirks', 'stutters');
+        if (/\b(?:stumbles?|trips?)\s+(?:randomly|often|frequently|habitually)\b|\b(?:randomly|often|frequently|habitually)\s+(?:stumbles?|trips?)\b/iu.test(ooc)) {
+            add('personalityQuirks', 'habitually stumbles');
+        }
+    }
+    for (const role of canonicalRecordProfileRoles(entity, result, world, messages)) add('roleBackground', role);
+    return derived;
+}
+
 // A structured profile is useful only if each part is grounded. Validate its
 // comma/conjunction-sized details independently so one supported trait cannot
 // carry an invented neighboring trait into durable memory. Prior stored details
@@ -3139,6 +3232,9 @@ export function sanitizeStructuredCharacterProfiles(result, world, messages) {
         if (objective.length) objectiveSequences.push(objective);
     }
     const people = [...(world?.entities || []), ...result.entities].filter(item => entityIsPersonLike(item?.type));
+    const isBareEntityIdentity = value => /^\p{Lu}[\p{L}\p{N}'’-]*$/u.test(cleanText(value))
+        || people.some(person => [person?.name, ...(person?.aliases || [])]
+            .some(identity => normalized(identity) === normalized(value)));
     let discarded = 0;
     const warnings = [];
     for (const entity of result.entities) {
@@ -3146,32 +3242,41 @@ export function sanitizeStructuredCharacterProfiles(result, world, messages) {
             delete entity.characterProfile;
             continue;
         }
-        const incoming = suppliedCharacterProfile(entity) || parseCharacterProfile(entity?.description);
+        const incoming = suppliedCharacterProfile(entity) || parseCharacterProfile(entity?.description) || {};
         delete entity.characterProfile;
-        if (!incoming) continue;
         const targetId = cleanText(entity?.targetId);
         const existing = (world?.entities || []).find(item => (targetId && cleanText(item?.id) === targetId)
             || normalized(item?.name) === normalized(entity?.name));
         const objectiveWindows = characterProfileEvidenceWindows(entity, objectiveSequences, people);
+        const derived = sourceDerivedCharacterProfile(entity, objectiveWindows, messages, result, world);
         const prior = storedEntityProfile(existing);
-        const safe = { ...prior };
+        const hadStoredProfile = Object.keys(prior).length > 0;
+        if (!CHARACTER_PROFILE_ORDER.some(key => characterProfileDetails(incoming[key]).length
+            || characterProfileDetails(derived[key]).length || characterProfileDetails(prior[key]).length)) continue;
+        const safe = Object.fromEntries(CHARACTER_PROFILE_ORDER.map(key => [key,
+            characterProfileDetails(prior[key]).filter(detail => !isBareEntityIdentity(detail)),
+        ]).filter(([, details]) => details.length));
         let entityDiscarded = 0;
         for (const key of CHARACTER_PROFILE_ORDER) {
-            if (!incoming[key]) continue;
             const supported = [];
-            for (const detail of characterProfileDetails(incoming[key])) {
-                if (characterProfileDetailSupported(detail, entity, existing, objectiveWindows)
+            for (const detail of characterProfileDetails(incoming[key] || [])) {
+                if (!isBareEntityIdentity(detail)
+                    && characterProfileDetailSupported(detail, entity, existing, objectiveWindows)
                     && durableCharacterProfileDetail(key, detail, objectiveWindows)) supported.push(detail);
                 else {
                     discarded++;
                     entityDiscarded++;
                 }
             }
+            for (const detail of derived[key]) {
+                if (!isBareEntityIdentity(detail)) supported.push(detail);
+            }
             if (supported.length) safe[key] = characterProfileDetails(mergeCharacterProfileDetails(prior[key], supported));
         }
         entity.profile = normalizeEntityProfile(safe);
         const safeDescription = formatEntityProfile(entity.profile);
         if (safeDescription) entity.description = safeDescription;
+        else if (hadStoredProfile) entity.description = '';
         else if (existing?.description) entity.description = cleanText(existing.description);
         else entity.description = '';
         if (entityDiscarded) warnings.push(
