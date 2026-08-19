@@ -359,8 +359,13 @@ export function discardUnsupportedIdentityResolutions(result, world, messages = 
 }
 
 function resolvedReconciliationSubject(result, world, value) {
-    const subject = canonicalMemorySubject(world, value);
     const requested = cleanText(value);
+    let subject = canonicalMemorySubject(world, value);
+    const possessiveOwner = cleanText(subject).match(/^(.+?)[’']s\s+/u)?.[1] || '';
+    // Fuzzy subject lookup must never turn the owner into the separate person
+    // described by that owner's possessive role (for example, “Toska” into
+    // “Toska's former master”). This also keeps reconciliation idempotent.
+    if (possessiveOwner && normalized(requested) === normalized(possessiveOwner)) subject = requested;
     for (const resolution of result?.identityResolutions || []) {
         const canonical = cleanText(resolution?.canonical);
         if (!canonical) continue;
@@ -541,6 +546,7 @@ export function recoverExplicitPriorKnowledge(result, world, messages = null) {
             const verb = clause.match(knowledgeVerb);
             if (!verb || verb.index == null) continue;
             if (/\b(?:asks?|asked|wonders?|wondered|questions?|questioned)\s+(?:whether|if)\b/iu.test(clause.slice(0, verb.index))) continue;
+            if (/\b(?:believes?|believed|claims?|claimed|alleges?|alleged|reports?|reported|suspects?|suspected|speculates?|speculated|thinks?|thought|assumes?|assumed|infers?|inferred|concludes?|concluded|says?|said|states?|stated)\b/iu.test(clause.slice(0, verb.index))) continue;
             const actorWindow = clause.slice(Math.max(0, verb.index - 90), verb.index);
             const actor = nearestCanonicalMention(index, actorWindow);
             if (!actor || !/^(?:person|character|npc|human|individual)$/iu.test(actor.type || 'person')) continue;
@@ -548,21 +554,22 @@ export function recoverExplicitPriorKnowledge(result, world, messages = null) {
             const remainder = clause.slice(verb.index + verb[0].length);
             const topic = canonicalMention(index, remainder);
             if (!topic || !hasNonPossessiveEntityMention(topic, remainder)
-                || normalized(topic.name) === normalized(actor.name)
-                || hasKnowledgeRecord(result, world, actor.name, topic.name)) continue;
+                || normalized(topic.name) === normalized(actor.name)) continue;
             const evidence = clause
                 .replace(new RegExp(`^${escaped(actor.name.split(/\s+/u).at(-1))}\\b`, 'iu'), actor.name)
                 .replace(/[,:;]+$/u, '');
-            result.facts.push({
-                targetId: '',
-                subject: actor.name,
-                predicate: `knowledge of ${topic.name}`,
-                value: evidence,
-                category: 'knowledge',
-                importance: 4,
-                persistence: 'persistent',
-            });
-            recovered++;
+            if (!hasKnowledgeRecord(result, world, actor.name, topic.name)) {
+                result.facts.push({
+                    targetId: '',
+                    subject: actor.name,
+                    predicate: `knowledge of ${topic.name}`,
+                    value: evidence,
+                    category: 'knowledge',
+                    importance: 4,
+                    persistence: 'persistent',
+                });
+                recovered++;
+            }
 
             // Factive narration such as “Alice knows Bob held a Council
             // seat” establishes both Alice's knowledge and the narrow role
@@ -2073,6 +2080,38 @@ export function normalizeEpistemicFactShapes(result, world) {
     return normalizedFacts;
 }
 
+// A knowledge record belongs to the character whose knowledge it states, not
+// to a different character who merely infers or claims that knowledge. Models
+// occasionally emit “Alice — knowledge of Bob: Cara concludes that Alice…”;
+// preserve that useful statement as Cara's belief so it cannot block later
+// direct evidence of what Alice actually knows.
+export function normalizeKnowledgeHolderContamination(result, world) {
+    if (!Array.isArray(result?.facts)) return 0;
+    const index = continuityEntityIndex(result, world);
+    let normalizedFacts = 0;
+    for (const fact of result.facts) {
+        if (normalized(fact?.category) !== 'knowledge'
+            || !/^knowledge of\s+\S/iu.test(cleanText(fact?.predicate))) continue;
+        const statedSubject = canonicalMention(index, fact?.subject);
+        const value = cleanText(fact?.value);
+        const attribution = value.match(AUDIT_ATTRIBUTION_VERB);
+        const actorWindow = attribution?.index == null ? '' : value.slice(Math.max(0, attribution.index - 120), attribution.index);
+        const explicitHolder = entityNamedBeforeAttributionVerb(index, value)
+            || nearestCanonicalMention(index, actorWindow);
+        if (!personEntity(statedSubject) || !personEntity(explicitHolder)
+            || normalized(statedSubject.name) === normalized(explicitHolder.name)) continue;
+        const topicText = cleanText(fact.predicate).replace(/^knowledge of\s+/iu, '');
+        const topic = canonicalMention(index, topicText)?.name || topicText;
+        fact.subject = explicitHolder.name;
+        fact.predicate = `belief about ${statedSubject.name} — knowledge of ${topic}`;
+        fact.category = 'character belief';
+        fact.persistence = cleanText(fact.persistence) || 'persistent';
+        fact.targetId = '';
+        normalizedFacts++;
+    }
+    return normalizedFacts;
+}
+
 function auditEvidenceThreshold(value) {
     return Math.max(4, Math.min(9, Math.ceil(coverageTerms(value).size * 0.42)));
 }
@@ -2162,6 +2201,68 @@ function resolvedAuditRecordText(result, item) {
     return source;
 }
 
+function isDisputedEntityPlaceholder(value) {
+    return /^Details about .+ remain disputed or attributed/iu.test(cleanText(value));
+}
+
+function relationshipBackedEntityDescription(result, world, entity, messages) {
+    const canonical = normalized(entity?.name);
+    if (!canonical) return '';
+    const variants = new Set([canonical]);
+    for (const resolution of result?.identityResolutions || []) {
+        if (normalized(resolution?.canonical) === canonical) variants.add(normalized(resolution?.reference));
+    }
+    for (const value of [...variants]) {
+        const parts = value.split(/\s+/u).filter(part => part.length >= 3);
+        if (parts.length > 1) {
+            if (!/^(?:admiral|captain|commander|darth|doctor|general|instructor|lady|lord|master|professor|sir)$/iu.test(parts[0])) variants.add(parts[0]);
+            variants.add(parts.at(-1));
+        }
+    }
+    const candidates = [];
+    for (const relationship of [...(result?.relationships || []), ...(world?.relationships || [])]) {
+        if (![relationship?.from, relationship?.to].some(value => variants.has(normalized(value)))) continue;
+        const relationshipReference = `${cleanText(relationship?.from)} ${cleanText(relationship?.to)} ${cleanText(relationship?.kind)} ${cleanText(relationship?.dynamic)}`;
+        if (sourceOnlySubjective(relationshipReference, messages)) continue;
+        const dynamic = cleanText(relationship?.dynamic)
+            .replace(/^Relationship between [^:]{2,180}:\s*/iu, '');
+        for (const clause of dynamic.split(/\s*;\s*|(?<=[.!?])\s+/u).map(cleanText).filter(Boolean)) {
+            if (![...variants].some(value => new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(value)}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(normalized(clause)))) continue;
+            if (AUDIT_ATTRIBUTION_VERB.test(clause)
+                || /\b(?:possibly|perhaps|maybe|might|uncertain|unconfirmed|disputed)\b/iu.test(clause)) continue;
+            if (!/\b(?:is|was|serves?|served|remains?|became|killed|died|deceased|slain|former|master|mentor|teacher|apprentice|student|padawan|captor|captive|attendant|ally|enemy|rival|parent|child|spouse)\b/iu.test(clause)) continue;
+            candidates.push(clause);
+        }
+    }
+    return candidates.sort((left, right) => {
+        const role = value => /\b(?:master|mentor|teacher|apprentice|student|padawan|captor|captive|attendant|parent|child|spouse)\b/iu.test(value) ? 1 : 0;
+        return role(right) - role(left) || right.length - left.length;
+    })[0] || '';
+}
+
+export function recoverRelationshipBackedEntityDescriptions(result, world, messages) {
+    let recovered = 0;
+    for (const entity of result?.entities || []) {
+        const stored = (world?.entities || []).find(item => normalized(item?.name) === normalized(entity?.name));
+        if (stored && !isDisputedEntityPlaceholder(stored?.description) && cleanText(stored?.description)) continue;
+        const description = relationshipBackedEntityDescription(result, world, entity, messages);
+        if (!description) continue;
+        const current = cleanText(entity?.description);
+        const qualifiedRole = description.match(/\b(?:Jedi|Sith)\s+(?:master|apprentice|padawan)\b/iu)?.[0] || '';
+        const resolvedPrior = (result?.identityResolutions || [])
+            .filter(resolution => normalized(resolution?.canonical) === normalized(entity?.name))
+            .flatMap(resolution => (world?.entities || []).filter(item => normalized(item?.name) === normalized(resolution?.reference)))
+            .map(item => cleanText(item?.description))
+            .find(value => value && !isDisputedEntityPlaceholder(value));
+        if (resolvedPrior && (!qualifiedRole || new RegExp(escaped(qualifiedRole), 'iu').test(resolvedPrior))) continue;
+        if (!isDisputedEntityPlaceholder(current)
+            && (!qualifiedRole || new RegExp(escaped(qualifiedRole), 'iu').test(current))) continue;
+        entity.description = description;
+        recovered++;
+    }
+    return recovered;
+}
+
 export function findSourceAttributionConflicts(result, world, messages) {
     if (!Array.isArray(messages) || !messages.length) return [];
     const conflicts = [];
@@ -2200,11 +2301,14 @@ export function findSourceAttributionConflicts(result, world, messages) {
                 normalized(item?.name) === normalized(resolution?.reference)
                 || (item?.aliases || []).some(alias => normalized(alias) === normalized(resolution?.reference))))
             .map(item => cleanText(item?.description))
-            .filter(description => description && !/^Details about .+ remain disputed or attributed/iu.test(description))
+            .filter(description => description && !isDisputedEntityPlaceholder(description))
             .sort((left, right) => right.length - left.length);
+        const existingDescription = cleanText(existing?.description);
+        const relationshipDescription = relationshipBackedEntityDescription(result, world, entity, messages);
         conflicts.push({
             category: 'entities', index, label: cleanText(entity?.name),
-            replacementDescription: existing ? cleanText(existing.description) : (resolvedPriorDescriptions[0] || null),
+            replacementDescription: (!isDisputedEntityPlaceholder(existingDescription) && existingDescription)
+                || relationshipDescription || resolvedPriorDescriptions[0] || null,
             warning: `Source-attribution conflict: entity description update for “${cleanText(entity?.name)}” presents character belief, interpretation, or disputed history as objective; retain the prior established description and store the perspective under its holder.`,
         });
     }
@@ -3100,6 +3204,7 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const discardedAddressValues = removeCrossDirectionAddressContamination(result, world, messages);
     const recoveredAliases = recoverExplicitEntityAliases(result, messages);
     const recoveredBoundaries = recoverExplicitConcealmentBoundaries(result, world);
+    const normalizedKnowledgeHolders = normalizeKnowledgeHolderContamination(result, world);
     const recoveredKnowledge = recoverExplicitPriorKnowledge(result, world, messages);
     const recoveredIdentities = recoverExplicitNamedIdentityResolutions(result, world, messages);
     const canonicalizedIdentityReferences = canonicalizeResolvedIdentityReferences(result, world);
@@ -3107,6 +3212,7 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const normalizedIdentityEpistemicRiders = normalizeObjectiveIdentityEpistemicRiders(result, world);
     const discardedContradictedObjectFacts = discardContradictedObjectStateFacts(result, world, messages);
     const repairedRelationshipDescriptions = repairRelationshipPairDescriptionContamination(result, world);
+    const recoveredRelationshipEntityDescriptions = recoverRelationshipBackedEntityDescriptions(result, world, messages);
     const recoveredFactRelationships = recoverExplicitFactRelationships(result, world, messages);
     const reconciledHistoricalRelationships = reconcileHistoricalRelationshipLifecycles(result, world);
     const recoveredSceneCoverage = recoverSourceGroundedCoverageRecords(result, world, messages);
@@ -3202,5 +3308,5 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
         ...localWarnings,
     ])].slice(0, 8);
     if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
-    return { ignored, recovered, recoveredAliases, recoveredBoundaries, recoveredKnowledge, recoveredIdentities, recoveredOocIdentityBoundaries, normalizedIdentityEpistemicRiders, normalizedIdentityReferences, discardedIdentityResolutions, canonicalizedIdentityReferences, discardedContradictedObjectFacts, repairedRelationshipDescriptions, recoveredFactRelationships, reconciledHistoricalRelationships, recoveredCommitments, recoveredIdentityThreads, recoveredCoverage, preservedResolvedThreads, reopenedUnsupportedThreads, reconciledThreads: Math.max(0, resolvedCompletedThreads - reopenedUnsupportedThreads) + reconciledIdentityThreads + reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, repairedStateOwners, reconciledStateTransitions, reconciledSceneParticipants, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, sourceAttributionConflicts, relationshipEndpointConflicts, localWarnings, diagnosticWarnings, warnings };
+    return { ignored, recovered, recoveredAliases, recoveredBoundaries, normalizedKnowledgeHolders, recoveredKnowledge, recoveredIdentities, recoveredOocIdentityBoundaries, normalizedIdentityEpistemicRiders, normalizedIdentityReferences, discardedIdentityResolutions, canonicalizedIdentityReferences, discardedContradictedObjectFacts, repairedRelationshipDescriptions, recoveredRelationshipEntityDescriptions, recoveredFactRelationships, reconciledHistoricalRelationships, recoveredCommitments, recoveredIdentityThreads, recoveredCoverage, preservedResolvedThreads, reopenedUnsupportedThreads, reconciledThreads: Math.max(0, resolvedCompletedThreads - reopenedUnsupportedThreads) + reconciledIdentityThreads + reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, repairedStateOwners, reconciledStateTransitions, reconciledSceneParticipants, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, sourceAttributionConflicts, relationshipEndpointConflicts, localWarnings, diagnosticWarnings, warnings };
 }

@@ -1,6 +1,6 @@
 import { EXTRACTION_VERSION } from './coverage.js';
 import { isSuppressedByCorrection } from './memory-correction.js';
-import { addressFactAddressee, addressFactIdentity, entityIsPersonLike, entityTypesAreCompatible, isAddressFact, mergeAddressValues, reconcileGenericAddressDuplicates, reconciliationMergeIsCompatible, reconciliationTargetIsCompatible, reconciliationTargetWasRejected, relationshipPairIdentity, removeInvalidAddressFacts } from './reconciliation-policy.js';
+import { addressFactAddressee, addressFactIdentity, entityIsPersonLike, entityTypesAreCompatible, isAddressFact, mergeAddressValues, reconcileGenericAddressDuplicates, reconciliationMergeIsCompatible, reconciliationTargetIsCompatible, reconciliationTargetWasRejected, recoverRelationshipBackedEntityDescriptions, relationshipPairIdentity, removeInvalidAddressFacts } from './reconciliation-policy.js';
 import { canonicalMemorySubject, canonicalStateAttribute, stateIdentity, stateScope } from './state-lifecycle.js';
 import { buildL1TemporalAnchor, buildRelativeTemporalAnchor } from './temporal-anchors.js';
 import { randomUuid } from './uuid.js';
@@ -517,6 +517,7 @@ function applyRecordMerge(world, raw, meta) {
 
 const KNOWLEDGE_NEGATION = /\b(?:does not know|doesn't know|did not know|didn't know|has not learned|hasn't learned|was not told|wasn't told|has not been told|hasn't been told|is unaware|remains unaware|no knowledge of|no disclosure|deliberately concealed|kept hidden from)\b/iu;
 const KNOWLEDGE_GAIN = /\b(?:already knew|knows?|knew|learned|was told|has been told|became aware|is aware|now aware|discovered|recognizes?|recognized|identifies?|identified|recalls?|recalled|remembers?|remembered|acknowledges?|acknowledged|cites?|cited)\b/iu;
+const CURRENT_KNOWLEDGE_GAIN = /\b(?:now knows?|has now learned|is now aware|now recognizes?|now understands?|has learned|has discovered)\b/iu;
 
 function isKnowledgePredicate(item) {
     return /^knowledge of\s+\S/iu.test(text(item?.predicate));
@@ -525,7 +526,8 @@ function isKnowledgePredicate(item) {
 function isKnowledgeBoundaryRecord(item) {
     const category = key(item?.category);
     return category === 'knowledge boundary' || category === 'knowledge gap'
-        || (category === 'knowledge' && KNOWLEDGE_NEGATION.test(text(item?.value)));
+        || (category === 'knowledge' && KNOWLEDGE_NEGATION.test(text(item?.value))
+            && !CURRENT_KNOWLEDGE_GAIN.test(text(item?.value)));
 }
 
 function prepareKnowledgeTransitions(world, result, meta) {
@@ -534,11 +536,13 @@ function prepareKnowledgeTransitions(world, result, meta) {
         const category = key(incoming.category);
         const value = text(incoming.value);
         if ((category === 'knowledge boundary' || category === 'knowledge gap')
-            && !KNOWLEDGE_NEGATION.test(value) && KNOWLEDGE_GAIN.test(value)) {
+            && ((!KNOWLEDGE_NEGATION.test(value) && KNOWLEDGE_GAIN.test(value))
+                || CURRENT_KNOWLEDGE_GAIN.test(value))) {
             incoming.category = 'knowledge';
             incoming.targetId = '';
         }
-        if (key(incoming.category) !== 'knowledge' || KNOWLEDGE_NEGATION.test(value)) continue;
+        if (key(incoming.category) !== 'knowledge'
+            || (KNOWLEDGE_NEGATION.test(value) && !CURRENT_KNOWLEDGE_GAIN.test(value))) continue;
         const subject = key(canonicalMemorySubject(world, incoming.subject));
         const predicate = key(incoming.predicate);
         world.facts = (world.facts || []).filter(existing => existing.correctionId
@@ -661,6 +665,10 @@ export function mergeExtraction(world, result, meta) {
     world.backgrounds ||= [];
     world.corrections ||= [];
     world.sources ||= {};
+    // Extraction-time attribution checks have already removed unsafe
+    // relationships. Let the accepted canonical relationship restore a role
+    // description if the model left the entity as a disputed placeholder.
+    recoverRelationshipBackedEntityDescriptions(result, world, null);
     reconcileGenericAddressDuplicates(result, world);
     removeInvalidAddressFacts(result);
     normalizeAddressFacts(world);

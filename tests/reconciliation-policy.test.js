@@ -310,6 +310,34 @@ test('factive role knowledge preserves both the holder knowledge and the establi
         && /held a council seat/iu.test(item.value)));
 });
 
+test('a different character’s inference cannot block direct knowledge evidence', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Alice Ren', type: 'person', aliases: ['Alice'] },
+        { name: 'Borin Vale', type: 'person', aliases: ['Borin'] },
+        { name: 'Cara Sol', type: 'person', aliases: ['Cara'] },
+    );
+    result.facts.push({
+        targetId: '', subject: 'Alice Ren', predicate: 'knowledge of Borin Vale',
+        value: 'Cara concludes that Alice knows enough about Borin to exploit his history.',
+        category: 'knowledge', importance: 4, persistence: 'persistent',
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Narrator', text: 'Alice knows Borin held a council seat.' }]);
+
+    assert.equal(validation.normalizedKnowledgeHolders, 1);
+    assert.equal(validation.recoveredKnowledge, 2);
+    assert.ok(result.facts.some(item => item.subject === 'Cara Sol'
+        && item.category === 'character belief'
+        && /^belief about Alice Ren/iu.test(item.predicate)));
+    assert.ok(result.facts.some(item => item.subject === 'Alice Ren'
+        && item.predicate === 'knowledge of Borin Vale'
+        && /held a council seat/iu.test(item.value)));
+    assert.ok(result.facts.some(item => item.subject === 'Borin Vale'
+        && item.predicate === 'established role or designation'));
+});
+
 test('questions and possessive action objects do not become character knowledge', () => {
     const result = extraction();
     result.entities.push(
@@ -1724,6 +1752,30 @@ test('historical relationships and entity descriptions inherit source uncertaint
     assert.match(result.entities[0].description, /remain disputed or attributed/u);
 });
 
+test('a safe canonical relationship prevents an entity role from degrading to a placeholder', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Doctor Vale', type: 'person', aliases: [], description: 'Doctor Vale formerly trained Ari but secretly feared her talent.' },
+        { name: 'Ari Lane', type: 'person', aliases: [], description: 'An apprentice.' },
+    );
+    result.relationships.push({
+        targetId: '', from: 'Ari Lane', to: 'Doctor Vale', kind: 'former mentor and student', status: 'ended',
+        dynamic: 'Doctor Vale was Ari Lane’s former mentor; Ari now suspects Vale feared her talent.', importance: 4,
+    });
+    result.facts.push({
+        targetId: '', subject: 'Ari Lane', predicate: 'belief about Doctor Vale — fear',
+        value: 'Ari believes Doctor Vale feared her talent.', category: 'character belief', importance: 4, persistence: 'persistent',
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Narrator', text: 'Doctor Vale was Ari Lane’s former mentor. Ari now suspects Vale feared her talent.' }]);
+
+    assert.ok(validation.sourceAttributionConflicts.some(item => item.category === 'entities' && item.label === 'Doctor Vale'));
+    applySourceAttributionFailClosed(result, validation.sourceAttributionConflicts.filter(item => item.category === 'entities'));
+    assert.equal(result.entities[0].description, 'Doctor Vale was Ari Lane’s former mentor');
+    assert.doesNotMatch(result.entities[0].description, /remain disputed or attributed/iu);
+});
+
 test('a subjective update cannot overwrite an established entity description', () => {
     const result = extraction();
     result.entities.push({
@@ -2501,6 +2553,29 @@ test('a role-name apposition resolves a descriptive identity across a chunk boun
     assert.equal(validation.recoveredIdentities, 1);
     assert.ok(result.identityResolutions.some(item =>
         item.reference === 'Toska’s former Jedi Master' && item.canonical === 'Caelen Veyr'));
+});
+
+test('reapplying a possessive identity resolution never turns its owner into the resolved person', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Toska', type: 'person', aliases: [] },
+        { name: 'Caelen Veyr', type: 'person', aliases: [] },
+    );
+    result.identityResolutions.push({
+        reference: 'Toska’s former master', canonical: 'Caelen Veyr',
+        evidence: 'Toska explicitly names Caelen Veyr as her former master.',
+    });
+    result.relationships.push({
+        from: 'Toska', to: 'Caelen Veyr', kind: 'former Jedi master and Padawan', status: 'ended',
+        dynamic: 'Caelen Veyr was Toska’s former Jedi master.', importance: 5,
+    });
+    sanitizeReconciliationMetadata(result, {
+        entities: [{ name: 'Toska’s former master', type: 'person', aliases: [] }],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Toska', text: 'Caelen Veyr was my Jedi Master.' }]);
+
+    assert.equal(result.relationships[0].from, 'Toska');
+    assert.equal(result.relationships[0].to, 'Caelen Veyr');
 });
 
 test('authoritative OOC concealed identity becomes holder boundaries and removes the mixed rider', () => {

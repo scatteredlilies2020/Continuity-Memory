@@ -782,6 +782,21 @@ test('a positive update mislabeled as a boundary becomes established knowledge',
     assert.match(record.value, /now aware/i);
 });
 
+test('current knowledge overrides a historical did-not-know clause in the same update', () => {
+    const target = world();
+    mergeExtraction(target, extraction({
+        facts: [{
+            subject: 'Ari Lane', predicate: 'knowledge of Doctor Vale’s former student',
+            value: 'Ari now knows the former student was Borin; she previously did not know his identity.',
+            category: 'knowledge boundary', importance: 5, persistence: 'persistent',
+        }], events: [],
+    }), { chatKey: 'roleplay', from: 8, to: 15, allowStateUpdates: true });
+
+    const record = target.facts.find(item => item.subject === 'Ari Lane');
+    assert.equal(record.category, 'knowledge');
+    assert.match(record.value, /now knows/iu);
+});
+
 test('identity resolution fails closed without one unambiguous canonical entity', () => {
     const target = world();
     const reference = 'the masked commander';
