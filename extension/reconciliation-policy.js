@@ -2,6 +2,7 @@ import { canonicalMemorySubject, canonicalStateAttribute, isActiveState, stateId
 import { canonicalCharacterProfileField, characterProfileDetailIsAdmissible, durableCharacterProfileDetail, entityProfile as storedEntityProfile, formatEntityProfile, normalizeEntityProfile } from './entity-profile.js';
 import { canonicalProseIsThirdPerson, thirdPersonOnlyProse } from './canonical-prose.js';
 import { EXTRACTION_VERSION } from './coverage.js';
+import { randomUuid } from './uuid.js';
 
 export const TARGET_RECORD_CATEGORIES = Object.freeze(['entities', 'facts', 'states', 'relationships', 'threads', 'backgrounds']);
 
@@ -1614,8 +1615,13 @@ export function recoverExplicitFactRelationships(result, world, messages = null)
             || NON_CANONICAL_RELATIONSHIP_FACT.test(value)
             || normalized(fact?.persistence) === 'temporary') continue;
         const subject = canonicalMention(index, fact?.subject);
+        const predicatePeople = explicitlyMentionedPeople(index, `${cleanText(fact?.subject)} ${predicate}`);
         const mentioned = explicitlyMentionedPeople(index, core);
-        const people = [...new Map([subject, ...mentioned].filter(personEntity).map(person => [normalized(person.name), person])).values()];
+        const predicatePair = [...new Map([subject, ...predicatePeople]
+            .filter(personEntity).map(person => [normalized(person.name), person])).values()];
+        const people = predicatePair.length === 2
+            ? predicatePair
+            : [...new Map([subject, ...mentioned].filter(personEntity).map(person => [normalized(person.name), person])).values()];
         const trainingList = personEntity(subject) && people.length > 2
             && /\b(?:teach(?:es|ing)?|taught|train(?:s|ed|ing)?|mentor(?:s|ed|ing)?)\b/iu.test(value)
             && EXPLICIT_RELATIONSHIP_FACT_ROLE.test(predicate);
@@ -1651,6 +1657,8 @@ export function recoverExplicitFactRelationships(result, world, messages = null)
                 : description;
             const historical = /\b(?:former|previous|prior|ex-|ended|deceased|dead|late)\b/iu.test(evidence)
                 || pair.some(person => entityIsEstablishedDead(person, result, world));
+            const provenance = Array.isArray(fact?.sources) && fact.sources.length ? { sources: fact.sources } : {};
+            const temporal = cleanText(fact?.temporalAnchorId || stored?.temporalAnchorId);
             result.relationships.push({
                 targetId: cleanText(stored?.id),
                 from: cleanText(stored?.from) || pair[0].name,
@@ -1659,6 +1667,8 @@ export function recoverExplicitFactRelationships(result, world, messages = null)
                 status: cleanText(stored?.status) || (historical ? 'ended' : 'active'),
                 dynamic,
                 importance: Math.max(3, Math.min(5, Number(fact?.importance || stored?.importance || 3))),
+                ...(temporal ? { temporalAnchorId: temporal } : {}),
+                ...provenance,
             });
             recovered++;
         }
@@ -1830,6 +1840,44 @@ export function discardContradictedObjectStateFacts(result, world, messages) {
     return removed;
 }
 
+const ACTIVE_PHYSICAL_RESTRAINT = /\b(?:restrained|bound|cuffed|handcuffed|shackled|chained|tied)\b/iu;
+const PHYSICAL_RELEASE_ACTION = /\b(?:removes?|removed|unclips?|unclipped|unlocks?|unlocked|releases?|released|frees?|freed|unfastens?|unfastened|cuts? off|cut off)\b/iu;
+const PHYSICAL_RESTRAINT_OBJECT = /\b(?:restraints?|cuffs?|handcuffs?|shackles?|chains?|bindings?|bonds?)\b/iu;
+const ENDED_PHYSICAL_RESTRAINT = /\bno longer\s+(?:restrained|bound|cuffed|handcuffed|shackled|chained|tied)\b/iu;
+
+export function trimSupersededPhysicalRestraintFacts(result, messages) {
+    if (!Array.isArray(result?.facts)) return 0;
+    const transitionEvidence = [
+        ...(messages || []).map(message => cleanText(message?.text ?? message?.mes)),
+        ...(result?.states || []).map(state => `${cleanText(state?.subject)} ${cleanText(state?.value)}`),
+        ...(result?.events || []).flatMap(event => [cleanText(event?.summary), cleanText(event?.consequences)]),
+    ].filter(value => ENDED_PHYSICAL_RESTRAINT.test(value)
+        || (PHYSICAL_RELEASE_ACTION.test(value) && PHYSICAL_RESTRAINT_OBJECT.test(value)));
+    if (!transitionEvidence.length) return 0;
+    let trimmed = 0;
+    const discarded = new Set();
+    for (const fact of result.facts) {
+        const subject = cleanText(fact?.subject);
+        const value = cleanText(fact?.value);
+        if (!subject || !ACTIVE_PHYSICAL_RESTRAINT.test(value)
+            || !transitionEvidence.some(evidence => textMentionsCanonicalName(evidence, subject))) continue;
+        const staleRider = new RegExp(`(?:,?\\s+)(?:while|although|but)\\s+(?:${escaped(subject)}|he|she|they)\\s+(?:still\\s+)?(?:remains?|is|are|was|were)\\s+(?:physically\\s+)?(?:restrained|bound|cuffed|handcuffed|shackled|chained|tied)\\b[^.!?]*[.!?]?$`, 'iu');
+        const staleSentence = new RegExp(`^(?:${escaped(subject)}|he|she|they)\\s+(?:still\\s+)?(?:remains?|is|are|was|were)\\s+(?:physically\\s+)?(?:restrained|bound|cuffed|handcuffed|shackled|chained|tied)\\b[^.!?]*[.!?]?$`, 'iu');
+        let next = staleSentence.test(value) ? '' : value.replace(staleRider, '').trim();
+        if (!next) {
+            discarded.add(fact);
+            trimmed++;
+            continue;
+        }
+        if (/[.!?]$/u.test(value) && !/[.!?]$/u.test(next)) next += value.slice(-1);
+        if (normalized(next) === normalized(value)) continue;
+        fact.value = next;
+        trimmed++;
+    }
+    if (discarded.size) result.facts = result.facts.filter(fact => !discarded.has(fact));
+    return trimmed;
+}
+
 function uncoveredDurableBeats(result, messages) {
     if (!Array.isArray(result?.sceneCapsule?.beats) || !Array.isArray(messages) || !messages.length) return [];
     const source = messages.map(message => `${cleanText(message?.name || message?.speaker)}: ${cleanText(message?.text ?? message?.mes)}`).join('\n');
@@ -1905,14 +1953,15 @@ export function recoverSourceGroundedCoverageRecords(result, world, messages) {
     return recovered;
 }
 
-const THREAD_GAP = /\b(?:not yet|never (?:told|learned|knew|disclosed|answered|explained|revealed|identified|confirmed|established)|has not|have not|had not|does not|do not|did not|is not|are not|was not|were not|continues? to|seek(?:s|ing)? to (?:determine|learn|discover|identify|find|decide|understand)|tr(?:y|ies|ied|ying) to (?:determine|learn|discover|identify|find|decide|understand)|unknown|unanswered|unresolved|undecided|pending|unconfirmed|incomplete|incoming|en route|on the way|on standby|ready (?:for|to)|prepared (?:for|to)|not (?:complete|completed|done|confirmed|established|disclosed|answered|accepted|met|delivered)|no (?:answer|decision|confirmation|evidence|proof)|no (?:confirmed|verified|established|identified|known)\b[^.!?;]{0,100}\b(?:identified|confirmed|verified|established|found|determined|known)|neither\b[^.!?;]{0,160}\b(?:complete|completed|done|obtained|recovered)|lacks? (?:confirmation|evidence|proof|an answer)|awaits?|must (?:learn|discover|identify|find|decide|preserve|maintain|continue|keep)|still (?:required|needed|missing|pending|unresolved|unconfirmed)|remains? (?:unknown|unanswered|unresolved|undecided|missing|pending|unconfirmed|incomplete|open|hidden|concealed|undisclosed))\b/iu;
+const THREAD_GAP = /\b(?:not yet|never (?:told|learned|knew|disclosed|answered|explained|revealed|identified|confirmed|established)|has not|have not|had not|does not|do not|did not|is not|are not|was not|were not|continues? to|seek(?:s|ing)? to (?:determine|learn|discover|identify|find|decide|understand)|tr(?:y|ies|ied|ying) to (?:determine|learn|discover|identify|find|decide|understand)|unknown|unanswered|unresolved|undecided|pending|unconfirmed|incomplete|incoming|en route|on the way|on standby|ready (?:for|to)|prepared (?:for|to)|not (?:complete|completed|done|confirmed|established|disclosed|answered|accepted|met|delivered)|no (?:(?:clear|definitive|final|verified)\s+)?(?:answer|decision|confirmation|evidence|proof)|no (?:confirmed|verified|established|identified|known)\b[^.!?;]{0,100}\b(?:identified|confirmed|verified|established|found|determined|known)|neither\b[^.!?;]{0,160}\b(?:complete|completed|done|obtained|recovered)|lacks? (?:confirmation|evidence|proof|an answer)|awaits?|must (?:learn|discover|identify|find|decide|preserve|maintain|continue|keep)|still (?:required|needed|missing|pending|unresolved|unconfirmed)|remains? (?:unknown|unanswered|unresolved|undecided|missing|pending|unconfirmed|incomplete|open|hidden|concealed|undisclosed))\b/iu;
 const THREAD_UNCERTAIN_ASSERTION = /\b(?:suspects?|believes?|thinks?|assumes?|speculates?|claims?|alleges?|may|might|possibly|perhaps|apparently|reportedly|unverified|uncorroborated|partially|partly|without (?:proof|evidence|confirmation)|provides? no (?:proof|evidence|confirmation))\b/iu;
 const THREAD_COMMITMENT_PENDING = /\b(?:must|will|shall|['’]ll|going to|plans? to|intends? to|promises? to|vows? to|prepar(?:e|es|ed|ing) to|en route|in transit|heading to|on (?:the )?way to|arrival (?:is )?expected|tomorrow|later|next (?:day|morning|afternoon|evening|night|week|month|year))\b/iu;
 const THREAD_IN_PROGRESS = /\b(?:begins?|began|start(?:s|ed|ing)?|ongoing|in progress|underway|continues?|continuing)\b/iu;
-const THREAD_RESOLUTION = /\b(?:answers?|answered|reveals?|revealed|discloses?|disclosed|identifies?|identified|learns?|learned|discovers?|discovered|finds?|found|recovers?|recovered|secures?|secured|logs?|logged|establishes?|established|returns?|returned|departs?|departed|leaves?|left|sets? out|set out|arrives?|arrived|reaches?|reached|enters?|entered|ends?|ended|meets?|met|contacts?|contacted|reports?|reported|delivers?|delivered|presents?|presented|completes?|completed|finishes?|finished|decides?|decided|chooses?|chose|accepts?|accepted|rejects?|rejected|defeats?|defeated|destroys?|destroyed|repairs?|repaired|opens?|opened|closes?|closed|fulfills?|fulfilled|obtains?|obtained|acquires?|acquired|now knows?)\b/iu;
+const THREAD_RESOLUTION = /\b(?:answers?|answered|reveals?|revealed|discloses?|disclosed|describes?|described|explains?|explained|details?|detailed|identifies?|identified|learns?|learned|discovers?|discovered|finds?|found|recovers?|recovered|secures?|secured|logs?|logged|establishes?|established|returns?|returned|departs?|departed|leaves?|left|sets? out|set out|arrives?|arrived|reaches?|reached|enters?|entered|ends?|ended|meets?|met|contacts?|contacted|reports?|reported|delivers?|delivered|presents?|presented|completes?|completed|finishes?|finished|decides?|decided|chooses?|chose|accepts?|accepted|rejects?|rejected|defeats?|defeated|destroys?|destroyed|repairs?|repaired|opens?|opened|closes?|closed|fulfills?|fulfilled|obtains?|obtained|acquires?|acquired|now knows?)\b/iu;
 const THREAD_VAGUE_RESIDUAL = /\b(?:extent|consequences|broader (?:history|implications|meaning|exploration)|further (?:exploration|evaluation)|what (?:this|that) means)\b[^.!?;]{0,160}\b(?:open|unexplored|unclear|unknown|unresolved|incomplete|partly explored)\b/iu;
 const THREAD_ACTION_RESOLUTION_RULES = [
-    [/\b(?:conceal|concealment|keep\b[^.!?;]{0,80}\bhidden)\b/iu, /\b(?:discovers?|discovered|reveals?|revealed|exposes?|exposed|learns?|learned|no longer concealed|concealment (?:ends?|ended|fails?|failed|is broken|was broken))\b/iu],
+    [/\b(?:conceal(?:s|ed|ing)?|concealment|keep\b[^.!?;]{0,80}\bhidden)\b/iu, /\b(?:discovers?|discovered|reveals?|revealed|exposes?|exposed|learns?|learned|no longer concealed|concealment (?:ends?|ended|fails?|failed|is broken|was broken))\b/iu],
+    [/\b(?:answer|description|describe|details?)\b/iu, /\b(?:answers?|answered|describes?|described|details?|detailed|explains?|explained|reports?|reported)\b/iu],
     [/\b(?:determin(?:e|es|ed|ing)|unanswered question)\b/iu, /\b(?:determines|determined|confirms|confirmed|answers|answered|establishes|established|proves|proved)\b/iu],
     [/\b(?:survive|survival|endure)\b/iu, /\b(?:survives|survived|endures|endured|(?:it is|it['’]s|session is|session['’]s) over|(?:ends?|ended)\b[^.!?;]{0,60}\b(?:exchange|fight|combat|attack|assessment|session)|(?:exchange|fight|combat|attack|assessment|session) (?:ends?|ended|is over|was over))\b/iu],
     [/\b(?:assessment|assess|evaluat(?:e|es|ed|ion)|measure|test)\b/iu, /\b(?:(?:completes?|completed|concludes?|concluded|finishes?|finished|ends?|ended)\b[^.!?;]{0,100}\b(?:assessment|evaluation|measurement|test)|(?:assesses|assessed|evaluates|evaluated|measures|measured|tests|tested)\b|(?:it is|it['’]s|session is|session['’]s) over\b)/iu],
@@ -2115,6 +2164,7 @@ export function reopenUnsupportedResolvedThreads(result, world, messages, modelR
         if (modelResolvedThreads instanceof Set && !modelResolvedThreads.has(incoming)) continue;
         const stored = storedOpenThreadFor(result, world, incoming);
         const resolvedDetail = cleanText(incoming?.detail).replace(/^Resolved(?:(?: by| through)[^:]*)?:\s*/iu, '');
+        if (splitPartiallyResolvedCompoundThread(result, stored, incoming, resolvedDetail)) continue;
         const narrowedResolution = /^Resolved as to\b/iu.test(resolvedDetail);
         const historicalGapResolved = /\bunanswered\b[^.!?;]{0,160}\b(?:led to|resulted in|ended (?:when|with))\b/iu.test(resolvedDetail)
             && THREAD_RESOLUTION.test(resolvedDetail);
@@ -2219,11 +2269,36 @@ export function reconcileExplicitlyResolvedThreads(result, world, messages) {
     for (const thread of (world?.threads || []).filter(item => item?.status === 'open'
         && (THREAD_GAP.test(`${item.title || ''} ${item.detail || ''}`)
             || THREAD_COMMITMENT_PENDING.test(`${item.title || ''} ${item.detail || ''}`)))) {
+        // Identity questions are resolved only by the structured identity
+        // resolver below. Generic prose such as "identifies herself as a
+        // prisoner" must not close an unrelated true-identity thread.
+        if (IDENTITY_THREAD.test(cleanText(thread?.title))) continue;
         const incoming = incomingThreadFor(result, thread);
         if (incoming && incoming.status !== 'open') continue;
-        if (incoming && THREAD_GAP.test(cleanText(incoming.detail))) continue;
         const topic = threadTopicTerms(`${thread.title || ''} ${thread.detail || ''}`, result, world);
         const title = threadTopicTerms(thread.title, result, world);
+        if (/\b(?:answer|description|describe|details?)\b/iu.test(cleanText(thread?.title))) {
+            const explicitAnswer = resolutionEvidence.map(cleanText).find(beat => beat
+                && THREAD_RESOLUTION.test(beat)
+                && threadResolutionActionMatches(thread, beat)
+                && !threadEvidenceIsIncomplete(thread, beat)
+                && threadParticipantMatch(thread, beat, world, result)
+                && termSetOverlap(title, threadTerms(beat)) >= 1);
+            const structuredSupport = explicitAnswer && (result?.facts || []).some(fact =>
+                !THREAD_GAP.test(`${cleanText(fact?.predicate)} ${cleanText(fact?.value)}`)
+                && coverageOverlap(explicitAnswer, `${cleanText(fact?.predicate)} ${cleanText(fact?.value)}`) >= 3
+                && (thread?.participants || []).some(participant => normalized(participant) === normalized(fact?.subject)));
+            if (explicitAnswer && (structuredSupport || sourceSupportsThreadAction(messages, thread, world, result))) {
+                const resolution = incoming || {};
+                Object.assign(resolution, {
+                    targetId: thread.id, title: thread.title, detail: `Resolved by explicit continuity: ${explicitAnswer}`,
+                    status: 'resolved', participants: thread.participants || [], importance: thread.importance || 3,
+                });
+                if (!incoming) result.threads.push(resolution);
+                resolved++;
+                continue;
+            }
+        }
         let partial = null;
         for (const rawBeat of resolutionEvidence) {
             const beat = cleanText(rawBeat);
@@ -2243,7 +2318,7 @@ export function reconcileExplicitlyResolvedThreads(result, world, messages) {
             if (!sourceSupported) continue;
             const aliasResolution = threadAliasResolutionMatch(thread, beat, world, result);
             const required = specificAction
-                ? (commitmentResolution || /\b(?:recover|recovery|retrieve|retrieval|request|contact|channel)\b/iu.test(cleanText(thread?.title)) ? 1 : 2)
+                ? (commitmentResolution || /\b(?:answer|description|describe|details?|recover|recovery|retrieve|retrieval|request|contact|channel)\b/iu.test(cleanText(thread?.title)) ? 1 : 2)
                 : aliasResolution || commitmentResolution ? 2
                 : Math.max(3, Math.min(6, Math.ceil(Math.min(topic.size, 12) * 0.3)));
             if (hasUnmatchedTitleConjunction(thread, beat)) {
@@ -2278,6 +2353,26 @@ export function reconcileExplicitlyResolvedThreads(result, world, messages) {
     return { resolved, warnings };
 }
 
+// Final fail-closed lifecycle gate. Earlier passes combine model output,
+// historical records, and recovered evidence; no matter which path produced
+// the record, "resolved" cannot survive when its own detail still says that
+// the answer or action is pending and contains no completed atomic clause.
+export function reopenInternallyUnresolvedThreads(result) {
+    if (!Array.isArray(result?.threads)) return 0;
+    let reopened = 0;
+    for (const thread of result.threads) {
+        if (normalized(thread?.status) !== 'resolved') continue;
+        const detail = cleanText(thread?.detail).replace(/^Resolved(?:(?: by| through)[^:]*)?:\s*/iu, '');
+        const historicalGapResolved = /\bunanswered\b[^.!?;]{0,160}\b(?:led to|resulted in|ended (?:when|with))\b/iu.test(detail)
+            && threadResolutionActionMatches(thread, detail);
+        if (!detail || historicalGapResolved || !threadEvidenceIsIncomplete(thread, detail) || completedThreadEvidence(thread, detail)) continue;
+        thread.status = 'open';
+        thread.detail = detail;
+        reopened++;
+    }
+    return reopened;
+}
+
 const IDENTITY_THREAD = /\b(?:identity|identif(?:y|ies|ied|ying)|true name|real name|who (?:is|was|are|were))\b/iu;
 const IDENTITY_RESIDUAL_GENERIC = new Set([
     ...THREAD_MATCH_STOP_WORDS,
@@ -2306,7 +2401,8 @@ function identityResolutionMatchesThread(thread, resolution) {
     if (textMentionsIdentityVariant(title, [reference])) return true;
     const descriptor = descriptivePersonIdentityContext(reference, { relationships: [] });
     if (descriptor
-        && textMentionsIdentityVariant(title, [descriptor.owner])
+        && (textMentionsIdentityVariant(title, [descriptor.owner])
+            || new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(descriptor.owner)}[’']s`, 'iu').test(title))
         && new RegExp(`\\b${escaped(cleanText(descriptor.role).split(/\\s+/u).at(-1))}\\b`, 'iu').test(title)) return true;
     const referenceTerms = threadTerms(reference);
     return termSetOverlap(referenceTerms, threadTerms(title)) >= 2;
@@ -2378,6 +2474,26 @@ function textMentionsCanonicalName(value, name) {
         && new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(target)}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(source));
 }
 
+function compactRepeatedRelationshipLead(dynamic, from, to) {
+    const clauses = cleanText(dynamic).split(/\s*;\s*|(?<=[.!?])\s+/u).map(cleanText).filter(Boolean);
+    if (clauses.length < 2) return cleanText(dynamic);
+    const names = [from, to].map(escaped).join('|');
+    const leadPattern = new RegExp(`^((?:${names})\\s+(?:commands?|controls?|employs?|guards?|mentors?|trains?|serves?|supports?|protects?|follows?|assists?)\\s+(?:the\\s+|an?\\s+)?(?:${names}))\\s*,?\\s+(?:who\\s+)?(.+)$`, 'iu');
+    const seen = new Set();
+    const compacted = clauses.map(clause => {
+        const match = clause.match(leadPattern);
+        if (!match) return clause;
+        const lead = normalized(match[1]);
+        if (!seen.has(lead)) {
+            seen.add(lead);
+            return clause;
+        }
+        const object = [from, to].find(name => new RegExp(`${escaped(name)}$`, 'iu').test(cleanText(match[1]))) || to;
+        return `${object} ${cleanText(match[2])}`;
+    });
+    return compacted.join('; ');
+}
+
 export function normalizeRelationshipDescriptions(result) {
     if (!Array.isArray(result?.relationships)) return 0;
     let normalizedDescriptions = 0;
@@ -2385,7 +2501,14 @@ export function normalizeRelationshipDescriptions(result) {
         const from = cleanText(item?.from);
         const to = cleanText(item?.to);
         if (!from || !to) continue;
-        const dynamic = cleanText(item?.dynamic);
+        let dynamic = cleanText(item?.dynamic);
+        for (const name of [from, to]) {
+            const tail = cleanText(name).split(/\s+/u).at(-1);
+            if (!tail) continue;
+            dynamic = dynamic.replace(new RegExp(`((?:^|[^\\p{L}\\p{N}])${escaped(name)})\\s+${escaped(tail)}(?=$|[^\\p{L}\\p{N}])`, 'giu'), '$1');
+        }
+        dynamic = compactRepeatedRelationshipLead(dynamic, from, to);
+        item.dynamic = dynamic;
         if (dynamic && textMentionsCanonicalName(dynamic, from) && textMentionsCanonicalName(dynamic, to)) continue;
         const prefix = `Relationship between ${from} and ${to}:`;
         const fallback = [cleanText(item?.kind), cleanText(item?.status)].filter(Boolean).join('; ');
@@ -2430,6 +2553,30 @@ export function reconcileStatePreviousValues(result, world) {
         reconciled++;
     }
     return reconciled;
+}
+
+export function normalizeCompositeStateSubjects(result, world) {
+    if (!Array.isArray(result?.states)) return 0;
+    const index = continuityEntityIndex(result, world);
+    const normalizedStates = [];
+    let split = 0;
+    for (const state of result.states) {
+        const parts = cleanText(state?.subject).split(/\s+and\s+/iu).map(cleanText).filter(Boolean);
+        const owners = parts.map(part => canonicalMention(index, part)).filter(personEntity);
+        const distinctOwners = [...new Map(owners.map(owner => [normalized(owner.name), owner])).values()];
+        if (parts.length < 2 || distinctOwners.length !== parts.length) {
+            normalizedStates.push(state);
+            continue;
+        }
+        for (const [ownerIndex, owner] of distinctOwners.entries()) normalizedStates.push({
+            ...state,
+            targetId: ownerIndex === 0 ? cleanText(state?.targetId) : '',
+            subject: owner.name,
+        });
+        split += distinctOwners.length - 1;
+    }
+    result.states = normalizedStates;
+    return split;
 }
 
 const SCENE_ONLY_STATE = /\b(?:attending|dressed|escorting|freshly|kneeling|lying|outfit|positioned|seated|sitting|standing|waiting|wearing)\b/iu;
@@ -2660,10 +2807,15 @@ function repairTopicKnowledgeAsHolder(result, world) {
     for (const fact of result.facts) {
         if (normalized(fact?.category) !== 'character belief') continue;
         const match = cleanText(fact?.predicate).match(/^belief about\s+(.+?)\s+[—–-]\s+knowledge of\s+(.+)$/iu);
-        if (!match || !/^(?:(?:now|still|already)\s+)?(?:knows?|learns?|learned|has learned|recognizes?|remembers?|recalls?)\b/iu.test(cleanText(fact?.value))) continue;
+        if (!match) continue;
         const topic = canonicalMention(index, cleanText(match[1]));
         const holder = canonicalMention(index, fact?.subject);
         if (!personEntity(topic) || normalized(topic.name) === normalized(holder?.name)) continue;
+        const value = cleanText(fact?.value);
+        const verb = '(?:knows?|learns?|learned|has learned|recognizes?|remembers?|recalls?)';
+        const directKnowledge = new RegExp(`^(?:(?:now|still|already)\\s+)?${verb}\\b`, 'iu').test(value);
+        const topicKnowledge = new RegExp(`^${escaped(topic.name)}\\s+(?:(?:now|still|already)\\s+)?${verb}\\b`, 'iu').test(value);
+        if (!directKnowledge && !topicKnowledge) continue;
         fact.subject = topic.name;
         fact.predicate = `knowledge of ${cleanText(match[2])}`;
         fact.category = 'knowledge';
@@ -2727,7 +2879,7 @@ export function normalizeKnowledgeHolderContamination(result, world) {
         const value = cleanText(fact?.value);
         if (/^(?:(?:now|still|already)\s+)?(?:knows?|learns?|learned|has learned|had learned|recognizes?|recognized|remembers?|remembered|recalls?|recalled|does not know|did not know|has not learned)\b/iu.test(value)) continue;
         if (personEntity(statedSubject) && new RegExp(
-            `^${escaped(statedSubject.name)}\\s+(?:now\\s+)?learns?\\b`, 'iu',
+            `^${escaped(statedSubject.name)}\\s+(?:(?:now|still|already)\\s+)?(?:knows?|learns?|learned|has learned|had learned|recognizes?|recognized|remembers?|remembered|recalls?|recalled|does not know|did not know|has not learned)\\b`, 'iu',
         ).test(value)) continue;
         const attribution = value.match(AUDIT_ATTRIBUTION_VERB);
         const actorWindow = attribution?.index == null ? '' : value.slice(Math.max(0, attribution.index - 120), attribution.index);
@@ -2791,6 +2943,17 @@ function discardMismatchedKnowledgeTopicFacts(result, world) {
             .some(name => normalized(name) === normalized(topicText))) || canonicalMention(index, topicText)) : null;
         const holder = canonicalMention(index, fact?.subject);
         const value = cleanText(fact?.value);
+        const explicitHolderKnowledge = personEntity(holder) && new RegExp(
+            `^${escaped(holder.name)}\\s+(?:(?:now|still|already)\\s+)?(?:knows?|learns?|learned|has learned|recognizes?|recognized|remembers?|remembered|recalls?|recalled)\\b`, 'iu',
+        ).test(value);
+        const normalizedValue = normalized(value).replace(/\bmoonbase\b/gu, 'moon base');
+        const nonPersonTopicLexeme = topic && !personEntity(topic)
+            && [topic.name, ...(topic.aliases || [])].some(name => {
+                const terms = normalized(name).replace(/\bmoonbase\b/gu, 'moon base').match(/[\p{L}\p{N}]{4,}/gu) || [];
+                return terms.length >= 2 && terms.filter(term => normalizedValue.includes(term)).length >= 2;
+            });
+        if (explicitHolderKnowledge && (textMentionsIdentityVariant(value, [topic?.name, ...(topic?.aliases || [])])
+            || nonPersonTopicLexeme)) return true;
         if (!topic || !value || textMentionsIdentityVariant(value, [topic.name, ...(topic.aliases || [])])) return true;
         const otherEntities = index.entities.filter(entity => normalized(entity?.name) !== normalized(holder?.name)
             && normalized(entity?.name) !== normalized(topic.name)
@@ -3160,6 +3323,70 @@ function characterProfileHasExplicitSubject(segment, entity) {
     return false;
 }
 
+function partialCompoundThreadResolution(thread, evidence) {
+    const originalTitle = cleanText(thread?.title);
+    const parts = originalTitle.split(/\s+and\s+/iu).map(cleanText).filter(Boolean);
+    if (parts.length !== 2) return null;
+    const evidenceTerms = threadTerms(evidence);
+    const scored = parts.map(part => {
+        const terms = threadTerms(part);
+        const required = terms.size <= 2 ? 1 : 2;
+        return { part, score: termSetOverlap(terms, evidenceTerms), required };
+    });
+    const matched = scored.filter(item => item.score >= item.required);
+    const unmatched = scored.filter(item => item.score < item.required);
+    if (matched.length !== 1 || unmatched.length !== 1) return null;
+    const action = originalTitle.match(/^(?:Determine|Verify|Explain|Identify|Answer|Confirm|Establish|Resolve)\b/iu)?.[0] || 'Resolve';
+    const atomicTitle = part => new RegExp(`^${escaped(action)}\\b`, 'iu').test(part) ? part : `${action} ${part}`;
+    return {
+        resolvedTitle: atomicTitle(matched[0].part),
+        unresolvedTitle: atomicTitle(unmatched[0].part),
+    };
+}
+
+function splitPartiallyResolvedCompoundThread(result, stored, incoming, evidence) {
+    if (!stored || normalized(stored?.status) !== 'open' || normalized(incoming?.status) !== 'resolved') return false;
+    const split = partialCompoundThreadResolution(stored, evidence);
+    if (!split) return false;
+    incoming.targetId = cleanText(stored.id);
+    incoming.title = split.resolvedTitle;
+    incoming.detail = `Resolved as to ${split.resolvedTitle.replace(/^[\p{L}-]+\s+/u, '')}: ${cleanText(evidence)}`;
+    incoming.status = 'resolved';
+    incoming.participants = stored.participants || incoming.participants || [];
+    incoming.importance = stored.importance || incoming.importance || 3;
+    ATOMIC_THREAD_SPLITS.add(incoming);
+    const duplicate = (result?.threads || []).some(candidate => candidate !== incoming
+        && normalized(candidate?.status) === 'open'
+        && normalized(candidate?.title) === normalized(split.unresolvedTitle));
+    if (!duplicate) result.threads.push({
+        targetId: '',
+        title: split.unresolvedTitle,
+        detail: `${split.unresolvedTitle.replace(/^[\p{L}-]+\s+/u, '')} remains unresolved after the other compound claim was established.`,
+        status: 'open',
+        participants: stored.participants || incoming.participants || [],
+        importance: stored.importance || incoming.importance || 3,
+    });
+    return true;
+}
+
+const ATOMIC_THREAD_SPLITS = new WeakSet();
+
+export function reconciliationThreadWasAtomicallySplit(item) {
+    return Boolean(item && typeof item === 'object' && ATOMIC_THREAD_SPLITS.has(item));
+}
+
+export function splitResolvedCompoundThreads(result, world) {
+    if (!Array.isArray(result?.threads) || !Array.isArray(world?.threads)) return 0;
+    let split = 0;
+    for (const incoming of [...result.threads]) {
+        if (normalized(incoming?.status) !== 'resolved') continue;
+        const stored = storedOpenThreadFor(result, world, incoming);
+        const evidence = cleanText(incoming?.detail).replace(/^Resolved(?:(?: by| through)[^:]*)?:\s*/iu, '');
+        if (splitPartiallyResolvedCompoundThread(result, stored, incoming, evidence)) split++;
+    }
+    return split;
+}
+
 function characterProfilePronounLed(segment) {
     return /^(?:[\s*“”"'‘’([{]*)(?:he|she|they|his|her|their)\b/iu.test(cleanText(segment));
 }
@@ -3182,7 +3409,10 @@ function characterProfileEvidenceWindows(entity, objectiveSequences, people) {
                 activeSubject = normalized(entity?.name);
                 let start = index;
                 for (let prior = index - 1; prior >= 0 && prior >= index - 3; prior--) {
-                    if (otherPeople.some(person => textMentionsEntity(segments[prior], person))) break;
+                    // An object mention such as "nearly hit the seneschal"
+                    // does not transfer ownership. Stop only when another
+                    // known person is the grammatical subject.
+                    if (otherPeople.some(person => characterProfileHasExplicitSubject(segments[prior], person))) break;
                     start = prior;
                     windows.push(segments.slice(start, index + 1).join(' '));
                 }
@@ -3251,10 +3481,67 @@ function characterProfileNeedsVersionAudit(existing, world) {
     return processedVersions.length > 0 && processedVersions.some(version => version !== EXTRACTION_VERSION);
 }
 
+function relationshipEndpointVariants(value) {
+    const source = cleanText(value);
+    if (!source) return [];
+    const variants = [source];
+    const possessed = source.match(/^[^’']{1,80}[’']s\s+(.+)$/u);
+    if (possessed) variants.push(cleanText(possessed[1]));
+    return [...new Set(variants.map(cleanText).filter(Boolean))];
+}
+
+function relationshipEndpointAlternation(value) {
+    return relationshipEndpointVariants(value).sort((left, right) => right.length - left.length).map(escaped).join('|');
+}
+
+function qualifiedRelationshipRoleEvidence(entityName, relationship) {
+    const name = cleanText(entityName);
+    const other = normalized(relationship?.from) === normalized(name)
+        ? cleanText(relationship?.to) : cleanText(relationship?.from);
+    if (!name || !other) return { roles: [], family: '', nameIsSenior: false, nameIsJunior: false };
+    const dynamic = cleanText(relationship?.dynamic).replace(/^Relationship between [^:]{2,180}:\s*/iu, '');
+    const kind = cleanText(relationship?.kind);
+    const relationText = `${kind} ${dynamic}`;
+    const namePattern = relationshipEndpointAlternation(name);
+    const otherPattern = relationshipEndpointAlternation(other);
+    if (!namePattern || !otherPattern) return { roles: [], family: '', nameIsSenior: false, nameIsJunior: false };
+    const namedSubject = pattern => `(?:^|[^\\p{L}\\p{N}])(?:the\\s+)?(?:${pattern})(?![’'])`;
+    const namedObject = pattern => `(?:the\\s+)?(?:${pattern})(?:$|[^\\p{L}\\p{N}])`;
+    const seniorRole = '(?:Jedi\\s+|Sith\\s+)?(?:master|mentor|teacher)';
+    const juniorRole = '(?:Jedi\\s+|Sith\\s+)?(?:apprentice|student|pupil|Padawan)';
+    const nameActsOnOther = new RegExp(`${namedSubject(namePattern)}\\s+(?:commands?|trained|trains?|taught|teaches?|mentored|mentors?)\\s+${namedObject(otherPattern)}`, 'iu').test(dynamic);
+    const otherActsOnName = new RegExp(`${namedSubject(otherPattern)}\\s+(?:commands?|trained|trains?|taught|teaches?|mentored|mentors?)\\s+${namedObject(namePattern)}`, 'iu').test(dynamic);
+    const nameHasSeniorRole = new RegExp(`${namedSubject(namePattern)}\\s+(?:is|was|remains?|became|served as)\\s+(?:${namedObject(otherPattern)}[’']s\\s+)?(?:former\\s+)?${seniorRole}\\b`, 'iu').test(dynamic);
+    const nameHasJuniorRole = new RegExp(`${namedSubject(namePattern)}\\s+(?:is|was|remains?|became|served as)\\s+(?:(?:${otherPattern})[’']s\\s+|(?:his|her|their)\\s+)?(?:former\\s+)?${juniorRole}\\b`, 'iu').test(dynamic);
+    const otherIsNamesJunior = new RegExp(`${namedSubject(otherPattern)}\\s+(?:is|was|remains?|became)\\s+(?:(?:${namePattern})[’']s\\s+|(?:his|her|their)\\s+)(?:former\\s+)?${juniorRole}\\b`, 'iu').test(dynamic);
+    const nameIsOthersJunior = new RegExp(`${namedSubject(namePattern)}\\s+(?:is|was|remains?|became)\\s+(?:(?:${otherPattern})[’']s\\s+|(?:his|her|their)\\s+)(?:former\\s+)?${juniorRole}\\b`, 'iu').test(dynamic);
+    const trainedNameAsJunior = new RegExp(`\\b(?:trained|trains?|taught|teaches?|mentored|mentors?)\\s+${namedObject(namePattern)}\\s+(?:as\\s+)?(?:an?\\s+)?${juniorRole}\\b`, 'iu').test(dynamic);
+    const trainedOtherAsJunior = new RegExp(`\\b(?:trained|trains?|taught|teaches?|mentored|mentors?)\\s+${namedObject(otherPattern)}\\s+(?:as\\s+)?(?:an?\\s+)?${juniorRole}\\b`, 'iu').test(dynamic);
+    const nameIsJunior = nameHasJuniorRole || nameIsOthersJunior || otherActsOnName || trainedNameAsJunior;
+    const nameIsSenior = nameHasSeniorRole || nameActsOnOther || otherIsNamesJunior || trainedOtherAsJunior;
+    const jediFamily = (/\bJedi\b/iu.test(kind) && /\bmaster\b/iu.test(kind)
+        && /\b(?:apprentice|student|pupil|Padawan)\b/iu.test(kind))
+        || /\bJedi\s+(?:Master|Padawan|apprentice)\b/iu.test(dynamic);
+    const sithFamily = (/\bSith\b/iu.test(kind) && /\bmaster\b/iu.test(kind) && /\bapprentice\b/iu.test(kind))
+        || /\bSith\s+(?:Master|apprentice)\b/iu.test(dynamic);
+    const family = jediFamily ? 'Jedi' : sithFamily ? 'Sith' : '';
+    const roles = [];
+    if (family === 'Jedi') {
+        if (nameIsJunior && /\bPadawan\b/iu.test(relationText)) roles.push('Jedi Padawan');
+        else if (nameIsSenior) roles.push('Jedi Master');
+    } else if (family === 'Sith') {
+        if (nameIsJunior) roles.push('Sith apprentice');
+        else if (nameIsSenior) roles.push('Sith Master');
+    }
+    return { roles, family, nameIsSenior, nameIsJunior };
+}
+
 function canonicalRecordProfileRoles(entity, result, world, messages) {
     const roles = [];
     const add = value => {
-        const role = cleanText(value).replace(/^(?:a|an|the)\s+/iu, '').replace(/[;,.:\s]+$/gu, '');
+        const role = cleanText(value)
+            .split(/\b(?:although|as far as|because|even though|though|unless|until|whereas|while)\b/iu)[0]
+            .replace(/^(?:a|an|the)\s+/iu, '').replace(/[;,.:\s]+$/gu, '');
         if (role && durableCharacterProfileDetail('roleBackground', role)
             && !roles.some(existing => normalized(existing) === normalized(role))) roles.push(role);
     };
@@ -3263,29 +3550,28 @@ function canonicalRecordProfileRoles(entity, result, world, messages) {
         ...(world?.relationships || []).map(record => ({ record, stored: true })),
         ...(result?.relationships || []).map(record => ({ record, stored: false })),
     ].filter(({ record }) => [record?.from, record?.to].some(endpoint => normalized(endpoint) === normalized(name)));
-    const isJediContext = relationships.some(({ record }) => /\bJedi\b/iu.test(`${record?.kind || ''} ${record?.dynamic || ''}`));
+    const isJediContext = relationships.some(({ record }) => qualifiedRelationshipRoleEvidence(name, record).family === 'Jedi');
     for (const { record: relationship, stored } of relationships) {
         const dynamic = cleanText(relationship?.dynamic);
         const other = normalized(relationship?.from) === normalized(name) ? relationship?.to : relationship?.from;
         if (!dynamic || !other) continue;
         if (!stored && sourceOnlySubjective(`${relationship?.from} ${relationship?.to} ${relationship?.kind} ${dynamic}`, messages)) continue;
         const escapedName = escaped(name);
-        const escapedOther = escaped(cleanText(other));
-        if ((new RegExp(`${escapedOther}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(dynamic)
-            && new RegExp(`${escapedName}[’']s\\s+(?:Jedi\\s+)?Padawan\\b`, 'iu').test(dynamic))
-            || new RegExp(`${escapedName}\\s+(?:is|was)\\s+${escapedOther}[’']s\\s+Jedi\\s+Master\\b`, 'iu').test(dynamic)) add('Jedi Master');
-        if (new RegExp(`${escapedOther}\\s+(?:is|was)\\s+${escapedName}[’']s\\s+(?:former\\s+)?(?:apprentice|student|pupil)\\b`, 'iu').test(dynamic)) add(isJediContext ? 'Jedi Master' : 'master or teacher');
-        for (const match of dynamic.matchAll(new RegExp(`${escapedName}\\s+(?:is|was|served as|works as|became)\\s+([^.!?;]{2,100})`, 'giu'))) {
+        for (const match of dynamic.matchAll(new RegExp(`${escapedName}(?![’'])\\s+(?:is|was|served as|works as|became)\\s+([^.!?;]{2,100})`, 'giu'))) {
             for (const detail of characterProfileDetails(match[1])) add(detail);
         }
+        for (const role of qualifiedRelationshipRoleEvidence(name, relationship).roles) add(role);
     }
     const facts = [
         ...(world?.facts || []).map(record => ({ record, stored: true })),
         ...(result?.facts || []).map(record => ({ record, stored: false })),
     ];
     for (const { record: fact, stored } of facts) {
+        const factTaxonomy = `${cleanText(fact?.category)} ${cleanText(fact?.predicate)}`;
         if (normalized(canonicalMemorySubject({ ...(world || {}), entities: [...(world?.entities || []), ...(result?.entities || [])] }, fact?.subject)) !== normalized(name)
-            || /\b(?:belief|claim|perspective|knowledge boundary|knowledge gap)\b/iu.test(`${fact?.category || ''} ${fact?.predicate || ''}`)
+            // The subject of an epistemic fact is its holder. A role named in
+            // what they know or believe belongs to the topic, not the holder.
+            || /(?:^|\b)(?:belief|claim|knowledge|perspective|rumou?r|speculation)(?:\b|$)/iu.test(factTaxonomy)
             || normalized(fact?.persistence) === 'temporary') continue;
         const evidence = `${cleanText(fact?.predicate)}. ${cleanText(fact?.value)}`;
         if (!stored && sourceOnlySubjective(`${name} ${evidence}`, messages)) continue;
@@ -3312,7 +3598,6 @@ function sourceDerivedCharacterProfile(entity, objectiveWindows, messages, resul
     const grammaticalSubject = [...new Set([entity?.name, ...(entity?.aliases || [])].map(cleanText).filter(Boolean))]
         .map(escaped).join('|');
     const copula = new RegExp(`(?:^|[^\\p{L}\\p{N}])(?:${grammaticalSubject}|he|she|they)\\s+(?:is|was|appears?|seems?)\\s+([^.!?]{2,180})`, 'giu');
-    const possession = new RegExp(`(?:^|[^\\p{L}\\p{N}])(?:${grammaticalSubject}|he|she|they)\\s+(?:has|had)\\s+([^.!?]{2,160})`, 'giu');
     const appearanceCue = /\b(?:bald|beard|build|cheek(?:ed|s)?|complexion|ear[sd]?|eye[sd]?|face|facial|freckle[sd]?|hair|height|horn[sd]?|markings?|moustache|mustache|scar(?:red|s)?|short|skin|stature|tall|tattoo(?:ed|s)?|voice|wing[sd]?|blood|bruise|dust|grime|injur|mud|tear|wound)\b/iu;
     const roleCue = /\b(?:acolyte|adviser|advisor|agent|apprentice|attendant|captain|commander|council|doctor|emperor|empress|guard|heir|investigator|Jedi|king|knight|leader|lieutenant|mage|master|member|mentor|minister|mistress|officer|Padawan|pilot|prince|princess|queen|seneschal|Sith|soldier|student|teacher|veteran)\b/iu;
     const worldviewCue = /\b(?:adherent|belie(?:f|fs|ve[sd]?)|believer|creed|devout|ideology|principle|worldview)\b/iu;
@@ -3328,19 +3613,28 @@ function sourceDerivedCharacterProfile(entity, objectiveWindows, messages, resul
         for (const match of window.matchAll(copula)) {
             for (const detail of characterProfileDetails(match[1])) addObserved(detail);
         }
-        for (const match of window.matchAll(possession)) {
-            for (const detail of characterProfileDetails(match[1])) add('appearance', detail);
-        }
     }
     const variants = [entity?.name, ...(entity?.aliases || [])].map(cleanText).filter(Boolean);
+    const variantPattern = variants.map(escaped).join('|');
     for (const message of messages || []) {
         const source = cleanText(message?.text ?? message?.mes);
-        if (!source || !textMentionsIdentityVariant(source, variants)) continue;
-        const ooc = source.match(/\bOOC\s*:\s*([\s\S]+)$/iu)?.[1] || '';
-        if (!ooc) continue;
-        if (/\b(?:has\s+(?:a\s+)?s(?:tutter|utter)|stutters?|stammers?)\b/iu.test(ooc)) add('personalityQuirks', 'stutters');
-        if (/\b(?:stumbles?|trips?)\s+(?:randomly|often|frequently|habitually)\b|\b(?:randomly|often|frequently|habitually)\s+(?:stumbles?|trips?)\b/iu.test(ooc)) {
-            add('personalityQuirks', 'habitually stumbles');
+        if (!source || !variantPattern || !textMentionsIdentityVariant(source, variants)) continue;
+        const ownedClauses = source.split(/\n+|(?<=[.!?])\s+/u)
+            .map(cleanText)
+            .filter(clause => characterProfileHasExplicitSubject(clause.replace(/^OOC\s*:\s*/iu, ''), entity));
+        for (const clause of ownedClauses) {
+            if (/\b(?:has\s+(?:a\s+)?s(?:tutter|utter)|stutters?|stammers?)\b/iu.test(clause)) add('personalityQuirks', 'stutters');
+            if (/\b(?:stumbles?|trips?)\s+(?:randomly|often|frequently|habitually)\b|\b(?:randomly|often|frequently|habitually)\s+(?:stumbles?|trips?)\b/iu.test(clause)) {
+                add('personalityQuirks', 'habitually stumbles');
+            }
+        }
+        // A named self-introduction inside visibly stuttered dialogue is
+        // direct, owner-bound evidence. Dialogue remains invalid evidence for
+        // unrelated appearance or personality proposals.
+        const selfIntroduction = new RegExp(`\\b(?:I\\s+am|I['’]m|my\\s+name\\s+is)\\s+(?:${variantPattern})\\b`, 'iu');
+        if (selfIntroduction.test(source)
+            && (source.match(/(?:^|[\s“"'‘’])([\p{L}])-\1[\p{L}]+/giu) || []).length >= 2) {
+            add('personalityQuirks', 'stutters');
         }
     }
     for (const role of canonicalRecordProfileRoles(entity, result, world, messages)) add('roleBackground', role);
@@ -3404,8 +3698,10 @@ export function sanitizeStructuredCharacterProfiles(result, world, messages) {
         for (const key of CHARACTER_PROFILE_ORDER) {
             for (const detail of characterProfileDetails(incoming[key] || [])) {
                 const destination = canonicalCharacterProfileField(key, detail);
+                const independentlyDerived = destination && derived[destination]
+                    .some(candidate => normalized(candidate) === normalized(detail));
                 if (!isBareEntityIdentity(detail)
-                    && characterProfileDetailSupported(detail, entity, existing, objectiveWindows)
+                    && (independentlyDerived || characterProfileDetailSupported(detail, entity, existing, objectiveWindows))
                     && destination
                     && durableCharacterProfileDetail(destination, detail, objectiveWindows)) supportedByField[destination].push(detail);
                 else {
@@ -3492,6 +3788,25 @@ function isDisputedEntityPlaceholder(value) {
     return /^Details about .+ remain disputed or attributed/iu.test(cleanText(value));
 }
 
+// A direct, non-epistemic relationship fact is stronger than the generic
+// source-attribution heuristic when the source happens to be spoken by one of
+// the participants. Preserve the relationship and keep any genuinely
+// uncertain clauses in their own attributed records.
+function relationshipHasEstablishedFact(result, relationship) {
+    const endpoints = [cleanText(relationship?.from), cleanText(relationship?.to)].filter(Boolean);
+    if (endpoints.length !== 2) return false;
+    const people = endpoints.map(name => ({ name, aliases: [] }));
+    return (result?.facts || []).some(fact => {
+        const taxonomy = `${cleanText(fact?.predicate)} ${cleanText(fact?.category)}`;
+        const evidence = `${cleanText(fact?.subject)} ${cleanText(fact?.predicate)} ${cleanText(fact?.value)}`;
+        if (!EXPLICIT_RELATIONSHIP_FACT_ROLE.test(evidence)
+            || NON_CANONICAL_RELATIONSHIP_FACT.test(taxonomy)
+            || normalized(fact?.persistence) === 'temporary'
+            || normalized(fact?.subject) !== normalized(endpoints[0]) && normalized(fact?.subject) !== normalized(endpoints[1])) return false;
+        return people.every(person => relationshipEvidenceMentionsPerson(person, evidence, people));
+    });
+}
+
 function relationshipBackedEntityDescription(result, world, entity, messages) {
     const canonical = normalized(entity?.name);
     if (!canonical) return '';
@@ -3567,6 +3882,39 @@ export function recoverRelationshipBackedEntityDescriptions(result, world, messa
     let recovered = 0;
     for (const entity of result?.entities || []) {
         const stored = (world?.entities || []).find(item => normalized(item?.name) === normalized(entity?.name));
+        const relationships = [...(world?.relationships || []), ...(result?.relationships || [])]
+            .filter(relationship => [relationship?.from, relationship?.to]
+                .some(endpoint => normalized(endpoint) === normalized(entity?.name)));
+        const inferredRoles = [...new Set(relationships.flatMap(relationship =>
+            qualifiedRelationshipRoleEvidence(entity?.name, relationship).roles))];
+        const storedProfile = storedEntityProfile(stored);
+        const incomingProfile = storedEntityProfile(entity);
+        const hasStructuredProfile = Object.keys(storedProfile).length > 0 || Object.keys(incomingProfile).length > 0;
+        if (inferredRoles.length && (hasStructuredProfile
+            || isDisputedEntityPlaceholder(stored?.description || entity?.description)
+            || !cleanText(stored?.description || entity?.description))) {
+            const profile = {};
+            for (const key of ['roleBackground', 'appearance', 'personalityQuirks']) {
+                profile[key] = characterProfileDetails([
+                    ...(storedProfile?.[key] || []), ...(incomingProfile?.[key] || []),
+                ]);
+            }
+            for (const role of inferredRoles) if (!profile.roleBackground.some(item => normalized(item) === normalized(role))) {
+                profile.roleBackground.push(role);
+            }
+            entity.profile = normalizeEntityProfile(profile);
+            entity.description = formatEntityProfile(entity.profile);
+            if (entity === stored) {
+                entity.profileValidationVersion = EXTRACTION_VERSION;
+                delete entity._validatedProfileReplace;
+                delete entity._profileValidationVersion;
+            } else {
+                entity._validatedProfileReplace = true;
+                entity._profileValidationVersion = EXTRACTION_VERSION;
+            }
+            recovered++;
+            continue;
+        }
         if (stored && !isDisputedEntityPlaceholder(stored?.description) && cleanText(stored?.description)) continue;
         const description = relationshipBackedEntityDescription(result, world, entity, messages);
         if (!description) continue;
@@ -3584,6 +3932,103 @@ export function recoverRelationshipBackedEntityDescriptions(result, world, messa
         recovered++;
     }
     return recovered;
+}
+
+function processedStoredMessages(world, messages) {
+    if (!Array.isArray(messages) || !messages.length) return [];
+    const processed = new Set(Object.values(world?.sources || {})
+        .flatMap(source => source?.processedMessages || [])
+        .filter(item => Number(item?.version) === EXTRACTION_VERSION)
+        .map(item => Number(item?.index)).filter(Number.isFinite));
+    return processed.size ? messages.filter(message => processed.has(Number(message?.index))) : [];
+}
+
+function splitResolvedStoredCompoundThreads(world) {
+    let split = 0;
+    const now = new Date().toISOString();
+    for (const thread of [...(world?.threads || [])]) {
+        if (normalized(thread?.status) !== 'resolved') continue;
+        const evidence = cleanText(thread?.detail).replace(/^Resolved(?:(?: by| through)[^:]*)?:\s*/iu, '');
+        const parts = partialCompoundThreadResolution(thread, evidence);
+        if (!parts) continue;
+        thread.title = parts.resolvedTitle;
+        thread.detail = `Resolved as to ${parts.resolvedTitle.replace(/^[\p{L}-]+\s+/u, '')}: ${evidence}`;
+        thread.updatedAt = now;
+        const duplicate = (world.threads || []).some(candidate => candidate !== thread
+            && normalized(candidate?.status) === 'open'
+            && normalized(candidate?.title) === normalized(parts.unresolvedTitle));
+        if (!duplicate) world.threads.push({
+            ...thread,
+            id: `thread_${randomUuid()}`,
+            title: parts.unresolvedTitle,
+            detail: `${parts.unresolvedTitle.replace(/^[\p{L}-]+\s+/u, '')} remains unresolved after the other compound claim was established.`,
+            status: 'open',
+            createdAt: now,
+            updatedAt: now,
+        });
+        split++;
+    }
+    return split;
+}
+
+export function reconcileStoredMemoryRecords(world, messages = null) {
+    if (!world || typeof world !== 'object') return 0;
+    const sourceMessages = processedStoredMessages(world, messages);
+    let reconciled = normalizeRelationshipDescriptions(world);
+    reconciled += trimSupersededPhysicalRestraintFacts(world, sourceMessages);
+    reconciled += repairTopicKnowledgeAsHolder(world, world);
+    reconciled += normalizeKnowledgeHolderContamination(world, world);
+
+    const recovered = {
+        entities: world.entities || [], facts: world.facts || [], states: world.states || [], relationships: [],
+        events: world.events || [], threads: world.threads || [], backgrounds: world.backgrounds || [],
+        identityResolutions: [], recordMerges: [],
+    };
+    recoverExplicitFactRelationships(recovered, world, sourceMessages);
+    const now = new Date().toISOString();
+    for (const relationship of recovered.relationships) {
+        const identity = relationshipPairIdentity(relationship, world);
+        if (!identity || (world.relationships || []).some(item => relationshipPairIdentity(item, world) === identity)) continue;
+        const { targetId: _targetId, ...canonical } = relationship;
+        world.relationships ||= [];
+        world.relationships.push({
+            ...canonical,
+            id: `relationship_${randomUuid()}`,
+            createdAt: now,
+            updatedAt: now,
+        });
+        reconciled++;
+    }
+    reconciled += normalizeRelationshipDescriptions(world);
+    reconciled += recoverRelationshipBackedEntityDescriptions(world, world, sourceMessages);
+    reconciled += splitResolvedStoredCompoundThreads(world);
+
+    if (sourceMessages.length && Array.isArray(world?.threads) && world.threads.some(thread => normalized(thread?.status) === 'open')) {
+        const evidence = {
+            entities: world.entities || [], facts: world.facts || [], states: world.states || [],
+            relationships: world.relationships || [], events: world.events || [], backgrounds: world.backgrounds || [],
+            threads: [],
+            sceneCapsule: {
+                beats: [
+                    ...(world.capsules || []).flatMap(capsule => capsule?.beats || []),
+                    ...(world.extractions || []).flatMap(extraction => extraction?.result?.sceneCapsule?.beats || []),
+                ],
+            },
+        };
+        reconcileExplicitlyResolvedThreads(evidence, world, sourceMessages);
+        for (const update of evidence.threads) {
+            const stored = world.threads.find(thread => cleanText(thread?.id) === cleanText(update?.targetId));
+            if (!stored || normalized(stored.status) === normalized(update.status)
+                && normalized(stored.detail) === normalized(update.detail)) continue;
+            stored.title = cleanText(update.title) || stored.title;
+            stored.detail = cleanText(update.detail) || stored.detail;
+            stored.status = cleanText(update.status) || stored.status;
+            stored.updatedAt = now;
+            reconciled++;
+        }
+    }
+    reconciled += reopenInternallyUnresolvedThreads(world);
+    return reconciled;
 }
 
 export function enrichEntityDescriptionsFromEstablishedFacts(result, world) {
@@ -3697,7 +4142,7 @@ export function findSourceAttributionConflicts(result, world, messages) {
         const threshold = auditEvidenceThreshold(reference);
         const storedSupport = (world?.relationships || []).some(item => resolvedAuditPair(result, item) === pairIdentity
             && coverageOverlap(reference, resolvedAuditRecordText(result, item)) >= threshold);
-        if (storedSupport || !sourceOnlySubjective(reference, messages)) continue;
+        if (storedSupport || relationshipHasEstablishedFact(result, relationship) || !sourceOnlySubjective(reference, messages)) continue;
         const label = `${cleanText(relationship?.from)} ↔ ${cleanText(relationship?.to)}`;
         conflicts.push({
             category: 'relationships', index, label,
@@ -4521,7 +4966,8 @@ export function reconciliationTargetIsCompatible(category, incoming, existing, w
             : relationshipPairIdentity(existing, world);
         return Boolean(incomingPair && incomingPair === existingPair);
     }
-    if (category === 'threads') return same(incoming?.title, existing?.title);
+    if (category === 'threads') return reconciliationThreadWasAtomicallySplit(incoming)
+        || same(incoming?.title, existing?.title);
     if (category === 'backgrounds') return same(incoming?.topic, existing?.topic);
     return false;
 }
@@ -4665,6 +5111,7 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const normalizedIdentityEpistemicRiders = normalizeObjectiveIdentityEpistemicRiders(result, world);
     const knowledgeBoundaryGate = discardKnowledgeBlockedIdentityLeaks(result, world, messages);
     const discardedContradictedObjectFacts = discardContradictedObjectStateFacts(result, world, messages);
+    const trimmedSupersededPhysicalRestraintFacts = trimSupersededPhysicalRestraintFacts(result, messages);
     const repairedRelationshipDescriptions = repairRelationshipPairDescriptionContamination(result, world);
     const recoveredIdentityRelationships = recoverIdentityResolutionRelationships(result, world);
     const recoveredRelationshipEntityDescriptions = recoverRelationshipBackedEntityDescriptions(result, world, messages);
@@ -4682,13 +5129,16 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     // earlier validation pass just rejected; validate recovered facts too.
     discardedMalformedDesignations += discardMalformedEstablishedDesignationFacts(result);
     const preservedResolvedThreads = preserveResolvedThreadHistory(result, world);
+    const splitCompoundThreads = splitResolvedCompoundThreads(result, world);
     const modelResolvedThreads = new Set((result?.threads || []).filter(thread => normalized(thread?.status) === 'resolved'));
     const resolvedCompletedThreads = resolveCompletedIncomingThreads(result);
     const reopenedUnsupportedThreads = reopenUnsupportedResolvedThreads(result, world, messages, modelResolvedThreads);
     const reconciledIdentityThreads = reconcileResolvedIdentityThreads(result, world, messages);
     const reconciledThreads = reconcileExplicitlyResolvedThreads(result, world, messages);
+    const reopenedInternallyUnresolvedThreads = reopenInternallyUnresolvedThreads(result);
     const normalizedRelationshipDescriptions = normalizeRelationshipDescriptions(result);
     const stateDurabilityGate = sanitizeStateDurability(result);
+    const normalizedCompositeStateSubjects = normalizeCompositeStateSubjects(result, world);
     const repairedStateOwners = repairStableStateOwners(result, world);
     const reconciledStateTransitions = reconcileStatePreviousValues(result, world);
     const reconciledSceneParticipants = reconcileSceneParticipants(result, world, messages);
@@ -4779,5 +5229,5 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
         ...localWarnings,
     ])].slice(0, 8);
     if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
-    return { ignored, recovered, recoveredAliases, recoveredBoundaries, canonicalizedEntityVariants, normalizedKnowledgePredicates: normalizedKnowledgePredicates + normalizedResolvedKnowledgePredicates, normalizedRelationalKnowledge: normalizedRelationalKnowledge + normalizedResolvedRelationalKnowledge, repairedKnowledgeMembershipOverclaims, repairedSelfIdentificationKnowledge: repairedSelfIdentificationKnowledge + repairedRecoveredSelfIdentificationKnowledge, repairedTopicKnowledgeHolders, trimmedCrossHolderAttributedClauses, normalizedKnowledgeHolders, recoveredKnowledge, recoveredIdentities, recoveredEstablishedIdentities, supersededIdentityBoundaries, recoveredOocIdentityBoundaries, discardedKnowledgeBoundaryLeaks: knowledgeBoundaryGate.discarded, normalizedIdentityEpistemicRiders, normalizedIdentityReferences, discardedIdentityResolutions, discardedMalformedDesignations, discardedMisownedQuestionKnowledge, discardedMismatchedKnowledgeTopics, canonicalizedIdentityReferences, discardedContradictedObjectFacts, repairedRelationshipDescriptions, recoveredRelationshipEntityDescriptions, recoveredIdentityRelationships, recoveredFactRelationships, reconciledHistoricalRelationships, recoveredCommitments, recoveredIdentityThreads, recoveredCoverage, preservedResolvedThreads, reopenedUnsupportedThreads, reconciledThreads: Math.max(0, resolvedCompletedThreads - reopenedUnsupportedThreads) + reconciledIdentityThreads + reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, discardedNonThirdPersonProseFields: thirdPersonGate.trimmed, discardedNonThirdPersonProseRecords: thirdPersonGate.discarded, discardedNonDurableStates: stateDurabilityGate.discarded, demotedSceneStates: stateDurabilityGate.demoted, repairedStateOwners, reconciledStateTransitions, reconciledSceneParticipants, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, discardedCharacterProfileDetails: characterProfileGrounding.discarded, sourceAttributionConflicts, relationshipEndpointConflicts, localWarnings, diagnosticWarnings, warnings };
+    return { ignored, recovered, recoveredAliases, recoveredBoundaries, canonicalizedEntityVariants, normalizedKnowledgePredicates: normalizedKnowledgePredicates + normalizedResolvedKnowledgePredicates, normalizedRelationalKnowledge: normalizedRelationalKnowledge + normalizedResolvedRelationalKnowledge, repairedKnowledgeMembershipOverclaims, repairedSelfIdentificationKnowledge: repairedSelfIdentificationKnowledge + repairedRecoveredSelfIdentificationKnowledge, repairedTopicKnowledgeHolders, trimmedCrossHolderAttributedClauses, normalizedKnowledgeHolders, recoveredKnowledge, recoveredIdentities, recoveredEstablishedIdentities, supersededIdentityBoundaries, recoveredOocIdentityBoundaries, discardedKnowledgeBoundaryLeaks: knowledgeBoundaryGate.discarded, normalizedIdentityEpistemicRiders, normalizedIdentityReferences, discardedIdentityResolutions, discardedMalformedDesignations, discardedMisownedQuestionKnowledge, discardedMismatchedKnowledgeTopics, canonicalizedIdentityReferences, discardedContradictedObjectFacts, trimmedSupersededPhysicalRestraintFacts, repairedRelationshipDescriptions, recoveredRelationshipEntityDescriptions, recoveredIdentityRelationships, recoveredFactRelationships, reconciledHistoricalRelationships, recoveredCommitments, recoveredIdentityThreads, recoveredCoverage, preservedResolvedThreads, splitCompoundThreads, reopenedUnsupportedThreads: reopenedUnsupportedThreads + reopenedInternallyUnresolvedThreads, reconciledThreads: Math.max(0, resolvedCompletedThreads - reopenedUnsupportedThreads - reopenedInternallyUnresolvedThreads) + reconciledIdentityThreads + reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, discardedNonThirdPersonProseFields: thirdPersonGate.trimmed, discardedNonThirdPersonProseRecords: thirdPersonGate.discarded, discardedNonDurableStates: stateDurabilityGate.discarded, demotedSceneStates: stateDurabilityGate.demoted, normalizedCompositeStateSubjects, repairedStateOwners, reconciledStateTransitions, reconciledSceneParticipants, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, discardedCharacterProfileDetails: characterProfileGrounding.discarded, sourceAttributionConflicts, relationshipEndpointConflicts, localWarnings, diagnosticWarnings, warnings };
 }

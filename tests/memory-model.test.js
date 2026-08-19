@@ -74,6 +74,32 @@ test('merges durable records and updates matching facts instead of duplicating t
     assert.deepEqual(target.sources[meta.chatKey].processedMessages, [{ index: 0, fingerprint: 'first', version: EXTRACTION_VERSION }]);
 });
 
+test('a sparse relationship update cannot erase the established role description', () => {
+    const target = world();
+    target.entities.push(
+        { id: 'caelen', name: 'Caelen Veyr', type: 'person', aliases: [] },
+        { id: 'lucas', name: 'Lucas Alcazar', type: 'person', aliases: [] },
+    );
+    target.relationships.push({
+        id: 'relationship_training', from: 'Caelen Veyr', to: 'Lucas Alcazar',
+        kind: 'master and apprentice', status: 'ended',
+        dynamic: 'Caelen Veyr was Lucas Alcazar’s Jedi Master, and Lucas Alcazar was his apprentice.',
+        importance: 4, sources: [],
+    });
+
+    mergeExtraction(target, extraction({
+        scene: null, sceneCapsule: null, entities: [], facts: [], states: [], events: [], threads: [],
+        relationships: [{
+            targetId: 'relationship_training', from: 'Caelen Veyr', to: 'Lucas Alcazar',
+            kind: 'master and apprentice', status: 'ended',
+            dynamic: 'Lucas Alcazar killed Caelen Veyr and retained his hilt.', importance: 4,
+        }],
+    }), { chatKey: 'chat', from: 8, to: 15, allowStateUpdates: true });
+
+    assert.match(target.relationships[0].dynamic, /Caelen Veyr was Lucas Alcazar’s Jedi Master/);
+    assert.match(target.relationships[0].dynamic, /Lucas Alcazar killed Caelen Veyr/);
+});
+
 test('a validated character profile replacement cannot re-merge rejected stored details', () => {
     const target = world();
     target.entities.push({
@@ -806,6 +832,142 @@ test('visible semantic duplicates compact by category while distinct chronology 
     assert.equal(target.events.length, 2);
     assert.ok(target.events.some(item => item.id === 'event_new'));
     assert.ok(target.events.some(item => item.id === 'event_later'));
+});
+
+test('semantic entity compaction merges possessive and closed-compound names and rewrites references', () => {
+    const target = world();
+    target.entities.push(
+        {
+            id: 'base_owned', name: 'Mara’s hidden moon base', type: 'place', aliases: ['private moon base'],
+            description: 'A concealed mobile moon base controlled by Mara with isolated landing procedures.', importance: 4, sources: [],
+        },
+        {
+            id: 'base_short', name: 'Hidden Moonbase', type: 'mobile secret fortress', aliases: [],
+            description: 'A mobile moonbase concealed from outside detection with a private landing bay.', importance: 4, sources: [],
+        },
+    );
+    target.facts.push({
+        id: 'fact_base', subject: 'Hidden Moonbase', predicate: 'security', value: 'Hidden Moonbase avoids outside detection.',
+        category: 'security', persistence: 'persistent', sources: [],
+    });
+    target.events.push({
+        id: 'event_base', title: 'Arrival', summary: 'Mara arrives at Hidden Moonbase.', participants: ['Mara', 'Hidden Moonbase'], sources: [],
+    });
+
+    assert.equal(compactDuplicateMemoryRecords(target), 1);
+    assert.equal(target.entities.length, 1);
+    assert.equal(target.facts[0].subject, target.entities[0].name);
+    assert.equal(target.events[0].participants[1], target.entities[0].name);
+});
+
+test('semantic entity compaction preserves unrelated entities between duplicate candidates', () => {
+    const target = world();
+    target.entities.push(
+        {
+            id: 'owned_house', name: 'Mara’s hidden safe house', type: 'place', aliases: [],
+            description: 'A concealed safe house with a private landing bay and sealed records.', importance: 4,
+        },
+        {
+            id: 'unrelated', name: 'Archive Tower', type: 'place', aliases: [],
+            description: 'A public archive tower in the capital.', importance: 2,
+        },
+        {
+            id: 'closed_house', name: 'Hidden Safehouse', type: 'secure place', aliases: [],
+            description: 'A concealed safehouse with a private landing bay and sealed records.', importance: 4,
+        },
+    );
+
+    assert.equal(compactDuplicateMemoryRecords(target), 1);
+    assert.equal(target.entities.length, 2);
+    assert.ok(target.entities.some(item => item.name === 'Archive Tower'));
+    assert.ok(target.entities.some(item => item.name === 'Hidden Safehouse'));
+});
+
+test('stored composite state subjects compact into independent entity-owned states', () => {
+    const target = world();
+    target.entities.push(
+        { id: 'mara', name: 'Mara', type: 'person', aliases: [] },
+        { id: 'sol', name: 'Sol', type: 'person', aliases: [] },
+    );
+    target.states.push({
+        id: 'state_location', subject: 'Mara and Sol', attribute: 'location', value: 'Inside the archive vault.',
+        previous: 'Outside the archive vault.', scope: 'scene', operation: 'set', sources: [],
+    });
+
+    assert.equal(compactDuplicateMemoryRecords(target), 1);
+    assert.deepEqual(target.states.map(item => item.subject), ['Mara', 'Sol']);
+    assert.equal(new Set(target.states.map(item => item.id)).size, 2);
+});
+
+test('stored reconciliation repairs established records using processed messages only', () => {
+    const target = world();
+    target.entities.push(
+        { id: 'ari', name: 'Ari Lane', type: 'person', aliases: [], description: '', importance: 4 },
+        { id: 'vale', name: 'Doctor Vale', type: 'person', aliases: [], description: '', importance: 4 },
+        { id: 'nox', name: 'Courier Nox', type: 'person', aliases: [], description: '', importance: 3 },
+        { id: 'toska', name: 'Toska', type: 'person', aliases: [], description: '', importance: 4 },
+        { id: 'lucas', name: 'Lucas Alcazar', type: 'person', aliases: [], description: '', importance: 4 },
+    );
+    target.facts.push({
+        id: 'fact_apprentice', subject: 'Ari Lane', predicate: 'former apprentice of Doctor Vale',
+        value: 'Ari Lane was Doctor Vale’s former apprentice before Courier Nox delivered her archived records.',
+        category: 'biographical history', persistence: 'persistent', importance: 4, sources: [],
+    }, {
+        id: 'fact_hiding', subject: 'Ari Lane', predicate: 'experience of life in hiding',
+        value: 'Ari Lane describes years of scarce food, cramped rooms, repeated relocation, and sensing danger while living in hiding.',
+        category: 'personal history', persistence: 'persistent', importance: 4, sources: [],
+    });
+    target.facts.push({
+        id: 'fact_misowned', subject: 'Lucas Alcazar', predicate: 'belief about Toska — knowledge of the hidden base',
+        value: 'Toska now knows that Lucas controls the hidden base.', category: 'character belief', persistence: 'persistent', importance: 3, sources: [],
+    });
+    target.capsules.push({
+        beats: ['Ari Lane describes years of scarce food, cramped rooms, repeated relocation, and sensing danger while living in hiding.'],
+    });
+    target.threads.push(
+        {
+            id: 'thread_hiding', title: 'Answer Ari Lane’s life in hiding',
+            detail: 'Ari Lane has not yet described how she lived in hiding.', status: 'open',
+            participants: ['Ari Lane', 'Doctor Vale'], importance: 3,
+        },
+        {
+            id: 'thread_destination', title: 'Answer Ari Lane’s current destination',
+            detail: 'Ari Lane’s current destination remains unknown.', status: 'open',
+            participants: ['Ari Lane'], importance: 3,
+        },
+    );
+    target.sources.roleplay = {
+        processedMessages: [{ index: 4, fingerprint: 'processed', version: EXTRACTION_VERSION }],
+    };
+    const messages = [
+        {
+            index: 4, name: 'Narrator',
+            text: 'Ari Lane was Doctor Vale’s former apprentice. Ari Lane describes years of scarce food, cramped rooms, repeated relocation, and sensing danger while living in hiding.',
+        },
+        {
+            index: 5, name: 'Narrator',
+            text: 'Ari Lane states that her current destination is the North Tower.',
+        },
+    ];
+
+    assert.ok(compactDuplicateMemoryRecords(target, messages) >= 2);
+    assert.ok(target.relationships.some(item =>
+        [item.from, item.to].includes('Ari Lane') && [item.from, item.to].includes('Doctor Vale')));
+    assert.equal(target.facts.find(item => item.id === 'fact_misowned').subject, 'Toska');
+    assert.equal(target.facts.find(item => item.id === 'fact_misowned').category, 'knowledge');
+    assert.equal(target.threads.find(item => item.id === 'thread_hiding').status, 'resolved');
+    assert.equal(target.threads.find(item => item.id === 'thread_destination').status, 'open');
+});
+
+test('stored relationship compaction removes a repeated command lead with an article', () => {
+    const target = world();
+    target.relationships.push({
+        id: 'relationship_pilot', from: 'Doctor Vale', to: 'Archive Pilot', kind: 'commander and retainer', status: 'active',
+        dynamic: 'Doctor Vale commands the Archive Pilot, who maintains the approach; Doctor Vale commands the Archive Pilot, who opens the hatch.',
+    });
+
+    compactDuplicateMemoryRecords(target);
+    assert.equal(target.relationships[0].dynamic, 'Doctor Vale commands the Archive Pilot, who maintains the approach; Archive Pilot opens the hatch.');
 });
 
 test('composite identity evidence upgrades a placeholder relationship in place', () => {

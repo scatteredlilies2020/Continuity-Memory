@@ -1,6 +1,6 @@
 import { EXTRACTION_VERSION } from './coverage.js';
 import { isSuppressedByCorrection } from './memory-correction.js';
-import { addressFactAddressee, addressFactIdentity, enrichEntityDescriptionsFromEstablishedFacts, entityIsPersonLike, entityTypesAreCompatible, isAddressFact, mergeAddressValues, normalizeKnowledgePredicateTaxonomy, normalizeRelationalKnowledgeTopics, reconcileGenericAddressDuplicates, reconciliationMergeIsCompatible, reconciliationTargetIsCompatible, reconciliationTargetWasRejected, recoverRelationshipBackedEntityDescriptions, relationshipPairIdentity, removeInvalidAddressFacts } from './reconciliation-policy.js';
+import { addressFactAddressee, addressFactIdentity, enrichEntityDescriptionsFromEstablishedFacts, entityIsPersonLike, entityTypesAreCompatible, isAddressFact, mergeAddressValues, normalizeKnowledgePredicateTaxonomy, normalizeRelationalKnowledgeTopics, reconcileGenericAddressDuplicates, reconcileStoredMemoryRecords, reconciliationMergeIsCompatible, reconciliationTargetIsCompatible, reconciliationTargetWasRejected, reconciliationThreadWasAtomicallySplit, recoverRelationshipBackedEntityDescriptions, relationshipPairIdentity, removeInvalidAddressFacts } from './reconciliation-policy.js';
 import { canonicalMemorySubject, canonicalStateAttribute, stateIdentity, stateScope } from './state-lifecycle.js';
 import { buildL1TemporalAnchor, buildRelativeTemporalAnchor } from './temporal-anchors.js';
 import { randomUuid } from './uuid.js';
@@ -19,6 +19,22 @@ function clipped(value, max) {
 
 function key(value) {
     return text(value).toLocaleLowerCase();
+}
+
+const RELATIONSHIP_ROLE_CUE = /\b(?:apprentice|attendant|captor|captive|child|command(?:s|ed|ing)?|commander|employee|employer|enemy|father|friend|guardian|husband|master|mentor(?:s|ed|ing)?|mistress|mother|officer|owner|Padawan|parent|partner|prisoner|prot[eé]g[eé]|retainer|rival|servant|sibling|sister|soldier|son|spouse|student|subordinate|teach(?:es|ing)?|teacher|taught|train(?:s|ed|ing)?|wife|ward)\b/iu;
+
+function stableRelationshipDynamic(existing, incoming) {
+    const next = text(incoming?.dynamic);
+    const prior = text(existing?.dynamic);
+    if (!prior || !next || RELATIONSHIP_ROLE_CUE.test(next)) return next || prior;
+    const from = text(existing?.from || incoming?.from);
+    const to = text(existing?.to || incoming?.to);
+    const stableRoleClause = prior.split(/(?<=[.!?;])\s+/u).map(text).find(clause =>
+        RELATIONSHIP_ROLE_CUE.test(clause)
+        && (!from || new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(from)}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(clause))
+        && (!to || new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(to)}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(clause)));
+    if (!stableRoleClause || key(next).includes(key(stableRoleClause))) return next;
+    return text(`${stableRoleClause.replace(/[;,.\s]+$/gu, '')}; ${next}`).slice(0, 1600);
 }
 
 function knowledgeBoundaryContradictedBy(negativeValue, positiveValue, predicate = '') {
@@ -294,6 +310,143 @@ function removeCrossEntityCanonicalAliases(entities) {
     return removed;
 }
 
+const ENTITY_MERGE_STOP_WORDS = new Set([
+    'about', 'and', 'controlled', 'controls', 'from', 'into', 'its', 'mobile',
+    'private', 'secret', 'the', 'this', 'with',
+]);
+
+function entityMergeTerms(value) {
+    return new Set((key(value)
+        .replace(/[’']/gu, '')
+        .match(/[\p{L}\p{N}]+/gu) || [])
+        .filter(term => term.length >= 3 && !ENTITY_MERGE_STOP_WORDS.has(term)));
+}
+
+function entitySemanticOverlap(left, right) {
+    const leftTerms = entityMergeTerms(left);
+    const rightTerms = entityMergeTerms(right);
+    const smaller = Math.min(leftTerms.size, rightTerms.size);
+    if (!smaller) return { shared: 0, containment: 0 };
+    const shared = [...leftTerms].filter(term => rightTerms.has(term)).length;
+    return { shared, containment: shared / smaller };
+}
+
+function entityNameIdentityKey(value) {
+    let source = key(value).replace(/[’‘]/gu, "'");
+    const possessed = source.match(/^[\p{L}\p{N} ._-]{1,80}'s\s+(.+)$/u);
+    if (possessed) source = possessed[1];
+    const terms = source.match(/[\p{L}\p{N}]+/gu) || [];
+    const joined = terms.join('');
+    return terms.length >= 2 || joined.length >= 8 ? joined : '';
+}
+
+function semanticallyDuplicateEntity(left, right) {
+    if (!left || !right || left.correctionId || right.correctionId
+        || !entityTypesAreCompatible(left.type, right.type)) return false;
+    const name = entitySemanticOverlap(left.name, right.name);
+    const description = entitySemanticOverlap(left.description, right.description);
+    const leftInRight = entitySemanticOverlap(left.name, right.description);
+    const rightInLeft = entitySemanticOverlap(right.name, left.description);
+    const leftIdentity = entityNameIdentityKey(left.name);
+    const rightIdentity = entityNameIdentityKey(right.name);
+    const sameDescriptiveIdentity = leftIdentity && leftIdentity === rightIdentity;
+    return (sameDescriptiveIdentity && description.shared >= 2)
+        || (name.shared >= 2 && name.containment >= 0.66 && description.shared >= 3 && description.containment >= 0.4)
+        || (description.shared >= 6 && description.containment >= 0.65 && (leftInRight.shared >= 1 || rightInLeft.shared >= 1));
+}
+
+function preferredEntityCanonical(left, right) {
+    const score = entity => (/[’']s\s+/u.test(text(entity?.name)) ? 0 : 2)
+        + (isAttributionFallbackDescription(entity?.description) ? 0 : 1)
+        + Math.min(3, entityMergeTerms(entity?.description).size / 10);
+    return score(right) > score(left) ? right : left;
+}
+
+function replaceEntityReferences(world, from, to) {
+    const replace = value => key(value) === key(from) ? text(to) : value;
+    for (const fact of world?.facts || []) fact.subject = replace(fact.subject);
+    for (const state of world?.states || []) state.subject = replace(state.subject);
+    for (const relationship of world?.relationships || []) {
+        relationship.from = replace(relationship.from);
+        relationship.to = replace(relationship.to);
+    }
+    for (const collection of ['events', 'threads', 'backgrounds', 'capsules', 'arcs', 'eras']) {
+        for (const item of world?.[collection] || []) if (Array.isArray(item.participants)) item.participants = item.participants.map(replace);
+    }
+    if (world?.scene) {
+        world.scene.participants = (world.scene.participants || []).map(replace);
+        world.scene.subject = replace(world.scene.subject);
+    }
+    for (const extraction of world?.extractions || []) {
+        const result = extraction?.result;
+        if (!result) continue;
+        for (const fact of result.facts || []) fact.subject = replace(fact.subject);
+        for (const state of result.states || []) state.subject = replace(state.subject);
+        for (const relationship of result.relationships || []) {
+            relationship.from = replace(relationship.from);
+            relationship.to = replace(relationship.to);
+        }
+        for (const collection of ['events', 'threads', 'backgrounds', 'capsules']) {
+            for (const item of result[collection] || []) if (Array.isArray(item.participants)) item.participants = item.participants.map(replace);
+        }
+    }
+}
+
+function compactDuplicateEntities(world) {
+    if (!Array.isArray(world?.entities)) return 0;
+    let removed = 0;
+    let left = 0;
+    while (left < world.entities.length) {
+        const canonical = world.entities[left];
+        let merged = false;
+        for (let right = left + 1; right < world.entities.length; right++) {
+            const duplicate = world.entities[right];
+            if (!semanticallyDuplicateEntity(canonical, duplicate)) continue;
+            const preferred = preferredEntityCanonical(canonical, duplicate);
+            const other = preferred === canonical ? duplicate : canonical;
+            preferred.aliases = safeEntityAliases(preferred.name, preferred.type, [
+                ...(preferred.aliases || []), other.name, ...(other.aliases || []),
+            ]);
+            preferred.description = mergeStableEntityDescription(preferred.description, other.description, preferred.type);
+            preferred.importance = Math.max(Number(preferred.importance || 0), Number(other.importance || 0));
+            preferred.sources = mergedSources(preferred.sources || [], other.sources || []);
+            replaceEntityReferences(world, other.name, preferred.name);
+            world.entities.splice(world.entities.indexOf(other), 1);
+            removed++;
+            merged = true;
+            break;
+        }
+        if (!merged) left++;
+    }
+    return removed;
+}
+
+function splitCompositeStateSubjects(world) {
+    if (!Array.isArray(world?.states) || !Array.isArray(world?.entities)) return 0;
+    const normalizedStates = [];
+    let split = 0;
+    for (const state of world.states) {
+        const parts = text(state?.subject).split(/\s+and\s+/iu).map(text).filter(Boolean);
+        const owners = parts.map(part => {
+            const canonical = canonicalMemorySubject(world, part);
+            return world.entities.find(entity => key(entity?.name) === key(canonical));
+        }).filter(Boolean);
+        const distinctOwners = [...new Map(owners.map(owner => [key(owner.name), owner])).values()];
+        if (parts.length < 2 || distinctOwners.length !== parts.length) {
+            normalizedStates.push(state);
+            continue;
+        }
+        for (const [ownerIndex, owner] of distinctOwners.entries()) normalizedStates.push({
+            ...state,
+            id: ownerIndex === 0 ? state.id : `state_${randomUuid()}`,
+            subject: owner.name,
+        });
+        split += distinctOwners.length - 1;
+    }
+    world.states = normalizedStates;
+    return split;
+}
+
 function exactTextKey(value) {
     return text(value).toLocaleLowerCase().replace(/[.!?]+$/u, '');
 }
@@ -511,8 +664,11 @@ function mergeSemanticListRecord(left, right) {
     return merged;
 }
 
-export function compactDuplicateMemoryRecords(world) {
-    let compacted = compactRepeatedEntityDescriptions(world);
+export function compactDuplicateMemoryRecords(world, messages = null) {
+    let compacted = compactDuplicateEntities(world);
+    compacted += splitCompositeStateSubjects(world);
+    compacted += compactRepeatedEntityDescriptions(world);
+    compacted += reconcileStoredMemoryRecords(world, messages);
     reconcileCanonicalKnowledgeFacts(world);
     const exactFacts = deduplicateCanonicalRecords(world?.facts, item => item?.correctionId ? ''
         : addressFactIdentity(item, world) || `${key(canonicalMemorySubject(world, item?.subject))}|${key(item?.predicate)}|${key(item?.category)}`);
@@ -1152,7 +1308,7 @@ export function mergeExtraction(world, result, meta) {
         to: existing?.to || canonicalMemorySubject(world, item.to),
         kind: existing?.kind || text(item.kind) || 'relationship',
         status: text(item.status),
-        dynamic: text(item.dynamic),
+        dynamic: stableRelationshipDynamic(existing, item),
         importance: clampImportance(item.importance),
         temporalAnchorId: l1Temporal.anchorId,
     }), preserveHistoricalRecord, result);
@@ -1184,7 +1340,7 @@ export function mergeExtraction(world, result, meta) {
     }
 
     mergeArray(world, 'threads', world.threads, result.threads, item => key(item.title), meta, 'thread', (item, existing) => ({
-        title: existing?.title || text(item.title),
+        title: reconciliationThreadWasAtomicallySplit(item) ? text(item.title) : existing?.title || text(item.title),
         detail: text(item.detail),
         status: ['open', 'resolved', 'abandoned'].includes(item.status) ? item.status : 'open',
         participants: canonicalList(world, item.participants),

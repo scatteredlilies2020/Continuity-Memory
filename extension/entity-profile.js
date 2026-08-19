@@ -16,6 +16,9 @@ const DURABLE_WORLDVIEW = /\b(?:adherent|belie(?:f|fs|ve[sd]?)|believer|conserva
 const DURABLE_ROLE = /\b(?:acolyte|adviser|advisor|agent|apprentice|attendant|background|born|captain|child|commander|council|daughter|doctor|emperor|empress|father|former|formerly|grew up|guard|heir|identity|investigator|Jedi|king|knight|leader|lieutenant|master|member|mentor|minister|mistress|mother|officer|orphan|Padawan|pilot|prince|princess|queen|refugee|role|seneschal|served|service|sister|Sith|soldier|son|student|teacher|title|trained|veteran)\b/iu;
 const TRANSIENT_ROLE = /\b(?:attending|bound for|captive|captured|confronting|currently|detained|escorting|grieving|heading to|imprisoned|now|restrained|transporting|under guard|waiting)\b/iu;
 const NON_BIOGRAPHICAL_ROLE = /\b(?:absence|absent|best course of action|belie(?:f|fs|ve[sd]?)|believer|conservative|could|hide|intend(?:s|ed|ing)?|liberal|missing|pacifist|plan(?:s|ned|ning)?|reformist|should|traditionalist|trying to|unknown|until the time|would|zealot)\b/iu;
+// Profiles store atomic identity claims. Subordinate story clauses belong in
+// facts, events, or relationships, not inside a person's role label.
+const NON_ATOMIC_ROLE_CLAUSE = /\b(?:although|as far as|because|even though|if|once|since|though|unless|until|when(?:ever)?|whereas|while)\b/iu;
 const PROFILE_CONTROL_SYNTAX = /[|=]|```|<\/?(?:stat|background_updates)\b|\b(?:Active Threads|Characters|Current Beat|EGO|Emotions|ID|Inventory(?:\s*&\s*Objects)?|Location|Physical State|Positions|Psyche|SUPEREGO|Time\s*&\s*Weather)\s*:/iu;
 const CURRENT_ACTION_AS_TRAIT = /^(?:awaiting|complying|defending|escorting|fighting|fleeing|grieving|guarding|heading|investigating|resisting|scrutinizing|studying|surviving|transporting|watching|waiting)\b/iu;
 
@@ -112,6 +115,7 @@ export function characterProfileDetailIsAdmissible(field, detail) {
     if (field === 'appearance') return !TEMPORARY_APPEARANCE.test(value);
     if (field === 'roleBackground') {
         return !TRANSIENT_ROLE.test(value) && !NON_BIOGRAPHICAL_ROLE.test(value)
+            && !NON_ATOMIC_ROLE_CLAUSE.test(value)
             && !TEMPORARY_PERSONALITY.test(value) && (!DURABLE_APPEARANCE.test(value) || DURABLE_ROLE.test(value));
     }
     if (field !== 'personalityQuirks') return false;

@@ -1725,7 +1725,7 @@ test('major event consequences require a durable typed record', () => {
     assert.ok(!covered.warnings.some(item => /Typed coverage gap.*Northern bridge collapse/u.test(item)));
 });
 
-test('the typed audit flags epistemic leakage, scene conflicts, and contradictory thread status', () => {
+test('the typed audit flags epistemic leakage and scene conflicts while repairing contradictory thread status', () => {
     const result = extraction();
     result.scene = { location: 'Harbor', participants: ['Alice'] };
     result.facts.push({
@@ -1750,7 +1750,9 @@ test('the typed audit flags epistemic leakage, scene conflicts, and contradictor
 
     assert.ok(validation.warnings.some(item => /Epistemic conflict/u.test(item)));
     assert.ok(validation.warnings.some(item => /Scene\/state conflict/u.test(item)));
-    assert.ok(validation.warnings.some(item => /Thread lifecycle conflict/u.test(item)));
+    assert.equal(validation.reopenedUnsupportedThreads, 1);
+    assert.equal(result.threads[0].status, 'open');
+    assert.ok(!validation.warnings.some(item => /Thread lifecycle conflict/u.test(item)));
 });
 
 test('a learned claim remains an open thread when its truth still lacks confirmation', () => {
@@ -2246,22 +2248,27 @@ test('a neighboring character name cannot survive as another person role', () =>
 
 test('source-derived profile recovery does not depend on the model proposing Nima details', () => {
     const result = extraction();
-    result.entities.push({
-        name: 'Nima', type: 'person', aliases: [], importance: 4, description: '',
-        characterProfile: { roleBackground: ['young acolyte', 'Toska’s personal attendant'], appearance: [], personalityQuirks: [] },
-    });
+    result.entities.push(
+        {
+            name: 'Nima', type: 'person', aliases: [], importance: 4, description: '',
+            characterProfile: { roleBackground: ['young acolyte', 'Toska’s personal attendant'], appearance: [], personalityQuirks: [] },
+        },
+        { name: 'Toska', type: 'person', aliases: [], importance: 4, description: '' },
+        { name: 'Seneschal', type: 'person', aliases: [], importance: 3, description: '' },
+    );
     sanitizeReconciliationMetadata(result, {
         entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
     }, [
         { name: 'Lucas', isUser: true, text: 'OOC: A young acolyte arrives as Toska’s personal attendant. She has a stutter. Nima follows and stumbles randomly.' },
-        { name: 'Narrator', isUser: false, text: 'A young acolyte rounds the arch. She is round-cheeked, with black hair cropped unevenly at her jaw. “I’m Nima,” she says.' },
+        { name: 'Narrator', isUser: false, text: 'A young acolyte rounds the arch and nearly collides with the Seneschal. She is round-cheeked, with black hair cropped unevenly at her jaw. “L-Lady Toska! I’m Nima. I’m to be your p-personal attendant,” she says.' },
     ]);
 
     assert.deepEqual(result.entities[0].profile, {
         roleBackground: ['young acolyte'],
         appearance: ['round-cheeked', 'with black hair cropped unevenly at her jaw'],
-        personalityQuirks: ['stutters', 'habitually stumbles'],
+        personalityQuirks: ['habitually stumbles', 'stutters'],
     });
+    assert.deepEqual(result.entities.find(item => item.name === 'Toska').profile, undefined);
 });
 
 test('accepted facts and relationship descriptions deterministically restore Caelen roles', () => {
@@ -2284,6 +2291,9 @@ test('accepted facts and relationship descriptions deterministically restore Cae
 
     assert.deepEqual(result.entities.find(item => item.name === 'Caelen Veyr').profile, {
         roleBackground: ['Jedi Master', 'former Jedi Council member'],
+    });
+    assert.deepEqual(result.entities.find(item => item.name === 'Toska').profile, {
+        roleBackground: ['Caelen Veyr’s Jedi Padawan'],
     });
 });
 
@@ -4339,6 +4349,28 @@ test('implicit knowledge wording restores the predicate topic as the actual hold
     assert.equal(result.facts[0].category, 'knowledge');
 });
 
+test('explicit named knower prevents later attribution verbs from stealing knowledge ownership', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Lucas Alcazar', type: 'person', aliases: ['Lucas'] },
+        { name: 'Toska', type: 'person', aliases: [] },
+        { name: 'Hidden Moonbase', type: 'place', aliases: [] },
+    );
+    result.facts.push({
+        subject: 'Lucas Alcazar', predicate: 'belief about Toska — knowledge of Hidden Moonbase',
+        value: 'Toska now knows that Lucas controls or claims a mobile moonbase.',
+        category: 'character belief', importance: 4, persistence: 'persistent',
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    });
+
+    assert.equal(validation.repairedTopicKnowledgeHolders, 1);
+    assert.equal(result.facts.at(-1).subject, 'Toska');
+    assert.equal(result.facts.at(-1).predicate, 'knowledge of Hidden Moonbase');
+    assert.equal(result.facts.at(-1).category, 'knowledge');
+});
+
 test('a later sentence about another holder is trimmed from an attributed fact', () => {
     const result = extraction();
     result.entities.push(
@@ -4357,4 +4389,320 @@ test('a later sentence about another holder is trimmed from an attributed fact',
 
     assert.equal(validation.trimmedCrossHolderAttributedClauses, 1);
     assert.equal(result.facts[0].value, 'Lucas claims Caelen held a Council seat.');
+});
+
+test('knowledge about another person cannot become the holder profile role', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Lucas Alcazar', type: 'person', aliases: ['Lucas'], description: '', importance: 5, characterProfile: {} },
+        { name: 'Caelen Veyr', type: 'person', aliases: ['Caelen'], description: '', importance: 5, characterProfile: {} },
+    );
+    result.facts.push({
+        targetId: '', subject: 'Lucas Alcazar', predicate: 'knowledge of Caelen Veyr',
+        value: 'Lucas knows Caelen held a Council seat.', category: 'knowledge', importance: 5, persistence: 'persistent',
+    });
+    result.relationships.push({
+        targetId: '', from: 'Lucas Alcazar', to: 'Caelen Veyr', kind: 'former master and apprentice', status: 'ended',
+        dynamic: 'Lucas Alcazar was Caelen Veyr’s former apprentice.', importance: 4,
+    });
+
+    sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Narrator', text: 'Lucas knows Caelen held a Council seat. Lucas Alcazar was Caelen Veyr’s former apprentice.' }]);
+
+    assert.deepEqual(result.entities.find(item => item.name === 'Lucas Alcazar').profile, {
+        roleBackground: ['Caelen Veyr’s former apprentice'],
+    });
+    assert.doesNotMatch(result.entities.find(item => item.name === 'Lucas Alcazar').description, /Council member/iu);
+});
+
+test('profile roles remain atomic instead of swallowing subordinate narrative clauses', () => {
+    const result = extraction();
+    result.entities.push({
+        name: 'Toska', type: 'person', aliases: [], description: '', importance: 5,
+        characterProfile: {
+            roleBackground: [
+                'Caelen Veyr’s Jedi Padawan until Lucas killed him',
+                'because a Jedi without an Order still protected the lost',
+                'only upright figure as far as she can see',
+            ],
+        },
+    });
+    result.relationships.push({
+        targetId: '', from: 'Toska', to: 'Caelen Veyr', kind: 'Jedi Master and Padawan', status: 'ended',
+        dynamic: 'Toska was Caelen Veyr’s Jedi Padawan until Lucas killed him.', importance: 4,
+    });
+
+    sanitizeReconciliationMetadata(result, {
+        entities: [{ name: 'Caelen Veyr', type: 'person', aliases: [] }],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Narrator', text: 'Toska was Caelen Veyr’s Jedi Padawan until Lucas killed him.' }]);
+
+    assert.deepEqual(result.entities[0].profile, { roleBackground: ['Caelen Veyr’s Jedi Padawan'] });
+});
+
+test('a resolved thread with no definitive answer is forced open', () => {
+    const result = extraction();
+    result.threads.push({
+        targetId: 'thread_fear', title: 'Whether Caelen feared Toska’s potential', status: 'resolved',
+        detail: 'Resolved by extracted continuity: Toska is reassessing whether Caelen acted from fear and has no definitive answer.',
+        participants: ['Toska', 'Caelen Veyr'], importance: 4,
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_fear', title: 'Whether Caelen feared Toska’s potential', status: 'open',
+            detail: 'Toska has no answer yet.', participants: ['Toska', 'Caelen Veyr'], importance: 4,
+        }],
+    }, [{ name: 'Narrator', text: 'Toska still has no definitive answer about whether Caelen acted from fear.' }]);
+
+    assert.equal(validation.reopenedUnsupportedThreads, 1);
+    assert.equal(result.threads[0].status, 'open');
+});
+
+test('contact while concealing someone cannot resolve a concealing thread', () => {
+    const result = extraction();
+    result.threads.push({
+        targetId: 'thread_conceal_toska', title: 'Concealing Toska from Darth Segundus', status: 'resolved',
+        detail: 'Resolved by extracted continuity: Lucas contacted Darth Segundus through a scrubbed relay while concealing Toska.',
+        participants: ['Lucas', 'Toska', 'Darth Segundus'], importance: 5,
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [
+            { name: 'Lucas', type: 'person', aliases: [] },
+            { name: 'Toska', type: 'person', aliases: [] },
+            { name: 'Darth Segundus', type: 'person', aliases: [] },
+        ], facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_conceal_toska', title: 'Concealing Toska from Darth Segundus', status: 'open',
+            detail: 'Lucas must continue concealing Toska from Darth Segundus.',
+            participants: ['Lucas', 'Toska', 'Darth Segundus'], importance: 5,
+        }],
+    }, [{ name: 'Narrator', text: 'Lucas contacted Darth Segundus through a scrubbed relay. Toska remains concealed.' }]);
+
+    assert.equal(validation.reopenedUnsupportedThreads, 1);
+    assert.equal(result.threads[0].status, 'open');
+});
+
+test('generic self-identification cannot close another person identity thread', () => {
+    const result = extraction();
+    result.sceneCapsule = { beats: ['Toska identifies herself as a prisoner in a cleaner cage.'] };
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [
+            { name: 'Toska', type: 'person', aliases: [] },
+            { name: 'Caelen Veyr', type: 'person', aliases: [] },
+        ], facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_master_identity', title: 'Toska’s former master’s true identity', status: 'open',
+            detail: 'The name of Toska’s former Jedi Master remains unknown.',
+            participants: ['Toska', 'Caelen Veyr'], importance: 4,
+        }],
+    }, [{ name: 'Toska', text: 'I am still a prisoner in a cleaner cage.' }]);
+
+    assert.equal(validation.reconciledThreads, 0);
+    assert.equal(result.threads.length, 0);
+});
+
+test('structured naming resolves the possessive former-master identity title', () => {
+    const result = extraction();
+    result.identityResolutions.push({
+        reference: 'Toska’s former Jedi Master', canonical: 'Caelen Veyr',
+        evidence: 'Toska identifies her former Jedi Master as Caelen Veyr.',
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [
+            { name: 'Toska', type: 'person', aliases: [] },
+            { name: 'Toska’s former Jedi Master', type: 'person', aliases: [] },
+            { name: 'Caelen Veyr', type: 'person', aliases: [] },
+        ], facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_master_identity', title: 'Toska’s former master’s true identity', status: 'open',
+            detail: 'The name of Toska’s former Jedi Master remains unknown.',
+            participants: ['Toska', 'Toska’s former Jedi Master'], importance: 4,
+        }],
+    }, [{ name: 'Toska', text: 'My former Jedi Master was Caelen Veyr.' }]);
+
+    assert.equal(validation.reconciledThreads, 1);
+    assert.equal(result.threads[0].status, 'resolved');
+    assert.match(result.threads[0].detail, /Caelen Veyr/);
+});
+
+test('explicit descriptions resolve an answer thread despite stale incoming open wording', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Ari Lane', type: 'person', aliases: [] },
+        { name: 'Doctor Vale', type: 'person', aliases: [] },
+    );
+    result.sceneCapsule = { beats: ['Ari Lane describes years of scarce food, cramped rooms, repeated relocation, and sensing danger while living in hiding.'] };
+    result.facts.push({
+        subject: 'Ari Lane', predicate: 'experience of life in hiding',
+        value: 'Ari Lane describes years of scarce food, cramped rooms, repeated relocation, and sensing danger while living in hiding.',
+        category: 'personal history', persistence: 'persistent', importance: 4,
+    });
+    result.threads.push({
+        targetId: 'thread_hiding', title: 'Answer Ari Lane’s life in hiding',
+        detail: 'Doctor Vale has begun asking Ari Lane how she lived in hiding, so the answer remains unresolved.',
+        status: 'open', participants: ['Ari Lane', 'Doctor Vale'], importance: 3,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: result.entities, facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_hiding', title: 'Answer Ari Lane’s life in hiding',
+            detail: 'Doctor Vale has asked how Ari Lane lived in hiding; the answer remains unresolved.',
+            status: 'open', participants: ['Ari Lane', 'Doctor Vale'], importance: 3,
+        }],
+    }, [{
+        name: 'Ari Lane',
+        text: 'Ari Lane describes years of scarce food, cramped rooms, repeated relocation, and sensing danger while living in hiding.',
+    }]);
+
+    assert.equal(validation.reconciledThreads, 1);
+    assert.equal(result.threads.find(item => item.targetId === 'thread_hiding').status, 'resolved');
+});
+
+test('a partially answered compound thread becomes one resolved claim and one open remainder', () => {
+    const result = extraction();
+    result.threads.push({
+        targetId: 'thread_history', title: 'Verify Doctor Vale’s former student and alleged betrayal',
+        detail: 'Resolved by extracted continuity: Ari Lane identifies herself as Doctor Vale’s former student.',
+        status: 'resolved', participants: ['Ari Lane', 'Doctor Vale'], importance: 4,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [
+            { name: 'Ari Lane', type: 'person', aliases: [] },
+            { name: 'Doctor Vale', type: 'person', aliases: [] },
+        ], facts: [], states: [], relationships: [], backgrounds: [],
+        threads: [{
+            id: 'thread_history', title: 'Verify Doctor Vale’s former student and alleged betrayal',
+            detail: 'The former student’s identity and the alleged betrayal both remain unresolved.',
+            status: 'open', participants: ['Ari Lane', 'Doctor Vale'], importance: 4,
+        }],
+    }, [{ name: 'Ari Lane', text: 'Ari Lane identifies herself as Doctor Vale’s former student.' }]);
+
+    assert.equal(validation.splitCompoundThreads, 1);
+    assert.equal(result.threads.length, 2);
+    assert.equal(result.threads[0].status, 'resolved');
+    assert.match(result.threads[0].title, /former student/iu);
+    assert.equal(result.threads[1].status, 'open');
+    assert.match(result.threads[1].title, /alleged betrayal/iu);
+});
+
+test('composite state subjects split into one state per established entity', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Ari Lane', type: 'person', aliases: [] },
+        { name: 'Doctor Vale', type: 'person', aliases: [] },
+    );
+    result.states.push({
+        subject: 'Ari Lane and Doctor Vale', attribute: 'location', value: 'Inside the archive vault.',
+        previous: 'Outside the archive vault.', scope: 'scene', operation: 'set', importance: 3,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: result.entities, facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    });
+
+    assert.equal(validation.normalizedCompositeStateSubjects, 1);
+    assert.deepEqual(result.states.map(item => item.subject), ['Ari Lane', 'Doctor Vale']);
+});
+
+test('a later restraint removal trims only the stale current-restraint rider from a fact', () => {
+    const result = extraction();
+    result.entities.push({ name: 'Ari Lane', type: 'person', aliases: [] });
+    result.facts.push({
+        subject: 'Ari Lane', predicate: 'belief about captivity',
+        value: 'Ari Lane believes the guarded room remains a prison, while she remains restrained.',
+        category: 'character belief', persistence: 'persistent', importance: 3,
+    });
+    result.states.push({
+        subject: 'Ari Lane', attribute: 'condition', value: 'Her wrist restraint has been removed.',
+        previous: 'Restrained in a chair.', scope: 'scene', operation: 'set', importance: 3,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: result.entities, facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Narrator', text: 'Doctor Vale removes Ari Lane’s wrist restraint.' }]);
+
+    assert.equal(validation.trimmedSupersededPhysicalRestraintFacts, 1);
+    assert.equal(result.facts[0].value, 'Ari Lane believes the guarded room remains a prison.');
+});
+
+test('relationship normalization removes a repeated command lead without losing later actions', () => {
+    const result = extraction();
+    result.relationships.push({
+        from: 'Doctor Vale', to: 'Archive Pilot', kind: 'commander and retainer', status: 'active',
+        dynamic: 'Doctor Vale commands Archive Pilot, who maintains the approach; Doctor Vale commands Archive Pilot, who opens the hatch.',
+        importance: 3,
+    });
+
+    sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    });
+
+    assert.equal(result.relationships[0].dynamic, 'Doctor Vale commands Archive Pilot, who maintains the approach; Archive Pilot opens the hatch.');
+});
+
+test('relationship roles follow grammatical actions instead of endpoint order or incidental mission wording', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Ari Lane', type: 'person', aliases: [] },
+        { name: 'Doctor Vale', type: 'person', aliases: [] },
+        { name: 'Lord Sable', type: 'person', aliases: [] },
+        { name: 'Rook', type: 'person', aliases: [] },
+        { name: 'Mara Holt', type: 'person', aliases: [] },
+    );
+    result.relationships.push(
+        {
+            from: 'Ari Lane', to: 'Doctor Vale', kind: 'Jedi Master and Padawan', status: 'ended',
+            dynamic: 'Doctor Vale trained Ari Lane as a Jedi Padawan.', importance: 4,
+        },
+        {
+            from: 'Rook', to: 'Lord Sable', kind: 'Sith master and apprentice', status: 'active',
+            dynamic: 'Lord Sable commands Rook as his Sith apprentice.', importance: 4,
+        },
+        {
+            from: 'Mara Holt', to: 'Rook', kind: 'squadmates', status: 'active',
+            dynamic: 'Mara Holt leads a Jedi-hunting mission with Rook.', importance: 3,
+        },
+    );
+
+    sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{
+        name: 'Narrator',
+        text: 'Doctor Vale trained Ari Lane as a Jedi Padawan. Lord Sable commands Rook as his Sith apprentice. Mara Holt leads a Jedi-hunting mission with Rook.',
+    }]);
+
+    assert.deepEqual(result.entities.find(item => item.name === 'Doctor Vale').profile, { roleBackground: ['Jedi Master'] });
+    assert.deepEqual(result.entities.find(item => item.name === 'Ari Lane').profile, { roleBackground: ['Jedi Padawan'] });
+    assert.deepEqual(result.entities.find(item => item.name === 'Lord Sable').profile, { roleBackground: ['Sith Master'] });
+    assert.deepEqual(result.entities.find(item => item.name === 'Rook').profile, { roleBackground: ['Sith apprentice'] });
+    assert.equal(result.entities.find(item => item.name === 'Mara Holt').profile, undefined);
+});
+
+test('fact-backed relationship recovery prefers the predicate pair over an unrelated person in the value', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Ari Lane', type: 'person', aliases: [] },
+        { name: 'Doctor Vale', type: 'person', aliases: [] },
+        { name: 'Courier Nox', type: 'person', aliases: [] },
+    );
+    result.facts.push({
+        subject: 'Ari Lane', predicate: 'former apprentice of Doctor Vale',
+        value: 'Ari Lane was Doctor Vale’s former apprentice before Courier Nox delivered her archived records.',
+        category: 'biographical history', persistence: 'persistent', importance: 4,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{
+        name: 'Narrator',
+        text: 'Ari Lane was Doctor Vale’s former apprentice before Courier Nox delivered her archived records.',
+    }]);
+
+    assert.equal(validation.recoveredFactRelationships, 1);
+    assert.equal(result.relationships.length, 1);
+    assert.deepEqual([result.relationships[0].from, result.relationships[0].to].sort(), ['Ari Lane', 'Doctor Vale']);
 });
