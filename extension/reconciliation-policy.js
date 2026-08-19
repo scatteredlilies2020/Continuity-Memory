@@ -5078,9 +5078,52 @@ function sanitizeCanonicalThirdPersonProse(result) {
     return { trimmed, discarded, warnings };
 }
 
+// Model schemas use uppercase placeholder tokens in instructions and examples.
+// They are never valid continuity content; reject them before normalizers or
+// recovery helpers can turn the surrounding malformed record into canon.
+const SCHEMA_PLACEHOLDER_TOKEN = /\b(?:CHARACTER_ASSESSMENT|PROPOSITION_TYPE|CANONICAL_SUBJECT|CANONICAL_NAME|ACTUAL_CANONICAL_NAME|UNKNOWN_HOLDER|UNKNOWN_TOPIC|SUBJECT_NAME|ENTITY_NAME|RELATIONSHIP_DESCRIPTION)\b|\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b|\{\{[^{}]{1,80}\}\}|<\/?(?:subject|topic|proposition|claim|description|name)>/u;
+const SCHEMA_PLACEHOLDER_FIELDS = Object.freeze({
+    entities: ['name', 'description'],
+    facts: ['subject', 'predicate', 'value'],
+    states: ['subject', 'attribute', 'value', 'previous'],
+    relationships: ['from', 'to', 'kind', 'status', 'dynamic'],
+    events: ['title', 'summary', 'consequences'],
+    threads: ['title', 'detail'],
+    backgrounds: ['topic', 'summary'],
+});
+
+function discardSchemaPlaceholderRecords(result) {
+    let discarded = 0;
+    const warnings = [];
+    for (const [category, fields] of Object.entries(SCHEMA_PLACEHOLDER_FIELDS)) {
+        if (!Array.isArray(result?.[category])) continue;
+        const kept = [];
+        for (const item of result[category]) {
+            if (!item || typeof item !== 'object') {
+                kept.push(item);
+                continue;
+            }
+            const field = fields.find(key => SCHEMA_PLACEHOLDER_TOKEN.test(String(item[key] ?? '')));
+            if (!field) {
+                kept.push(item);
+                continue;
+            }
+            discarded++;
+            if (category === 'entities' && field === 'description') {
+                const copy = { ...item, description: '' };
+                kept.push(copy);
+            }
+        }
+        result[category] = kept;
+    }
+    if (discarded) warnings.push(`Schema placeholders: withheld ${discarded} malformed record(s) before persistence.`);
+    return { discarded, warnings };
+}
+
 export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const missingIdentityResolutions = !Array.isArray(result.identityResolutions);
     if (missingIdentityResolutions) result.identityResolutions = [];
+    const schemaPlaceholderGate = discardSchemaPlaceholderRecords(result);
     const thirdPersonGate = sanitizeCanonicalThirdPersonProse(result);
     normalizeMixedOwnerPersonIdentities(result, world);
     const canonicalizedEntityVariants = canonicalizeConservativeEntityVariants(result, world);
@@ -5149,7 +5192,7 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const reconciledAddresses = reconcileGenericAddressDuplicates(result, world);
     const discardedUnsupportedAddresses = removeUnsupportedAddressValues(result, messages, world);
     const discardedPronounAddresses = removeUnsupportedPronounAddressValues(result, messages, world);
-    let ignored = thirdPersonGate.discarded + discardedAddressValues + discardedUnsupportedAddresses + discardedPronounAddresses
+    let ignored = schemaPlaceholderGate.discarded + thirdPersonGate.discarded + discardedAddressValues + discardedUnsupportedAddresses + discardedPronounAddresses
         + discardedIdentityResolutions
         + discardedMalformedDesignations
         + discardedMisownedQuestionKnowledge
@@ -5218,6 +5261,7 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const sourceAttributionConflicts = findSourceAttributionConflicts(result, world, messages);
     const localWarnings = [...new Set([
         ...relationshipEndpointConflicts.map(item => item.warning),
+        ...schemaPlaceholderGate.warnings,
         ...thirdPersonGate.warnings,
         ...characterProfileGrounding.warnings,
         ...knowledgeBoundaryGate.warnings,
@@ -5233,5 +5277,5 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
         ...localWarnings,
     ])].slice(0, 8);
     if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
-    return { ignored, recovered, recoveredAliases, recoveredBoundaries, canonicalizedEntityVariants, normalizedKnowledgePredicates: normalizedKnowledgePredicates + normalizedResolvedKnowledgePredicates, normalizedRelationalKnowledge: normalizedRelationalKnowledge + normalizedResolvedRelationalKnowledge, repairedKnowledgeMembershipOverclaims, repairedSelfIdentificationKnowledge: repairedSelfIdentificationKnowledge + repairedRecoveredSelfIdentificationKnowledge, repairedTopicKnowledgeHolders, trimmedCrossHolderAttributedClauses, normalizedKnowledgeHolders, recoveredKnowledge, recoveredIdentities, recoveredEstablishedIdentities, supersededIdentityBoundaries, recoveredOocIdentityBoundaries, discardedKnowledgeBoundaryLeaks: knowledgeBoundaryGate.discarded, normalizedIdentityEpistemicRiders, normalizedIdentityReferences, discardedIdentityResolutions, discardedMalformedDesignations, discardedMisownedQuestionKnowledge, discardedMismatchedKnowledgeTopics, canonicalizedIdentityReferences, discardedContradictedObjectFacts, trimmedSupersededPhysicalRestraintFacts, repairedRelationshipDescriptions, recoveredRelationshipEntityDescriptions, recoveredIdentityRelationships, recoveredFactRelationships, reconciledHistoricalRelationships, recoveredCommitments, recoveredIdentityThreads, recoveredCoverage, preservedResolvedThreads, splitCompoundThreads, reopenedUnsupportedThreads: reopenedUnsupportedThreads + reopenedInternallyUnresolvedThreads, reconciledThreads: Math.max(0, resolvedCompletedThreads - reopenedUnsupportedThreads - reopenedInternallyUnresolvedThreads) + reconciledIdentityThreads + reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, discardedNonThirdPersonProseFields: thirdPersonGate.trimmed, discardedNonThirdPersonProseRecords: thirdPersonGate.discarded, discardedNonDurableStates: stateDurabilityGate.discarded, demotedSceneStates: stateDurabilityGate.demoted, normalizedCompositeStateSubjects, repairedStateOwners, reconciledStateTransitions, reconciledSceneParticipants, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, discardedCharacterProfileDetails: characterProfileGrounding.discarded, sourceAttributionConflicts, relationshipEndpointConflicts, localWarnings, diagnosticWarnings, warnings };
+    return { ignored, recovered, recoveredAliases, recoveredBoundaries, canonicalizedEntityVariants, normalizedKnowledgePredicates: normalizedKnowledgePredicates + normalizedResolvedKnowledgePredicates, normalizedRelationalKnowledge: normalizedRelationalKnowledge + normalizedResolvedRelationalKnowledge, repairedKnowledgeMembershipOverclaims, repairedSelfIdentificationKnowledge: repairedSelfIdentificationKnowledge + repairedRecoveredSelfIdentificationKnowledge, repairedTopicKnowledgeHolders, trimmedCrossHolderAttributedClauses, normalizedKnowledgeHolders, recoveredKnowledge, recoveredIdentities, recoveredEstablishedIdentities, supersededIdentityBoundaries, recoveredOocIdentityBoundaries, discardedKnowledgeBoundaryLeaks: knowledgeBoundaryGate.discarded, normalizedIdentityEpistemicRiders, normalizedIdentityReferences, discardedIdentityResolutions, discardedMalformedDesignations, discardedMisownedQuestionKnowledge, discardedMismatchedKnowledgeTopics, canonicalizedIdentityReferences, discardedContradictedObjectFacts, trimmedSupersededPhysicalRestraintFacts, repairedRelationshipDescriptions, recoveredRelationshipEntityDescriptions, recoveredIdentityRelationships, recoveredFactRelationships, reconciledHistoricalRelationships, recoveredCommitments, recoveredIdentityThreads, recoveredCoverage, preservedResolvedThreads, splitCompoundThreads, reopenedUnsupportedThreads: reopenedUnsupportedThreads + reopenedInternallyUnresolvedThreads, reconciledThreads: Math.max(0, resolvedCompletedThreads - reopenedUnsupportedThreads - reopenedInternallyUnresolvedThreads) + reconciledIdentityThreads + reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, discardedSchemaPlaceholderRecords: schemaPlaceholderGate.discarded, discardedNonThirdPersonProseFields: thirdPersonGate.trimmed, discardedNonThirdPersonProseRecords: thirdPersonGate.discarded, discardedNonDurableStates: stateDurabilityGate.discarded, demotedSceneStates: stateDurabilityGate.demoted, normalizedCompositeStateSubjects, repairedStateOwners, reconciledStateTransitions, reconciledSceneParticipants, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, discardedCharacterProfileDetails: characterProfileGrounding.discarded, sourceAttributionConflicts, relationshipEndpointConflicts, localWarnings, diagnosticWarnings, warnings };
 }

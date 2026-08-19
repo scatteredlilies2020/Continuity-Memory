@@ -1858,6 +1858,31 @@ test('explicit claimant overrides a wrongly assigned canonical-looking belief ho
     assert.match(result.facts[0].predicate, /^belief about Caelen Veyr — former apprentice$/u);
 });
 
+test('schema placeholder tokens are rejected before epistemic normalization or recovery', () => {
+    const result = extraction();
+    result.entities.push({
+        name: 'Caelen Veyr', type: 'person', aliases: [],
+        description: 'Caelen Veyr is a CHARACTER_ASSESSMENT.', importance: 3,
+    });
+    result.facts.push({
+        targetId: '', subject: 'Toska', predicate: 'belief about Caelen Veyr — CHARACTER_ASSESSMENT',
+        value: 'CHARACTER_ASSESSMENT', category: 'character belief', persistence: 'persistent', importance: 3,
+    });
+    result.relationships.push({
+        targetId: '', from: 'Toska', to: 'Caelen Veyr', kind: 'RELATIONSHIP_DESCRIPTION', status: 'ended',
+        dynamic: 'RELATIONSHIP_DESCRIPTION', importance: 3,
+    });
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    });
+
+    assert.equal(result.facts.length, 0);
+    assert.equal(result.relationships.length, 0);
+    assert.equal(result.entities[0].description, '');
+    assert.equal(validation.discardedSchemaPlaceholderRecords, 3);
+});
+
 test('historical relationships and entity descriptions inherit source uncertainty', () => {
     const result = extraction();
     result.entities.push(
