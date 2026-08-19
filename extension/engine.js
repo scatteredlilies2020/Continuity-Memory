@@ -6,27 +6,27 @@ import { proxies } from '/scripts/openai.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.193';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.194';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.193';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.194';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, compactDuplicateMemoryRecords, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.193';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.193';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.194';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.194';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.193';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, NO_EM_DASH_STYLE_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.193';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.194';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, NO_EM_DASH_STYLE_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.194';
 import { applySourceAttributionFailClosed, canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.193';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.193';
-import { onRuntimeStop, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.193';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.193';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.194';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.194';
+import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.194';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.194';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
 
@@ -1014,7 +1014,12 @@ async function waitForDetachedJob(id, worldId = '') {
             }
         }
         if (job.status === 'complete') return job;
-        if (job.status === 'error' || job.status === 'cancelled') throw new Error(job.error || `Detached extraction ${job.status}.`);
+        if (job.status === 'cancelled') {
+            const error = new Error(job.error || 'Detached extraction was cancelled.');
+            error.code = RUNTIME_CANCELLED_CODE;
+            throw error;
+        }
+        if (job.status === 'error') throw new Error(job.error || 'Detached extraction failed.');
         await new Promise(resolve => setTimeout(resolve, 750));
     }
 }
@@ -1070,7 +1075,11 @@ async function reconnectDetachedExtraction(worldId, chatKey) {
         });
         await embedWorldInChat(world);
     } catch (error) {
-        updateRuntime({ status: 'error', progress: null, lastError: error.message, lastValidation: `Detached CM extraction failed: ${error.message}` });
+        if (runtime.paused && isRuntimeCancellation(error)) {
+            updateRuntime({ status: 'paused', progress: null, lastError: '', lastValidation: runtime.retryStatus || 'Processing paused safely.' });
+        } else {
+            updateRuntime({ status: 'error', progress: null, lastError: error.message, lastValidation: `Detached CM extraction failed: ${error.message}` });
+        }
     } finally {
         for (const id of [...watchedDetachedJobs]) {
             try {
@@ -1927,14 +1936,15 @@ async function processQueue() {
         const stopped = /Processing stopped/.test(error.message);
         const rateLimited = isRateLimitError(error);
         const reviewCancelled = error?.code === 'EXTRACTION_REVIEW_CANCELLED';
+        const intentionalCancellation = runtime.paused && isRuntimeCancellation(error);
         updateRuntime({
             paused: runtime.paused || rateLimited,
-            status: reviewCancelled ? 'idle' : runtime.paused || rateLimited ? 'paused' : 'error',
-            lastError: reviewCancelled ? '' : error.message,
+            status: reviewCancelled ? 'idle' : intentionalCancellation || runtime.paused || rateLimited ? 'paused' : 'error',
+            lastError: reviewCancelled || intentionalCancellation ? '' : error.message,
             progress: null,
-            lastValidation: reviewCancelled ? error.message : stopped ? 'Stopped' : rateLimited ? 'Paused after rate limit; no failed messages were marked processed.' : `Failed: ${error.message}`,
+            lastValidation: reviewCancelled ? error.message : intentionalCancellation ? runtime.retryStatus || 'Processing paused safely.' : stopped ? 'Stopped' : rateLimited ? 'Paused after rate limit; no failed messages were marked processed.' : `Failed: ${error.message}`,
         });
-        if (reviewCancelled) job.resolve({ cancelled: true, messages: 0, chunks: 0 });
+        if (reviewCancelled || intentionalCancellation) job.resolve({ cancelled: true, messages: 0, chunks: 0 });
         else job.reject(error);
     } finally {
         updateRuntime({ processing: false });

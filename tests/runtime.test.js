@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { invalidateRuntimeWork, runtime, stopRuntime } from '../extension/runtime.js';
+import { invalidateRuntimeWork, isRuntimeCancellation, pauseRuntime, RUNTIME_CANCELLED_CODE, runtime, stopRuntime } from '../extension/runtime.js';
 
 test('a source mutation invalidates in-flight work and clears queued stale ranges', () => {
     const rejected = [];
@@ -32,12 +32,13 @@ test('a source mutation invalidates in-flight work and clears queued stale range
 });
 
 test('discarding a review can stop generation with a specific visible reason', () => {
-    const rejected = [];
+    const resolved = [];
     const original = { ...runtime, queue: runtime.queue };
     runtime.generation = 10;
     runtime.stopSequence = 2;
     runtime.paused = false;
-    runtime.queue = [{ reject: error => rejected.push(error.message) }];
+    runtime.lastError = 'Old failure';
+    runtime.queue = [{ resolve: result => resolved.push(result) }];
     try {
         stopRuntime('Reviewed L2 candidate was discarded.');
         assert.equal(runtime.generation, 11);
@@ -47,7 +48,26 @@ test('discarding a review can stop generation with a specific visible reason', (
         assert.deepEqual(runtime.queue, []);
         assert.equal(runtime.lastValidation, 'Reviewed L2 candidate was discarded.');
         assert.equal(runtime.retryStatus, 'Reviewed L2 candidate was discarded.');
-        assert.deepEqual(rejected, ['Processing stopped and the queue was cleared.']);
+        assert.equal(runtime.lastError, '');
+        assert.deepEqual(resolved, [{ cancelled: true, messages: 0, chunks: 0 }]);
+    } finally {
+        Object.assign(runtime, original);
+    }
+});
+
+test('pause is a clean state and intentional cancellation is distinguishable from failure', () => {
+    const original = { ...runtime, queue: runtime.queue };
+    runtime.paused = false;
+    runtime.lastError = 'Old failure';
+    runtime.queue = [];
+    try {
+        pauseRuntime();
+        assert.equal(runtime.paused, true);
+        assert.equal(runtime.status, 'paused');
+        assert.equal(runtime.lastError, '');
+        assert.match(runtime.retryStatus, /paused safely/iu);
+        assert.equal(isRuntimeCancellation(Object.assign(new Error('Detached extraction was cancelled.'), { code: RUNTIME_CANCELLED_CODE })), true);
+        assert.equal(isRuntimeCancellation(new Error('Authentication failed.')), false);
     } finally {
         Object.assign(runtime, original);
     }

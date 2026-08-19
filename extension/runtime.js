@@ -3,6 +3,13 @@ import { cancelExtractionReview } from './extraction-review.js';
 const listeners = new Set();
 const stopHandlers = new Set();
 
+export const RUNTIME_CANCELLED_CODE = 'CONTINUITY_RUNTIME_CANCELLED';
+
+export function isRuntimeCancellation(error) {
+    if (error?.code === RUNTIME_CANCELLED_CODE) return true;
+    return /(?:processing|generation|extraction).*(?:stopped|paused|cancelled)|(?:stopped|paused|cancelled).*processing/iu.test(String(error?.message || error || ''));
+}
+
 export const runtime = {
     status: 'idle',
     paused: false,
@@ -51,22 +58,22 @@ function notifyStopHandlers(reason) {
     }
 }
 
-export function stopRuntime(reason = 'Processing stopped; the reviewed memory was not saved.') {
+export function stopRuntime(reason = 'Processing stopped safely. Saved batches were kept; the unfinished batch remains pending.') {
     cancelExtractionReview(reason);
     notifyStopHandlers(reason);
     runtime.generation++;
     runtime.stopSequence++;
     const queued = runtime.queue.splice(0);
-    for (const job of queued) job.reject?.(new Error('Processing stopped and the queue was cleared.'));
-    updateRuntime({ paused: true, status: 'paused', progress: null, lastValidation: reason, retryStatus: reason });
+    for (const job of queued) job.resolve?.({ cancelled: true, messages: 0, chunks: 0 });
+    updateRuntime({ paused: true, status: 'paused', progress: null, lastError: '', lastValidation: reason, retryStatus: reason });
 }
 
 export function pauseRuntime() {
-    const reason = 'Processing paused; the reviewed memory was not saved.';
+    const reason = 'Processing paused safely. Saved batches were kept; the unfinished batch remains pending.';
     cancelExtractionReview(reason);
     notifyStopHandlers(reason);
     runtime.generation++;
-    updateRuntime({ paused: true, status: 'paused', progress: null });
+    updateRuntime({ paused: true, status: 'paused', progress: null, lastError: '', lastValidation: reason, retryStatus: reason });
 }
 
 export function resumeRuntime() {
