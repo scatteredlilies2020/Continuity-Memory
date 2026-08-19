@@ -1,6 +1,6 @@
 import { EXTRACTION_VERSION } from './coverage.js';
 import { isSuppressedByCorrection } from './memory-correction.js';
-import { addressFactAddressee, addressFactIdentity, entityIsPersonLike, entityTypesAreCompatible, isAddressFact, mergeAddressValues, reconcileGenericAddressDuplicates, reconciliationMergeIsCompatible, reconciliationTargetIsCompatible, reconciliationTargetWasRejected, recoverRelationshipBackedEntityDescriptions, relationshipPairIdentity, removeInvalidAddressFacts } from './reconciliation-policy.js';
+import { addressFactAddressee, addressFactIdentity, enrichEntityDescriptionsFromEstablishedFacts, entityIsPersonLike, entityTypesAreCompatible, isAddressFact, mergeAddressValues, normalizeKnowledgePredicateTaxonomy, normalizeRelationalKnowledgeTopics, reconcileGenericAddressDuplicates, reconciliationMergeIsCompatible, reconciliationTargetIsCompatible, reconciliationTargetWasRejected, recoverRelationshipBackedEntityDescriptions, relationshipPairIdentity, removeInvalidAddressFacts } from './reconciliation-policy.js';
 import { canonicalMemorySubject, canonicalStateAttribute, stateIdentity, stateScope } from './state-lifecycle.js';
 import { buildL1TemporalAnchor, buildRelativeTemporalAnchor } from './temporal-anchors.js';
 import { randomUuid } from './uuid.js';
@@ -19,6 +19,43 @@ function key(value) {
     return text(value).toLocaleLowerCase();
 }
 
+function knowledgeBoundaryContradictedBy(negativeValue, positiveValue, predicate = '') {
+    const comparisonStop = new Set(['accepted', 'former', 'previous', 'prior', 'earlier', 'later', 'about', 'their', 'there', 'these', 'those', 'council']);
+    const negativeClauses = text(negativeValue).split(/(?<=[.!?;])\s+/u).filter(value => KNOWLEDGE_NEGATION.test(value));
+    const positiveTerms = new Set((text(positiveValue).toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) || []).filter(value => value.length >= 4 && !comparisonStop.has(value)));
+    return negativeClauses.some(clause => {
+        const clauseTerms = new Set((clause.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) || []).filter(value => value.length >= 4 && !comparisonStop.has(value)));
+        if ([...clauseTerms].filter(term => positiveTerms.has(term)).length >= 2) return true;
+        if (/\bno answer (?:has|had|was)?\s*(?:yet )?(?:been )?(?:given|provided|established|disclosed)?\b/iu.test(clause)
+            && hasEstablishedKnowledgeClause(positiveValue)) return true;
+        const matchingConcept = [
+            /\b(?:apprentice|student|padawan)\b/iu,
+            /\b(?:identity|identifies|identified|true name|real name|name)\b/iu,
+            /\b(?:location|destination)\b/iu,
+            /\bparent\b/iu, /\bchild\b/iu, /\bspouse\b/iu,
+        ].some(pattern => pattern.test(clause) && pattern.test(positiveValue));
+        if (matchingConcept) return true;
+        const negativeCouncilMembership = /\bcouncil\b/iu.test(clause) && /\b(?:seat|member|membership|served on|was in)\b/iu.test(clause);
+        const positiveCouncilMembership = /\bcouncil\b/iu.test(positiveValue) && /\b(?:seat|member|membership|served on|was in)\b/iu.test(positiveValue);
+        if (negativeCouncilMembership && positiveCouncilMembership) return true;
+        // When both records use the exact same explicitly identity-scoped
+        // predicate, established positive knowledge answers the old unknown-
+        // identity boundary even if the value phrases the answer through the
+        // person's canonical name and biography rather than the word
+        // “identity” again.
+        return /\b(?:identity|true name|real name)\b/iu.test(text(predicate))
+            && hasEstablishedKnowledgeClause(positiveValue);
+    });
+}
+
+function hasEstablishedKnowledgeClause(value) {
+    return text(value).split(/(?<=[.!?;])\s+/u).some(clause => {
+        if (KNOWLEDGE_NEGATION.test(clause)) return false;
+        return /\b(?:knows?|aware|has learned|learned|discovers?|discovered|recognizes?|recognized|identifies?|identified|confirms?|confirmed|understands?|understood|remembers?|remembered|recalls?|recalled)\b/iu.test(clause)
+            && !/\b(?:suspects?|believes?|thinks?|may|might|possibly|perhaps|unverified|without (?:proof|evidence))\b/iu.test(clause);
+    });
+}
+
 function additiveKnowledgeValue(existing, incoming) {
     const next = text(incoming?.value);
     const prior = text(existing?.value);
@@ -33,7 +70,20 @@ function additiveKnowledgeValue(existing, incoming) {
     // knowledge acquired at different times is additive and must not erase
     // older durable details merely because the extractor reused a broad
     // “knowledge of X” predicate.
-    if (/\b(?:does not|did not|has not|had not|no longer|mistaken|wrong|retracted|disproved)\b/iu.test(next)) return next;
+    const priorHasNegativeBoundary = KNOWLEDGE_NEGATION.test(prior);
+    const nextHasNegativeBoundary = KNOWLEDGE_NEGATION.test(next);
+    // A single record can establish one subtopic while retaining an explicit
+    // gap about another. Judge positive knowledge clause-by-clause so the
+    // remaining gap does not prevent a newly established detail from retiring
+    // an older, now-stale boundary.
+    const priorEstablishesCurrentKnowledge = hasEstablishedKnowledgeClause(prior);
+    const nextEstablishesCurrentKnowledge = hasEstablishedKnowledgeClause(next);
+    if (/\b(?:no longer|mistaken|wrong|retracted|disproved)\b/iu.test(next)) return next;
+    // Ordinary “did not know” prose is historical once the same canonical
+    // knowledge topic also has a positive current record. This is deliberately
+    // symmetric because duplicate recovery order is not chronology.
+    if (nextHasNegativeBoundary && priorEstablishesCurrentKnowledge && knowledgeBoundaryContradictedBy(next, prior, predicate)) return prior;
+    if (priorHasNegativeBoundary && nextEstablishesCurrentKnowledge && knowledgeBoundaryContradictedBy(prior, next, predicate)) return next;
     const sentences = value => text(value).split(/(?<=[.!?;])\s+/u).map(text).filter(Boolean);
     const combined = [];
     for (const sentence of [...sentences(prior), ...sentences(next)]) {
@@ -45,6 +95,40 @@ function additiveKnowledgeValue(existing, incoming) {
         combined.push(sentence);
     }
     return text(combined.join(' ')).slice(0, 1600);
+}
+
+function reconcileCanonicalKnowledgeFacts(world) {
+    normalizeKnowledgePredicateTaxonomy({
+        entities: world.entities,
+        facts: world.facts,
+        relationships: world.relationships,
+    }, world);
+    normalizeRelationalKnowledgeTopics({
+        entities: world.entities,
+        facts: world.facts,
+        relationships: world.relationships,
+    }, world);
+    const canonical = new Map();
+    const retained = [];
+    for (const fact of world.facts || []) {
+        if (fact?.correctionId || key(fact?.category) !== 'knowledge') {
+            retained.push(fact);
+            continue;
+        }
+        const identity = `${key(canonicalMemorySubject(world, fact?.subject))}|${key(fact?.predicate)}|knowledge`;
+        const prior = canonical.get(identity);
+        if (!prior) {
+            canonical.set(identity, fact);
+            retained.push(fact);
+            continue;
+        }
+        prior.value = additiveKnowledgeValue(prior, fact);
+        prior.importance = Math.max(clampImportance(prior.importance), clampImportance(fact.importance));
+        prior.updatedAt = [prior.updatedAt, fact.updatedAt].filter(Boolean).sort().at(-1) || prior.updatedAt;
+        prior.sources = mergedSources(prior.sources || [], fact.sources || []);
+        if (fact.temporalAnchorId) prior.temporalAnchorId = fact.temporalAnchorId;
+    }
+    world.facts = retained;
 }
 
 function escaped(value) {
@@ -86,7 +170,7 @@ function shouldPreserveHistoricalRecord(item, meta) {
     return !sameChatEnds.length || !Number.isFinite(incomingEnd) || incomingEnd < Math.max(...sameChatEnds);
 }
 
-function mergeArray(world, collection, target, incoming, identity, meta, prefix, combine, preserveExisting = false) {
+function mergeArray(world, collection, target, incoming, identity, meta, prefix, combine, preserveExisting = false, reconciliationResult = null) {
     for (const raw of incoming || []) {
         if (!raw || typeof raw !== 'object') continue;
         if (reconciliationTargetWasRejected(raw)) continue;
@@ -94,7 +178,7 @@ function mergeArray(world, collection, target, incoming, identity, meta, prefix,
         let requestedIndex = requestedTargetId ? target.findIndex(item => item.id === requestedTargetId) : -1;
         const missingUntrustedTarget = requestedIndex < 0 && !meta.replayStoredExtraction;
         if (requestedTargetId && requestedIndex >= 0
-            && !reconciliationTargetIsCompatible(collection, raw, target[requestedIndex], world)) {
+            && !reconciliationTargetIsCompatible(collection, raw, target[requestedIndex], world, reconciliationResult)) {
             raw.targetId = '';
             continue;
         }
@@ -367,6 +451,25 @@ function isAttributionFallbackDescription(value) {
     return /^Details about .+ remain disputed or attributed in this excerpt/iu.test(text(value));
 }
 
+const STABLE_ENTITY_IDENTITY_DESCRIPTION = /\b(?:alias|apprentice|commander|council|formerly?|identity|investigator|Jedi|master|member|mentor|Padawan|rank|served|Sith|student|teacher|title|trained)\b/iu;
+
+function mergeStableEntityDescription(priorValue, incomingValue) {
+    const prior = text(priorValue);
+    const incoming = text(incomingValue);
+    if (!prior || isAttributionFallbackDescription(prior)) return incoming;
+    if (!incoming || isAttributionFallbackDescription(incoming)) return prior;
+    const incomingTerms = new Set(identityNameTokens(incoming));
+    let merged = incoming;
+    for (const clause of prior.split(/(?<=[.!?])\s+/u).map(text).filter(Boolean)) {
+        if (!STABLE_ENTITY_IDENTITY_DESCRIPTION.test(clause)) continue;
+        const novel = identityNameTokens(clause).filter(token => token.length >= 3 && !incomingTerms.has(token));
+        if (novel.length < 2) continue;
+        merged = `${merged} ${clause}`.slice(0, 800);
+        for (const token of identityNameTokens(clause)) incomingTerms.add(token);
+    }
+    return merged;
+}
+
 function canonicalizedIdentityDescription(value, replacedNames, canonicalName) {
     let description = text(value);
     for (const name of replacedNames) {
@@ -455,7 +558,20 @@ function applyIdentityResolution(world, raw, meta) {
     if (world.scene) world.scene = updateRecord(world.scene, { participants: replaceList(world.scene.participants) });
     world.facts = (world.facts || []).map(item => updateRecord(item, { subject: replace(item.subject) }));
     world.states = (world.states || []).map(item => updateRecord(item, { subject: replace(item.subject) }));
-    world.relationships = (world.relationships || []).map(item => updateRecord(item, { from: replace(item.from), to: replace(item.to) }));
+    world.relationships = (world.relationships || []).map(item => {
+        let dynamic = canonicalizedIdentityDescription(item.dynamic, priorNames, canonicalName);
+        const directlyUsesReference = [item?.from, item?.to].some(value => key(value) === key(reference));
+        const role = reference.match(/^.+?[’']s\s+(.+)$/u)?.[1];
+        if (directlyUsesReference && role) {
+            dynamic = dynamic.replace(new RegExp(`(^|[^\\p{L}\\p{N}])(?:the\\s+)?${escaped(role)}(?=$|[^\\p{L}\\p{N}])`, 'giu'),
+                (_match, prefix) => `${prefix}${canonicalName}`);
+        }
+        return updateRecord(item, {
+            from: replace(item.from),
+            to: replace(item.to),
+            dynamic,
+        });
+    });
     world.events = (world.events || []).map(item => updateRecord(item, { participants: replaceList(item.participants) }));
     world.threads = (world.threads || []).map(item => updateRecord(item, { participants: replaceList(item.participants) }));
     world.backgrounds = (world.backgrounds || []).map(item => updateRecord(item, { participants: replaceList(item.participants) }));
@@ -515,7 +631,7 @@ function applyRecordMerge(world, raw, meta) {
     return true;
 }
 
-const KNOWLEDGE_NEGATION = /\b(?:does not know|doesn't know|did not know|didn't know|has not learned|hasn't learned|was not told|wasn't told|has not been told|hasn't been told|is unaware|remains unaware|no knowledge of|no disclosure|deliberately concealed|kept hidden from)\b/iu;
+const KNOWLEDGE_NEGATION = /\b(?:does not know|doesn't know|did not know|didn't know|not (?:yet )?known|has not learned|hasn't learned|was not told|wasn't told|has not been told|hasn't been told|has not (?:yet )?disclosed|hasn't disclosed|did not disclose|didn't disclose|is unaware|remains unaware|unknown whether|unclear whether|not sure whether|no knowledge of|no disclosure|no answer (?:has|had|was)?\s*(?:yet )?(?:been )?(?:given|provided|established|disclosed)?|deliberately concealed|kept hidden from)\b/iu;
 const KNOWLEDGE_GAIN = /\b(?:already knew|knows?|knew|learned|was told|has been told|became aware|is aware|now aware|discovered|recognizes?|recognized|identifies?|identified|recalls?|recalled|remembers?|remembered|acknowledges?|acknowledged|cites?|cited)\b/iu;
 const CURRENT_KNOWLEDGE_GAIN = /\b(?:now knows?|has now learned|is now aware|now recognizes?|now understands?|has learned|has discovered)\b/iu;
 
@@ -542,14 +658,17 @@ function prepareKnowledgeTransitions(world, result, meta) {
             incoming.targetId = '';
         }
         if (key(incoming.category) !== 'knowledge'
-            || (KNOWLEDGE_NEGATION.test(value) && !CURRENT_KNOWLEDGE_GAIN.test(value))) continue;
+            || (KNOWLEDGE_NEGATION.test(value)
+                && !CURRENT_KNOWLEDGE_GAIN.test(value)
+                && !hasEstablishedKnowledgeClause(value))) continue;
         const subject = key(canonicalMemorySubject(world, incoming.subject));
         const predicate = key(incoming.predicate);
         world.facts = (world.facts || []).filter(existing => existing.correctionId
             || shouldPreserveHistoricalRecord(existing, meta)
             || !isKnowledgeBoundaryRecord(existing)
             || key(existing.subject) !== subject
-            || key(existing.predicate) !== predicate);
+            || key(existing.predicate) !== predicate
+            || !knowledgeBoundaryContradictedBy(existing.value, value, predicate));
     }
 }
 
@@ -669,6 +788,7 @@ export function mergeExtraction(world, result, meta) {
     // relationships. Let the accepted canonical relationship restore a role
     // description if the model left the entity as a disputed placeholder.
     recoverRelationshipBackedEntityDescriptions(result, world, null);
+    enrichEntityDescriptionsFromEstablishedFacts(result, world);
     reconcileGenericAddressDuplicates(result, world);
     removeInvalidAddressFacts(result);
     normalizeAddressFacts(world);
@@ -688,12 +808,17 @@ export function mergeExtraction(world, result, meta) {
         // A new entity keeps its supplied name. Fuzzy canonicalization here can
         // collapse possessive objects or descriptive people into an unrelated
         // established entity before identity resolution has evidence.
-        const canonicalName = current?.name || suppliedName;
+        // A validated identity resolution is the narrow exception: when the
+        // extractor correctly targets the existing descriptive entity, rename
+        // that anchor in place so the later resolution pass can migrate every
+        // fact, relationship, and thread endpoint to the canonical name.
+        const validatedRename = current && (result.identityResolutions || []).some(resolution =>
+            key(resolution?.canonical) === key(suppliedName)
+            && exactEntityNames(current).includes(key(resolution?.reference)));
+        const canonicalName = validatedRename ? suppliedName : (current?.name || suppliedName);
         const type = current?.type || text(item.type) || 'entity';
         const incomingDescription = text(item.description);
-        const description = current?.description && isAttributionFallbackDescription(incomingDescription)
-            ? text(current.description)
-            : incomingDescription;
+        const description = mergeStableEntityDescription(current?.description, incomingDescription);
         return {
             name: canonicalName,
             type,
@@ -706,11 +831,12 @@ export function mergeExtraction(world, result, meta) {
             description,
             importance: Math.max(clampImportance(item.importance), clampImportance(current?.importance)),
         };
-    }, preserveHistoricalRecord);
+    }, preserveHistoricalRecord, result);
 
     for (const resolution of result.identityResolutions || []) applyIdentityResolution(world, resolution, meta);
     applyDescriptionIdentityResolutions(world, meta);
     removeCrossEntityCanonicalAliases(world.entities);
+    reconcileCanonicalKnowledgeFacts(world);
 
     mergeArray(world, 'facts', world.facts, result.facts, item => addressFactIdentity(item, world) || `${key(item.subject)}|${key(item.predicate)}|${key(item.category)}`, meta, 'fact', (item, existing) => {
         const address = isAddressFact(item);
@@ -732,7 +858,7 @@ export function mergeExtraction(world, result, meta) {
             persistence: ['temporary', 'recurring', 'persistent'].includes(item.persistence) ? item.persistence : 'persistent',
             temporalAnchorId: l1Temporal.anchorId,
         };
-    }, preserveHistoricalRecord);
+    }, preserveHistoricalRecord, result);
 
     if (meta.allowStateUpdates !== false) applyActiveStates(world, result, meta, l1Temporal);
 
@@ -750,7 +876,8 @@ export function mergeExtraction(world, result, meta) {
         dynamic: text(item.dynamic),
         importance: clampImportance(item.importance),
         temporalAnchorId: l1Temporal.anchorId,
-    }), preserveHistoricalRecord);
+    }), preserveHistoricalRecord, result);
+    reconcileCanonicalKnowledgeFacts(world);
 
     // Events are immutable history. Deduplicate only the same event extracted from overlapping ranges.
     for (const raw of result.events || []) {

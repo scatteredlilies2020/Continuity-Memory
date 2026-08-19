@@ -1,10 +1,10 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.158';
+import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.176';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
-import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.14.0-standalone.158';
+import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.14.0-standalone.176';
 
 export const EXTENSION_NAME = 'continuityMemory';
 
@@ -432,6 +432,19 @@ export function getSettings() {
             settings.injectionInstruction = PROMPT_DEFAULTS.injectionInstruction;
         }
         settings.epistemicPromptVersion = 5;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.epistemicPromptVersion || 0) < 6) {
+        let extractionPrompt = String(settings.extractionSystemPrompt || PROMPT_DEFAULTS.extractionSystemPrompt);
+        if (extractionPrompt.includes(EPISTEMIC_MEMORY_RULES)) {
+            // Already current, including on a new installation.
+        } else if (extractionPrompt.includes(PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES)) {
+            extractionPrompt = extractionPrompt.replace(PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, EPISTEMIC_MEMORY_RULES);
+        } else {
+            extractionPrompt = `${extractionPrompt}\n${EPISTEMIC_MEMORY_RULES}`;
+        }
+        settings.extractionSystemPrompt = extractionPrompt;
+        settings.epistemicPromptVersion = 6;
         saveSettingsDebounced();
     }
     if (settings.rawTailMode === undefined) {

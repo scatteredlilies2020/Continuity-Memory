@@ -443,6 +443,44 @@ test('retrieval appends high-importance established identity canon to a matching
     assert.match(injected.prompt, /Established Facts are objective canon/);
 });
 
+test('validated placeholder targets rename in place and migrate relationship endpoints', () => {
+    const target = world();
+    mergeExtraction(target, extraction({
+        entities: [{
+            name: 'Toska’s deceased master', type: 'person', aliases: [],
+            description: 'The deceased Jedi Master who trained Toska.', importance: 5,
+        }],
+        relationships: [{
+            from: 'Toska', to: 'Toska’s deceased master', kind: 'Jedi master and Padawan',
+            status: 'ended', dynamic: 'Toska was the deceased master’s Padawan.', importance: 4,
+        }],
+    }), { chatKey: 'chat', from: 0, to: 7, allowStateUpdates: true });
+    const placeholder = target.entities.find(item => item.name === 'Toska’s deceased master');
+    const relationship = target.relationships.find(item => item.to === 'Toska’s deceased master');
+
+    mergeExtraction(target, extraction({
+        entities: [{
+            targetId: placeholder.id, name: 'Caelen Veyr', type: 'person', aliases: ['Pell'],
+            description: 'Caelen Veyr was Toska’s Jedi Master.', importance: 5,
+        }],
+        identityResolutions: [{
+            reference: 'Toska’s deceased master', canonical: 'Caelen Veyr',
+            evidence: 'Toska identifies her deceased master as Jedi Master Caelen Veyr.',
+        }],
+        relationships: [{
+            targetId: relationship.id, from: 'Toska', to: 'Caelen Veyr', kind: 'Jedi master and Padawan',
+            status: 'ended', dynamic: 'Toska was Caelen Veyr’s Padawan.', importance: 4,
+        }],
+    }), { chatKey: 'chat', from: 8, to: 15, allowStateUpdates: true });
+
+    assert.equal(target.entities.some(item => item.name === 'Toska’s deceased master'), false);
+    assert.equal(target.entities.find(item => item.name === 'Caelen Veyr')?.id, placeholder.id);
+    assert.match(target.entities.find(item => item.name === 'Caelen Veyr')?.description || '', /Jedi Master/iu);
+    assert.equal(target.relationships.length, 1);
+    assert.equal(target.relationships[0].to, 'Caelen Veyr');
+    assert.doesNotMatch(target.relationships[0].dynamic, /deceased master/iu);
+});
+
 test('narrative identity resolutions migrate and deduplicate durable references', () => {
     const target = world();
     const chatKey = 'chat';
@@ -737,6 +775,56 @@ test('later explicit knowledge retires the matching stale knowledge boundary', (
     assert.match(records[0].value, /has now learned/i);
 });
 
+test('a learned canonical identity retires an older not-yet-known identity boundary', () => {
+    const target = world();
+    const predicate = 'knowledge of Toska’s former Jedi Master’s identity';
+    mergeExtraction(target, extraction({
+        facts: [{
+            subject: 'Lucas Alcazar', predicate,
+            value: 'Lucas is asking Toska for the Master’s true name and former identity; the answer is not yet known.',
+            category: 'knowledge boundary', importance: 5, persistence: 'persistent',
+        }], events: [],
+    }), { chatKey: 'roleplay', from: 0, to: 7, allowStateUpdates: true });
+
+    mergeExtraction(target, extraction({
+        facts: [{
+            subject: 'Lucas Alcazar', predicate,
+            value: 'Lucas knows that Caelen Veyr was a member of the High Council and had a former apprentice.',
+            category: 'knowledge', importance: 5, persistence: 'persistent',
+        }], events: [],
+    }), { chatKey: 'roleplay', from: 8, to: 15, allowStateUpdates: true });
+
+    const records = target.facts.filter(item => item.subject === 'Lucas Alcazar' && item.predicate === predicate);
+    assert.equal(records.length, 1);
+    assert.equal(records[0].category, 'knowledge');
+    assert.match(records[0].value, /Caelen Veyr/iu);
+    assert.doesNotMatch(records[0].value, /not yet known/iu);
+});
+
+test('a later remembered identity retires an older no-answer-yet clause', () => {
+    const target = world();
+    const predicate = 'knowledge of Caelen Veyr';
+    mergeExtraction(target, extraction({
+        facts: [{
+            subject: 'Toska', predicate,
+            value: 'Lucas has asked whether she knows his true name and former identity; no answer has yet been given.',
+            category: 'knowledge', importance: 4, persistence: 'temporary',
+        }], events: [],
+    }), { chatKey: 'roleplay', from: 0, to: 7, allowStateUpdates: true });
+
+    mergeExtraction(target, extraction({
+        facts: [{
+            subject: 'Toska', predicate,
+            value: 'Toska remembers Caelen Veyr’s concealed records and identifies him as her former Jedi Master.',
+            category: 'knowledge', importance: 5, persistence: 'persistent',
+        }], events: [],
+    }), { chatKey: 'roleplay', from: 8, to: 15, allowStateUpdates: true });
+
+    const record = target.facts.find(item => item.subject === 'Toska' && item.predicate === predicate);
+    assert.match(record.value, /identifies him as her former Jedi Master/iu);
+    assert.doesNotMatch(record.value, /no answer has yet been given/iu);
+});
+
 test('later knowledge of the same subject adds detail without erasing established history', () => {
     const target = world();
     mergeExtraction(target, extraction({
@@ -759,6 +847,77 @@ test('later knowledge of the same subject adds detail without erasing establishe
     const record = target.facts.find(item => item.id === stableId);
     assert.match(record.value, /Jedi Master and former Jedi Council member/iu);
     assert.match(record.value, /apprentice named Lucas Alcazar/iu);
+});
+
+test('newly established knowledge replaces an older negative clause for the same canonical topic', () => {
+    const target = world();
+    mergeExtraction(target, extraction({
+        facts: [{
+            subject: 'Toska', predicate: 'knowledge of Caelen Veyr',
+            value: 'Toska knows Caelen used the name Pell; she did not know he held a Council seat.',
+            category: 'knowledge', importance: 4, persistence: 'persistent',
+        }], events: [],
+    }), { chatKey: 'roleplay', from: 8, to: 15, allowStateUpdates: true });
+
+    mergeExtraction(target, extraction({
+        facts: [{
+            subject: 'Toska', predicate: 'knowledge of Caelen Veyr',
+            value: 'Toska identifies Caelen Veyr as a former Council member who used the name Pell.',
+            category: 'knowledge', importance: 5, persistence: 'persistent',
+        }], events: [],
+    }), { chatKey: 'roleplay', from: 16, to: 23, allowStateUpdates: true });
+
+    const record = target.facts.find(item => item.subject === 'Toska' && item.predicate === 'knowledge of Caelen Veyr');
+    assert.match(record.value, /former Council member/iu);
+    assert.doesNotMatch(record.value, /did not know/iu);
+});
+
+test('mixed knowledge updates retire a stale boundary while preserving a different gap', () => {
+    const target = world();
+    mergeExtraction(target, extraction({
+        facts: [{
+            subject: 'Toska', predicate: 'knowledge of Caelen Veyr',
+            value: 'She has not yet disclosed whether she knows his true name or what he was before.',
+            category: 'knowledge', importance: 5, persistence: 'persistent',
+        }],
+    }), { chatKey: 'chat', from: 0, to: 7, allowStateUpdates: true });
+
+    mergeExtraction(target, extraction({
+        facts: [{
+            subject: 'Toska', predicate: 'knowledge of Caelen Veyr',
+            value: 'She knows his true name is Caelen Veyr and that he served as an investigator; she did not know he had a former apprentice.',
+            category: 'knowledge', importance: 5, persistence: 'persistent',
+        }],
+    }), { chatKey: 'chat', from: 8, to: 15, allowStateUpdates: true });
+
+    const facts = target.facts.filter(item => item.subject === 'Toska' && item.predicate === 'knowledge of Caelen Veyr');
+    assert.equal(facts.length, 1);
+    assert.match(facts[0].value, /knows his true name is Caelen Veyr/iu);
+    assert.match(facts[0].value, /did not know he had a former apprentice/iu);
+    assert.doesNotMatch(facts[0].value, /not yet disclosed/iu);
+});
+
+test('a broad knowledge update does not erase a different unresolved subtopic', () => {
+    const target = world();
+    mergeExtraction(target, extraction({
+        facts: [{
+            subject: 'Toska', predicate: 'knowledge of Caelen Veyr',
+            value: 'Toska knows Caelen used the name Pell; she did not know he was a Council member or had an earlier apprentice.',
+            category: 'knowledge', importance: 4, persistence: 'persistent',
+        }], events: [],
+    }), { chatKey: 'roleplay', from: 8, to: 15, allowStateUpdates: true });
+
+    mergeExtraction(target, extraction({
+        facts: [{
+            subject: 'Toska', predicate: 'knowledge of Caelen Veyr',
+            value: 'Toska identifies Caelen as a High Council investigator and fleet commander who used the name Pell.',
+            category: 'knowledge', importance: 4, persistence: 'persistent',
+        }], events: [],
+    }), { chatKey: 'roleplay', from: 16, to: 23, allowStateUpdates: true });
+
+    const record = target.facts.find(item => item.subject === 'Toska' && item.predicate === 'knowledge of Caelen Veyr');
+    assert.match(record.value, /High Council investigator/iu);
+    assert.match(record.value, /did not know.*Council member.*earlier apprentice/iu);
 });
 
 test('a positive update mislabeled as a boundary becomes established knowledge', () => {
@@ -1741,4 +1900,39 @@ test('hierarchy reset deletes L2 and L3 while preserving L1 and extracted memory
     assert.deepEqual(target.capsules, l1);
     assert.deepEqual(target.extractions, extractions);
     assert.deepEqual(target.facts, facts);
+});
+
+test('established identity history enriches a sparse relationship-backed person description', () => {
+    const target = world();
+    const result = extraction({
+        entities: [
+            { name: 'Toska', type: 'person', aliases: [], description: 'A Jedi Padawan.', importance: 4 },
+            { name: 'Caelen Veyr', type: 'person', aliases: ['Pell'], description: 'Details about Caelen Veyr remain disputed or attributed in this excerpt; consult character perspectives and source history.', importance: 4 },
+        ],
+        facts: [{
+            subject: 'Caelen Veyr', predicate: 'former roles and concealment identity',
+            value: 'Former High Council member and commander of the Republic’s Twelfth Reconnaissance Fleet.',
+            category: 'identity and history', importance: 4, persistence: 'persistent',
+        }],
+        relationships: [{
+            from: 'Toska', to: 'Caelen Veyr', kind: 'Jedi master and Padawan', status: 'ended',
+            dynamic: 'Caelen Veyr was Toska’s deceased Jedi master.', importance: 4,
+        }],
+        states: [], events: [], threads: [], backgrounds: [],
+    });
+
+    mergeExtraction(target, result, { chatKey: 'chat', from: 8, to: 15, allowStateUpdates: true });
+
+    const caelen = target.entities.find(item => item.name === 'Caelen Veyr');
+    assert.match(caelen.description, /deceased Jedi master/iu);
+    assert.match(caelen.description, /High Council member/iu);
+    assert.match(caelen.description, /Twelfth Reconnaissance Fleet/iu);
+
+    mergeExtraction(target, extraction({
+        entities: [{ name: 'Caelen Veyr', type: 'person', aliases: ['Pell'], description: 'Caelen Veyr was Toska’s Jedi Master.', importance: 4 }],
+        facts: [], relationships: [], states: [], events: [], threads: [], backgrounds: [],
+    }), { chatKey: 'chat', from: 16, to: 23, allowStateUpdates: true });
+
+    assert.match(target.entities.find(item => item.name === 'Caelen Veyr').description, /High Council member/iu);
+    assert.match(target.entities.find(item => item.name === 'Caelen Veyr').description, /Twelfth Reconnaissance Fleet/iu);
 });

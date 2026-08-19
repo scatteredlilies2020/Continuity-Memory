@@ -1,6 +1,6 @@
 {
   "name": "sillytavern-continuity",
-  "version": "0.14.0-standalone.158",
+  "version": "0.14.0-standalone.176",
   "description": "Standalone structured continuity for SillyTavern; does not use Lorebooks or World Info.",
   "private": true,
   "type": "module",
@@ -13,6 +13,8 @@
   "license": "AGPL-3.0-only",
   "scripts": {
     "check": "node --experimental-vm-modules scripts/check.js",
+    "deploy:live": "node scripts/deploy-live.mjs",
+    "deploy:verify": "node scripts/deploy-live.mjs --verify-only",
     "test": "npm run check && node --test"
   },
   "engines": {

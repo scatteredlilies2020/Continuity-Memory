@@ -410,6 +410,66 @@ function canonicalizeResolvedIdentityReferences(result, world) {
     return changed;
 }
 
+// When a descriptive identity is explicitly resolved and the same holder has
+// a positive knowledge record for the canonical person, update an older
+// “identity unknown” boundary instead of leaving mutually stale facts.
+export function supersedeResolvedDescriptiveIdentityBoundaries(result, world) {
+    if (!Array.isArray(result?.facts) || !Array.isArray(world?.facts)) return 0;
+    let superseded = 0;
+    for (const resolution of result?.identityResolutions || []) {
+        const descriptor = descriptivePersonIdentityContext(resolution?.reference, world);
+        const canonical = cleanText(resolution?.canonical);
+        if (!descriptor || !canonical) continue;
+        const holder = cleanText(descriptor.owner);
+        const roleWords = identityReferenceTokens(descriptor.role).filter(token => IDENTITY_ROLE_TOKENS.has(token));
+        const positive = result.facts.find(fact => normalized(fact?.subject) === normalized(holder)
+            && !/^(?:knowledge boundary|knowledge gap)$/iu.test(cleanText(fact?.category))
+            && !EXPLICIT_KNOWLEDGE_NEGATION.test(cleanText(fact?.value))
+            && textMentionsIdentityVariant(`${cleanText(fact?.predicate)} ${cleanText(fact?.value)}`, [canonical]));
+        if (!positive) continue;
+        for (const boundary of world.facts.filter(fact => normalized(fact?.subject) === normalized(holder)
+            && (/^(?:knowledge boundary|knowledge gap)$/iu.test(cleanText(fact?.category))
+                || EXPLICIT_KNOWLEDGE_NEGATION.test(cleanText(fact?.value)))
+            && /\bidentity\b/iu.test(`${cleanText(fact?.predicate)} ${cleanText(fact?.value)}`)
+            && (!roleWords.length || roleWords.some(role => new RegExp(`\\b${escaped(role)}\\b`, 'iu').test(`${cleanText(fact?.predicate)} ${cleanText(fact?.value)}`))))) {
+            if (result.facts.some(fact => cleanText(fact?.targetId) === cleanText(boundary?.id))) continue;
+            result.facts.push({
+                targetId: cleanText(boundary?.id), subject: holder, predicate: cleanText(boundary?.predicate),
+                value: `${holder} knows that ${cleanText(resolution.reference)} is ${canonical}.`,
+                category: 'knowledge', importance: Math.max(4, Number(boundary?.importance || positive?.importance || 4)),
+                persistence: 'persistent', _knowledgeTransition: true,
+            });
+            superseded++;
+        }
+    }
+    return superseded;
+}
+
+export function supersedeResolvedSubjectIdentityUnknowns(result, world) {
+    if (!Array.isArray(result?.facts) || !Array.isArray(world?.facts)) return 0;
+    let superseded = 0;
+    for (const resolution of result?.identityResolutions || []) {
+        const reference = cleanText(resolution?.reference);
+        const canonical = cleanText(resolution?.canonical);
+        if (!reference || !canonical) continue;
+        for (const fact of world.facts.filter(item =>
+            normalized(item?.subject) === normalized(reference)
+            && /\b(?:identity|name|who)\b/iu.test(`${cleanText(item?.predicate)} ${cleanText(item?.category)} ${cleanText(item?.value)}`)
+            && /\b(?:unknown|unidentified|unnamed|no answer|not (?:yet )?(?:known|identified|established|revealed|given)|has not (?:yet )?been (?:known|identified|established|revealed|given))\b/iu.test(cleanText(item?.value)))) {
+            if (result.facts.some(item => cleanText(item?.targetId) === cleanText(fact?.id))) continue;
+            result.facts.push({
+                targetId: cleanText(fact?.id), subject: cleanText(fact?.subject),
+                predicate: cleanText(fact?.predicate),
+                value: `${canonical} is the established identity of ${reference}.`,
+                category: cleanText(fact?.category) || 'identity', importance: Math.max(4, Number(fact?.importance || 4)),
+                persistence: cleanText(fact?.persistence) || 'persistent',
+            });
+            superseded++;
+        }
+    }
+    return superseded;
+}
+
 function resolvedRelationshipPairIdentity(result, item, world = null) {
     const endpoints = [item?.from, item?.to]
         .map(value => normalized(resolvedReconciliationSubject(result, world, value)))
@@ -616,6 +676,7 @@ function uniquePersonMention(index, world, value) {
 // Convert “No one knows I am X” into one holder-specific boundary per other
 // present character so retrieval cannot grant knowledge merely because it can
 // see X's canonical entity or aliases.
+const EXPLICIT_KNOWLEDGE_NEGATION = /\b(?:does not|do not|did not|has not|have not|had not|cannot|can't|never)\s+(?:know|recognize|learn|identify|realize|discover)\b|\b(?:unaware|unknown to)\b/iu;
 export function recoverExplicitOocIdentityBoundaries(result, world, messages) {
     if (!Array.isArray(result?.facts) || !Array.isArray(result?.threads)
         || !Array.isArray(messages) || !messages.length) return 0;
@@ -637,14 +698,27 @@ export function recoverExplicitOocIdentityBoundaries(result, world, messages) {
             .filter(name => normalized(name) !== normalized(canonical.name));
         for (const holder of participants) {
             const predicate = `knowledge of ${canonical.name}’s identity`;
+            const sameKnowledgeTopic = fact => normalized(fact?.subject) === normalized(holder)
+                && normalized(fact?.predicate) === normalized(predicate);
+            // An explicit OOC concealment constraint is authoritative. A
+            // model may mistake naming a historical person for the current
+            // figure revealing that identity; discard that positive inference
+            // and persist the holder-specific boundary instead.
+            result.facts = result.facts.filter(fact => !sameKnowledgeTopic(fact)
+                || /^(?:knowledge boundary|knowledge gap)$/iu.test(cleanText(fact?.category))
+                || (EXPLICIT_KNOWLEDGE_NEGATION.test(cleanText(fact?.value))
+                    && /\b(?:current figure|true identity|real identity|recogniz(?:e|es|ed|ing))\b/iu.test(cleanText(fact?.value))));
+            const stored = (world?.facts || []).find(sameKnowledgeTopic);
             const already = [...(world?.facts || []), ...result.facts].some(fact =>
                 normalized(fact?.subject) === normalized(holder)
-                && normalized(fact?.predicate) === normalized(predicate));
+                && normalized(fact?.predicate) === normalized(predicate)
+                && (/^(?:knowledge boundary|knowledge gap)$/iu.test(cleanText(fact?.category))
+                    || EXPLICIT_KNOWLEDGE_NEGATION.test(cleanText(fact?.value))));
             if (!already) {
                 result.facts.push({
-                    targetId: '', subject: holder, predicate,
+                    targetId: cleanText(stored?.id), subject: holder, predicate,
                     value: `${holder} does not know that the current figure’s true identity is ${canonical.name}; the canonical memory label does not grant that knowledge.`,
-                    category: 'knowledge boundary', importance: 5, persistence: 'persistent',
+                    category: 'knowledge boundary', importance: 5, persistence: 'persistent', _knowledgeTransition: true,
                 });
                 recovered++;
             }
@@ -707,6 +781,43 @@ const PERSON_IDENTITY_ROLE = '(?:master|mentor|teacher|captain|commander|leader|
 const PERSON_IDENTITY_SPECIALIZATION = '(?:[\\p{L}\\p{N}-]+\\s+){0,3}';
 const DESCRIPTIVE_PERSON_IDENTITY = new RegExp(`^(.+?)[’']s\\s+((?:(?:former|dead|deceased|missing|unknown)\\s+)?${PERSON_IDENTITY_SPECIALIZATION}${PERSON_IDENTITY_ROLE})$`, 'iu');
 const GENERIC_PERSON_IDENTITY = new RegExp(`^(?:(?:the|an?)\\s+)?((?:(?:unknown|unnamed|unidentified|mysterious|missing)\\s+)?(?:(?:former|previous|prior|lost|missing|dead|deceased)\\s+)?${PERSON_IDENTITY_SPECIALIZATION}(${PERSON_IDENTITY_ROLE}))(?:\\s+of\\s+(.+))?$`, 'iu');
+const MIXED_OWNER_PERSON_IDENTITY = new RegExp(`^(.+?)[’']s\\s+((?:(?:former|previous|prior|lost|missing|dead|deceased|unknown|unnamed|unidentified)\\s+)?${PERSON_IDENTITY_SPECIALIZATION}${PERSON_IDENTITY_ROLE})\\s+of\\s+(.+)$`, 'iu');
+
+// A person-role placeholder must have one owner. Repair malformed extractor
+// output such as “A's former apprentice of B” to the grammatical “B's former
+// apprentice” before it can become a second, falsely owned entity.
+export function normalizeMixedOwnerPersonIdentities(result, world) {
+    if (!Array.isArray(result?.entities)) return 0;
+    const replacements = new Map();
+    for (const entity of result.entities) {
+        const previous = cleanText(entity?.name);
+        const match = previous.match(MIXED_OWNER_PERSON_IDENTITY);
+        if (!match) continue;
+        const role = cleanText(match[2]);
+        const owner = cleanText(canonicalMemorySubject(world, match[3]));
+        if (!role || !owner) continue;
+        const canonical = `${owner}’s ${role}`;
+        replacements.set(normalized(previous), canonical);
+        entity.name = canonical;
+        entity.aliases = (entity.aliases || []).filter(alias => normalized(alias) !== normalized(previous));
+    }
+    if (!replacements.size) return 0;
+    const replace = value => replacements.get(normalized(value)) || value;
+    for (const item of result.facts || []) item.subject = replace(item.subject);
+    for (const item of result.states || []) item.subject = replace(item.subject);
+    for (const item of result.relationships || []) {
+        item.from = replace(item.from);
+        item.to = replace(item.to);
+    }
+    for (const category of ['events', 'threads', 'backgrounds']) {
+        for (const item of result[category] || []) item.participants = (item.participants || []).map(replace);
+    }
+    for (const item of result.identityResolutions || []) {
+        item.reference = replace(item.reference);
+        item.canonical = replace(item.canonical);
+    }
+    return replacements.size;
+}
 
 function descriptivePersonIdentityContext(reference, world) {
     const possessive = cleanText(reference).match(DESCRIPTIVE_PERSON_IDENTITY);
@@ -723,6 +834,118 @@ function descriptivePersonIdentityContext(reference, world) {
     const owners = [...new Set([cleanText(generic[3]), ...relationshipOwners].filter(Boolean))];
     if (owners.length !== 1) return null;
     return { owner: owners[0], role: cleanText(generic[1]) };
+}
+
+function descriptiveRoleEvidencePattern(role) {
+    const value = cleanText(role);
+    const qualified = value.match(/\b((?:Jedi|Sith)\s+(?:master|apprentice|padawan))\b/iu)?.[1];
+    if (qualified) return new RegExp(`\\b${escaped(qualified)}\\b`, 'iu');
+    const tail = value.split(/\s+/u).at(-1);
+    return tail ? new RegExp(`\\b${escaped(tail)}\\b`, 'iu') : null;
+}
+
+function canonicalNameFromDescriptiveAlias(value) {
+    const original = cleanText(value);
+    if (!original) return '';
+    const withoutTitle = original.replace(/^(?:(?:Jedi|Sith)\s+)?(?:master|mentor|teacher|captain|commander|leader|handler|apprentice|student|padawan|pupil)\s+/iu, '');
+    const candidate = cleanText(withoutTitle || original);
+    if (!candidate || /^(?:the|an?|unknown|unnamed|unidentified|mysterious|missing|former|previous|prior|dead|deceased)$/iu.test(candidate)) return '';
+    if (/^(?:(?:Jedi|Sith)\s+)?(?:master|mentor|teacher|captain|commander|leader|handler|apprentice|student|padawan|pupil)$/iu.test(candidate)) return '';
+    return candidate;
+}
+
+// Some extractors correctly attach the revealed name as an alias but keep the
+// descriptive placeholder as the entity's primary name. Promote the unique,
+// source-established alias so all later records use the revealed identity.
+export function promoteExplicitDescriptiveEntityAliases(result, world, messages) {
+    if (!Array.isArray(result?.entities) || !Array.isArray(result?.identityResolutions)
+        || !Array.isArray(messages) || !messages.length) return 0;
+    let promoted = 0;
+    for (const entity of result.entities) {
+        const reference = cleanText(entity?.name);
+        const descriptor = descriptivePersonIdentityContext(reference, world);
+        if (!descriptor || !entityIsPersonLike(entity?.type)) continue;
+        const candidates = [...new Set((entity?.aliases || [])
+            .map(canonicalNameFromDescriptiveAlias)
+            .filter(name => name && normalized(name) !== normalized(reference)
+                && normalized(name) !== normalized(descriptor.owner)))];
+        const supported = candidates.filter(name => sourceSupportsNamedIdentity(
+            messages, descriptor.owner, descriptor.role, name,
+            (entity?.aliases || []).filter(alias => normalized(canonicalNameFromDescriptiveAlias(alias)) === normalized(name)),
+        ));
+        if (supported.length !== 1) continue;
+        const canonical = supported[0];
+        entity.name = canonical;
+        entity.aliases = [...new Set([reference, ...(entity.aliases || [])]
+            .map(cleanText).filter(alias => alias && normalized(alias) !== normalized(canonical)))];
+        if (!result.identityResolutions.some(item => normalized(item?.reference) === normalized(reference))) {
+            result.identityResolutions.push({
+                reference, canonical,
+                evidence: `${descriptor.owner} explicitly identifies ${reference} as ${canonical}.`,
+            });
+        }
+        promoted++;
+    }
+    return promoted;
+}
+
+// Resolve a descriptive relationship endpoint from already-established
+// canonical biography. This covers later model variants such as “A's former
+// Jedi Master” after the memory has already established one unique named Jedi
+// Master who trained A, without requiring the later excerpt to repeat the name.
+export function recoverEstablishedDescriptiveIdentityResolutions(result, world) {
+    if (!Array.isArray(result?.relationships) || !Array.isArray(result?.identityResolutions)) return 0;
+    const index = continuityEntityIndex(result, world);
+    const sourceEntities = [...(world?.entities || []), ...(result?.entities || [])];
+    const facts = [...(world?.facts || []), ...(result?.facts || [])];
+    const references = [...new Set(result.relationships.flatMap(item => [item?.from, item?.to]).map(cleanText).filter(Boolean))];
+    let recovered = 0;
+    for (const reference of references) {
+        if (result.identityResolutions.some(item => normalized(item?.reference) === normalized(reference))) continue;
+        const descriptor = descriptivePersonIdentityContext(reference, world);
+        if (!descriptor) continue;
+        const owner = canonicalMention(index, descriptor.owner);
+        const rolePattern = descriptiveRoleEvidencePattern(descriptor.role);
+        if (!personEntity(owner) || !rolePattern) continue;
+        const ownerPattern = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(owner.name)}(?:$|[^\\p{L}\\p{N}])`, 'iu');
+        const candidates = index.entities.filter(candidate => personEntity(candidate)
+            && normalized(candidate.name) !== normalized(owner.name)
+            && normalized(candidate.name) !== normalized(reference)
+            && (() => {
+                const subjectFacts = facts.filter(fact => normalized(canonicalMemorySubject({ ...(world || {}), entities: index.entities }, fact?.subject)) === normalized(candidate.name));
+                const candidateEntities = sourceEntities.filter(entity => normalized(entity?.name) === normalized(candidate.name));
+                const descriptions = candidateEntities.map(entity => entity?.description);
+                const evidenceItems = [...descriptions, ...subjectFacts.map(fact => `${cleanText(fact?.predicate)} ${cleanText(fact?.value)}`)].map(cleanText).filter(Boolean);
+                // The candidate itself must be established in the requested
+                // role. An incidental role mention is not identity evidence
+                // (for example, “a Sith who killed Toska's Jedi Master”).
+                const candidateHasRole = candidateEntities.some(entity => rolePattern.test(cleanText(entity?.type))
+                    || new RegExp(`^(?:deceased|late|former|previous|renowned|retired|missing|unknown|an?|the)?\\s*${rolePattern.source}`, 'iu').test(cleanText(entity?.description)))
+                    || subjectFacts.some(fact => rolePattern.test(cleanText(fact?.predicate))
+                        && /\b(?:is|was|served|role|designation|identity|occupation|rank)\b/iu.test(`${cleanText(fact?.predicate)} ${cleanText(fact?.value)}`));
+                if (!candidateHasRole) return false;
+                return evidenceItems.some(evidence => {
+                    if (!ownerPattern.test(evidence) || !rolePattern.test(evidence)) return false;
+                    const possessiveRole = new RegExp(`${escaped(owner.name)}[’']s[^.!?;]{0,80}${rolePattern.source}`, 'iu').exec(evidence);
+                    // “A Sith who killed Toska's former Jedi master” mentions
+                    // the role but does not make the Sith that master. A
+                    // possessive role is identity evidence only when it leads
+                    // the canonical description or is explicitly predicated
+                    // of the candidate.
+                    if (!possessiveRole) return /\b(?:train(?:ed|s|ing)?|teach(?:es|ing)?|taught|mentor(?:ed|s|ing)?|raise(?:d|s|ing)?|apprentice(?:d|s|ing)?)\b/iu.test(evidence);
+                    if (possessiveRole.index <= 5) return true;
+                    return new RegExp(`${escaped(candidate.name)}[^.!?;]{0,80}\\b(?:is|was|served as|became)\\b[^.!?;]{0,80}${escaped(possessiveRole[0])}`, 'iu').test(evidence);
+                });
+            })());
+        if (candidates.length !== 1) continue;
+        result.identityResolutions.push({
+            reference,
+            canonical: candidates[0].name,
+            evidence: `Established canonical biography uniquely identifies ${reference} as ${candidates[0].name}.`,
+        });
+        recovered++;
+    }
+    return recovered;
 }
 
 function exactDescriptiveIdentityRelationshipAnchor(world, reference, canonical, owner) {
@@ -757,7 +980,6 @@ function sourceSupportsNamedIdentity(messages, owner, role, canonical, aliases =
         if (!text || (COVERAGE_NON_ASSERTION.test(window) && !hasRoleApposition)) return false;
         const ownerPresent = !owners.length || owners.some(name => normalized(speaker) === normalized(name)
             || new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(name)}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(window));
-        if (!ownerPresent) return false;
         return candidates.some(name => {
             const candidate = escaped(name);
             const speculative = new RegExp(`(?:might|maybe|possibly|perhaps|suspects?|wonders?|whether)[^.!?]{0,100}${candidate}|${candidate}[^.!?]{0,100}(?:might|maybe|possibly|perhaps|suspects?|wonders?|whether)`, 'iu');
@@ -771,7 +993,10 @@ function sourceSupportsNamedIdentity(messages, owner, role, canonical, aliases =
             const requested = new RegExp(`\\b(?:name|identify|identity|who)\\b[^.!?]{0,100}\\b${roleWord}\\b|\\b${roleWord}\\b[^.!?]{0,100}\\b(?:name|identify|identity|who)\\b`, 'iu');
             const answered = requested.test(previous)
                 && new RegExp(`^[“\"']?${candidate}(?:[.!?,:”\"']|\\s|$)`, 'iu').test(text);
-            return explicit.test(text) || roleApposition.test(text) || answered;
+            // A direct “Name the apprentice.” → “Lucas Alcazar.” exchange
+            // identifies the already-anchored descriptive person even when
+            // the question uses only the role and omits the owner's full name.
+            return answered || (ownerPresent && (explicit.test(text) || roleApposition.test(text)));
         });
     });
 }
@@ -803,7 +1028,47 @@ export function recoverExplicitNamedIdentityResolutions(result, world, messages)
         const beatContext = result.sceneCapsule.beats.map(cleanText).join(' ');
         const ownerEntity = [...existing, ...incoming].find(entity => [entity?.name, ...(entity?.aliases || [])]
             .some(name => normalized(name) === normalized(owner)));
-        const ownerNames = [...new Set([owner, ...(ownerEntity?.aliases || [])].map(cleanText).filter(Boolean))];
+        const ownerTokens = cleanText(owner).split(/\s+/u).filter(token => token.length >= 3);
+        const uniqueOwnerTokens = ownerTokens.filter(token => {
+            const matches = new Set([...existing, ...incoming].filter(entity => entityIsPersonLike(entity?.type)
+                && cleanText(entity?.name).split(/\s+/u).some(part => normalized(part) === normalized(token)))
+                .map(entity => normalized(entity?.name)).filter(Boolean));
+            return matches.size === 1 && matches.has(normalized(ownerEntity?.name));
+        });
+        const ownerNames = [...new Set([owner, ...(ownerEntity?.aliases || []), ...uniqueOwnerTokens]
+            .map(cleanText).filter(Boolean))];
+        const directlyAnsweredNames = incoming.filter(entity => entityIsPersonLike(entity?.type)
+            && normalized(entity?.name) !== normalized(owner)
+            && normalized(entity?.name) !== normalized(reference)
+            && (messages || []).some((message, index, all) => {
+                const current = cleanText(message?.text ?? message?.mes);
+                const previous = cleanText(all[index - 1]?.text ?? all[index - 1]?.mes);
+                return new RegExp(`\\b(?:name|identify|identity|who)\\b[^.!?]{0,100}\\b${escaped(roleWord)}\\b|\\b${escaped(roleWord)}\\b[^.!?]{0,100}\\b(?:name|identify|identity|who)\\b`, 'iu').test(previous)
+                    && [entity.name, ...(entity.aliases || [])].some(name => new RegExp(
+                        `^[“\"']?${escaped(cleanText(name))}(?:[.!?,:”\"']|\\s|$)`, 'iu',
+                    ).test(current));
+            }));
+        const directAnswerBeat = directlyAnsweredNames.length === 1 && result.sceneCapsule.beats.find(rawBeat => {
+            const beat = cleanText(rawBeat);
+            const entity = directlyAnsweredNames[0];
+            const roleMatch = new RegExp(`\\b${escaped(roleWord)}\\b`, 'iu').exec(beat);
+            const namedAfterRole = roleMatch && [entity.name, ...(entity.aliases || [])].some(name => {
+                const match = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(cleanText(name))}(?:$|[^\\p{L}\\p{N}])`, 'iu').exec(beat);
+                return match && match.index > roleMatch.index;
+            });
+            return !COVERAGE_NON_ASSERTION.test(beat)
+                && /\b(?:identifies?|identified|names?|named|reveals?|revealed)\b/iu.test(beat)
+                && namedAfterRole;
+        });
+        if (directAnswerBeat) {
+            const canonical = cleanText(directlyAnsweredNames[0].name);
+            const duplicate = result.identityResolutions.some(item => normalized(item?.reference) === normalized(reference));
+            if (!duplicate) {
+                result.identityResolutions.push({ reference, canonical, evidence: cleanText(directAnswerBeat) });
+                recovered++;
+            }
+            continue;
+        }
         const referenceRelationships = (world?.relationships || []).filter(item =>
             [item?.from, item?.to].some(value => normalized(value) === normalized(reference))
             && [item?.from, item?.to].some(value => normalized(value) === normalized(owner)));
@@ -818,6 +1083,32 @@ export function recoverExplicitNamedIdentityResolutions(result, world, messages)
                 && [candidate?.name, ...(candidate?.aliases || [])].some(value => normalized(value) === normalized(other)));
             return roleCompatible && entity ? [cleanText(entity.name)] : [];
         }))];
+        const resolvedThreadNames = incoming.filter(entity => entityIsPersonLike(entity?.type)
+            && normalized(entity?.name) !== normalized(owner)
+            && normalized(entity?.name) !== normalized(reference)
+            && (result?.threads || []).some(thread => normalized(thread?.status) === 'resolved'
+                && textMentionsIdentityVariant(`${thread?.title || ''} ${thread?.detail || ''}`, [entity.name, ...(entity.aliases || [])])
+                && ownerNames.some(name => textMentionsIdentityVariant(`${thread?.title || ''} ${thread?.detail || ''}`, [name]))
+                && new RegExp(`\\b${escaped(roleWord)}\\b`, 'iu').test(`${thread?.title || ''} ${thread?.detail || ''}`)))
+            .filter(entity => (result?.facts || []).some(fact => {
+                const evidence = `${cleanText(fact?.subject)} ${cleanText(fact?.predicate)} ${cleanText(fact?.value)}`;
+                return !NON_CANONICAL_RELATIONSHIP_FACT.test(`${cleanText(fact?.predicate)} ${cleanText(fact?.category)}`)
+                    && new RegExp(`\\b${escaped(roleWord)}\\b`, 'iu').test(evidence)
+                    && ownerNames.some(name => textMentionsIdentityVariant(evidence, [name]))
+                    && textMentionsIdentityVariant(evidence, [entity.name, ...(entity.aliases || [])]);
+            }));
+        if (resolvedThreadNames.length === 1) {
+            const canonical = cleanText(resolvedThreadNames[0].name);
+            const duplicate = result.identityResolutions.some(item => normalized(item?.reference) === normalized(reference));
+            if (!duplicate) {
+                result.identityResolutions.push({
+                    reference, canonical,
+                    evidence: `Resolved identity continuity identifies ${reference} as ${canonical}.`,
+                });
+                recovered++;
+            }
+            continue;
+        }
         if (referenceRelationships.length && anchoredNames.length === 1) {
             const canonical = anchoredNames[0];
             const duplicate = result.identityResolutions.some(item => normalized(item?.reference) === normalized(reference));
@@ -1059,8 +1350,9 @@ export function recoverExplicitFutureCommitments(result, world, messages) {
     return recovered;
 }
 
-const EXPLICIT_RELATIONSHIP_FACT_ROLE = /\b(?:apprenticeship|apprentice|student|padawan|pupil|prot[eé]g[eé]|mentor|mentee|teacher|instructor|parent|mother|father|child|son|daughter|sibling|brother|sister|spouse|husband|wife|married|friend|ally|rival|enemy|attendant|retainer|servant|employer|employee|commander|subordinate|teammate|partner|captor|captive|prisoner|guardian|ward)\b/iu;
+const EXPLICIT_RELATIONSHIP_FACT_ROLE = /\b(?:apprenticeship|apprentices?|students?|padawans?|pupils?|prot[eé]g[eé]s?|mentors?|mentees?|teachers?|instructors?|parents?|mothers?|fathers?|children|sons?|daughters?|siblings?|brothers?|sisters?|spouses?|husbands?|wives|married|friends?|allies|rivals?|enemies|attendants?|retainers?|servants?|employers?|employees?|commanders?|subordinates?|teammates?|partners?|captors?|captives?|prisoners?|guardians?|wards?)\b/iu;
 const NON_CANONICAL_RELATIONSHIP_FACT = /\b(?:belief|claim|allegation|rumou?r|speculation|suspicion|intention|possibility|possible|possibly|perhaps|maybe|might|may be|whether|uncertain|unconfirmed|disputed|according to)\b/iu;
+const EXPLICIT_RELATIONSHIP_ASSERTION = /\b(?:is|was|are|were|became|becomes|served as|serves as|trained|trains|taught|teaches|mentored|mentors|married|befriended|allied with|captured|holds? as|employs?|commands?|guards?|raised)\b/iu;
 
 function personEntity(entity) {
     return Boolean(entity && cleanText(entity?.name) && entityIsPersonLike(entity?.type));
@@ -1075,9 +1367,12 @@ function explicitlyMentionedPeople(index, value) {
     });
 }
 
-function relationshipEvidenceMentionsPerson(person, value) {
+function relationshipEvidenceMentionsPerson(person, value, people = []) {
     const source = cleanText(value);
-    return [person?.name, ...(person?.aliases || [])].map(cleanText).filter(Boolean)
+    const uniqueNameParts = cleanText(person?.name).split(/\s+/u).filter(part => part.length >= 3
+        && people.filter(candidate => cleanText(candidate?.name).split(/\s+/u)
+            .some(candidatePart => normalized(candidatePart) === normalized(part))).length === 1);
+    return [person?.name, ...(person?.aliases || []), ...uniqueNameParts].map(cleanText).filter(Boolean)
         .some(name => new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(name)}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(source));
 }
 
@@ -1086,7 +1381,7 @@ function relationshipFactIsCorroborated(result, messages, people) {
         const source = cleanText(value);
         return EXPLICIT_RELATIONSHIP_FACT_ROLE.test(source)
             && !NON_CANONICAL_RELATIONSHIP_FACT.test(source)
-            && people.every(person => relationshipEvidenceMentionsPerson(person, source));
+            && people.every(person => relationshipEvidenceMentionsPerson(person, source, people));
     };
     if (Array.isArray(messages) && messages.length) {
         const rendered = message => message
@@ -1110,9 +1405,9 @@ function relationshipFactIsCorroborated(result, messages, people) {
 
 function relationshipKindFromFact(value) {
     const source = cleanText(value);
-    if (/\b(?:padawan)\b/iu.test(source)) return 'Jedi master and Padawan';
-    if (/\b(?:apprenticeship|apprentice)\b/iu.test(source)) return 'master and apprentice';
-    if (/\b(?:student|pupil|teacher|instructor)\b/iu.test(source)) return 'teacher and student';
+    if (/\bpadawans?\b/iu.test(source)) return 'Jedi master and Padawan';
+    if (/\b(?:apprenticeship|apprentices?)\b/iu.test(source)) return 'master and apprentice';
+    if (/\b(?:students?|pupils?|teachers?|instructors?)\b/iu.test(source)) return 'teacher and student';
     if (/\b(?:mentor|mentee|prot[eé]g[eé])\b/iu.test(source)) return 'mentor and protégé';
     if (/\b(?:parent|mother|father|child|son|daughter)\b/iu.test(source)) return 'parent and child';
     if (/\b(?:sibling|brother|sister)\b/iu.test(source)) return 'siblings';
@@ -1171,37 +1466,107 @@ export function recoverExplicitFactRelationships(result, world, messages = null)
         const value = cleanText(fact?.value);
         const core = relationshipAssertionCore(fact);
         const evidence = `${predicate}. ${value}`;
+        const relationalFraming = EXPLICIT_RELATIONSHIP_FACT_ROLE.test(`${predicate} ${category}`)
+            || EXPLICIT_RELATIONSHIP_ASSERTION.test(core);
         if (!value || /^(?:knowledge boundary|knowledge gap)$/iu.test(category)
             || !EXPLICIT_RELATIONSHIP_FACT_ROLE.test(evidence)
+            || !relationalFraming
             || NON_CANONICAL_RELATIONSHIP_FACT.test(`${predicate} ${category}`)
             || NON_CANONICAL_RELATIONSHIP_FACT.test(value)
             || normalized(fact?.persistence) === 'temporary') continue;
         const subject = canonicalMention(index, fact?.subject);
         const mentioned = explicitlyMentionedPeople(index, core);
         const people = [...new Map([subject, ...mentioned].filter(personEntity).map(person => [normalized(person.name), person])).values()];
-        if (people.length !== 2 || !relationshipFactIsCorroborated(result, messages, people)) continue;
-        const candidate = { from: people[0].name, to: people[1].name };
-        const pairIdentity = resolvedRelationshipPairIdentity(result, candidate, { ...(world || {}), entities: index.entities });
-        if (!pairIdentity || result.relationships.some(item => resolvedRelationshipPairIdentity(result, item, world) === pairIdentity)) continue;
-        const stored = (world?.relationships || []).find(item => resolvedRelationshipPairIdentity(result, item, world) === pairIdentity);
-        if (stored && /^knowledge$/iu.test(category)) continue;
-        const migratedByIdentity = stored && (result?.identityResolutions || []).some(resolution =>
-            [stored?.from, stored?.to].some(endpoint => normalized(endpoint) === normalized(resolution?.reference))
-            && [candidate.from, candidate.to].some(endpoint => normalized(endpoint) === normalized(resolution?.canonical)));
-        if (migratedByIdentity) continue;
-        const description = relationshipDescriptionFromFact(fact, people);
-        const priorDescription = cleanText(stored?.dynamic);
-        const dynamic = priorDescription && coverageOverlap(priorDescription, description) < 3
-            ? `${priorDescription} ${description}`.slice(0, 1200)
-            : description;
+        const trainingList = personEntity(subject) && people.length > 2
+            && /\b(?:teach(?:es|ing)?|taught|train(?:s|ed|ing)?|mentor(?:s|ed|ing)?)\b/iu.test(value)
+            && EXPLICIT_RELATIONSHIP_FACT_ROLE.test(predicate);
+        const pairs = people.length === 2
+            ? [people]
+            : trainingList
+                ? people.filter(person => normalized(person.name) !== normalized(subject.name)).map(person => [subject, person])
+                : [];
+        for (const pair of pairs) {
+            if (!relationshipFactIsCorroborated(result, messages, trainingList ? people : pair)) continue;
+            const candidate = { from: pair[0].name, to: pair[1].name };
+            const pairIdentity = resolvedRelationshipPairIdentity(result, candidate, { ...(world || {}), entities: index.entities });
+            if (!pairIdentity || result.relationships.some(item => resolvedRelationshipPairIdentity(result, item, world) === pairIdentity)) continue;
+            const stored = (world?.relationships || []).find(item => resolvedRelationshipPairIdentity(result, item, world) === pairIdentity);
+            if (stored && /^knowledge$/iu.test(category)) continue;
+            const migratedByIdentity = stored && (result?.identityResolutions || []).some(resolution =>
+                [stored?.from, stored?.to].some(endpoint => normalized(endpoint) === normalized(resolution?.reference))
+                && [candidate.from, candidate.to].some(endpoint => normalized(endpoint) === normalized(resolution?.canonical)));
+            if (migratedByIdentity) continue;
+            let kind = cleanText(stored?.kind) || relationshipKindFromFact(evidence);
+            const pairDescriptions = pair.flatMap(person => [...(world?.entities || []), ...(result?.entities || [])]
+                .filter(entity => normalized(entity?.name) === normalized(person.name))
+                .map(entity => cleanText(entity?.description))).join(' ');
+            if (/\bJedi\s+master\b/iu.test(pairDescriptions) && /\bpadawan\b/iu.test(pairDescriptions)) kind = 'Jedi master and Padawan';
+            const description = trainingList
+                ? kind === 'Jedi master and Padawan'
+                    ? `${pair[0].name} trained ${pair[1].name} as a Jedi Padawan.`
+                    : `${pair[0].name} trained ${pair[1].name} as an apprentice or student.`
+                : relationshipDescriptionFromFact(fact, pair);
+            const priorDescription = cleanText(stored?.dynamic);
+            const dynamic = priorDescription && coverageOverlap(priorDescription, description) < 3
+                ? `${priorDescription} ${description}`.slice(0, 1200)
+                : description;
+            const historical = /\b(?:former|previous|prior|ex-|ended|deceased|dead|late)\b/iu.test(evidence)
+                || pair.some(person => entityIsEstablishedDead(person, result, world));
+            result.relationships.push({
+                targetId: cleanText(stored?.id),
+                from: cleanText(stored?.from) || pair[0].name,
+                to: cleanText(stored?.to) || pair[1].name,
+                kind,
+                status: cleanText(stored?.status) || (historical ? 'ended' : 'active'),
+                dynamic,
+                importance: Math.max(3, Math.min(5, Number(fact?.importance || stored?.importance || 3))),
+            });
+            recovered++;
+        }
+    }
+    return recovered;
+}
+
+function identityRoleRelationshipKind(role) {
+    const value = cleanText(role);
+    if (/\bpadawan\b/iu.test(value)) return 'Jedi master and Padawan';
+    if (/\bapprentice\b/iu.test(value)) return 'master and apprentice';
+    if (/\b(?:student|pupil)\b/iu.test(value)) return 'teacher and student';
+    if (/\b(?:mentor|prot[eé]g[eé])\b/iu.test(value)) return 'mentor and protégé';
+    if (/\b(?:jedi\s+master)\b/iu.test(value)) return 'Jedi master and Padawan';
+    if (/\b(?:master|teacher)\b/iu.test(value)) return 'master and student';
+    if (/\b(?:parent|mother|father)\b/iu.test(value)) return 'parent and child';
+    if (/\b(?:brother|sister|sibling)\b/iu.test(value)) return 'siblings';
+    return 'established personal relationship';
+}
+
+// A validated descriptive-person resolution also establishes the relationship
+// encoded by that description. This prevents a model from resolving “A's
+// former apprentice” to B while leaving only an entity merge and no A↔B
+// relationship in durable memory.
+function recoverIdentityResolutionRelationships(result, world) {
+    if (!Array.isArray(result?.identityResolutions) || !Array.isArray(result?.relationships)) return 0;
+    const index = continuityEntityIndex(result, world);
+    let recovered = 0;
+    for (const resolution of result.identityResolutions) {
+        const descriptor = descriptivePersonIdentityContext(resolution?.reference, world);
+        if (!descriptor) continue;
+        const owner = canonicalMention(index, descriptor.owner);
+        const canonical = canonicalMention(index, resolution?.canonical);
+        if (!personEntity(owner) || !personEntity(canonical)
+            || normalized(owner.name) === normalized(canonical.name)) continue;
+        const pair = resolvedRelationshipPairIdentity(result, { from: owner.name, to: canonical.name }, world);
+        if (!pair || [...(world?.relationships || []), ...result.relationships]
+            .some(item => resolvedRelationshipPairIdentity(result, item, world) === pair)) continue;
+        const historical = /\b(?:former|previous|prior|dead|deceased)\b/iu.test(descriptor.role);
+        const role = cleanText(descriptor.role).toLocaleLowerCase()
+            .replace(/\bjedi\b/giu, 'Jedi').replace(/\bsith\b/giu, 'Sith');
         result.relationships.push({
-            targetId: cleanText(stored?.id),
-            from: cleanText(stored?.from) || people[0].name,
-            to: cleanText(stored?.to) || people[1].name,
-            kind: cleanText(stored?.kind) || relationshipKindFromFact(evidence),
-            status: cleanText(stored?.status) || (/\b(?:former|previous|prior|ex-|ended|deceased|dead|late)\b/iu.test(evidence) ? 'ended' : 'active'),
-            dynamic,
-            importance: Math.max(3, Math.min(5, Number(fact?.importance || stored?.importance || 3))),
+            targetId: '', from: owner.name, to: canonical.name,
+            kind: identityRoleRelationshipKind(descriptor.role),
+            status: historical ? 'ended' : 'active',
+            dynamic: `${canonical.name} ${historical ? 'was' : 'is'} ${owner.name}'s ${role}.`,
+            importance: 4,
         });
         recovered++;
     }
@@ -1401,7 +1766,8 @@ export function recoverSourceGroundedCoverageRecords(result, world, messages) {
     return recovered;
 }
 
-const THREAD_GAP = /\b(?:not yet|has not|have not|had not|does not|do not|did not|is not|are not|was not|were not|continues? to|seek(?:s|ing)? to (?:determine|learn|discover|identify|find|decide|understand)|tr(?:y|ies|ied|ying) to (?:determine|learn|discover|identify|find|decide|understand)|unknown|unanswered|unresolved|undecided|pending|unconfirmed|incomplete|not (?:complete|completed|done|confirmed|established|disclosed|answered|accepted|met|delivered)|no (?:answer|decision|confirmation|evidence|proof)|neither\b[^.!?;]{0,160}\b(?:complete|completed|done|obtained|recovered)|lacks? (?:confirmation|evidence|proof|an answer)|awaits?|must (?:learn|discover|identify|find|decide|preserve|maintain|continue|keep)|still (?:required|needed|missing|pending|unresolved|unconfirmed)|remains? (?:unknown|unanswered|unresolved|undecided|missing|pending|unconfirmed|incomplete|open|hidden|concealed|undisclosed))\b/iu;
+const THREAD_GAP = /\b(?:not yet|never (?:told|learned|knew|disclosed|answered|explained|revealed|identified|confirmed|established)|has not|have not|had not|does not|do not|did not|is not|are not|was not|were not|continues? to|seek(?:s|ing)? to (?:determine|learn|discover|identify|find|decide|understand)|tr(?:y|ies|ied|ying) to (?:determine|learn|discover|identify|find|decide|understand)|unknown|unanswered|unresolved|undecided|pending|unconfirmed|incomplete|incoming|en route|on the way|on standby|ready (?:for|to)|prepared (?:for|to)|not (?:complete|completed|done|confirmed|established|disclosed|answered|accepted|met|delivered)|no (?:answer|decision|confirmation|evidence|proof)|no (?:confirmed|verified|established|identified|known)\b[^.!?;]{0,100}\b(?:identified|confirmed|verified|established|found|determined|known)|neither\b[^.!?;]{0,160}\b(?:complete|completed|done|obtained|recovered)|lacks? (?:confirmation|evidence|proof|an answer)|awaits?|must (?:learn|discover|identify|find|decide|preserve|maintain|continue|keep)|still (?:required|needed|missing|pending|unresolved|unconfirmed)|remains? (?:unknown|unanswered|unresolved|undecided|missing|pending|unconfirmed|incomplete|open|hidden|concealed|undisclosed))\b/iu;
+const THREAD_UNCERTAIN_ASSERTION = /\b(?:suspects?|believes?|thinks?|assumes?|speculates?|claims?|alleges?|may|might|possibly|perhaps|apparently|reportedly|unverified|uncorroborated|partially|partly|without (?:proof|evidence|confirmation)|provides? no (?:proof|evidence|confirmation))\b/iu;
 const THREAD_COMMITMENT_PENDING = /\b(?:must|will|shall|['’]ll|going to|plans? to|intends? to|promises? to|vows? to|prepar(?:e|es|ed|ing) to|en route|in transit|heading to|on (?:the )?way to|arrival (?:is )?expected|tomorrow|later|next (?:day|morning|afternoon|evening|night|week|month|year))\b/iu;
 const THREAD_IN_PROGRESS = /\b(?:begins?|began|start(?:s|ed|ing)?|ongoing|in progress|underway|continues?|continuing)\b/iu;
 const THREAD_RESOLUTION = /\b(?:answers?|answered|reveals?|revealed|discloses?|disclosed|identifies?|identified|learns?|learned|discovers?|discovered|finds?|found|recovers?|recovered|secures?|secured|logs?|logged|establishes?|established|returns?|returned|departs?|departed|leaves?|left|sets? out|set out|arrives?|arrived|reaches?|reached|enters?|entered|ends?|ended|meets?|met|contacts?|contacted|reports?|reported|delivers?|delivered|presents?|presented|completes?|completed|finishes?|finished|decides?|decided|chooses?|chose|accepts?|accepted|rejects?|rejected|defeats?|defeated|destroys?|destroyed|repairs?|repaired|opens?|opened|closes?|closed|fulfills?|fulfilled|obtains?|obtained|acquires?|acquired|now knows?)\b/iu;
@@ -1441,6 +1807,7 @@ function completedThreadEvidence(thread, value) {
 
 function threadEvidenceIsIncomplete(thread, evidence) {
     return THREAD_GAP.test(evidence)
+        || THREAD_UNCERTAIN_ASSERTION.test(evidence)
         || THREAD_COMMITMENT_PENDING.test(evidence)
         || (THREAD_IN_PROGRESS.test(evidence) && !/\b(?:meet|meeting|audience)\b/iu.test(cleanText(thread?.title)));
 }
@@ -1624,11 +1991,16 @@ export function reopenUnsupportedResolvedThreads(result, world, messages, modelR
         ].flatMap(threadEvidenceClauses);
         const topic = threadTopicTerms(`${baseline?.title || ''} ${baseline?.detail || ''}`, result, world);
         const specificAction = threadHasSpecificResolutionAction(baseline);
+        const multiTopicBaseline = Boolean(stored && THREAD_GAP.test(cleanText(stored?.detail))
+            && /\b(?:and|or|additional|circumstances|questions?|claims?|history|reasons?)\b/iu.test(cleanText(stored?.detail))
+            && topic.size >= 6);
+        const minimumTopicOverlap = specificAction ? 1 : multiTopicBaseline
+            ? Math.max(3, Math.ceil(topic.size * 0.45)) : 2;
         const supported = narrowedResolution || (!explicitUnfinished && cleanText(incoming?.detail).length <= 1800 && candidates.some((evidence, index) =>
             THREAD_RESOLUTION.test(evidence)
             && threadResolutionActionMatches(baseline, evidence)
             && threadResolutionActorMatches(baseline, evidence)
-            && termSetOverlap(topic, threadTopicTerms(evidence, result, world)) >= (specificAction ? 1 : 2)
+            && termSetOverlap(topic, threadTopicTerms(evidence, result, world)) >= minimumTopicOverlap
             && (!threadEvidenceIsIncomplete(baseline, evidence) || (index === 0 && historicalGapResolved))
             && (sourceSupportsThreadResolution(evidence, messages, baseline, world, result)
                 || (index === 0 && specificAction))));
@@ -1767,10 +2139,14 @@ export function reconcileExplicitlyResolvedThreads(result, world, messages) {
     return { resolved, warnings };
 }
 
-const IDENTITY_THREAD = /\b(?:identity|true name|real name|who (?:is|was|are|were))\b/iu;
+const IDENTITY_THREAD = /\b(?:identity|identif(?:y|ies|ied|ying)|true name|real name|who (?:is|was|are|were))\b/iu;
 const IDENTITY_RESIDUAL_GENERIC = new Set([
     ...THREAD_MATCH_STOP_WORDS,
     'identity', 'name', 'named', 'real', 'true', 'canonical', 'known', 'revealed', 'identified',
+    'ask', 'asked', 'asking', 'answer', 'answered', 'answering', 'become', 'became', 'becoming',
+    'background', 'before', 'circumstances', 'dead', 'deceased', 'explain', 'explained', 'former',
+    'give', 'given', 'history', 'jedi', 'know', 'knowing', 'knows', 'master', 'past', 'prior',
+    'role', 'roles', 'status', 'undisclosed', 'what', 'whether',
 ]);
 
 function identityResolutionMatchesThread(thread, resolution) {
@@ -1778,7 +2154,9 @@ function identityResolutionMatchesThread(thread, resolution) {
     const canonical = cleanText(resolution?.canonical);
     const title = cleanText(thread?.title);
     const text = `${title} ${thread?.detail || ''}`;
-    if (!reference || !canonical || !IDENTITY_THREAD.test(text)) return false;
+    // Identity resolution may answer a name question, but it must not close a
+    // broader biographical thread merely because its detail mentions identity.
+    if (!reference || !canonical || !IDENTITY_THREAD.test(title)) return false;
     if (/\bdoes not know that\b/iu.test(cleanText(thread?.detail))) {
         const holder = (thread?.participants || [])[0];
         const evidence = cleanText(resolution?.evidence);
@@ -1795,9 +2173,12 @@ function identityResolutionMatchesThread(thread, resolution) {
     return termSetOverlap(referenceTerms, threadTerms(title)) >= 2;
 }
 
-function identityThreadResidualDetail(incoming, resolution, world, result) {
+function identityThreadResidualDetail(incoming, resolution, world, result, messages = null) {
     const detail = cleanText(incoming?.detail);
     if (!detail || !THREAD_GAP.test(detail)) return '';
+    const residualQuestion = /\b(?:fate|what became|what happened|later life|subsequent history)\b/iu;
+    if (Array.isArray(messages) && residualQuestion.test(detail)
+        && !messages.some(message => residualQuestion.test(cleanText(message?.text ?? message?.mes)))) return '';
     const entityTerms = new Set(recoveryEntities(result, world).flatMap(entity => entity.variants)
         .flatMap(value => [...coverageTerms(value)]));
     for (const value of [resolution?.reference, resolution?.canonical]) {
@@ -1807,7 +2188,18 @@ function identityThreadResidualDetail(incoming, resolution, world, result) {
     return topical.length >= 2 ? detail : '';
 }
 
-export function reconcileResolvedIdentityThreads(result, world) {
+function identityResidualSuccessorDetail(detail, resolution, thread) {
+    const canonical = cleanText(resolution?.canonical);
+    const participants = (thread?.participants || []).map(cleanText)
+        .filter(name => name && normalized(name) !== normalized(canonical));
+    const holder = participants[0] || 'The involved characters';
+    if (/\b(?:fate|what became|what happened|later life|subsequent history)\b/iu.test(detail)) {
+        return `The identity is resolved as ${canonical}; ${holder} still lacks the separately requested later fate or subsequent history.`;
+    }
+    return cleanText(detail);
+}
+
+export function reconcileResolvedIdentityThreads(result, world, messages = null) {
     if (!Array.isArray(result?.threads) || !Array.isArray(result?.identityResolutions)) return 0;
     let resolved = 0;
     for (const resolution of result.identityResolutions) {
@@ -1815,7 +2207,7 @@ export function reconcileResolvedIdentityThreads(result, world) {
             && identityResolutionMatchesThread(item, resolution))) {
             const incoming = incomingThreadFor(result, thread);
             if (incoming?.status && incoming.status !== 'open') continue;
-            const residualDetail = incoming ? identityThreadResidualDetail(incoming, resolution, world, result) : '';
+            const residualDetail = incoming ? identityThreadResidualDetail(incoming, resolution, world, result, messages) : '';
             const resolvedRecord = incoming || {};
             Object.assign(resolvedRecord, {
                 targetId: thread.id,
@@ -1829,7 +2221,7 @@ export function reconcileResolvedIdentityThreads(result, world) {
             if (residualDetail) result.threads.push({
                 targetId: '',
                 title: `Unresolved circumstances surrounding ${cleanText(resolution.canonical)}`.slice(0, 160),
-                detail: residualDetail,
+                detail: identityResidualSuccessorDetail(residualDetail, resolution, thread),
                 status: 'open',
                 participants: [...new Set([...(thread.participants || []), cleanText(resolution.canonical)].filter(Boolean))],
                 importance: thread.importance || 3,
@@ -1937,7 +2329,9 @@ function latestStructuredPositions(messages) {
 function entityIsEstablishedDead(entity, result, world) {
     const name = cleanText(entity?.name);
     if (!name) return false;
-    if (/\b(?:dead|deceased)\b/iu.test(`${cleanText(entity?.type)} ${cleanText(entity?.description)}`)) return true;
+    const canonicalRecords = [entity, ...(world?.entities || []), ...(result?.entities || [])]
+        .filter(item => normalized(item?.name) === normalized(name));
+    if (canonicalRecords.some(item => /\b(?:dead|deceased)\b/iu.test(`${cleanText(item?.type)} ${cleanText(item?.description)}`))) return true;
     return [...(world?.states || []), ...(result?.states || [])].some(item =>
         normalized(item?.subject) === normalized(name)
         && /\b(?:condition|status|life|alive|health)\b/iu.test(cleanText(item?.attribute))
@@ -2005,8 +2399,8 @@ const AUDIT_ROLE_IDENTITY = /\b(?:rank|role|position|title|office|designation)\b
 const AUDIT_TEMPORAL_TRANSITION = /\b(?:former|previous|prior|now|currently|became|becomes|promoted|demoted|appointed|retired|replaced|succeeded)\b/iu;
 const AUDIT_ATTRIBUTED_CATEGORY = /^(?:(?:(?:former\s+)?character|attributed|subjective|unconfirmed|disputed|alleged|rumou?red)\s+)?(?:belief|claim|allegation|rumou?r|report|suspicion|speculation|perspective|uncertainty)\b/iu;
 const AUDIT_ATTRIBUTED_PREDICATE = /^(?:belief|claim|allegation|rumou?r|report|suspicion|speculation|perspective) about\s/iu;
-const AUDIT_ATTRIBUTION_VERB = /\b(?:believes?|believed|claims?|claimed|alleges?|alleged|reports?|reported|rumou?rs?|rumou?red|suspects?|suspected|speculates?|speculated|thinks?|thought|assumes?|assumed|infers?|inferred|concludes?|concluded|remembers?|remembered|recalls?|recalled|says?|said|tells?|told|states?|stated|insists?|insisted|argues?|argued)\b/iu;
-const AUDIT_ACTIVE_ATTRIBUTION_VERB = /(?:believes?|believed|claims?|claimed|alleges?|alleged|reports?|reported|rumou?rs?|rumou?red|suspects?|suspected|speculates?|speculated|thinks?|thought|assumes?|assumed|infers?|inferred|concludes?|concluded|remembers?|remembered|recalls?|recalled|says?|said|states?|stated|insists?|insisted|argues?|argued)/iu;
+const AUDIT_ATTRIBUTION_VERB = /\b(?:believes?|believed|claims?|claimed|alleges?|alleged|reports?|reported|rumou?rs?|rumou?red|suspects?|suspected|speculates?|speculated|thinks?|thought|assumes?|assumed|infers?|inferred|concludes?|concluded|remembers?|remembered|recalls?|recalled|says?|said|tells?|told|states?|stated|reveals?|revealed|discloses?|disclosed|explains?|explained|informs?|informed|insists?|insisted|argues?|argued)\b/iu;
+const AUDIT_ACTIVE_ATTRIBUTION_VERB = /(?:believes?|believed|claims?|claimed|alleges?|alleged|reports?|reported|rumou?rs?|rumou?red|suspects?|suspected|speculates?|speculated|thinks?|thought|assumes?|assumed|infers?|inferred|concludes?|concluded|remembers?|remembered|recalls?|recalled|says?|said|states?|stated|reveals?|revealed|discloses?|disclosed|explains?|explained|informs?|informed|insists?|insisted|argues?|argued)/iu;
 const AUDIT_SOURCE_SUBJECTIVE = /(?:[“”"]|\b(?:i|we)\s+(?:say|said|tell|told|claim|claimed|state|stated|insist|insisted|argue|argued|believe|believed|think|thought|suspect|suspected|remember|remembered|recall|recalled)\b|\b(?:according to|in (?:his|her|their|my|our) (?:view|memory|belief)|appears?|appeared|seems?|seemed|probably|possibly|perhaps|maybe|might|unconfirmed|disputed)\b|\b(?:belief|claim|allegation|rumou?r|report|record|dossier|testimony|perspective|inference|conclusion|memory)\b)/iu;
 const AUDIT_SOURCE_AUTHORITATIVE = /\bOOC\s*:\s*(?:correction|canon|canonical|fact|established|actually|retcon)\b/iu;
 const AUDIT_HISTORICAL_RELATIONSHIP = /\b(?:former|previous|prior|once|used to|had been|was|were|trained|raised|parent|apprentice|student|mentor)\b/iu;
@@ -2080,6 +2474,64 @@ export function normalizeEpistemicFactShapes(result, world) {
     return normalizedFacts;
 }
 
+function repairTopicKnowledgeAsHolder(result, world) {
+    if (!Array.isArray(result?.facts)) return 0;
+    const index = continuityEntityIndex(result, world);
+    let repaired = 0;
+    for (const fact of result.facts) {
+        if (normalized(fact?.category) !== 'character belief') continue;
+        const match = cleanText(fact?.predicate).match(/^belief about\s+(.+?)\s+[—–-]\s+knowledge of\s+(.+)$/iu);
+        if (!match || !/^(?:(?:now|still|already)\s+)?(?:knows?|learns?|learned|has learned|recognizes?|remembers?|recalls?)\b/iu.test(cleanText(fact?.value))) continue;
+        const topic = canonicalMention(index, cleanText(match[1]));
+        const holder = canonicalMention(index, fact?.subject);
+        if (!personEntity(topic) || normalized(topic.name) === normalized(holder?.name)) continue;
+        fact.subject = topic.name;
+        fact.predicate = `knowledge of ${cleanText(match[2])}`;
+        fact.category = 'knowledge';
+        fact.targetId = '';
+        repaired++;
+    }
+    return repaired;
+}
+
+function trimCrossHolderAttributedClauses(result, world) {
+    if (!Array.isArray(result?.facts)) return 0;
+    const index = continuityEntityIndex(result, world);
+    let trimmed = 0;
+    for (const fact of result.facts) {
+        if (!AUDIT_ATTRIBUTED_CATEGORY.test(cleanText(fact?.category))) continue;
+        const holder = canonicalMention(index, fact?.subject);
+        const clauses = cleanText(fact?.value).split(/(?<=[.!?])\s+/u).filter(Boolean);
+        if (!personEntity(holder) || clauses.length < 2) continue;
+        const retained = [clauses[0]];
+        for (const clause of clauses.slice(1)) {
+            const other = index.entities.filter(personEntity).find(entity => normalized(entity.name) !== normalized(holder.name)
+                && [entity.name, ...(entity.aliases || [])].some(name => new RegExp(
+                    `^${escaped(cleanText(name))}\\s+(?:(?:now|still|additionally|also|already|privately)\\s+){0,3}(?:knows?|learns?|hears?|believes?|thinks?|recognizes?|rejects?|accepts?)\\b`, 'iu',
+                ).test(clause)));
+            if (other) {
+                trimmed++;
+                continue;
+            }
+            retained.push(clause);
+        }
+        fact.value = retained.join(' ');
+    }
+    return trimmed;
+}
+
+// Coverage models sometimes turn a character's inference clause into an
+// objective designation, e.g. “that Alice is building a hidden network”. A
+// subordinate “that …” clause is not itself a role/title assertion and must
+// not enter durable identity memory under the validator-generated predicate.
+function discardMalformedEstablishedDesignationFacts(result) {
+    if (!Array.isArray(result?.facts)) return 0;
+    const before = result.facts.length;
+    result.facts = result.facts.filter(fact => normalized(fact?.predicate) !== 'established role or designation'
+        || !/^that\b/iu.test(cleanText(fact?.value)));
+    return before - result.facts.length;
+}
+
 // A knowledge record belongs to the character whose knowledge it states, not
 // to a different character who merely infers or claims that knowledge. Models
 // occasionally emit “Alice — knowledge of Bob: Cara concludes that Alice…”;
@@ -2094,6 +2546,10 @@ export function normalizeKnowledgeHolderContamination(result, world) {
             || !/^knowledge of\s+\S/iu.test(cleanText(fact?.predicate))) continue;
         const statedSubject = canonicalMention(index, fact?.subject);
         const value = cleanText(fact?.value);
+        if (/^(?:(?:now|still|already)\s+)?(?:knows?|learns?|learned|has learned|had learned|recognizes?|recognized|remembers?|remembered|recalls?|recalled|does not know|did not know|has not learned)\b/iu.test(value)) continue;
+        if (personEntity(statedSubject) && new RegExp(
+            `^${escaped(statedSubject.name)}\\s+(?:now\\s+)?learns?\\b`, 'iu',
+        ).test(value)) continue;
         const attribution = value.match(AUDIT_ATTRIBUTION_VERB);
         const actorWindow = attribution?.index == null ? '' : value.slice(Math.max(0, attribution.index - 120), attribution.index);
         const explicitHolder = entityNamedBeforeAttributionVerb(index, value)
@@ -2110,6 +2566,204 @@ export function normalizeKnowledgeHolderContamination(result, world) {
         normalizedFacts++;
     }
     return normalizedFacts;
+}
+
+function discardMisownedQuestionKnowledgeFacts(result, world) {
+    if (!Array.isArray(result?.facts)) return 0;
+    const index = continuityEntityIndex(result, world);
+    const before = result.facts.length;
+    result.facts = result.facts.filter(fact => {
+        if (normalized(fact?.category) !== 'knowledge'
+            || !/^knowledge of\s+\S/iu.test(cleanText(fact?.predicate))) return true;
+        const statedSubject = canonicalMention(index, fact?.subject);
+        const value = cleanText(fact?.value);
+        const leadingActor = index.entities.filter(personEntity).map(entity => {
+            const positions = [entity.name, ...(entity.aliases || [])].map(cleanText).filter(Boolean).map(name => {
+                const match = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(name)}(?:$|[^\\p{L}\\p{N}])`, 'iu').exec(value.slice(0, 120));
+                return match ? match.index : Number.POSITIVE_INFINITY;
+            });
+            return { entity, position: Math.min(...positions) };
+        }).filter(item => Number.isFinite(item.position)).sort((left, right) => left.position - right.position)[0]?.entity;
+        if (!personEntity(statedSubject) || !personEntity(leadingActor)
+            || normalized(statedSubject.name) === normalized(leadingActor.name)) return true;
+        // Questions and requests describe the leading actor's uncertainty;
+        // they cannot establish what another person knows merely because that
+        // other person is mentioned as the topic of the question.
+        return !/\b(?:asks?|asked|questions?|questioned|wonders?|wondered|seeks? to (?:learn|know|understand)|tries? to (?:learn|know|understand))\b/iu.test(value);
+    });
+    return before - result.facts.length;
+}
+
+function discardMismatchedKnowledgeTopicFacts(result, world) {
+    if (!Array.isArray(result?.facts)) return 0;
+    const index = continuityEntityIndex(result, world);
+    const mentionVariants = entity => {
+        const uniqueParts = cleanText(entity?.name).split(/\s+/u).filter(part => part.length >= 3
+            && index.entities.filter(candidate => cleanText(candidate?.name).split(/\s+/u)
+                .some(candidatePart => normalized(candidatePart) === normalized(part))).length === 1);
+        return [entity?.name, ...(entity?.aliases || []), ...uniqueParts];
+    };
+    const before = result.facts.length;
+    result.facts = result.facts.filter(fact => {
+        if (normalized(fact?.category) !== 'knowledge') return true;
+        const topicText = cleanText(fact?.predicate).match(/^knowledge of\s+(.+)$/iu)?.[1];
+        if (topicText && descriptivePersonIdentityContext(topicText, world)) return true;
+        const topic = topicText ? (index.entities.find(entity => [entity?.name, ...(entity?.aliases || [])]
+            .some(name => normalized(name) === normalized(topicText))) || canonicalMention(index, topicText)) : null;
+        const holder = canonicalMention(index, fact?.subject);
+        const value = cleanText(fact?.value);
+        if (!topic || !value || textMentionsIdentityVariant(value, [topic.name, ...(topic.aliases || [])])) return true;
+        const otherEntities = index.entities.filter(entity => normalized(entity?.name) !== normalized(holder?.name)
+            && normalized(entity?.name) !== normalized(topic.name)
+            && textMentionsIdentityVariant(value, mentionVariants(entity)));
+        return otherEntities.length === 0;
+    });
+    return before - result.facts.length;
+}
+
+// Resolve unambiguous relational descriptions in knowledge predicates through
+// the relationship ledger. This keeps “her former master” and the established
+// canonical person in one record without mapping the possessive owner to the
+// owned role.
+export function normalizeRelationalKnowledgeTopics(result, world) {
+    if (!Array.isArray(result?.facts)) return 0;
+    const index = continuityEntityIndex(result, world);
+    const relationships = [...(result?.relationships || []), ...(world?.relationships || [])];
+    let normalizedFacts = 0;
+    for (const fact of result.facts) {
+        if (fact?.correctionId || normalized(fact?.category) !== 'knowledge') continue;
+        const match = cleanText(fact?.predicate).match(/^knowledge of\s+(?:(her|his|their)|(.+?)[’']s)\s+((?:former|previous|prior|dead|deceased|missing|unknown|unnamed|unidentified)?\s*(?:jedi\s+|sith\s+)?(?:master|mentor|teacher|captain|commander|leader|handler|apprentice|student|padawan|pupil|parent|mother|father|brother|sister))(?:[’']s\s+(?:true\s+|real\s+)?identity)?$/iu);
+        if (!match) continue;
+        const holder = canonicalMention(index, fact?.subject);
+        const namedOwner = cleanText(match[2]);
+        if (!personEntity(holder) || (namedOwner && normalized(namedOwner) !== normalized(holder.name))) continue;
+        const roleWord = cleanText(match[3]).split(/\s+/u).at(-1);
+        const candidates = relationships.flatMap(relationship => {
+            const from = canonicalMention(index, relationship?.from);
+            const to = canonicalMention(index, relationship?.to);
+            if (!personEntity(from) || !personEntity(to)) return [];
+            const other = normalized(from.name) === normalized(holder.name) ? to
+                : normalized(to.name) === normalized(holder.name) ? from : null;
+            // Match the declared relationship type, not incidental mentions of
+            // somebody else's role inside the descriptive prose.
+            if (!other || !new RegExp(`\\b${escaped(roleWord)}\\b`, 'iu').test(cleanText(relationship?.kind))) return [];
+            return [other.name];
+        });
+        const unique = [...new Set(candidates.map(cleanText).filter(Boolean))];
+        if (unique.length !== 1) continue;
+        fact.predicate = `knowledge of ${unique[0]}`;
+        if (Object.hasOwn(fact, 'targetId') && !fact._knowledgeTransition) fact.targetId = '';
+        normalizedFacts++;
+    }
+    return normalizedFacts;
+}
+
+// Schema/taxonomy labels occasionally leak into a knowledge predicate after an
+// em dash (for example “knowledge of Alice — IDENTITY_AND_HISTORY”). They do
+// not identify a different topic and must not defeat boundary reconciliation.
+export function normalizeKnowledgePredicateTaxonomy(result, world) {
+    if (!Array.isArray(result?.facts)) return 0;
+    const index = continuityEntityIndex(result, world);
+    let normalizedFacts = 0;
+    for (const fact of result.facts) {
+        if (!/^(?:knowledge|knowledge boundary|knowledge gap)$/iu.test(cleanText(fact?.category))) continue;
+        const match = cleanText(fact?.predicate).match(/^knowledge of\s+(.+?)\s+[—–-]\s+[A-Z][A-Z0-9_]{2,}$/u);
+        if (!match) continue;
+        const topicText = cleanText(match[1]);
+        const mentioned = canonicalMention(index, topicText);
+        const exactMention = mentioned && [mentioned.name, ...(mentioned.aliases || [])]
+            .some(value => normalized(value) === normalized(topicText));
+        const topic = exactMention ? mentioned.name : topicText;
+        const canonical = `knowledge of ${topic}`;
+        if (cleanText(fact.predicate) === canonical) continue;
+        fact.predicate = canonical;
+        if (Object.hasOwn(fact, 'targetId')) fact.targetId = '';
+        normalizedFacts++;
+    }
+    return normalizedFacts;
+}
+
+// Prefer an explicit knowledge boundary over a vague same-range summary that
+// conflates working for a governing body with membership in it. Preserve the
+// remainder of a compound summary instead of dropping the whole record.
+export function sanitizeKnowledgeMembershipOverclaims(result, world = null) {
+    if (!Array.isArray(result?.facts)) return 0;
+    const index = continuityEntityIndex(result, world);
+    const groups = new Map();
+    for (const fact of result.facts) {
+        if (!/^knowledge of\s+\S/iu.test(cleanText(fact?.predicate))) continue;
+        const topicText = cleanText(fact.predicate).replace(/^knowledge of\s+/iu, '');
+        const topic = canonicalMention(index, topicText)?.name || topicText;
+        const identity = `${normalized(fact?.subject)}|${normalized(topic)}`;
+        const group = groups.get(identity) || { facts: [], topic };
+        const values = group.facts;
+        values.push(fact);
+        groups.set(identity, group);
+    }
+    let repaired = 0;
+    const bodies = '(?:high\\s+)?(?:council|board|committee|cabinet|senate|parliament|court)';
+    for (const { facts, topic } of groups.values()) {
+        const explicitBoundaries = facts.filter(fact => /^(?:knowledge boundary|knowledge gap)$/iu.test(cleanText(fact?.category)));
+        const uncertainMembership = facts.filter(fact => normalized(fact?.category) === 'knowledge'
+            && (new RegExp(`\\b(?:possible|possibly|may|might|alleged|claimed|unconfirmed)[^.;]{0,80}\\b${bodies}\\b`, 'iu').test(cleanText(fact?.value))
+                || new RegExp(`\\b${bodies}\\b[^.;]{0,80}\\b(?:possible|possibly|may|might|alleged|claimed|unconfirmed)\\b`, 'iu').test(cleanText(fact?.value))));
+        const constraints = [...explicitBoundaries, ...uncertainMembership];
+        const positives = facts.filter(fact => normalized(fact?.category) === 'knowledge' && !uncertainMembership.includes(fact));
+        if (!constraints.length || !positives.length) continue;
+        const boundaryText = constraints.map(fact => cleanText(fact?.value)).join(' ');
+        const explicitMembershipGap = new RegExp(`\\b(?:did not know|didn't know|was not told|wasn't told|unaware)[^.;]{0,140}\\b(?:in|on|member(?:ship)?|seat|served)[^.;]{0,60}\\b${bodies}\\b`, 'iu').test(boundaryText);
+        const uncertainMembershipGap = uncertainMembership.length > 0;
+        if (!explicitMembershipGap && !uncertainMembershipGap) continue;
+        for (const fact of positives) {
+            const before = cleanText(fact.value);
+            let after = before
+                .replace(new RegExp(`\\b(?:the\\s+)?${bodies}\\s*(?:(?:and|&)\\s+|,\\s*)`, 'giu'), '')
+                .replace(new RegExp(`\\b(?:an?\\s+)?(?:former\\s+)?${bodies}\\s+member(?:ship)?\\b(?:\\s*,?\\s*(?:and|&)\\s*)?`, 'giu'), '')
+                .replace(new RegExp(`\\b(?:his|her|their|the)\\s+${bodies}\\s+(?:membership|seat|service|history)\\b(?:\\s*,?\\s*(?:and|&)\\s*)?`, 'giu'), '');
+            after = cleanText(after).replace(/\s+([,.;])/gu, '$1');
+            if (!after || after === before) continue;
+            fact.value = after;
+            repaired++;
+        }
+        for (const resolution of result.identityResolutions || []) {
+            if (normalized(resolution?.canonical) !== normalized(topic)) continue;
+            const before = cleanText(resolution.evidence);
+            const after = cleanText(before.replace(
+                new RegExp(`\\b(?:an?\\s+)?(?:former\\s+)?${bodies}\\s+member(?:ship)?\\b(?:\\s*,?\\s*(?:and|&)\\s*)?`, 'giu'),
+                '',
+            )).replace(/\s+([,.;])/gu, '$1');
+            if (!after || after === before) continue;
+            resolution.evidence = after;
+            repaired++;
+        }
+    }
+    return repaired;
+}
+
+// Repair the narrow reversed extraction “A — knowledge of B: A identifies
+// herself as A.” That sentence records B learning A's stated identity.
+export function repairReversedSelfIdentificationKnowledge(result, world) {
+    if (!Array.isArray(result?.facts)) return 0;
+    const index = continuityEntityIndex(result, world);
+    let repaired = 0;
+    for (const fact of result.facts) {
+        if (normalized(fact?.category) !== 'knowledge'
+            || !/^knowledge of\s+\S/iu.test(cleanText(fact?.predicate))) continue;
+        const holder = canonicalMention(index, fact?.subject);
+        const topicText = cleanText(fact.predicate).replace(/^knowledge of\s+/iu, '');
+        const topic = canonicalMention(index, topicText);
+        if (!personEntity(holder) || !personEntity(topic)
+            || normalized(holder.name) === normalized(topic.name)) continue;
+        const reflexive = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(holder.name)}\\s+(?:identifies?|identified|introduces?|introduced|names?|named)\\s+(?:himself|herself|themself|themselves)\\s+as\\b`, 'iu');
+        const value = cleanText(fact?.value);
+        if (!reflexive.test(value)) continue;
+        fact.subject = topic.name;
+        fact.predicate = `knowledge of ${holder.name}`;
+        fact.value = `${topic.name} learns ${holder.name}’s stated identity: ${value}`;
+        fact.targetId = '';
+        repaired++;
+    }
+    return repaired;
 }
 
 function auditEvidenceThreshold(value) {
@@ -2220,14 +2874,48 @@ function relationshipBackedEntityDescription(result, world, entity, messages) {
         }
     }
     const candidates = [];
-    for (const relationship of [...(result?.relationships || []), ...(world?.relationships || [])]) {
+    const incomingRelationships = (result?.relationships || []).map(relationship => ({ relationship, stored: false }));
+    const storedRelationships = (world?.relationships || []).map(relationship => ({ relationship, stored: true }));
+    for (const { relationship, stored } of [...incomingRelationships, ...storedRelationships]) {
         if (![relationship?.from, relationship?.to].some(value => variants.has(normalized(value)))) continue;
         const relationshipReference = `${cleanText(relationship?.from)} ${cleanText(relationship?.to)} ${cleanText(relationship?.kind)} ${cleanText(relationship?.dynamic)}`;
-        if (sourceOnlySubjective(relationshipReference, messages)) continue;
+        // Stored relationships were already validated against their own source
+        // range. A later subjective discussion must not make that established
+        // role unusable as the entity's fallback description.
+        if (!stored && sourceOnlySubjective(relationshipReference, messages)) continue;
+        const canonicalName = cleanText(entity?.name);
+        const other = normalized(relationship?.from) === canonical
+            ? cleanText(relationship?.to) : cleanText(relationship?.from);
+        const dynamicText = cleanText(relationship?.dynamic);
+        const kindText = cleanText(relationship?.kind);
+        const rolePairs = [
+            ['Jedi Master', 'Padawan'], ['Sith Master', 'apprentice'], ['master', 'apprentice'],
+            ['mentor', 'student'], ['teacher', 'student'], ['captor', 'captive'],
+            ['employer', 'retainer'], ['mistress', 'attendant'], ['parent', 'child'],
+        ];
+        for (const [seniorRole, juniorRole] of rolePairs) {
+            if (!new RegExp(`\\b${escaped(seniorRole)}\\b`, 'iu').test(kindText)
+                || !new RegExp(`\\b${escaped(juniorRole)}\\b`, 'iu').test(kindText)) continue;
+            const canonicalPossessive = [...new Set([canonicalName, ...variants].map(cleanText).filter(Boolean))]
+                .map(value => `${escaped(value)}[’']s`).join('|');
+            const otherWasJunior = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(other)}\\s+(?:is|was|remains?|became)\\s+(?:${canonicalPossessive})(?:\\s+(?:former|personal))?\\s+${escaped(juniorRole)}\\b`, 'iu');
+            const otherWasPronounJunior = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(other)}\\s+(?:is|was|remains?|became)\\s+(?:his|her|their)(?:\\s+(?:former|personal))?\\s+${escaped(juniorRole)}\\b`, 'iu');
+            const otherWasJuniorOfSenior = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(other)}\\s+(?:is|was|remains?|became)\\s+(?:the\\s+)?${escaped(juniorRole)}\\s+of\\s+(?:the\\s+)?(?:[^.!?;]{0,50}\\s+)?${escaped(seniorRole)}\\b`, 'iu');
+            const canonicalWasSenior = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(canonicalName)}\\s+(?:is|was|remains?|became)\\s+${escaped(other)}[’']s(?:\\s+(?:former|personal))?\\s+${escaped(seniorRole)}\\b`, 'iu');
+            if (otherWasJunior.test(dynamicText) || otherWasPronounJunior.test(dynamicText)
+                || otherWasJuniorOfSenior.test(dynamicText) || canonicalWasSenior.test(dynamicText)) {
+                candidates.push(`${canonicalName} was ${other}’s ${seniorRole}.`);
+            }
+        }
         const dynamic = cleanText(relationship?.dynamic)
             .replace(/^Relationship between [^:]{2,180}:\s*/iu, '');
         for (const clause of dynamic.split(/\s*;\s*|(?<=[.!?])\s+/u).map(cleanText).filter(Boolean)) {
             if (![...variants].some(value => new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(value)}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(normalized(clause)))) continue;
+            // A relationship clause may mention both endpoints. It can serve
+            // as a biography only for its grammatical subject, never for a
+            // participant that appears solely as the object.
+            const subjectVariants = [...variants].map(value => escaped(value)).join('|');
+            if (!new RegExp(`^(?:(?:the|a|an)\\s+)?(?:${subjectVariants})(?:$|[^\\p{L}\\p{N}])`, 'iu').test(normalized(clause))) continue;
             if (AUDIT_ATTRIBUTION_VERB.test(clause)
                 || /\b(?:possibly|perhaps|maybe|might|uncertain|unconfirmed|disputed)\b/iu.test(clause)) continue;
             if (!/\b(?:is|was|serves?|served|remains?|became|killed|died|deceased|slain|former|master|mentor|teacher|apprentice|student|padawan|captor|captive|attendant|ally|enemy|rival|parent|child|spouse)\b/iu.test(clause)) continue;
@@ -2235,8 +2923,10 @@ function relationshipBackedEntityDescription(result, world, entity, messages) {
         }
     }
     return candidates.sort((left, right) => {
+        const beginsWithCanonical = value => new RegExp(`^${escaped(cleanText(entity?.name))}\\b`, 'iu').test(cleanText(value)) ? 1 : 0;
         const role = value => /\b(?:master|mentor|teacher|apprentice|student|padawan|captor|captive|attendant|parent|child|spouse)\b/iu.test(value) ? 1 : 0;
-        return role(right) - role(left) || right.length - left.length;
+        return beginsWithCanonical(right) - beginsWithCanonical(left)
+            || role(right) - role(left) || right.length - left.length;
     })[0] || '';
 }
 
@@ -2261,6 +2951,54 @@ export function recoverRelationshipBackedEntityDescriptions(result, world, messa
         recovered++;
     }
     return recovered;
+}
+
+export function enrichEntityDescriptionsFromEstablishedFacts(result, world) {
+    if (!Array.isArray(result?.entities) || !Array.isArray(result?.facts)) return 0;
+    let enriched = 0;
+    for (const entity of result.entities) {
+        const name = cleanText(entity?.name);
+        if (!name || !entityIsPersonLike(entity?.type)) continue;
+        const stored = (world?.entities || []).find(item => normalized(item?.name) === normalized(name));
+        const candidates = result.facts.filter(fact =>
+            normalized(canonicalMemorySubject({ ...(world || {}), entities: [...(world?.entities || []), ...result.entities] }, fact?.subject)) === normalized(name)
+            && !AUDIT_EPISTEMIC_CATEGORY.test(`${cleanText(fact?.predicate)} ${cleanText(fact?.category)}`)
+            && /\b(?:identity|history|role|rank|title|designation|affiliation|training)\b/iu.test(`${cleanText(fact?.predicate)} ${cleanText(fact?.category)}`)
+            && Number(fact?.importance || 0) >= 4
+            && cleanText(fact?.value)
+            && !AUDIT_SOURCE_SUBJECTIVE.test(cleanText(fact?.value)))
+            .sort((left, right) => coverageTerms(cleanText(right?.value)).size - coverageTerms(cleanText(left?.value)).size);
+        if (!candidates.length) continue;
+        const incomingDescription = cleanText(entity?.description);
+        const storedDescription = cleanText(stored?.description);
+        let description = !isDisputedEntityPlaceholder(storedDescription) ? storedDescription : '';
+        const appendSentence = (base, addition) => {
+            const left = cleanText(base);
+            const right = cleanText(addition);
+            if (!right) return left;
+            const separated = left && !/[.!?]$/u.test(left) ? `${left}.` : left;
+            const complete = /[.!?]$/u.test(right) ? right : `${right}.`;
+            return `${separated}${separated ? ' ' : ''}${complete}`.slice(0, 800);
+        };
+        if (!isDisputedEntityPlaceholder(incomingDescription)
+            && coverageOverlap(description, incomingDescription) < 4) {
+            description = appendSentence(description, incomingDescription);
+        }
+        for (const fact of candidates.slice(0, 2)) {
+            const value = cleanText(fact.value);
+            if (!value || coverageOverlap(description, value) >= Math.min(4, coverageTerms(value).size)) continue;
+            const predicate = cleanText(fact?.predicate);
+            const namePattern = new RegExp(`^(?:${escaped(name)}|he|she|they|it)(?:$|[^\\p{L}\\p{N}])`, 'iu');
+            const factSentence = namePattern.test(value) || !/^(?:is|was|serves?|served|became|remains?|held|holds?|trained|teaches?|taught|mentored|commands?|commanded)\b/iu.test(predicate)
+                ? value
+                : `${name} ${predicate} ${value}`;
+            description = appendSentence(description, factSentence);
+        }
+        if (!description || normalized(description) === normalized(entity?.description)) continue;
+        entity.description = description;
+        enriched++;
+    }
+    return enriched;
 }
 
 export function findSourceAttributionConflicts(result, world, messages) {
@@ -2315,6 +3053,13 @@ export function findSourceAttributionConflicts(result, world, messages) {
     for (const [index, relationship] of (result?.relationships || []).entries()) {
         const reference = `${cleanText(relationship?.from)} ${cleanText(relationship?.to)} ${cleanText(relationship?.kind)} ${cleanText(relationship?.dynamic)}`;
         if (!AUDIT_HISTORICAL_RELATIONSHIP.test(reference) || coverageTerms(reference).size < 5) continue;
+        const endpoints = new Set([relationship?.from, relationship?.to].map(normalized).filter(Boolean));
+        const identityBacked = (result?.identityResolutions || []).some(resolution => {
+            const descriptor = descriptivePersonIdentityContext(resolution?.reference, world);
+            return descriptor && endpoints.has(normalized(descriptor.owner))
+                && endpoints.has(normalized(resolution?.canonical));
+        });
+        if (identityBacked) continue;
         const pairIdentity = resolvedAuditPair(result, relationship);
         const threshold = auditEvidenceThreshold(reference);
         const storedSupport = (world?.relationships || []).some(item => resolvedAuditPair(result, item) === pairIdentity
@@ -3107,13 +3852,23 @@ export function reconciliationTargetIsCompatible(category, incoming, existing, w
         // allowed to claim Toska's ID merely because the names share a token.
         const incomingName = normalized(incoming?.name);
         const exactNames = [existing?.name, ...(existing?.aliases || [])].map(normalized).filter(Boolean);
-        if (!incomingName || !exactNames.includes(incomingName)) return false;
+        const validatedResolution = !exactNames.includes(incomingName) && (result?.identityResolutions || []).some(resolution =>
+            normalized(resolution?.canonical) === incomingName
+            && exactNames.includes(normalized(resolution?.reference)));
+        if (!incomingName || (!exactNames.includes(incomingName) && !validatedResolution)) return false;
         return entityTypesAreCompatible(incoming?.type, existing?.type);
     }
     if (category === 'facts') {
         if (isAddressFact(incoming) || isAddressFact(existing)) {
             const incomingIdentity = addressFactIdentity(incoming, world);
             return Boolean(incomingIdentity && incomingIdentity === addressFactIdentity(existing, world));
+        }
+        if (incoming?._knowledgeTransition && sameSubject(incoming?.subject, existing?.subject)) {
+            const existingBoundary = /^(?:knowledge boundary|knowledge gap)$/iu.test(cleanText(existing?.category))
+                || EXPLICIT_KNOWLEDGE_NEGATION.test(cleanText(existing?.value));
+            const incomingBoundary = /^(?:knowledge boundary|knowledge gap)$/iu.test(cleanText(incoming?.category))
+                || EXPLICIT_KNOWLEDGE_NEGATION.test(cleanText(incoming?.value));
+            if (existingBoundary !== incomingBoundary) return true;
         }
         return sameSubject(incoming?.subject, existing?.subject)
             && same(incoming?.predicate, existing?.predicate)
@@ -3195,36 +3950,58 @@ export function reconciliationTargetWasRejected(item) {
 export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const missingIdentityResolutions = !Array.isArray(result.identityResolutions);
     if (missingIdentityResolutions) result.identityResolutions = [];
+    normalizeMixedOwnerPersonIdentities(result, world);
     const normalizedIdentityReferences = normalizeIdentityResolutionReferences(result);
     const discardedIdentityResolutions = discardUnsupportedIdentityResolutions(result, world, messages);
     const normalizedEpistemicFacts = normalizeEpistemicFactShapes(result, world);
+    const repairedTopicKnowledgeHolders = repairTopicKnowledgeAsHolder(result, world);
+    const trimmedCrossHolderAttributedClauses = trimCrossHolderAttributedClauses(result, world);
+    let discardedMalformedDesignations = discardMalformedEstablishedDesignationFacts(result);
     const normalizedAddresses = normalizeDirectionalAddressFacts(result, world);
     const repairedAddresses = repairReversedAddressFacts(result, world, messages);
     const recovered = recoverExplicitAddressFacts(result, world, messages);
     const discardedAddressValues = removeCrossDirectionAddressContamination(result, world, messages);
     const recoveredAliases = recoverExplicitEntityAliases(result, messages);
+    const promotedDescriptiveAliases = promoteExplicitDescriptiveEntityAliases(result, world, messages);
     const recoveredBoundaries = recoverExplicitConcealmentBoundaries(result, world);
-    const normalizedKnowledgeHolders = normalizeKnowledgeHolderContamination(result, world);
+    const normalizedKnowledgePredicates = normalizeKnowledgePredicateTaxonomy(result, world);
+    const normalizedRelationalKnowledge = normalizeRelationalKnowledgeTopics(result, world);
+    let normalizedKnowledgeHolders = normalizeKnowledgeHolderContamination(result, world);
+    const repairedSelfIdentificationKnowledge = repairReversedSelfIdentificationKnowledge(result, world);
     const recoveredKnowledge = recoverExplicitPriorKnowledge(result, world, messages);
+    normalizedKnowledgeHolders += normalizeKnowledgeHolderContamination(result, world);
+    const discardedMisownedQuestionKnowledge = discardMisownedQuestionKnowledgeFacts(result, world);
+    const discardedMismatchedKnowledgeTopics = discardMismatchedKnowledgeTopicFacts(result, world);
+    const repairedRecoveredSelfIdentificationKnowledge = repairReversedSelfIdentificationKnowledge(result, world);
     const recoveredIdentities = recoverExplicitNamedIdentityResolutions(result, world, messages);
+    const recoveredEstablishedIdentities = recoverEstablishedDescriptiveIdentityResolutions(result, world);
     const canonicalizedIdentityReferences = canonicalizeResolvedIdentityReferences(result, world);
+    const supersededIdentityBoundaries = supersedeResolvedDescriptiveIdentityBoundaries(result, world);
+    const supersededSubjectIdentityUnknowns = supersedeResolvedSubjectIdentityUnknowns(result, world);
     const recoveredOocIdentityBoundaries = recoverExplicitOocIdentityBoundaries(result, world, messages);
     const normalizedIdentityEpistemicRiders = normalizeObjectiveIdentityEpistemicRiders(result, world);
     const discardedContradictedObjectFacts = discardContradictedObjectStateFacts(result, world, messages);
     const repairedRelationshipDescriptions = repairRelationshipPairDescriptionContamination(result, world);
+    const recoveredIdentityRelationships = recoverIdentityResolutionRelationships(result, world);
     const recoveredRelationshipEntityDescriptions = recoverRelationshipBackedEntityDescriptions(result, world, messages);
     const recoveredFactRelationships = recoverExplicitFactRelationships(result, world, messages);
+    const normalizedResolvedRelationalKnowledge = normalizeRelationalKnowledgeTopics(result, world);
+    const normalizedResolvedKnowledgePredicates = normalizeKnowledgePredicateTaxonomy(result, world);
+    const repairedKnowledgeMembershipOverclaims = sanitizeKnowledgeMembershipOverclaims(result, world);
     const reconciledHistoricalRelationships = reconcileHistoricalRelationshipLifecycles(result, world);
     const recoveredSceneCoverage = recoverSourceGroundedCoverageRecords(result, world, messages);
     const recoveredCommitments = recoverExplicitFutureCommitments(result, world, messages);
     const recoveredIdentityThreads = recoverExplicitIdentityBoundaryThreads(result, world);
-    const recoveredCoverage = recoveredFactRelationships + recoveredSceneCoverage + recoveredCommitments
+    const recoveredCoverage = recoveredEstablishedIdentities + recoveredIdentityRelationships + recoveredFactRelationships + recoveredSceneCoverage + recoveredCommitments
         + recoveredIdentityThreads + recoveredOocIdentityBoundaries;
+    // Recovery operates on model prose and can recreate a shape that an
+    // earlier validation pass just rejected; validate recovered facts too.
+    discardedMalformedDesignations += discardMalformedEstablishedDesignationFacts(result);
     const preservedResolvedThreads = preserveResolvedThreadHistory(result, world);
     const modelResolvedThreads = new Set((result?.threads || []).filter(thread => normalized(thread?.status) === 'resolved'));
     const resolvedCompletedThreads = resolveCompletedIncomingThreads(result);
     const reopenedUnsupportedThreads = reopenUnsupportedResolvedThreads(result, world, messages, modelResolvedThreads);
-    const reconciledIdentityThreads = reconcileResolvedIdentityThreads(result, world);
+    const reconciledIdentityThreads = reconcileResolvedIdentityThreads(result, world, messages);
     const reconciledThreads = reconcileExplicitlyResolvedThreads(result, world, messages);
     const normalizedRelationshipDescriptions = normalizeRelationshipDescriptions(result);
     const repairedStateOwners = repairStableStateOwners(result, world);
@@ -3235,6 +4012,9 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const discardedPronounAddresses = removeUnsupportedPronounAddressValues(result, messages, world);
     let ignored = discardedAddressValues + discardedUnsupportedAddresses + discardedPronounAddresses
         + discardedIdentityResolutions
+        + discardedMalformedDesignations
+        + discardedMisownedQuestionKnowledge
+        + discardedMismatchedKnowledgeTopics
         + discardedContradictedObjectFacts
         + removeInvalidAddressFacts(result) + Number(missingIdentityResolutions);
     ignored += removeUnsupportedSelfAddressFacts(result, messages, world);
@@ -3308,5 +4088,5 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
         ...localWarnings,
     ])].slice(0, 8);
     if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
-    return { ignored, recovered, recoveredAliases, recoveredBoundaries, normalizedKnowledgeHolders, recoveredKnowledge, recoveredIdentities, recoveredOocIdentityBoundaries, normalizedIdentityEpistemicRiders, normalizedIdentityReferences, discardedIdentityResolutions, canonicalizedIdentityReferences, discardedContradictedObjectFacts, repairedRelationshipDescriptions, recoveredRelationshipEntityDescriptions, recoveredFactRelationships, reconciledHistoricalRelationships, recoveredCommitments, recoveredIdentityThreads, recoveredCoverage, preservedResolvedThreads, reopenedUnsupportedThreads, reconciledThreads: Math.max(0, resolvedCompletedThreads - reopenedUnsupportedThreads) + reconciledIdentityThreads + reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, repairedStateOwners, reconciledStateTransitions, reconciledSceneParticipants, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, sourceAttributionConflicts, relationshipEndpointConflicts, localWarnings, diagnosticWarnings, warnings };
+    return { ignored, recovered, recoveredAliases, recoveredBoundaries, normalizedKnowledgePredicates: normalizedKnowledgePredicates + normalizedResolvedKnowledgePredicates, normalizedRelationalKnowledge: normalizedRelationalKnowledge + normalizedResolvedRelationalKnowledge, repairedKnowledgeMembershipOverclaims, repairedSelfIdentificationKnowledge: repairedSelfIdentificationKnowledge + repairedRecoveredSelfIdentificationKnowledge, repairedTopicKnowledgeHolders, trimmedCrossHolderAttributedClauses, normalizedKnowledgeHolders, recoveredKnowledge, recoveredIdentities, recoveredEstablishedIdentities, supersededIdentityBoundaries, recoveredOocIdentityBoundaries, normalizedIdentityEpistemicRiders, normalizedIdentityReferences, discardedIdentityResolutions, discardedMalformedDesignations, discardedMisownedQuestionKnowledge, discardedMismatchedKnowledgeTopics, canonicalizedIdentityReferences, discardedContradictedObjectFacts, repairedRelationshipDescriptions, recoveredRelationshipEntityDescriptions, recoveredIdentityRelationships, recoveredFactRelationships, reconciledHistoricalRelationships, recoveredCommitments, recoveredIdentityThreads, recoveredCoverage, preservedResolvedThreads, reopenedUnsupportedThreads, reconciledThreads: Math.max(0, resolvedCompletedThreads - reopenedUnsupportedThreads) + reconciledIdentityThreads + reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, repairedStateOwners, reconciledStateTransitions, reconciledSceneParticipants, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, sourceAttributionConflicts, relationshipEndpointConflicts, localWarnings, diagnosticWarnings, warnings };
 }

@@ -17,8 +17,11 @@ export const PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES = `Keep established facts 
 export const PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES = `${PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES}
 Knowledge is non-transitive: narration or others knowing something never means a character learned it. Attribute discovery, witnessing, overhearing, disclosure, concealment, and deception. Create one thread only for a consequential explicit gap involving concealment, misunderstanding, restricted access, or pending reveal; resolve it when closed. Mere solitary discovery does not require a thread.`;
 
-export const EPISTEMIC_MEMORY_RULES = `${PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES}
+export const PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES = `${PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES}
 For consequential ignorance, use a persistent fact: subject=holder; predicate="knowledge of TOPIC"; category="knowledge boundary"; value=unknown fact and absent disclosure. Update when learned; never retain stale negative boundaries. Record prior knowledge when a character identifies, recognizes, cites, or recalls canon; separate identity/rank from current status.`;
+
+export const EPISTEMIC_MEMORY_RULES = `${PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES}
+Work for a body is not membership. Entity descriptions retain roles.`;
 
 export const LEGACY_HIERARCHY_ATTRIBUTION_RULE = 'Preserve who believed, reported, suspected, or knew each uncertain claim. Never turn an unresolved or subjective claim into objective canon.';
 export const PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE = 'Preserve who believed, reported, suspected, or knew each uncertain claim. Never turn an unresolved or subjective claim into an established fact.';

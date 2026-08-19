@@ -1,4 +1,4 @@
-import { minimumReasoningEffort } from './model-compatibility.js?v=0.14.0-standalone.158';
+import { minimumReasoningEffort } from './model-compatibility.js?v=0.14.0-standalone.176';
 
 function normalizedMode(mode) {
     return ['off', 'minimum', 'default'].includes(mode) ? mode : 'off';
