@@ -128,7 +128,17 @@ function reconcileCanonicalKnowledgeFacts(world) {
         prior.sources = mergedSources(prior.sources || [], fact.sources || []);
         if (fact.temporalAnchorId) prior.temporalAnchorId = fact.temporalAnchorId;
     }
-    world.facts = retained;
+    const boundaryPredicateIdentity = value => {
+        const predicate = text(value);
+        const match = predicate.match(/^knowledge of\s+(.+?)(?:[’']s\s+|\s+[—–-]\s+)(?:(?:current|true|real|concealed)\s+)?(?:identity|true name|real name)$/iu);
+        if (!match) return key(predicate);
+        return `knowledge of ${key(canonicalMemorySubject(world, text(match[1])))}|identity`;
+    };
+    world.facts = deduplicateCanonicalRecords(retained, fact => {
+        const category = key(fact?.category);
+        if (fact?.correctionId || !['knowledge boundary', 'knowledge gap'].includes(category)) return '';
+        return `${key(canonicalMemorySubject(world, fact?.subject))}|${boundaryPredicateIdentity(fact?.predicate)}|knowledge-boundary`;
+    });
 }
 
 function escaped(value) {
@@ -366,6 +376,168 @@ function deduplicateCanonicalRecords(items, identity) {
     return result;
 }
 
+const SEMANTIC_RECORD_STOP_WORDS = new Set([
+    'about', 'after', 'again', 'also', 'and', 'are', 'because', 'been', 'being', 'but', 'current', 'currently',
+    'does', 'from', 'had', 'has', 'have', 'into', 'not', 'now', 'still', 'that', 'the', 'their', 'them', 'then',
+    'there', 'they', 'this', 'through', 'was', 'were', 'what', 'when', 'where', 'which', 'while', 'with', 'without',
+]);
+const SEMANTIC_RECORD_EQUIVALENTS = new Map([
+    ['concealed', 'conceal'], ['concealing', 'conceal'], ['hidden', 'conceal'], ['hiding', 'conceal'],
+    ['recognized', 'identify'], ['recognizes', 'identify'], ['recognizing', 'identify'], ['identity', 'identify'],
+    ['released', 'unrestrain'], ['releases', 'unrestrain'], ['releasing', 'unrestrain'], ['removed', 'unrestrain'],
+    ['removes', 'unrestrain'], ['removing', 'unrestrain'], ['unbound', 'unrestrain'], ['unclips', 'unrestrain'],
+    ['unclipped', 'unrestrain'], ['restraint', 'unrestrain'], ['restrained', 'unrestrain'],
+]);
+
+function semanticRecordToken(value) {
+    const canonical = SEMANTIC_RECORD_EQUIVALENTS.get(value);
+    if (canonical) return canonical;
+    if (!/^[a-z]{5,}$/u.test(value)) return value;
+    if (/ies$/u.test(value)) return `${value.slice(0, -3)}y`;
+    if (/ing$/u.test(value) && value.length > 6) return value.slice(0, -3).replace(/(.)\1$/u, '$1');
+    if (/ed$/u.test(value) && value.length > 5) return value.slice(0, -2).replace(/(.)\1$/u, '$1');
+    if (/es$/u.test(value) && value.length > 5) return value.slice(0, -2);
+    if (/s$/u.test(value) && !/(?:ss|sith)$/u.test(value)) return value.slice(0, -1);
+    return value;
+}
+
+function semanticRecordTerms(value, excluded = []) {
+    const ignored = new Set(excluded.flatMap(identityNameTokens).map(semanticRecordToken));
+    return new Set(identityNameTokens(value)
+        .map(semanticRecordToken)
+        .filter(token => token.length >= 3 && !SEMANTIC_RECORD_STOP_WORDS.has(token) && !ignored.has(token)));
+}
+
+function semanticRecordOverlap(left, right, excluded = []) {
+    const leftTerms = semanticRecordTerms(left, excluded);
+    const rightTerms = semanticRecordTerms(right, excluded);
+    const smaller = Math.min(leftTerms.size, rightTerms.size);
+    if (!smaller) return { shared: 0, containment: 0 };
+    const shared = [...leftTerms].filter(term => rightTerms.has(term)).length;
+    return { shared, containment: shared / smaller };
+}
+
+function semanticRecordIdentifiers(value) {
+    return [...new Set((key(value).match(/[\p{L}\p{N}_-]*\d+[\p{L}\p{N}_-]*/gu) || []))].sort().join('|');
+}
+
+function semanticRecordIdentifiersDiffer(left, right) {
+    const leftIds = semanticRecordIdentifiers(left);
+    const rightIds = semanticRecordIdentifiers(right);
+    return (leftIds || rightIds) && leftIds !== rightIds;
+}
+
+function participantIdentity(item) {
+    return [...new Set((item?.participants || []).map(key).filter(Boolean))].sort().join('|');
+}
+
+function sourceRangesTouch(left, right) {
+    return (left?.sources || []).some(a => (right?.sources || []).some(b => a?.chatKey && a.chatKey === b?.chatKey
+        && Number.isFinite(Number(a?.from)) && Number.isFinite(Number(a?.to))
+        && Number.isFinite(Number(b?.from)) && Number.isFinite(Number(b?.to))
+        && Number(a.from) <= Number(b.to) + 1 && Number(b.from) <= Number(a.to) + 1));
+}
+
+function compactSemanticRecords(items, duplicate, combine = mergeCanonicalDuplicates, bucket = null) {
+    const compacted = [];
+    const buckets = new Map();
+    let removed = 0;
+    for (const item of items || []) {
+        const bucketKey = bucket ? bucket(item) : '*';
+        const candidateIndexes = buckets.get(bucketKey) || [];
+        const index = candidateIndexes.find(candidateIndex => duplicate(compacted[candidateIndex], item)) ?? -1;
+        if (index < 0) compacted.push(item);
+        else {
+            compacted[index] = combine(compacted[index], item);
+            removed++;
+        }
+        if (index < 0) {
+            candidateIndexes.push(compacted.length - 1);
+            buckets.set(bucketKey, candidateIndexes);
+        }
+    }
+    return { items: compacted, removed };
+}
+
+function semanticTopicBucket(value, participants = []) {
+    const identifiers = semanticRecordIdentifiers(value);
+    if (identifiers) return `id:${identifiers}`;
+    const participantKey = [...new Set(participants.map(key).filter(Boolean))].sort().join('|');
+    if (participantKey) return `participants:${participantKey}`;
+    return `terms:${[...semanticRecordTerms(value)].sort().slice(0, 2).join('|')}`;
+}
+
+function semanticallyDuplicateThread(left, right) {
+    if (left?.correctionId || right?.correctionId) return false;
+    if (semanticRecordIdentifiersDiffer(`${left?.title} ${left?.detail}`, `${right?.title} ${right?.detail}`)) return false;
+    const leftParticipants = participantIdentity(left);
+    const rightParticipants = participantIdentity(right);
+    if (leftParticipants && rightParticipants && leftParticipants !== rightParticipants) return false;
+    const excluded = [...(left?.participants || []), ...(right?.participants || [])];
+    const title = semanticRecordOverlap(left?.title, right?.title, excluded);
+    const detail = semanticRecordOverlap(left?.detail, right?.detail, excluded);
+    return (title.shared >= 3 && title.containment >= 0.75)
+        || (title.shared >= 2 && title.containment >= 0.5 && detail.shared >= 6 && detail.containment >= 0.75);
+}
+
+function semanticallyDuplicateBackground(left, right) {
+    if (left?.correctionId || right?.correctionId) return false;
+    if (semanticRecordIdentifiersDiffer(`${left?.topic} ${left?.summary}`, `${right?.topic} ${right?.summary}`)) return false;
+    const topic = semanticRecordOverlap(left?.topic, right?.topic, [...(left?.participants || []), ...(right?.participants || [])]);
+    const summary = semanticRecordOverlap(left?.summary, right?.summary);
+    return (topic.shared >= 3 && topic.containment >= 0.75)
+        || (topic.shared >= 2 && topic.containment >= 0.6 && summary.shared >= 7 && summary.containment >= 0.75);
+}
+
+function semanticallyDuplicateAdjacentEvent(left, right) {
+    if (left?.correctionId || right?.correctionId || !sourceRangesTouch(left, right)) return false;
+    if (semanticRecordIdentifiersDiffer(`${left?.title} ${left?.summary}`, `${right?.title} ${right?.summary}`)) return false;
+    const leftParticipants = participantIdentity(left);
+    const rightParticipants = participantIdentity(right);
+    if (!leftParticipants || leftParticipants !== rightParticipants) return false;
+    const excluded = [...(left?.participants || []), ...(right?.participants || [])];
+    const content = semanticRecordOverlap(`${left?.title} ${left?.summary}`, `${right?.title} ${right?.summary}`, excluded);
+    const location = semanticRecordOverlap(left?.location, right?.location);
+    return content.shared >= 5 && content.containment >= 0.4
+        && (!text(left?.location) || !text(right?.location) || location.containment >= 0.5);
+}
+
+function mergeSemanticListRecord(left, right) {
+    const merged = mergeCanonicalDuplicates(left, right);
+    merged.participants = cleanList([...(left?.participants || []), ...(right?.participants || [])]);
+    merged.importance = Math.max(clampImportance(left?.importance), clampImportance(right?.importance));
+    return merged;
+}
+
+export function compactDuplicateMemoryRecords(world) {
+    let compacted = compactRepeatedEntityDescriptions(world);
+    reconcileCanonicalKnowledgeFacts(world);
+    const exactFacts = deduplicateCanonicalRecords(world?.facts, item => item?.correctionId ? ''
+        : addressFactIdentity(item, world) || `${key(canonicalMemorySubject(world, item?.subject))}|${key(item?.predicate)}|${key(item?.category)}`);
+    compacted += (world?.facts?.length || 0) - exactFacts.length;
+    world.facts = exactFacts;
+
+    const exactStates = deduplicateCanonicalRecords(world?.states, item => item?.correctionId ? '' : stateIdentity(world, item));
+    compacted += (world?.states?.length || 0) - exactStates.length;
+    world.states = exactStates;
+    const exactRelationships = deduplicateCanonicalRecords(world?.relationships, item => item?.correctionId ? '' : relationshipPairIdentity(item, world));
+    compacted += (world?.relationships?.length || 0) - exactRelationships.length;
+    world.relationships = exactRelationships;
+
+    const threads = compactSemanticRecords(world?.threads, semanticallyDuplicateThread, mergeSemanticListRecord,
+        item => semanticTopicBucket(`${item?.title} ${item?.detail}`, item?.participants || []));
+    world.threads = threads.items;
+    compacted += threads.removed;
+    const backgrounds = compactSemanticRecords(world?.backgrounds, semanticallyDuplicateBackground, mergeSemanticListRecord,
+        item => semanticTopicBucket(`${item?.topic} ${item?.summary}`, item?.participants || []));
+    world.backgrounds = backgrounds.items;
+    compacted += backgrounds.removed;
+    const events = compactSemanticRecords(world?.events, semanticallyDuplicateAdjacentEvent, mergeSemanticListRecord);
+    world.events = events.items;
+    compacted += events.removed;
+    return compacted;
+}
+
 export function normalizeAddressFacts(world) {
     reconcileGenericAddressDuplicates(world, world);
     removeInvalidAddressFacts(world);
@@ -453,13 +625,106 @@ function isAttributionFallbackDescription(value) {
 
 const STABLE_ENTITY_IDENTITY_DESCRIPTION = /\b(?:alias|appearance|apprentice|background|commander|council|formerly?|habit|identity|investigator|Jedi|master|member|mentor|Padawan|personality|quirk|rank|role|served|Sith|student|teacher|title|trained)\b/iu;
 const STRUCTURED_CHARACTER_PROFILE = /\b(?:Role\/background|Appearance|Personality\/quirks):/iu;
+const ENTITY_DESCRIPTION_STOP_WORDS = new Set([
+    'about', 'after', 'also', 'and', 'are', 'been', 'being', 'but', 'current', 'currently', 'for', 'former',
+    'formerly', 'from', 'had', 'has', 'have', 'her', 'hers', 'him', 'his', 'into', 'now', 'she', 'that',
+    'the', 'their', 'them', 'they', 'this', 'was', 'were', 'who', 'with', 'without', 'years',
+]);
+
+function entityDescriptionTerms(value, entityName = '') {
+    const entityTerms = new Set(identityNameTokens(entityName));
+    return new Set(identityNameTokens(value)
+        .filter(token => token.length >= 3 && !ENTITY_DESCRIPTION_STOP_WORDS.has(token) && !entityTerms.has(token)));
+}
+
+function repeatedIdentitySentence(left, right, entityName) {
+    if (!STABLE_ENTITY_IDENTITY_DESCRIPTION.test(left) || !STABLE_ENTITY_IDENTITY_DESCRIPTION.test(right)) return false;
+    const leftTerms = entityDescriptionTerms(left, entityName);
+    const rightTerms = entityDescriptionTerms(right, entityName);
+    const smaller = Math.min(leftTerms.size, rightTerms.size);
+    if (!smaller) return false;
+    const shared = [...leftTerms].filter(term => rightTerms.has(term));
+    const ratio = shared.length / smaller;
+    if (shared.length >= 3 && ratio >= 0.25) return true;
+    return shared.length >= 2 && ratio >= 0.5 && shared.some(term => IDENTITY_ROLE_TOKENS.has(term));
+}
+
+function compactRepeatedPersonDescription(value, entityName = '') {
+    const source = text(value);
+    if (!source || STRUCTURED_CHARACTER_PROFILE.test(source)) return source;
+    const sentences = source.split(/(?<=[.!?])\s+/u).map(text).filter(Boolean);
+    if (sentences.length < 2) return source;
+    const parent = sentences.map((_, index) => index);
+    const find = index => {
+        while (parent[index] !== index) {
+            parent[index] = parent[parent[index]];
+            index = parent[index];
+        }
+        return index;
+    };
+    const unite = (left, right) => {
+        const leftRoot = find(left);
+        const rightRoot = find(right);
+        if (leftRoot !== rightRoot) parent[rightRoot] = leftRoot;
+    };
+    for (let left = 0; left < sentences.length; left++) {
+        for (let right = left + 1; right < sentences.length; right++) {
+            const exact = key(sentences[left]).replace(/[^\p{L}\p{N}]+/gu, ' ')
+                === key(sentences[right]).replace(/[^\p{L}\p{N}]+/gu, ' ');
+            if (exact || repeatedIdentitySentence(sentences[left], sentences[right], entityName)) unite(left, right);
+        }
+    }
+    const groups = new Map();
+    for (let index = 0; index < sentences.length; index++) {
+        const root = find(index);
+        const members = groups.get(root) || [];
+        members.push(index);
+        groups.set(root, members);
+    }
+    const discard = new Set();
+    for (const members of groups.values()) {
+        const exactDuplicate = members.length >= 2 && members.some((left, index) => members.slice(index + 1).some(right =>
+            key(sentences[left]).replace(/[^\p{L}\p{N}]+/gu, ' ')
+            === key(sentences[right]).replace(/[^\p{L}\p{N}]+/gu, ' ')));
+        if (members.length < 3 && !exactDuplicate) continue;
+        for (const index of members.slice(1)) discard.add(index);
+    }
+    if (!discard.size) return source;
+    return sentences.filter((_, index) => !discard.has(index)).join(' ').slice(0, 800);
+}
+
+export function compactRepeatedEntityDescriptions(world) {
+    let compacted = 0;
+    for (const entity of world?.entities || []) {
+        const description = compactRepeatedPersonDescription(entity?.description, entity?.name);
+        if (description === text(entity?.description)) continue;
+        entity.description = description;
+        compacted++;
+    }
+    return compacted;
+}
 
 function mergeStableEntityDescription(priorValue, incomingValue, entityType = '') {
     const prior = text(priorValue);
     const incoming = text(incomingValue);
     if (!prior || isAttributionFallbackDescription(prior)) return incoming;
     if (!incoming || isAttributionFallbackDescription(incoming)) return prior;
-    if (entityIsPersonLike(entityType) && STRUCTURED_CHARACTER_PROFILE.test(incoming)) return incoming;
+    if (entityIsPersonLike(entityType)) {
+        if (STRUCTURED_CHARACTER_PROFILE.test(incoming)) return incoming;
+        if (STRUCTURED_CHARACTER_PROFILE.test(prior)) return prior;
+        // Canonical context already gives the extractor the prior biography.
+        // Replace paraphrased role sentences, but retain separate established
+        // identity/history sentences that the latest summary omitted.
+        const compactPrior = compactRepeatedPersonDescription(prior);
+        const incomingSentences = incoming.split(/(?<=[.!?])\s+/u).map(text).filter(Boolean);
+        let merged = incoming;
+        for (const clause of compactPrior.split(/(?<=[.!?])\s+/u).map(text).filter(Boolean)) {
+            if (!STABLE_ENTITY_IDENTITY_DESCRIPTION.test(clause)) continue;
+            if (incomingSentences.some(sentence => repeatedIdentitySentence(sentence, clause, ''))) continue;
+            merged = `${merged} ${clause}`.slice(0, 800);
+        }
+        return compactRepeatedPersonDescription(merged);
+    }
     const incomingTerms = new Set(identityNameTokens(incoming));
     let merged = incoming;
     for (const clause of prior.split(/(?<=[.!?])\s+/u).map(text).filter(Boolean)) {
@@ -786,6 +1051,7 @@ export function mergeExtraction(world, result, meta) {
     world.backgrounds ||= [];
     world.corrections ||= [];
     world.sources ||= {};
+    compactRepeatedEntityDescriptions(world);
     // Extraction-time attribution checks have already removed unsafe
     // relationships. Let the accepted canonical relationship restore a role
     // description if the model left the entity as a disputed placeholder.
@@ -997,6 +1263,8 @@ export function mergeExtraction(world, result, meta) {
             .map(Number)
             .filter(index => Number.isFinite(index) && !completedIndexes.has(index)),
     };
+
+    compactDuplicateMemoryRecords(world);
 
     return world;
 }

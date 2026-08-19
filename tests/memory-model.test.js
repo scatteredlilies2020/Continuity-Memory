@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildEmbeddingDocuments } from '../extension/embedding-index.js';
 import { EXTRACTION_VERSION } from '../extension/coverage.js';
-import { addDerivedArc, addDerivedEra, compactHierarchyFields, freshResetResiduals, getLatestL1UndoStatus, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from '../extension/memory-model.js';
+import { addDerivedArc, addDerivedEra, compactDuplicateMemoryRecords, compactHierarchyFields, compactRepeatedEntityDescriptions, freshResetResiduals, getLatestL1UndoStatus, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from '../extension/memory-model.js';
 import { buildMemoryPrompt, orderEventsChronologically } from '../extension/retrieval.js';
 import { sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
 
@@ -655,6 +655,123 @@ test('recurring character profiles survive sparse updates and accept complete re
     }), { chatKey: 'rp', from: 16, to: 23, allowStateUpdates: true });
 
     assert.equal(target.entities[0].description, 'Role/background: Toska’s trusted personal attendant; Appearance: short, round-cheeked, with uneven jaw-length black hair; Personality/quirks: earnest, increasingly confident, stammering, and prone to comic stumbles.');
+});
+
+test('unstructured person summaries replace paraphrases instead of accumulating them', () => {
+    const target = world();
+    mergeExtraction(target, extraction({
+        entities: [{
+            name: 'Toska', type: 'person', aliases: [], importance: 4,
+            description: 'Captive Jedi Padawan formerly trained by Caelen Veyr; she endured years of concealment and flight.',
+        }],
+    }), { chatKey: 'rp', from: 0, to: 7, allowStateUpdates: true });
+    mergeExtraction(target, extraction({
+        entities: [{
+            name: 'Toska', type: 'person', aliases: [], importance: 4,
+            description: 'Captured Jedi Padawan and former refugee child, trained primarily in Soresu by Caelen Veyr.',
+        }],
+    }), { chatKey: 'rp', from: 8, to: 15, allowStateUpdates: true });
+
+    assert.equal(target.entities[0].description, 'Captured Jedi Padawan and former refugee child, trained primarily in Soresu by Caelen Veyr.');
+});
+
+test('stored extraction paraphrases compact without erasing unrelated profile details', () => {
+    const target = world();
+    target.entities.push({
+        name: 'Toska', type: 'person', aliases: [], importance: 4,
+        description: 'Captive Jedi Padawan and Caelen Veyr’s former apprentice; guarded and defiant. Captive Jedi Padawan formerly trained by Caelen Veyr; she endured years of concealment and flight. Captured Jedi Padawan and former refugee child, trained primarily in Soresu by Caelen Veyr. Captive Jedi Padawan and former student of the deceased Caelen Veyr. Toska was the Jedi Padawan of the now-dead former Jedi Master. She has cropped auburn hair and a scarred left hand. She habitually counts exits before sitting.',
+    });
+
+    assert.equal(compactRepeatedEntityDescriptions(target), 1);
+    assert.equal(target.entities[0].description, 'Captive Jedi Padawan and Caelen Veyr’s former apprentice; guarded and defiant. She has cropped auburn hair and a scarred left hand. She habitually counts exits before sitting.');
+});
+
+test('different biographical facts remain separate during description compaction', () => {
+    const target = world();
+    const established = 'Caelen Veyr was a Jedi Master. He trained Toska in Soresu. He served on the Jedi Council.';
+    target.entities.push({ name: 'Caelen Veyr', type: 'person', aliases: [], importance: 5, description: established });
+
+    assert.equal(compactRepeatedEntityDescriptions(target), 0);
+    assert.equal(target.entities[0].description, established);
+});
+
+test('equivalent concealed-identity knowledge boundaries collapse to one canonical fact', () => {
+    const target = world();
+    target.entities.push(
+        { id: 'toska', name: 'Toska', type: 'person', aliases: [], description: '', importance: 4 },
+        { id: 'lucas', name: 'Lucas Alcazar', type: 'person', aliases: [], description: '', importance: 4 },
+    );
+    target.facts.push(
+        {
+            id: 'boundary_old', subject: 'Toska', predicate: 'knowledge of Lucas Alcazar — concealed identity',
+            category: 'knowledge boundary', value: 'Toska does not know the Sith is Lucas Alcazar.', importance: 5,
+            updatedAt: '2026-01-01T00:00:00.000Z', sources: [],
+        },
+        {
+            id: 'boundary_new', subject: 'Toska', predicate: 'knowledge of Lucas Alcazar’s identity',
+            category: 'knowledge gap', value: 'Toska still does not know the current figure is Lucas Alcazar.', importance: 5,
+            updatedAt: '2026-01-02T00:00:00.000Z', sources: [],
+        },
+    );
+
+    mergeExtraction(target, extraction({
+        entities: [], facts: [], states: [], relationships: [], events: [], threads: [], backgrounds: [],
+    }), { chatKey: 'rp', from: 0, to: 7, allowStateUpdates: true });
+
+    const boundaries = target.facts.filter(item => item.subject === 'Toska' && /knowledge of Lucas Alcazar/iu.test(item.predicate));
+    assert.equal(boundaries.length, 1);
+    assert.equal(boundaries[0].predicate, 'knowledge of Lucas Alcazar’s identity');
+    assert.equal(boundaries[0].category, 'knowledge gap');
+});
+
+test('visible semantic duplicates compact by category while distinct chronology remains', () => {
+    const target = world();
+    target.entities.push(
+        { id: 'toska', name: 'Toska', type: 'person', aliases: [], description: '', importance: 4 },
+        { id: 'lucas', name: 'Lucas Alcazar', type: 'person', aliases: [], description: '', importance: 4 },
+        { id: 'pilot', name: 'Loyalist Pilot', type: 'person', aliases: [], description: '', importance: 3 },
+    );
+    target.threads.push(
+        {
+            id: 'thread_old', title: 'Recover Toska’s green lightsaber', detail: 'A team must recover Toska’s green lightsaber from the desert hut.',
+            status: 'open', participants: ['Toska', 'Lucas Alcazar'], importance: 4, updatedAt: '2026-01-01T00:00:00.000Z', sources: [],
+        },
+        {
+            id: 'thread_new', title: 'Recovery of Toska’s green lightsaber', detail: 'The retrieval team must recover Toska’s green lightsaber from the desert-world hut.',
+            status: 'open', participants: ['Lucas Alcazar', 'Toska'], importance: 4, updatedAt: '2026-01-02T00:00:00.000Z', sources: [],
+        },
+    );
+    target.backgrounds.push(
+        { id: 'bg_old', topic: 'Moon-base landing-defense fault', summary: 'The landing-defense turret fault remains under diagnosis.', status: 'active', participants: [], updatedAt: '2026-01-01T00:00:00.000Z', sources: [] },
+        { id: 'bg_new', topic: 'Landing defense fault at the moon base', summary: 'The moon-base landing-defense turret fault remains under diagnosis.', status: 'active', participants: [], updatedAt: '2026-01-02T00:00:00.000Z', sources: [] },
+    );
+    const sharedEvent = {
+        participants: ['Lucas Alcazar', 'Toska', 'Loyalist Pilot'], location: 'Moonbase private landing bay', importance: 4,
+    };
+    target.events.push(
+        {
+            ...sharedEvent, id: 'event_old', title: 'Lucas removes Toska’s restraint',
+            summary: 'Lucas unclips Toska’s wrist restraint and orders the pilot to open the shuttle hatch.',
+            updatedAt: '2026-01-01T00:00:00.000Z', sources: [{ chatKey: 'rp', from: 48, to: 55 }],
+        },
+        {
+            ...sharedEvent, id: 'event_new', title: 'Lucas releases Toska and opens the shuttle hatch',
+            summary: 'Lucas removed Toska’s wrist restraint and ordered the Loyalist Pilot to open the shuttle hatch.',
+            updatedAt: '2026-01-02T00:00:00.000Z', sources: [{ chatKey: 'rp', from: 56, to: 63 }],
+        },
+        {
+            ...sharedEvent, id: 'event_later', title: 'Lucas restrains Toska during a later escape',
+            summary: 'Much later, Lucas restrains Toska after a separate escape attempt.',
+            updatedAt: '2026-01-03T00:00:00.000Z', sources: [{ chatKey: 'rp', from: 160, to: 167 }],
+        },
+    );
+
+    assert.equal(compactDuplicateMemoryRecords(target), 3);
+    assert.equal(target.threads.length, 1);
+    assert.equal(target.backgrounds.length, 1);
+    assert.equal(target.events.length, 2);
+    assert.ok(target.events.some(item => item.id === 'event_new'));
+    assert.ok(target.events.some(item => item.id === 'event_later'));
 });
 
 test('composite identity evidence upgrades a placeholder relationship in place', () => {
