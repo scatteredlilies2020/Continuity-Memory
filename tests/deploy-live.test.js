@@ -28,6 +28,9 @@ test('live deployment follows the manifest entrypoint and rejects a stale loaded
         assert.match(await readFile(path.join(target, 'index.js'), 'utf8'), /misleadingSibling/u);
         await verifyLiveDeployment(target, source);
 
+        await writeFile(path.join(target, 'extension', 'index.js'), 'export const loaded = 9;\r\n');
+        await verifyLiveDeployment(target, source);
+
         await writeFile(path.join(target, 'extension', 'index.js'), 'export const loaded = 3;\n');
         await assert.rejects(verifyLiveDeployment(target, source), /index\.js/u);
     } finally {

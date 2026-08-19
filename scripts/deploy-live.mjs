@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const scriptPath = fileURLToPath(import.meta.url);
 const repositoryRoot = path.dirname(path.dirname(scriptPath));
+const TEXT_EXTENSIONS = new Set(['.css', '.html', '.js', '.json', '.md', '.txt']);
 
 async function json(filename) {
     return JSON.parse(await readFile(filename, 'utf8'));
@@ -22,7 +23,11 @@ async function filesUnder(root, directory = root) {
 }
 
 async function digest(filename) {
-    return createHash('sha256').update(await readFile(filename)).digest('hex');
+    const bytes = await readFile(filename);
+    const content = TEXT_EXTENSIONS.has(path.extname(filename).toLowerCase())
+        ? bytes.toString('utf8').replace(/\r\n?/gu, '\n')
+        : bytes;
+    return createHash('sha256').update(content).digest('hex');
 }
 
 export async function liveLayout(targetRoot, sourceRoot = repositoryRoot) {
