@@ -1,4 +1,4 @@
-import { fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.178';
+import { fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.179';
 import { l1StabilityRepairFrom } from './l1-policy.js';
 import { mergeExtraction, removeChatContributions, restoreRetainedReplayRecords } from './memory-model.js';
 

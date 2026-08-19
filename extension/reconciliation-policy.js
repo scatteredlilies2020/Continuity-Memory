@@ -2403,6 +2403,16 @@ const AUDIT_ATTRIBUTION_VERB = /\b(?:believes?|believed|claims?|claimed|alleges?
 const AUDIT_ACTIVE_ATTRIBUTION_VERB = /(?:believes?|believed|claims?|claimed|alleges?|alleged|reports?|reported|rumou?rs?|rumou?red|suspects?|suspected|speculates?|speculated|thinks?|thought|assumes?|assumed|infers?|inferred|concludes?|concluded|remembers?|remembered|recalls?|recalled|says?|said|states?|stated|reveals?|revealed|discloses?|disclosed|explains?|explained|informs?|informed|insists?|insisted|argues?|argued)/iu;
 const AUDIT_SOURCE_SUBJECTIVE = /(?:[“”"]|\b(?:i|we)\s+(?:say|said|tell|told|claim|claimed|state|stated|insist|insisted|argue|argued|believe|believed|think|thought|suspect|suspected|remember|remembered|recall|recalled)\b|\b(?:according to|in (?:his|her|their|my|our) (?:view|memory|belief)|appears?|appeared|seems?|seemed|probably|possibly|perhaps|maybe|might|unconfirmed|disputed)\b|\b(?:belief|claim|allegation|rumou?r|report|record|dossier|testimony|perspective|inference|conclusion|memory)\b)/iu;
 const AUDIT_SOURCE_AUTHORITATIVE = /\bOOC\s*:\s*(?:correction|canon|canonical|fact|established|actually|retcon)\b/iu;
+const CHARACTER_PROFILE_SECTION = /(Role\/background|Appearance|Personality\/quirks):\s*/giu;
+const CHARACTER_PROFILE_ORDER = ['roleBackground', 'appearance', 'personalityQuirks'];
+const CHARACTER_PROFILE_LABEL = {
+    roleBackground: 'Role/background',
+    appearance: 'Appearance',
+    personalityQuirks: 'Personality/quirks',
+};
+const CHARACTER_PROFILE_GENERIC_TERMS = new Set([
+    'role', 'background', 'appearance', 'personality', 'quirk', 'quirks', 'character', 'entity',
+]);
 const AUDIT_HISTORICAL_RELATIONSHIP = /\b(?:former|previous|prior|once|used to|had been|was|were|trained|raised|parent|apprentice|student|mentor)\b/iu;
 const AUDIT_ENTITY_HISTORY = /\b(?:former|formerly|previous|prior|once|used to|served|commanded|member|trained|born|birth|parentage|biological parent|true identity|real identity)\b/iu;
 
@@ -2784,6 +2794,18 @@ function sourceEvidenceParts(message) {
     return { subjective, objective };
 }
 
+function characterProfileObjectiveParts(message) {
+    const source = String(message?.text ?? message?.mes ?? '').replace(/\r/g, ' ');
+    return source.split(/\n+|(?<=[.!?])\s+(?=[\p{L}\p{N}“"'*_<])/u)
+        .map(cleanText)
+        .filter(chunk => chunk
+            && !/^<\/?[^>]+>$/u.test(chunk)
+            && chunk !== '```'
+            && (AUDIT_SOURCE_AUTHORITATIVE.test(chunk) || !AUDIT_SOURCE_SUBJECTIVE.test(chunk)))
+        .map(chunk => cleanText(chunk.replace(/^\*+|\*+$/gu, '')))
+        .filter(Boolean);
+}
+
 function strongestEvidenceWindow(reference, segments) {
     let strongest = 0;
     for (let index = 0; index < segments.length; index++) {
@@ -2803,6 +2825,154 @@ function sourceEvidenceProfile(reference, messages) {
         objective = Math.max(objective, strongestEvidenceWindow(reference, parts.objective));
     }
     return { subjective, objective };
+}
+
+function characterProfileKey(label) {
+    const value = normalized(label).replace(/\s+/gu, '');
+    if (value === 'role/background') return 'roleBackground';
+    if (value === 'appearance') return 'appearance';
+    if (value === 'personality/quirks') return 'personalityQuirks';
+    return '';
+}
+
+function parseCharacterProfile(value) {
+    const source = cleanText(value);
+    const matches = [...source.matchAll(CHARACTER_PROFILE_SECTION)];
+    if (!matches.length) return null;
+    const profile = {};
+    for (let index = 0; index < matches.length; index++) {
+        const key = characterProfileKey(matches[index][1]);
+        if (!key) continue;
+        const start = Number(matches[index].index) + matches[index][0].length;
+        const end = index + 1 < matches.length ? Number(matches[index + 1].index) : source.length;
+        const detail = cleanText(source.slice(start, end)).replace(/^[;,.\s]+|[;,.\s]+$/gu, '');
+        if (detail) profile[key] = detail;
+    }
+    return Object.keys(profile).length ? profile : null;
+}
+
+function formatCharacterProfile(profile) {
+    const sections = CHARACTER_PROFILE_ORDER
+        .filter(key => cleanText(profile?.[key]))
+        .map(key => `${CHARACTER_PROFILE_LABEL[key]}: ${cleanText(profile[key]).replace(/[;,.\s]+$/gu, '')}`);
+    return sections.length ? `${sections.join('; ')}.` : '';
+}
+
+function characterProfileDetails(value) {
+    return cleanText(value).replace(/[.]+$/gu, '')
+        .split(/\s*(?:,|;|\b(?:and|but)\b)\s*/iu)
+        .map(cleanText).filter(Boolean);
+}
+
+function characterProfileTerms(value, entity) {
+    const excluded = new Set([
+        ...CHARACTER_PROFILE_GENERIC_TERMS,
+        ...coverageTerms(cleanText(entity?.name)),
+        ...(entity?.aliases || []).flatMap(alias => [...coverageTerms(alias)]),
+    ]);
+    return [...coverageTerms(value)].filter(term => !excluded.has(term));
+}
+
+function characterProfileSupportCount(terms, evidence) {
+    const available = coverageTerms(evidence);
+    return terms.filter(term => available.has(term)).length;
+}
+
+function characterProfileEvidenceWindows(entity, objectiveSequences, people) {
+    const variants = [entity?.name, ...(entity?.aliases || [])].map(cleanText).filter(Boolean);
+    const otherPeople = people.filter(person => normalized(person?.name) !== normalized(entity?.name));
+    const windows = [];
+    for (const segments of objectiveSequences) {
+        for (let index = 0; index < segments.length; index++) {
+            if (!textMentionsIdentityVariant(segments[index], variants)) continue;
+            for (let width = 1; width <= 3 && index + width <= segments.length; width++) {
+                const added = segments[index + width - 1];
+                const returnsToEntity = textMentionsIdentityVariant(added, variants);
+                const changesNamedSubject = width > 1 && !returnsToEntity
+                    && otherPeople.some(person => textMentionsEntity(added, person));
+                if (changesNamedSubject) break;
+                windows.push(segments.slice(index, index + width).join(' '));
+            }
+        }
+    }
+    return windows;
+}
+
+function characterProfileDetailSupported(detail, entity, existing, objectiveWindows) {
+    const terms = characterProfileTerms(detail, entity);
+    if (!terms.length) return false;
+    // Require every meaningful term. The extraction prompt asks the model to
+    // retain source wording, so semantic paraphrase must not become a loophole
+    // through which one unsupported adjective can ride beside valid details.
+    const threshold = terms.length;
+    if (existing && characterProfileSupportCount(terms, cleanText(existing?.description)) >= threshold) return true;
+    return objectiveWindows.some(window => characterProfileSupportCount(terms, window) >= threshold);
+}
+
+function mergeCharacterProfileDetails(priorValue, incomingDetails) {
+    const merged = characterProfileDetails(priorValue);
+    for (const detail of incomingDetails) {
+        const terms = coverageTerms(detail);
+        const duplicate = merged.some(existing => {
+            const required = Math.max(1, Math.min(terms.size, Math.ceil(terms.size * 0.75)));
+            return coverageOverlap(detail, existing) >= required;
+        });
+        if (!duplicate) merged.push(detail);
+    }
+    return merged.join(', ');
+}
+
+// A structured profile is useful only if each part is grounded. Validate its
+// comma/conjunction-sized details independently so one supported trait cannot
+// carry an invented neighboring trait into durable memory. Prior stored details
+// are valid evidence and are retained when a later chunk omits them.
+export function sanitizeStructuredCharacterProfiles(result, world, messages) {
+    if (!Array.isArray(messages) || !messages.length || !Array.isArray(result?.entities)) {
+        return { discarded: 0, warnings: [] };
+    }
+    const objectiveSequences = [];
+    for (const message of messages) {
+        // Asterisk-wrapped prose is the common RP form for narration and
+        // observable action. Accept it here while still excluding quotations,
+        // claims, memories, reports, and explicitly uncertain language.
+        const objective = characterProfileObjectiveParts(message);
+        if (objective.length) objectiveSequences.push(objective);
+    }
+    const people = [...(world?.entities || []), ...result.entities].filter(item => entityIsPersonLike(item?.type));
+    let discarded = 0;
+    const warnings = [];
+    for (const entity of result.entities) {
+        if (!entityIsPersonLike(entity?.type)) continue;
+        const incoming = parseCharacterProfile(entity?.description);
+        if (!incoming) continue;
+        const targetId = cleanText(entity?.targetId);
+        const existing = (world?.entities || []).find(item => (targetId && cleanText(item?.id) === targetId)
+            || normalized(item?.name) === normalized(entity?.name));
+        const objectiveWindows = characterProfileEvidenceWindows(entity, objectiveSequences, people);
+        const prior = parseCharacterProfile(existing?.description) || {};
+        const safe = { ...prior };
+        let entityDiscarded = 0;
+        for (const key of CHARACTER_PROFILE_ORDER) {
+            if (!incoming[key]) continue;
+            const supported = [];
+            for (const detail of characterProfileDetails(incoming[key])) {
+                if (characterProfileDetailSupported(detail, entity, existing, objectiveWindows)) supported.push(detail);
+                else {
+                    discarded++;
+                    entityDiscarded++;
+                }
+            }
+            if (supported.length) safe[key] = mergeCharacterProfileDetails(prior[key], supported);
+        }
+        const safeDescription = formatCharacterProfile(safe);
+        if (safeDescription) entity.description = safeDescription;
+        else if (existing?.description) entity.description = cleanText(existing.description);
+        else entity.description = '';
+        if (entityDiscarded) warnings.push(
+            `Character-profile grounding: withheld ${entityDiscarded} unsupported detail(s) for “${cleanText(entity?.name)}”; retained source-grounded and prior established details.`,
+        );
+    }
+    return { discarded, warnings };
 }
 
 function storedRecordSupportsReference(reference, records, match) {
@@ -4073,9 +4243,11 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
         else merge.duplicateIds = duplicateIds;
         return valid;
     });
+    const characterProfileGrounding = sanitizeStructuredCharacterProfiles(result, world, messages);
     const sourceAttributionConflicts = findSourceAttributionConflicts(result, world, messages);
     const localWarnings = [...new Set([
         ...relationshipEndpointConflicts.map(item => item.warning),
+        ...characterProfileGrounding.warnings,
         ...sourceAttributionConflicts.map(item => item.warning),
     ])];
     const diagnosticWarnings = [...new Set([
@@ -4088,5 +4260,5 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
         ...localWarnings,
     ])].slice(0, 8);
     if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
-    return { ignored, recovered, recoveredAliases, recoveredBoundaries, normalizedKnowledgePredicates: normalizedKnowledgePredicates + normalizedResolvedKnowledgePredicates, normalizedRelationalKnowledge: normalizedRelationalKnowledge + normalizedResolvedRelationalKnowledge, repairedKnowledgeMembershipOverclaims, repairedSelfIdentificationKnowledge: repairedSelfIdentificationKnowledge + repairedRecoveredSelfIdentificationKnowledge, repairedTopicKnowledgeHolders, trimmedCrossHolderAttributedClauses, normalizedKnowledgeHolders, recoveredKnowledge, recoveredIdentities, recoveredEstablishedIdentities, supersededIdentityBoundaries, recoveredOocIdentityBoundaries, normalizedIdentityEpistemicRiders, normalizedIdentityReferences, discardedIdentityResolutions, discardedMalformedDesignations, discardedMisownedQuestionKnowledge, discardedMismatchedKnowledgeTopics, canonicalizedIdentityReferences, discardedContradictedObjectFacts, repairedRelationshipDescriptions, recoveredRelationshipEntityDescriptions, recoveredIdentityRelationships, recoveredFactRelationships, reconciledHistoricalRelationships, recoveredCommitments, recoveredIdentityThreads, recoveredCoverage, preservedResolvedThreads, reopenedUnsupportedThreads, reconciledThreads: Math.max(0, resolvedCompletedThreads - reopenedUnsupportedThreads) + reconciledIdentityThreads + reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, repairedStateOwners, reconciledStateTransitions, reconciledSceneParticipants, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, sourceAttributionConflicts, relationshipEndpointConflicts, localWarnings, diagnosticWarnings, warnings };
+    return { ignored, recovered, recoveredAliases, recoveredBoundaries, normalizedKnowledgePredicates: normalizedKnowledgePredicates + normalizedResolvedKnowledgePredicates, normalizedRelationalKnowledge: normalizedRelationalKnowledge + normalizedResolvedRelationalKnowledge, repairedKnowledgeMembershipOverclaims, repairedSelfIdentificationKnowledge: repairedSelfIdentificationKnowledge + repairedRecoveredSelfIdentificationKnowledge, repairedTopicKnowledgeHolders, trimmedCrossHolderAttributedClauses, normalizedKnowledgeHolders, recoveredKnowledge, recoveredIdentities, recoveredEstablishedIdentities, supersededIdentityBoundaries, recoveredOocIdentityBoundaries, normalizedIdentityEpistemicRiders, normalizedIdentityReferences, discardedIdentityResolutions, discardedMalformedDesignations, discardedMisownedQuestionKnowledge, discardedMismatchedKnowledgeTopics, canonicalizedIdentityReferences, discardedContradictedObjectFacts, repairedRelationshipDescriptions, recoveredRelationshipEntityDescriptions, recoveredIdentityRelationships, recoveredFactRelationships, reconciledHistoricalRelationships, recoveredCommitments, recoveredIdentityThreads, recoveredCoverage, preservedResolvedThreads, reopenedUnsupportedThreads, reconciledThreads: Math.max(0, resolvedCompletedThreads - reopenedUnsupportedThreads) + reconciledIdentityThreads + reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, repairedStateOwners, reconciledStateTransitions, reconciledSceneParticipants, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, discardedCharacterProfileDetails: characterProfileGrounding.discarded, sourceAttributionConflicts, relationshipEndpointConflicts, localWarnings, diagnosticWarnings, warnings };
 }

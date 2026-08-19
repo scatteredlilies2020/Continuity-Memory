@@ -1918,6 +1918,69 @@ test('objective narration may still update an established entity description', (
     assert.equal(validation.sourceAttributionConflicts.some(item => item.category === 'entities'), false);
 });
 
+test('structured character profiles discard only unsupported neighboring details', () => {
+    const result = extraction();
+    result.entities.push({
+        name: 'Nima', type: 'person', aliases: [], importance: 4,
+        description: 'Role/background: Toska’s base-born attendant; Appearance: round-cheeked, jaw-length black hair, green eyes; Personality/quirks: devoted, randomly stumbles, telepathic.',
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{
+        name: 'Narrator', isUser: false,
+        text: 'Nima is Toska’s base-born attendant. *She is round-cheeked with jaw-length black hair.* Nima is devoted. *She randomly stumbles while following Toska.*',
+    }]);
+
+    assert.equal(validation.discardedCharacterProfileDetails, 2);
+    assert.equal(result.entities[0].description, 'Role/background: Toska’s base-born attendant; Appearance: round-cheeked, jaw-length black hair; Personality/quirks: devoted, randomly stumbles.');
+    assert.doesNotMatch(result.entities[0].description, /green eyes|telepathic/iu);
+    assert.ok(validation.localWarnings.some(item => /withheld 2 unsupported detail/u.test(item)));
+});
+
+test('structured character profiles retain prior sections when a new profile invents replacements', () => {
+    const established = 'Role/background: Toska’s base-born attendant; Appearance: round-cheeked, black hair; Personality/quirks: earnest, devoted.';
+    const result = extraction();
+    result.entities.push({
+        targetId: 'entity_nima', name: 'Nima', type: 'person', aliases: [], importance: 4,
+        description: 'Appearance: green-eyed; Personality/quirks: cruel.',
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [{ id: 'entity_nima', name: 'Nima', type: 'person', aliases: [], description: established }],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Narrator', isUser: false, text: 'Nima carries honey sweets to Toska.' }]);
+
+    assert.equal(validation.discardedCharacterProfileDetails, 2);
+    assert.equal(result.entities[0].description, established);
+});
+
+test('character dialogue alone cannot establish an objective profile detail', () => {
+    const result = extraction();
+    result.entities.push({
+        name: 'Nima', type: 'person', aliases: [], importance: 4,
+        description: 'Appearance: green eyes.',
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Lucas', isUser: false, text: 'Lucas claims, “Nima has green eyes.”' }]);
+
+    assert.equal(validation.discardedCharacterProfileDetails, 1);
+    assert.equal(result.entities[0].description, '');
+});
+
+test('a nearby character trait cannot be attached to the wrong profile', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Nima', type: 'person', aliases: [], importance: 4, description: 'Appearance: green eyes.' },
+        { name: 'Lucas', type: 'person', aliases: [], importance: 4, description: '' },
+    );
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Narrator', isUser: false, text: 'Nima entered the room. Lucas had green eyes.' }]);
+
+    assert.equal(validation.discardedCharacterProfileDetails, 1);
+    assert.equal(result.entities[0].description, '');
+});
+
 test('identity resolution lets a stored placeholder relationship support its canonical name', () => {
     const result = extraction();
     result.identityResolutions.push({
