@@ -212,6 +212,26 @@ test('entity target IDs require an exact identity and a compatible type family',
     assert.equal(sanitized.ignored, 3);
 });
 
+test('closed-compound and possessive punctuation variants reuse one canonical entity', () => {
+    const result = extraction();
+    result.entities.push({
+        targetId: '', name: "Lucas' Hidden Moonbase", type: 'place', aliases: [], description: 'A concealed installation.', importance: 4,
+    });
+    result.events.push({
+        title: 'Arrival', summary: 'The shuttle arrives.', participants: ["Lucas' Hidden Moonbase"],
+        location: "Lucas' Hidden Moonbase", storyTime: '', consequences: '', importance: 3,
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [{ id: 'moonbase', name: 'Lucas’s hidden moon base', type: 'place', aliases: [], description: 'A concealed installation.' }],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, []);
+
+    assert.equal(result.entities[0].name, 'Lucas’s hidden moon base');
+    assert.equal(result.entities[0].targetId, 'moonbase');
+    assert.deepEqual(result.events[0].participants, ['Lucas’s hidden moon base']);
+    assert.equal(validation.canonicalizedEntityVariants, 1);
+});
+
 test('specific role descriptions share the person type family without matching places or objects', () => {
     assert.equal(entityIsPersonLike('deceased guild master'), true);
     assert.equal(entityIsPersonLike('senior laboratory engineer'), true);
@@ -1664,6 +1684,24 @@ test('state transitions use the canonical stored value as their previous value',
     assert.equal(result.states[0].targetId, 'state_alice_location');
 });
 
+test('state durability gate removes non-conditions and demotes scene actions', () => {
+    const result = extraction();
+    result.states.push(
+        { targetId: '', subject: 'Lucas', attribute: 'physical condition', value: 'Freshly dressed in dark robes and armor; no new injury is established.', previous: '', importance: 2, scope: 'ongoing', operation: 'set' },
+        { targetId: '', subject: 'Pilot', attribute: 'assignment', value: 'Waiting at the console.', previous: '', importance: 2, scope: 'ongoing', operation: 'set' },
+        { targetId: '', subject: 'Toska', attribute: 'physical condition', value: 'Recovering from a broken wrist.', previous: '', importance: 4, scope: 'ongoing', operation: 'set' },
+    );
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, []);
+
+    assert.equal(result.states.some(item => item.subject === 'Lucas'), false);
+    assert.equal(result.states.find(item => item.subject === 'Pilot').scope, 'scene');
+    assert.equal(result.states.find(item => item.subject === 'Toska').scope, 'ongoing');
+    assert.equal(validation.discardedNonDurableStates, 1);
+    assert.equal(validation.demotedSceneStates, 1);
+});
+
 test('major event consequences require a durable typed record', () => {
     const result = extraction();
     result.events.push({
@@ -1957,7 +1995,53 @@ test('schema-separated character profile fields are grounded and assembled into 
     assert.equal(result.entities[0].description, 'Role/background: young acolyte, Toska’s personal attendant; Appearance: round-cheeked, black hair cropped unevenly at her jaw; Personality/quirks: earnest, stutters, repeatedly trips.');
     assert.equal(validation.discardedCharacterProfileDetails, 1);
     assert.equal('characterProfile' in result.entities[0], false);
+    assert.deepEqual(result.entities[0].profile, {
+        roleBackground: ['young acolyte', 'Toska’s personal attendant'],
+        appearance: ['round-cheeked', 'black hair cropped unevenly at her jaw'],
+        personalityQuirks: ['earnest', 'stutters', 'repeatedly trips'],
+    });
     assert.doesNotMatch(result.entities[0].description, /green eyes/iu);
+});
+
+test('typed character profiles reject scene conditions and temporary reactions even when source-grounded', () => {
+    const result = extraction();
+    result.entities.push({
+        name: 'Nima', type: 'person', aliases: [], importance: 4, description: '',
+        characterProfile: {
+            roleBackground: 'personal attendant, currently escorting Toska',
+            appearance: 'black hair, dust-streaked, split lip',
+            personalityQuirks: 'stutters, awed, proud',
+        },
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{
+        name: 'Narrator', isUser: false,
+        text: 'Nima is Toska’s personal attendant and is currently escorting Toska. Nima has black hair, but she is dust-streaked and has a split lip. Nima stutters. She is awed and proud right now.',
+    }]);
+
+    assert.deepEqual(result.entities[0].profile, {
+        roleBackground: ['personal attendant'],
+        appearance: ['black hair'],
+        personalityQuirks: ['stutters'],
+    });
+    assert.equal(result.entities[0].description, 'Role/background: personal attendant; Appearance: black hair; Personality/quirks: stutters.');
+    assert.equal(validation.discardedCharacterProfileDetails, 5);
+});
+
+test('typed profile grammar accepts genre-neutral roles and enduring traits', () => {
+    const result = extraction();
+    result.entities.push({
+        name: 'Aria', type: 'person', aliases: [], importance: 4, description: '',
+        characterProfile: { roleBackground: 'court mage', appearance: '', personalityQuirks: 'sarcastic' },
+    });
+    sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Narrator', isUser: false, text: 'Aria was a court mage. Aria is sarcastic by nature.' }]);
+
+    assert.deepEqual(result.entities[0].profile, {
+        roleBackground: ['court mage'], personalityQuirks: ['sarcastic'],
+    });
 });
 
 test('a self-introduction does not pull another named person into a character profile', () => {
@@ -3263,6 +3347,62 @@ test('authoritative OOC concealed identity becomes holder boundaries and removes
     assert.equal(historicalIdentityThread.status, 'resolved');
     assert.doesNotMatch(historicalIdentityThread.detail, /names himself/iu);
     assert.match(historicalIdentityThread.detail, /name only|knowledge boundar/iu);
+});
+
+test('an active identity boundary blocks canonical-name leakage from model knowledge prose', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Toska', type: 'person', aliases: [], description: '', importance: 5 },
+        { name: 'Lucas Alcazar', type: 'person', aliases: ['Darth Lucifer'], description: '', importance: 5 },
+    );
+    result.facts.push({
+        targetId: '', subject: 'Toska', predicate: 'knowledge of Lucas Alcazar',
+        value: 'Toska knows Lucas Alcazar was Caelen Veyr’s former apprentice.',
+        category: 'knowledge', importance: 5, persistence: 'persistent',
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: result.entities,
+        facts: [{
+            id: 'boundary', subject: 'Toska', predicate: 'knowledge of Lucas Alcazar’s identity',
+            value: 'Toska does not know that the current figure’s true identity is Lucas Alcazar.',
+            category: 'knowledge boundary', importance: 5, persistence: 'persistent',
+        }],
+        states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{
+        name: 'Darth Lucifer', isUser: false,
+        text: '“I was Caelen’s former apprentice,” he tells Toska. He does not give his former name.',
+    }]);
+
+    assert.equal(result.facts.some(item => item.category === 'knowledge' && /Lucas Alcazar/iu.test(item.value)), false);
+    assert.equal(validation.discardedKnowledgeBoundaryLeaks, 1);
+});
+
+test('explicit raw identity discovery may cross an older identity boundary', () => {
+    const result = extraction();
+    result.entities.push(
+        { name: 'Toska', type: 'person', aliases: [], description: '', importance: 5 },
+        { name: 'Lucas Alcazar', type: 'person', aliases: ['Darth Lucifer'], description: '', importance: 5 },
+    );
+    result.facts.push({
+        targetId: '', subject: 'Toska', predicate: 'knowledge of Lucas Alcazar’s identity',
+        value: 'Toska now knows the current figure is Lucas Alcazar.',
+        category: 'knowledge', importance: 5, persistence: 'persistent',
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: result.entities,
+        facts: [{
+            id: 'boundary', subject: 'Toska', predicate: 'knowledge of Lucas Alcazar’s identity',
+            value: 'Toska does not know that the current figure’s true identity is Lucas Alcazar.',
+            category: 'knowledge boundary', importance: 5, persistence: 'persistent',
+        }],
+        states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{
+        name: 'Narrator', isUser: false,
+        text: 'Toska recognizes the masked figure as Lucas Alcazar and now knows his true identity.',
+    }]);
+
+    assert.equal(result.facts.some(item => item.category === 'knowledge' && /Lucas Alcazar/iu.test(item.value)), true);
+    assert.equal(validation.discardedKnowledgeBoundaryLeaks, 0);
 });
 
 test('an unrelated unknown detail cannot preserve false current-identity recognition against OOC canon', () => {

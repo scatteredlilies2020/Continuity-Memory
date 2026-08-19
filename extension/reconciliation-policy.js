@@ -1,4 +1,5 @@
 import { canonicalMemorySubject, canonicalStateAttribute, isActiveState, stateIdentity } from './state-lifecycle.js';
+import { durableCharacterProfileDetail, entityProfile as storedEntityProfile, formatEntityProfile, normalizeEntityProfile } from './entity-profile.js';
 
 export const TARGET_RECORD_CATEGORIES = Object.freeze(['entities', 'facts', 'states', 'relationships', 'threads', 'backgrounds']);
 
@@ -777,6 +778,73 @@ function normalizeObjectiveIdentityEpistemicRiders(result, world) {
     return normalizedFacts;
 }
 
+const EXPLICIT_IDENTITY_LEARNING = /\b(?:learns?|learned|discovers?|discovered|recognizes?|recognized|identifies?|identified|realizes?|realized|is told|was told|now knows?|confirms?|confirmed|reveals?|revealed|discloses?|disclosed|introduces?|introduced)\b/iu;
+
+function sourceExplicitlyGrantsIdentityKnowledge(messages, holder, identity) {
+    const holderName = cleanText(holder);
+    const identityName = cleanText(identity);
+    if (!holderName || !identityName || !Array.isArray(messages)) return false;
+    for (const message of messages) {
+        const source = cleanText(message?.text ?? message?.mes);
+        if (!source) continue;
+        const speaker = cleanText(message?.name ?? message?.speaker);
+        if (normalized(speaker) === normalized(holderName)
+            && textMentionsIdentityVariant(source, [identityName])
+            && /\b(?:my\s+[^.!?]{1,100}\s+(?:is|was)|I\s+(?:know|recognize|identify|remember)|my\s+name\s+is)\b/iu.test(source)) return true;
+        const clauses = source.split(/\n+|(?<=[.!?;])\s+/u).map(cleanText).filter(Boolean);
+        for (let index = 0; index < clauses.length; index++) {
+            const window = clauses.slice(Math.max(0, index - 1), index + 2).join(' ');
+            if (!textMentionsIdentityVariant(window, [holderName])
+                || !textMentionsIdentityVariant(window, [identityName])
+                || !EXPLICIT_IDENTITY_LEARNING.test(window)) continue;
+            if (/\b(?:asks?|asked|wonders?|wondered|suspects?|suspected|guesses?|guessed|might|may|perhaps|possibly|not sure)\b/iu.test(window)
+                && !/\b(?:confirms?|confirmed|recognizes?|recognized|learns?|learned|discovers?|discovered|now knows?)\b/iu.test(window)) continue;
+            return true;
+        }
+        const ooc = source.match(/\bOOC\s*:\s*([\s\S]+)$/iu)?.[1] || '';
+        if (ooc && textMentionsIdentityVariant(ooc, [holderName])
+            && textMentionsIdentityVariant(ooc, [identityName])
+            && /\b(?:knows?|recognizes?|is aware|learned|was told)\b/iu.test(ooc)
+            && !EXPLICIT_KNOWLEDGE_NEGATION.test(ooc)) return true;
+    }
+    return false;
+}
+
+// Canonical entity labels are backend identifiers, not character knowledge.
+// When an active boundary protects a true identity, a model-written positive
+// fact may cross that boundary only with explicit raw-chat evidence that the
+// named holder learned or recognized the protected identity.
+export function discardKnowledgeBlockedIdentityLeaks(result, world, messages) {
+    if (!Array.isArray(result?.facts)) return { discarded: 0, warnings: [] };
+    const entities = [...(world?.entities || []), ...(result?.entities || [])]
+        .filter(personEntity);
+    const boundaries = [...(world?.facts || []), ...result.facts]
+        .filter(fact => /^(?:knowledge boundary|knowledge gap)$/iu.test(cleanText(fact?.category))
+            || (normalized(fact?.category) === 'knowledge' && EXPLICIT_KNOWLEDGE_NEGATION.test(cleanText(fact?.value))))
+        .filter(fact => /\b(?:identity|true name|real name|recogniz)\b/iu.test(`${fact?.predicate || ''} ${fact?.value || ''}`));
+    let discarded = 0;
+    const warnings = [];
+    result.facts = result.facts.filter(fact => {
+        if (normalized(fact?.category) !== 'knowledge'
+            || EXPLICIT_KNOWLEDGE_NEGATION.test(cleanText(fact?.value))) return true;
+        const holder = cleanText(canonicalMemorySubject(world, fact?.subject));
+        if (!holder) return true;
+        const protectedIdentities = entities.filter(entity => normalized(entity?.name) !== normalized(holder)
+            && boundaries.some(boundary =>
+                normalized(canonicalMemorySubject(world, boundary?.subject)) === normalized(holder)
+                && textMentionsIdentityVariant(`${boundary?.predicate || ''} ${boundary?.value || ''}`, [entity.name, ...(entity.aliases || [])])));
+        if (!protectedIdentities.length) return true;
+        const leaked = protectedIdentities.find(entity =>
+            textMentionsIdentityVariant(`${fact?.predicate || ''} ${fact?.value || ''}`, [entity.name])
+            && !sourceExplicitlyGrantsIdentityKnowledge(messages, holder, entity.name));
+        if (!leaked) return true;
+        discarded++;
+        warnings.push(`Knowledge boundary: withheld an unsupported claim that “${holder}” knows “${leaked.name}” as the protected identity.`);
+        return false;
+    });
+    return { discarded, warnings };
+}
+
 const PERSON_IDENTITY_ROLE = '(?:master|mentor|teacher|captain|commander|leader|handler|apprentice|student|padawan|pupil|parent|mother|father|brother|sister)';
 const PERSON_IDENTITY_SPECIALIZATION = '(?:[\\p{L}\\p{N}-]+\\s+){0,3}';
 const DESCRIPTIVE_PERSON_IDENTITY = new RegExp(`^(.+?)[’']s\\s+((?:(?:former|dead|deceased|missing|unknown)\\s+)?${PERSON_IDENTITY_SPECIALIZATION}${PERSON_IDENTITY_ROLE})$`, 'iu');
@@ -817,6 +885,75 @@ export function normalizeMixedOwnerPersonIdentities(result, world) {
         item.canonical = replace(item.canonical);
     }
     return replacements.size;
+}
+
+function conservativeEntitySurfaceKey(value) {
+    return normalized(value)
+        .replace(/[’‘]/gu, "'")
+        .replace(/\b([\p{L}\p{N}]+)'s\b/gu, '$1')
+        .replace(/\bmoonbase\b/gu, 'moon base')
+        .replace(/\bstarship\b/gu, 'star ship')
+        .replace(/\b(?:the)\b/gu, ' ')
+        .replace(/[^\p{L}\p{N}]+/gu, ' ')
+        .replace(/\s+/gu, ' ')
+        .trim();
+}
+
+// Normalize only punctuation, possessive, determiner, and closed-compound
+// variants. No semantic similarity is used here, so two genuinely distinct
+// people, places, or objects cannot be fused because a model found them alike.
+export function canonicalizeConservativeEntityVariants(result, world) {
+    if (!Array.isArray(result?.entities)) return 0;
+    const establishedBySurface = new Map();
+    for (const entity of world?.entities || []) {
+        const surface = conservativeEntitySurfaceKey(entity?.name);
+        if (!surface) continue;
+        const items = establishedBySurface.get(surface) || [];
+        items.push(entity);
+        establishedBySurface.set(surface, items);
+    }
+    const canonicalBySurface = new Map();
+    const replacements = new Map();
+    let normalizedCount = 0;
+    for (const entity of result.entities) {
+        const supplied = cleanText(entity?.name);
+        const surface = conservativeEntitySurfaceKey(supplied);
+        if (!surface) continue;
+        const established = (establishedBySurface.get(surface) || [])
+            .filter(candidate => entityTypesAreCompatible(candidate?.type, entity?.type));
+        const prior = canonicalBySurface.get(surface);
+        const canonical = established.length === 1 ? established[0]
+            : established.length === 0 && prior && entityTypesAreCompatible(prior?.type, entity?.type) ? prior
+            : null;
+        if (!canonical) {
+            if (!prior && established.length === 0) canonicalBySurface.set(surface, entity);
+            continue;
+        }
+        if (normalized(supplied) === normalized(canonical.name)) continue;
+        replacements.set(normalized(supplied), canonical.name);
+        entity.name = canonical.name;
+        entity.targetId ||= cleanText(canonical.id);
+        entity.aliases = [...new Set([...(entity.aliases || []), supplied].map(cleanText).filter(Boolean))];
+        normalizedCount++;
+    }
+    if (!replacements.size) return normalizedCount;
+    const replace = value => replacements.get(normalized(value)) || value;
+    for (const item of result.facts || []) item.subject = replace(item.subject);
+    for (const item of result.states || []) item.subject = replace(item.subject);
+    for (const item of result.relationships || []) {
+        item.from = replace(item.from);
+        item.to = replace(item.to);
+    }
+    for (const item of [...(result.events || []), ...(result.threads || []), ...(result.backgrounds || [])]) {
+        if (Array.isArray(item?.participants)) item.participants = item.participants.map(replace);
+    }
+    if (Array.isArray(result?.scene?.participants)) result.scene.participants = result.scene.participants.map(replace);
+    if (Array.isArray(result?.sceneCapsule?.participants)) result.sceneCapsule.participants = result.sceneCapsule.participants.map(replace);
+    for (const resolution of result.identityResolutions || []) {
+        resolution.reference = replace(resolution.reference);
+        resolution.canonical = replace(resolution.canonical);
+    }
+    return normalizedCount;
 }
 
 function descriptivePersonIdentityContext(reference, world) {
@@ -2293,6 +2430,36 @@ export function reconcileStatePreviousValues(result, world) {
     return reconciled;
 }
 
+const SCENE_ONLY_STATE = /\b(?:attending|dressed|escorting|freshly|kneeling|lying|outfit|positioned|seated|sitting|standing|waiting|wearing)\b/iu;
+const DURABLE_CONDITION_STATE = /\b(?:assigned|bound|broken|burned|chronic|disabled|duty|healing|injured|missing|ordered|paralyzed|pregnant|recovering|scarred|sworn|wounded)\b/iu;
+const NEGATIVE_ONLY_STATE = /\b(?:no|not|none|without)\b[^.!?]{0,80}\b(?:change|condition|injury|wound)\b|\b(?:nothing|no change)\s+(?:new|established)\b/iu;
+
+export function sanitizeStateDurability(result) {
+    if (!Array.isArray(result?.states)) return { discarded: 0, demoted: 0 };
+    let discarded = 0;
+    let demoted = 0;
+    result.states = result.states.filter(state => {
+        if (normalized(state?.operation) === 'clear') return true;
+        const value = cleanText(state?.value);
+        const attribute = cleanText(state?.attribute);
+        if (!value) return true;
+        const clothingOrNegativeCondition = /\b(?:physical condition|health|injury|wounds?)\b/iu.test(attribute)
+            && (NEGATIVE_ONLY_STATE.test(value) || (/\b(?:dressed|outfit|wearing|robes?|armor)\b/iu.test(value)
+                && !DURABLE_CONDITION_STATE.test(value)));
+        if (clothingOrNegativeCondition) {
+            discarded++;
+            return false;
+        }
+        if (normalized(state?.scope) === 'ongoing' && SCENE_ONLY_STATE.test(value)
+            && !DURABLE_CONDITION_STATE.test(value)) {
+            state.scope = 'scene';
+            demoted++;
+        }
+        return true;
+    });
+    return { discarded, demoted };
+}
+
 // A stable state ID owns one subject/attribute pair. Models sometimes preserve
 // that ID and the exact previous value while accidentally substituting a
 // different nearby character name. In that narrow case the transition chain is
@@ -2861,11 +3028,11 @@ function suppliedCharacterProfile(entity) {
     const profile = entity?.characterProfile;
     if (!profile || typeof profile !== 'object' || Array.isArray(profile)) return null;
     const supplied = {
-        roleBackground: cleanText(profile.roleBackground),
-        appearance: cleanText(profile.appearance),
-        personalityQuirks: cleanText(profile.personalityQuirks),
+        roleBackground: characterProfileDetails(profile.roleBackground),
+        appearance: characterProfileDetails(profile.appearance),
+        personalityQuirks: characterProfileDetails(profile.personalityQuirks),
     };
-    return CHARACTER_PROFILE_ORDER.some(key => supplied[key]) ? supplied : null;
+    return CHARACTER_PROFILE_ORDER.some(key => supplied[key].length) ? supplied : null;
 }
 
 function formatCharacterProfile(profile) {
@@ -2876,6 +3043,7 @@ function formatCharacterProfile(profile) {
 }
 
 function characterProfileDetails(value) {
+    if (Array.isArray(value)) return value.flatMap(characterProfileDetails);
     return cleanText(value).replace(/[.]+$/gu, '')
         .split(/\s*(?:,|;|\b(?:and|but)\b)\s*/iu)
         .map(cleanText).filter(Boolean);
@@ -2985,22 +3153,24 @@ export function sanitizeStructuredCharacterProfiles(result, world, messages) {
         const existing = (world?.entities || []).find(item => (targetId && cleanText(item?.id) === targetId)
             || normalized(item?.name) === normalized(entity?.name));
         const objectiveWindows = characterProfileEvidenceWindows(entity, objectiveSequences, people);
-        const prior = parseCharacterProfile(existing?.description) || {};
+        const prior = storedEntityProfile(existing);
         const safe = { ...prior };
         let entityDiscarded = 0;
         for (const key of CHARACTER_PROFILE_ORDER) {
             if (!incoming[key]) continue;
             const supported = [];
             for (const detail of characterProfileDetails(incoming[key])) {
-                if (characterProfileDetailSupported(detail, entity, existing, objectiveWindows)) supported.push(detail);
+                if (characterProfileDetailSupported(detail, entity, existing, objectiveWindows)
+                    && durableCharacterProfileDetail(key, detail, objectiveWindows)) supported.push(detail);
                 else {
                     discarded++;
                     entityDiscarded++;
                 }
             }
-            if (supported.length) safe[key] = mergeCharacterProfileDetails(prior[key], supported);
+            if (supported.length) safe[key] = characterProfileDetails(mergeCharacterProfileDetails(prior[key], supported));
         }
-        const safeDescription = formatCharacterProfile(safe);
+        entity.profile = normalizeEntityProfile(safe);
+        const safeDescription = formatEntityProfile(entity.profile);
         if (safeDescription) entity.description = safeDescription;
         else if (existing?.description) entity.description = cleanText(existing.description);
         else entity.description = '';
@@ -4157,6 +4327,7 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const missingIdentityResolutions = !Array.isArray(result.identityResolutions);
     if (missingIdentityResolutions) result.identityResolutions = [];
     normalizeMixedOwnerPersonIdentities(result, world);
+    const canonicalizedEntityVariants = canonicalizeConservativeEntityVariants(result, world);
     const normalizedIdentityReferences = normalizeIdentityResolutionReferences(result);
     const discardedIdentityResolutions = discardUnsupportedIdentityResolutions(result, world, messages);
     const normalizedEpistemicFacts = normalizeEpistemicFactShapes(result, world);
@@ -4186,6 +4357,7 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const supersededSubjectIdentityUnknowns = supersedeResolvedSubjectIdentityUnknowns(result, world);
     const recoveredOocIdentityBoundaries = recoverExplicitOocIdentityBoundaries(result, world, messages);
     const normalizedIdentityEpistemicRiders = normalizeObjectiveIdentityEpistemicRiders(result, world);
+    const knowledgeBoundaryGate = discardKnowledgeBlockedIdentityLeaks(result, world, messages);
     const discardedContradictedObjectFacts = discardContradictedObjectStateFacts(result, world, messages);
     const repairedRelationshipDescriptions = repairRelationshipPairDescriptionContamination(result, world);
     const recoveredIdentityRelationships = recoverIdentityResolutionRelationships(result, world);
@@ -4210,6 +4382,7 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const reconciledIdentityThreads = reconcileResolvedIdentityThreads(result, world, messages);
     const reconciledThreads = reconcileExplicitlyResolvedThreads(result, world, messages);
     const normalizedRelationshipDescriptions = normalizeRelationshipDescriptions(result);
+    const stateDurabilityGate = sanitizeStateDurability(result);
     const repairedStateOwners = repairStableStateOwners(result, world);
     const reconciledStateTransitions = reconcileStatePreviousValues(result, world);
     const reconciledSceneParticipants = reconcileSceneParticipants(result, world, messages);
@@ -4221,6 +4394,8 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
         + discardedMalformedDesignations
         + discardedMisownedQuestionKnowledge
         + discardedMismatchedKnowledgeTopics
+        + knowledgeBoundaryGate.discarded
+        + stateDurabilityGate.discarded
         + discardedContradictedObjectFacts
         + removeInvalidAddressFacts(result) + Number(missingIdentityResolutions);
     ignored += removeUnsupportedSelfAddressFacts(result, messages, world);
@@ -4284,6 +4459,7 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     const localWarnings = [...new Set([
         ...relationshipEndpointConflicts.map(item => item.warning),
         ...characterProfileGrounding.warnings,
+        ...knowledgeBoundaryGate.warnings,
         ...sourceAttributionConflicts.map(item => item.warning),
     ])];
     const diagnosticWarnings = [...new Set([
@@ -4296,5 +4472,5 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
         ...localWarnings,
     ])].slice(0, 8);
     if (result?.sceneCapsule && typeof result.sceneCapsule === 'object') result.sceneCapsule.coverageWarnings = warnings;
-    return { ignored, recovered, recoveredAliases, recoveredBoundaries, normalizedKnowledgePredicates: normalizedKnowledgePredicates + normalizedResolvedKnowledgePredicates, normalizedRelationalKnowledge: normalizedRelationalKnowledge + normalizedResolvedRelationalKnowledge, repairedKnowledgeMembershipOverclaims, repairedSelfIdentificationKnowledge: repairedSelfIdentificationKnowledge + repairedRecoveredSelfIdentificationKnowledge, repairedTopicKnowledgeHolders, trimmedCrossHolderAttributedClauses, normalizedKnowledgeHolders, recoveredKnowledge, recoveredIdentities, recoveredEstablishedIdentities, supersededIdentityBoundaries, recoveredOocIdentityBoundaries, normalizedIdentityEpistemicRiders, normalizedIdentityReferences, discardedIdentityResolutions, discardedMalformedDesignations, discardedMisownedQuestionKnowledge, discardedMismatchedKnowledgeTopics, canonicalizedIdentityReferences, discardedContradictedObjectFacts, repairedRelationshipDescriptions, recoveredRelationshipEntityDescriptions, recoveredIdentityRelationships, recoveredFactRelationships, reconciledHistoricalRelationships, recoveredCommitments, recoveredIdentityThreads, recoveredCoverage, preservedResolvedThreads, reopenedUnsupportedThreads, reconciledThreads: Math.max(0, resolvedCompletedThreads - reopenedUnsupportedThreads) + reconciledIdentityThreads + reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, repairedStateOwners, reconciledStateTransitions, reconciledSceneParticipants, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, discardedCharacterProfileDetails: characterProfileGrounding.discarded, sourceAttributionConflicts, relationshipEndpointConflicts, localWarnings, diagnosticWarnings, warnings };
+    return { ignored, recovered, recoveredAliases, recoveredBoundaries, canonicalizedEntityVariants, normalizedKnowledgePredicates: normalizedKnowledgePredicates + normalizedResolvedKnowledgePredicates, normalizedRelationalKnowledge: normalizedRelationalKnowledge + normalizedResolvedRelationalKnowledge, repairedKnowledgeMembershipOverclaims, repairedSelfIdentificationKnowledge: repairedSelfIdentificationKnowledge + repairedRecoveredSelfIdentificationKnowledge, repairedTopicKnowledgeHolders, trimmedCrossHolderAttributedClauses, normalizedKnowledgeHolders, recoveredKnowledge, recoveredIdentities, recoveredEstablishedIdentities, supersededIdentityBoundaries, recoveredOocIdentityBoundaries, discardedKnowledgeBoundaryLeaks: knowledgeBoundaryGate.discarded, normalizedIdentityEpistemicRiders, normalizedIdentityReferences, discardedIdentityResolutions, discardedMalformedDesignations, discardedMisownedQuestionKnowledge, discardedMismatchedKnowledgeTopics, canonicalizedIdentityReferences, discardedContradictedObjectFacts, repairedRelationshipDescriptions, recoveredRelationshipEntityDescriptions, recoveredIdentityRelationships, recoveredFactRelationships, reconciledHistoricalRelationships, recoveredCommitments, recoveredIdentityThreads, recoveredCoverage, preservedResolvedThreads, reopenedUnsupportedThreads, reconciledThreads: Math.max(0, resolvedCompletedThreads - reopenedUnsupportedThreads) + reconciledIdentityThreads + reconciledThreads.resolved, normalizedEpistemicFacts, normalizedRelationshipDescriptions, discardedNonDurableStates: stateDurabilityGate.discarded, demotedSceneStates: stateDurabilityGate.demoted, repairedStateOwners, reconciledStateTransitions, reconciledSceneParticipants, repairedAddresses, normalizedAddresses, discardedAddressValues, discardedUnsupportedAddresses, discardedPronounAddresses, reconciledAddresses, discardedCharacterProfileDetails: characterProfileGrounding.discarded, sourceAttributionConflicts, relationshipEndpointConflicts, localWarnings, diagnosticWarnings, warnings };
 }

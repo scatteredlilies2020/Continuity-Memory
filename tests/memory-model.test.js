@@ -628,7 +628,7 @@ test('a later attribution fallback cannot erase an established concrete entity d
     assert.equal(target.entities[0].description, 'A former guild master and retired council member.');
 });
 
-test('recurring character profiles survive sparse updates and accept complete replacements', () => {
+test('typed character profiles survive sparse updates and retain independent durable details', () => {
     const target = world();
     mergeExtraction(target, extraction({
         entities: [{
@@ -654,7 +654,12 @@ test('recurring character profiles survive sparse updates and accept complete re
         }],
     }), { chatKey: 'rp', from: 16, to: 23, allowStateUpdates: true });
 
-    assert.equal(target.entities[0].description, 'Role/background: Toska’s trusted personal attendant; Appearance: short, round-cheeked, with uneven jaw-length black hair; Personality/quirks: earnest, increasingly confident, stammering, and prone to comic stumbles.');
+    assert.equal(target.entities[0].description, 'Role/background: base-born teenage acolyte, Toska’s trusted personal attendant; Appearance: short, round-cheeked, with uneven jaw-length black hair; Personality/quirks: earnest, devoted, stammering, habitually clumsy, increasingly confident, prone to comic stumbles.');
+    assert.deepEqual(target.entities[0].profile, {
+        roleBackground: ['base-born teenage acolyte', 'Toska’s trusted personal attendant'],
+        appearance: ['short', 'round-cheeked', 'with uneven jaw-length black hair'],
+        personalityQuirks: ['earnest', 'devoted', 'stammering', 'habitually clumsy', 'increasingly confident', 'prone to comic stumbles'],
+    });
 });
 
 test('unstructured person summaries replace paraphrases instead of accumulating them', () => {

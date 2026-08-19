@@ -19,6 +19,7 @@ const RETRIEVAL_FIELDS = {
 import { isFreshActiveState, latestSourceInRawTail, latestSourceRange, sourcedWhollyInRawTail } from './state-lifecycle.js';
 import { anchoredRelativeText, anchoredStoryTime } from './temporal-anchors.js';
 import { retrievalMessageText } from './retrieval-query.js';
+import { formatEntityProfile } from './entity-profile.js';
 
 function plain(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -1447,7 +1448,8 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
                 .slice(0, 2)
                 .map(fact => `${plain(fact.predicate)}: ${plain(fact.value)}`);
             const canon = identityFacts.length ? `; established canon: ${identityFacts.join(' | ')}` : '';
-            return `- ${item.name}${item.type ? ` (${item.type})` : ''}: ${item.description}${canon}${item.aliases?.length ? `; aliases: ${item.aliases.join(', ')}` : ''}`;
+            const description = formatEntityProfile(item) || plain(item.description);
+            return `- ${item.name}${item.type ? ` (${item.type})` : ''}: ${description}${canon}${item.aliases?.length ? `; aliases: ${item.aliases.join(', ')}` : ''}`;
         });
     addSection('Entities', entities);
 
@@ -1641,7 +1643,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         .filter((result, index, all) => all.findIndex(other => other.item.id === result.item.id) === index)
         .slice(0, supportLimit);
     const supportRow = ({ category, item }) => {
-        if (category === 'entity') return `- [entity] ${item.name}${item.type ? ` (${item.type})` : ''}: ${item.description}${item.aliases?.length ? `; aliases: ${item.aliases.join(', ')}` : ''}`;
+        if (category === 'entity') return `- [entity] ${item.name}${item.type ? ` (${item.type})` : ''}: ${formatEntityProfile(item) || plain(item.description)}${item.aliases?.length ? `; aliases: ${item.aliases.join(', ')}` : ''}`;
         if (category === 'address') return `- [address] ${plain(item.subject)}→${plain(addressFactAddressee(item))}: ${plain(item.value)}`;
         if (category === 'perspective') return `- [perspective; subjective] ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)}`;
         if (category === 'fact') return `- [fact] ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)}`;
@@ -1685,7 +1687,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.181';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.182';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';

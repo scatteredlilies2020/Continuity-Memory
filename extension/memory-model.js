@@ -5,6 +5,7 @@ import { canonicalMemorySubject, canonicalStateAttribute, stateIdentity, stateSc
 import { buildL1TemporalAnchor, buildRelativeTemporalAnchor } from './temporal-anchors.js';
 import { randomUuid } from './uuid.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
+import { formatEntityProfile, mergeEntityProfiles } from './entity-profile.js';
 
 function text(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -1086,7 +1087,9 @@ export function mergeExtraction(world, result, meta) {
         const canonicalName = validatedRename ? suppliedName : (current?.name || suppliedName);
         const type = current?.type || text(item.type) || 'entity';
         const incomingDescription = text(item.description);
-        const description = mergeStableEntityDescription(current?.description, incomingDescription, type);
+        const profile = entityIsPersonLike(type) ? mergeEntityProfiles(current, item) : {};
+        const typedDescription = formatEntityProfile(profile);
+        const description = typedDescription || mergeStableEntityDescription(current?.description, incomingDescription, type);
         return {
             name: canonicalName,
             type,
@@ -1097,6 +1100,7 @@ export function mergeExtraction(world, result, meta) {
                 .filter(alias => !(world.entities || []).some(entity => entity !== existing
                     && key(entity.name) === key(alias))),
             description,
+            ...(Object.keys(profile).length ? { profile } : {}),
             importance: Math.max(clampImportance(item.importance), clampImportance(current?.importance)),
         };
     }, preserveHistoricalRecord, result);

@@ -1,3 +1,5 @@
+import { formatEntityProfile } from './entity-profile.js';
+
 export const MEMORY_VIEW_CATEGORIES = Object.freeze([
     { key: 'scene', label: 'Latest extracted checkpoint' },
     { key: 'entities', label: 'Entities' },
@@ -73,7 +75,7 @@ function entry(category, item, index) {
     } else if (category === 'entities') {
         add(fields, 'Type', item.type);
         add(fields, 'Aliases', item.aliases);
-        add(fields, 'Description', item.description);
+        add(fields, 'Description', formatEntityProfile(item) || item.description);
     } else if (category === 'facts') {
         title = [item.subject, item.predicate].filter(Boolean).join(' — ') || title;
         add(fields, 'Value', item.value);
