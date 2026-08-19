@@ -2358,6 +2358,56 @@ test('a nearby character trait cannot be attached to the wrong profile', () => {
     assert.equal(result.entities[0].description, '');
 });
 
+test('multi-character prose cannot transfer biography thoughts or relative appearance into the wrong profile', () => {
+    const result = extraction();
+    result.entities.push(
+        {
+            name: 'Lucas Alcazar', type: 'person', aliases: ['Lucas'], importance: 5, description: '',
+            characterProfile: {
+                roleBackground: ['former Council member', 'complete absence', 'Caelen Veyr’s former apprentice', 'strict conservative'],
+                appearance: [
+                    'insult finds purchase precisely because it resembles doubts she never permitted herself to voice',
+                    'surely seen the doubt pass through her blue eyes',
+                ],
+                personalityQuirks: ['shorter than Lucas when he rises beside her—the top of her head reaches his chin'],
+            },
+        },
+        { name: 'Toska', type: 'person', aliases: [], importance: 5, description: '' },
+        { name: 'Caelen Veyr', type: 'person', aliases: [], importance: 5, description: '' },
+    );
+    result.relationships.push({
+        targetId: '', from: 'Lucas Alcazar', to: 'Caelen Veyr', kind: 'former Jedi master and apprentice', status: 'ended',
+        dynamic: 'Lucas Alcazar was Caelen Veyr’s former apprentice.', importance: 5,
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{
+        name: 'Narrator', isUser: false,
+        text: `Lucas has reframed Caelen's protection as condescension. The insult finds purchase because it resembles doubts Toska never permitted herself to voice. Toska has blue eyes. Caelen Veyr was a former Council member and a strict conservative. Lucas Alcazar is a complete absence from Toska's records. Toska is shorter than Lucas when he rises beside her; the top of her head reaches his chin. Lucas Alcazar was Caelen Veyr’s former apprentice.`,
+    }]);
+
+    assert.deepEqual(result.entities[0].profile, { roleBackground: ['Caelen Veyr’s former apprentice'] });
+    assert.equal(result.entities[0].description, 'Role/background: Caelen Veyr’s former apprentice.');
+    assert.equal(validation.discardedCharacterProfileDetails, 6);
+});
+
+test('an entity possessive object cannot make another person trait evidence for its owner', () => {
+    const result = extraction();
+    result.entities.push(
+        {
+            name: 'Lucas', type: 'person', aliases: [], importance: 4, description: '',
+            characterProfile: { roleBackground: [], appearance: ['blue eyes'], personalityQuirks: [] },
+        },
+        { name: 'Toska', type: 'person', aliases: [], importance: 4, description: '' },
+    );
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Narrator', isUser: false, text: "Lucas's shuttle carries Toska, whose blue eyes remain fixed on the viewport." }]);
+
+    assert.deepEqual(result.entities[0].profile, {});
+    assert.equal(validation.discardedCharacterProfileDetails, 1);
+});
+
 test('identity resolution lets a stored placeholder relationship support its canonical name', () => {
     const result = extraction();
     result.identityResolutions.push({

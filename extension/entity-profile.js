@@ -9,15 +9,16 @@ const PROFILE_LABELS = Object.freeze({
 });
 
 const TEMPORARY_APPEARANCE = /\b(?:bleed(?:ing)?|blood(?:ied|y)?|bruis(?:e|ed|ing)|clothing|clothes|coat|costume|damp|dirt(?:y)?|dust(?:y|ed|[- ]caked|[- ]streaked)?|exhausted|freshly dressed|grime|injur(?:ed|y)|makeup|mud(?:dy)?|outfit|pose|red(?:dened)? (?:eyes?|wrists?|skin)|robe[sd]?|sweat(?:y|ing)?|tear(?:ful|y|[- ]streaked)|tired|uniform|wearing|weary|wound(?:ed|s)?|split lip)\b/iu;
-const DURABLE_APPEARANCE = /\b(?:age[ds]?|bald|beard|build|cheek(?:ed|s)?|complexion|ear[sd]?|eye[sd]?|face|facial|freckle[sd]?|hair|height|horn[sd]?|markings?|moustache|mustache|scar(?:red|s)?|short|skin|species|stature|tall|tattoo(?:ed|s)?|voice|wing[sd]?)\b/iu;
+const DURABLE_APPEARANCE = /\b(?:age[ds]?|bald|beard|build|cheek(?:ed|s)?|complexion|ear[sd]?|eye[sd]?|face|facial|freckle[sd]?|hair|height|horn[sd]?|markings?|moustache|mustache|scar(?:red|s)?|short(?:er|est)?|skin|species|stature|tall(?:er|est)?|tattoo(?:ed|s)?|voice|wing[sd]?)\b/iu;
 const TEMPORARY_PERSONALITY = /\b(?:adoring|afraid|angry|annoyed|anxious|awed|conflicted|confused|defiant|desperate|distressed|embarrassed|enraged|fearful|frightened|furious|grieving|guilty|happy|hesitant|hopeful|horrified|hostile|jealous|nervous|proud|relieved|resentful|sad|scared|shocked|suspicious|terrified|uncertain|upset|wary|worried)\b/iu;
 const DURABLE_BEHAVIOR = /\b(?:always|characteristically|clums(?:y|ily|iness)|devoted|earnest|habit(?:ual|ually|s)?|known for|often|personality|quirk[sy]?|regularly|repeatedly|speech pattern|stammer(?:s|ed|ing)?|stumble(?:s|d|ing)?|stutter(?:s|ed|ing)?|tends? to|trips?|typically|usually)\b/iu;
-const DURABLE_WORLDVIEW = /\b(?:adherent|belie(?:f|fs|ve[sd]?)|believer|creed|devout|ideology|principle|worldview)\b/iu;
+const DURABLE_WORLDVIEW = /\b(?:adherent|belie(?:f|fs|ve[sd]?)|believer|conservative|creed|devout|ideology|liberal|pacifist|principle|reformist|traditionalist|worldview|zealot)\b/iu;
 const DURABLE_ROLE = /\b(?:acolyte|adviser|advisor|agent|apprentice|attendant|background|born|captain|child|commander|council|daughter|doctor|emperor|empress|father|former|formerly|grew up|guard|heir|identity|investigator|Jedi|king|knight|leader|lieutenant|master|member|mentor|minister|mistress|mother|officer|orphan|Padawan|pilot|prince|princess|queen|refugee|role|seneschal|served|service|sister|Sith|soldier|son|student|teacher|title|trained|veteran)\b/iu;
 const TRANSIENT_ROLE = /\b(?:attending|bound for|captive|captured|confronting|currently|detained|escorting|grieving|heading to|imprisoned|now|restrained|transporting|under guard|waiting)\b/iu;
-const NON_BIOGRAPHICAL_ROLE = /\b(?:best course of action|belie(?:f|fs|ve[sd]?)|believer|could|hide|intend(?:s|ed|ing)?|plan(?:s|ned|ning)?|should|trying to|until the time|would)\b/iu;
+const NON_BIOGRAPHICAL_ROLE = /\b(?:absence|absent|best course of action|belie(?:f|fs|ve[sd]?)|believer|conservative|could|hide|intend(?:s|ed|ing)?|liberal|missing|pacifist|plan(?:s|ned|ning)?|reformist|should|traditionalist|trying to|unknown|until the time|would|zealot)\b/iu;
 const PROFILE_CONTROL_SYNTAX = /[|=]|```|<\/?(?:stat|background_updates)\b|\b(?:Active Threads|Characters|Current Beat|EGO|Emotions|ID|Inventory(?:\s*&\s*Objects)?|Location|Physical State|Positions|Psyche|SUPEREGO|Time\s*&\s*Weather)\s*:/iu;
 const CURRENT_ACTION_AS_TRAIT = /^(?:awaiting|complying|defending|escorting|fighting|fleeing|grieving|guarding|heading|investigating|resisting|scrutinizing|studying|surviving|transporting|watching|waiting)\b/iu;
+const NON_ATOMIC_APPEARANCE = /\b(?:because|insult|resembl(?:e|es|ed|ing)|when|while)\b|\b(?:finds?|found|passes?|permitted|reaches?|rises?|saw|seen|turns?|watches?)\b/iu;
 
 function clean(value) {
     return String(value ?? '').replace(/\s+/gu, ' ').trim();
@@ -109,7 +110,8 @@ export function characterProfileDetailIsAdmissible(field, detail) {
     const value = clean(raw);
     if (!value || value.length < 2 || value.length > 180 || PROFILE_CONTROL_SYNTAX.test(raw) || !canonicalProseIsThirdPerson(raw)) return false;
     if (/^(?:unknown|none|n\/a|not established|unrevealed)$/iu.test(value)) return false;
-    if (field === 'appearance') return !TEMPORARY_APPEARANCE.test(value);
+    if (field === 'appearance') return !TEMPORARY_APPEARANCE.test(value)
+        && !NON_ATOMIC_APPEARANCE.test(value) && value.split(/\s+/u).length <= 24;
     if (field === 'roleBackground') {
         return !TRANSIENT_ROLE.test(value) && !NON_BIOGRAPHICAL_ROLE.test(value)
             && !TEMPORARY_PERSONALITY.test(value) && !DURABLE_APPEARANCE.test(value);

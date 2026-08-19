@@ -1,10 +1,10 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CANONICAL_THIRD_PERSON_RULE, CHARACTER_PROFILE_RULE, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.187';
+import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CANONICAL_THIRD_PERSON_RULE, CHARACTER_PROFILE_RULE, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.188';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
-import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.14.0-standalone.187';
+import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.14.0-standalone.188';
 
 export const EXTENSION_NAME = 'continuityMemory';
 
@@ -330,16 +330,18 @@ export function getSettings() {
         settings.compactBackgroundPromptVersion = 1;
         saveSettingsDebounced();
     }
-    if (Number(settings.characterProfilePromptVersion || 0) < 1) {
-        const previousRule = 'For recurring people, fill characterProfile fields roleBackground, appearance, personalityQuirks; empty if unknown/non-person. Use established source wording only; never invent; retain details. Leave people descriptions empty; validation builds them.';
+    if (Number(settings.characterProfilePromptVersion || 0) < 2) {
+        const previousRules = [
+            'For recurring people, fill characterProfile fields roleBackground, appearance, personalityQuirks; empty if unknown/non-person. Use established source wording only; never invent; retain details. Leave people descriptions empty; validation builds them.',
+            `Fill characterProfile fields roleBackground, appearance, personalityQuirks from narrative or accepted memory; never invent or use status panels or another person's fields; empty if unknown/non-person. Descriptions empty; validation builds them.`,
+        ];
         let prompt = String(settings.extractionSystemPrompt || PROMPT_DEFAULTS.extractionSystemPrompt);
         if (!prompt.includes(CHARACTER_PROFILE_RULE)) {
-            prompt = prompt.includes(previousRule)
-                ? prompt.replace(previousRule, CHARACTER_PROFILE_RULE)
-                : `${prompt}\n${CHARACTER_PROFILE_RULE}`;
+            const previousRule = previousRules.find(rule => prompt.includes(rule));
+            prompt = previousRule ? prompt.replace(previousRule, CHARACTER_PROFILE_RULE) : `${prompt}\n${CHARACTER_PROFILE_RULE}`;
         }
         settings.extractionSystemPrompt = prompt;
-        settings.characterProfilePromptVersion = 1;
+        settings.characterProfilePromptVersion = 2;
         saveSettingsDebounced();
     }
     if (Number(settings.thirdPersonPromptVersion || 0) < 1) {

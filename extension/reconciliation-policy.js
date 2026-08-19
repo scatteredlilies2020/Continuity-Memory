@@ -3127,13 +3127,39 @@ function characterProfileSupportCount(terms, evidence) {
     return terms.filter(term => available.has(term)).length;
 }
 
+function characterProfileSubjectPattern(entity) {
+    const variants = [entity?.name, ...(entity?.aliases || [])].map(cleanText).filter(Boolean);
+    if (!variants.length) return null;
+    const identity = variants.sort((left, right) => right.length - left.length).map(escaped).join('|');
+    // Profile evidence must make the named entity the grammatical topic. A
+    // bare nearby mention is not enough: "Toska studies Lucas" is evidence
+    // about Toska's action, not Lucas's body, history, or temperament.
+    const intrinsicPossessive = '(?:age|appearance|background|beard|build|complexion|eyes?|face|hair|habits?|height|history|markings?|personality|quirks?|role|scars?|skin|stammer|stature|stutter|temperament|voice)';
+    return new RegExp(
+        `^(?:[\\s*“”"'‘’([{]*)(?:(?:OOC\\s*:\\s*)|(?:[^,]{1,80},\\s+))?(?:${identity})(?:[’']s\\s+${intrinsicPossessive}\\b|\\b(?![’']))`,
+        'iu',
+    );
+}
+
+function characterProfileHasExplicitSubject(segment, entity) {
+    return Boolean(characterProfileSubjectPattern(entity)?.test(cleanText(segment)));
+}
+
+function characterProfilePronounLed(segment) {
+    return /^(?:[\s*“”"'‘’([{]*)(?:he|she|they|his|her|their)\b/iu.test(cleanText(segment));
+}
+
 function characterProfileEvidenceWindows(entity, objectiveSequences, people) {
     const variants = [entity?.name, ...(entity?.aliases || [])].map(cleanText).filter(Boolean);
     const otherPeople = people.filter(person => normalized(person?.name) !== normalized(entity?.name));
     const windows = [];
     for (const segments of objectiveSequences) {
+        const namedSubjects = new Set(people
+            .filter(person => segments.some(segment => characterProfileHasExplicitSubject(segment, person)))
+            .map(person => normalized(person?.name)).filter(Boolean));
+        const targetIsOnlyNamedSubject = namedSubjects.size === 1 && namedSubjects.has(normalized(entity?.name));
+        let targetIntroduced = false;
         for (let index = 0; index < segments.length; index++) {
-            if (!textMentionsIdentityVariant(segments[index], variants)) continue;
             // A self-introduction can explicitly resolve immediately preceding
             // pronoun-led description to the named speaker. Walk backward only
             // through unnamed clauses and stop at any other known person, so a
@@ -3142,6 +3168,7 @@ function characterProfileEvidenceWindows(entity, objectiveSequences, people) {
                 `\\b(?:I\\s+am|I['’]m|my\\s+name\\s+is)\\s+${escaped(variant)}\\b`, 'iu',
             ).test(segments[index]));
             if (selfIntroduction) {
+                targetIntroduced = true;
                 let start = index;
                 for (let prior = index - 1; prior >= 0 && prior >= index - 3; prior--) {
                     if (otherPeople.some(person => textMentionsEntity(segments[prior], person))) break;
@@ -3149,13 +3176,16 @@ function characterProfileEvidenceWindows(entity, objectiveSequences, people) {
                     windows.push(segments.slice(start, index + 1).join(' '));
                 }
             }
-            for (let width = 1; width <= 3 && index + width <= segments.length; width++) {
-                const added = segments[index + width - 1];
-                const returnsToEntity = textMentionsIdentityVariant(added, variants);
-                const changesNamedSubject = width > 1 && !returnsToEntity
-                    && otherPeople.some(person => textMentionsEntity(added, person));
-                if (changesNamedSubject) break;
-                windows.push(segments.slice(index, index + width).join(' '));
+            if (characterProfileHasExplicitSubject(segments[index], entity)) {
+                targetIntroduced = true;
+                windows.push(segments[index]);
+                continue;
+            }
+            // Pronouns are accepted only in a sequence whose sole explicit
+            // person-subject is this entity. This preserves ordinary single-
+            // character prose while refusing ambiguous multi-character scenes.
+            if (targetIntroduced && targetIsOnlyNamedSubject && characterProfilePronounLed(segments[index])) {
+                windows.push(segments[index]);
             }
         }
     }
