@@ -6,27 +6,27 @@ import { proxies } from '/scripts/openai.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.192';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.193';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.192';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.193';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, compactDuplicateMemoryRecords, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.192';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.192';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.193';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.193';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.192';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, NO_EM_DASH_STYLE_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.192';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.193';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, NO_EM_DASH_STYLE_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.193';
 import { applySourceAttributionFailClosed, canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.192';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.192';
-import { onRuntimeStop, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.192';
-import { completedDetachedWorldIsNewer, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.192';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.193';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.193';
+import { onRuntimeStop, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.193';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.193';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
 
@@ -982,7 +982,8 @@ function prepareDetachedHierarchyPlan() {
     }
 }
 
-async function waitForDetachedJob(id) {
+async function waitForDetachedJob(id, worldId = '') {
+    let syncedChunks = 0;
     while (true) {
         const { job } = await api.getExtractionJob(id);
         const hierarchyPhase = job.phase === 'l2' || job.phase === 'l3';
@@ -1000,6 +1001,18 @@ async function waitForDetachedJob(id) {
             } : {}),
             lastValidation: job.validation || 'Detached extraction is running in SillyTavern; this tab may be closed.',
         });
+        if (worldId && detachedProgressNeedsRefresh(syncedChunks, job)) {
+            try {
+                const world = (await api.getWorld(worldId)).world;
+                updateRuntime({ world });
+                await embedWorldInChat(world);
+                syncedChunks = Number(job.chunks) || syncedChunks;
+            } catch (error) {
+                // Canonical L1 is already safe in server storage. A temporary
+                // browser refresh failure must not cancel the detached job.
+                console.warn('[Continuity] Could not refresh saved detached L1 progress yet.', error);
+            }
+        }
         if (job.status === 'complete') return job;
         if (job.status === 'error' || job.status === 'cancelled') throw new Error(job.error || `Detached extraction ${job.status}.`);
         await new Promise(resolve => setTimeout(resolve, 750));
@@ -1043,7 +1056,7 @@ async function reconnectDetachedExtraction(worldId, chatKey) {
             status: active.status,
             lastValidation: 'Reconnected to a detached CM extraction running in SillyTavern.',
         });
-        const completed = await waitForDetachedJob(active.id);
+        const completed = await waitForDetachedJob(active.id, worldId);
         const world = (await api.getWorld(worldId)).world;
         updateRuntime({
             world,
@@ -1095,7 +1108,7 @@ async function processDetachedRange(job, chunks, currentWorld) {
     });
     activeDetachedJobs.add(started.job.id);
     try {
-        const completed = await waitForDetachedJob(started.job.id);
+        const completed = await waitForDetachedJob(started.job.id, job.worldId);
         const world = (await api.getWorld(job.worldId)).world;
         updateRuntime({
             world,

@@ -8,3 +8,9 @@ export function completedDetachedWorldIsNewer(currentWorld, storedWorld, complet
     if (completedJob.worldId && completedJob.worldId !== storedWorld.id) return false;
     return Number(storedWorld.revision || 0) > Number(currentWorld.revision || 0);
 }
+
+export function detachedProgressNeedsRefresh(lastSyncedChunks, job) {
+    const synced = Math.max(0, Number(lastSyncedChunks) || 0);
+    const saved = Math.max(0, Number(job?.chunks) || 0);
+    return saved > synced;
+}
