@@ -2005,6 +2005,39 @@ test('schema-separated character profile fields are grounded and assembled into 
     assert.doesNotMatch(result.entities[0].description, /green eyes/iu);
 });
 
+test('character profiles separate age from personality and reject one-off action clauses', () => {
+    const result = extraction();
+    result.entities.push({
+        name: 'Nima', type: 'person', aliases: [], importance: 4, description: '',
+        characterProfile: {
+            roleBackground: [
+                'young acolyte',
+                'she skids to a halt so hard she nearly collides with the seneschal’s back',
+                'Toska’s personal attendant',
+            ],
+            ageDemographics: [],
+            appearance: ['black hair cropped unevenly at the jaw', 'round-cheeked'],
+            personalityQuirks: ['sixteen at most', 'stutters', 'habitually stumbles'],
+        },
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{
+        name: 'Narrator', isUser: false,
+        text: 'Nima is a young acolyte and Toska’s personal attendant. Nima is sixteen at most. She has black hair cropped unevenly at the jaw and is round-cheeked. Nima stutters and habitually stumbles. She skids to a halt so hard she nearly collides with the seneschal’s back.',
+    }]);
+
+    assert.deepEqual(result.entities[0].profile, {
+        roleBackground: ['young acolyte', 'Toska’s personal attendant'],
+        ageDemographics: ['sixteen at most'],
+        appearance: ['black hair cropped unevenly at the jaw', 'round-cheeked'],
+        personalityQuirks: ['stutters', 'habitually stumbles'],
+    });
+    assert.equal(result.entities[0].description, 'Role/background: young acolyte, Toska’s personal attendant; Age/demographics: sixteen at most; Appearance: black hair cropped unevenly at the jaw, round-cheeked; Personality/quirks: stutters, habitually stumbles.');
+    assert.equal(validation.discardedCharacterProfileDetails, 1);
+    assert.doesNotMatch(result.entities[0].description, /skids to a halt/iu);
+});
+
 test('typed character profiles reject scene conditions and temporary reactions even when source-grounded', () => {
     const result = extraction();
     result.entities.push({

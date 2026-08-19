@@ -782,7 +782,7 @@ function isAttributionFallbackDescription(value) {
 }
 
 const STABLE_ENTITY_IDENTITY_DESCRIPTION = /\b(?:alias|appearance|apprentice|background|commander|council|formerly?|habit|identity|investigator|Jedi|master|member|mentor|Padawan|personality|quirk|rank|role|served|Sith|student|teacher|title|trained)\b/iu;
-const STRUCTURED_CHARACTER_PROFILE = /\b(?:Role\/background|Appearance|Personality\/quirks):/iu;
+const STRUCTURED_CHARACTER_PROFILE = /\b(?:Role\/background|Age\/demographics|Appearance|Personality\/quirks):/iu;
 const ENTITY_DESCRIPTION_STOP_WORDS = new Set([
     'about', 'after', 'also', 'and', 'are', 'been', 'being', 'but', 'current', 'currently', 'for', 'former',
     'formerly', 'from', 'had', 'has', 'have', 'her', 'hers', 'him', 'his', 'into', 'now', 'she', 'that',

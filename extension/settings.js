@@ -330,8 +330,9 @@ export function getSettings() {
         settings.compactBackgroundPromptVersion = 1;
         saveSettingsDebounced();
     }
-    if (Number(settings.characterProfilePromptVersion || 0) < 2) {
+    if (Number(settings.characterProfilePromptVersion || 0) < 3) {
         const previousRules = [
+            `Fill characterProfile fields roleBackground, appearance, personalityQuirks from grammar about that person; never invent or take another's role, body, thought, reaction, pronoun, comparison, or status panel; empty if unknown/non-person.`,
             'For recurring people, fill characterProfile fields roleBackground, appearance, personalityQuirks; empty if unknown/non-person. Use established source wording only; never invent; retain details. Leave people descriptions empty; validation builds them.',
             `Fill characterProfile fields roleBackground, appearance, personalityQuirks from narrative or accepted memory; never invent or use status panels or another person's fields; empty if unknown/non-person. Descriptions empty; validation builds them.`,
         ];
@@ -341,7 +342,7 @@ export function getSettings() {
             prompt = previousRule ? prompt.replace(previousRule, CHARACTER_PROFILE_RULE) : `${prompt}\n${CHARACTER_PROFILE_RULE}`;
         }
         settings.extractionSystemPrompt = prompt;
-        settings.characterProfilePromptVersion = 2;
+        settings.characterProfilePromptVersion = 3;
         saveSettingsDebounced();
     }
     if (Number(settings.thirdPersonPromptVersion || 0) < 1) {

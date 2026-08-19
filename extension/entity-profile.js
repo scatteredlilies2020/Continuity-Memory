@@ -1,15 +1,17 @@
 import { canonicalProseIsThirdPerson } from './canonical-prose.js';
 
-const PROFILE_FIELDS = Object.freeze(['roleBackground', 'appearance', 'personalityQuirks']);
+const PROFILE_FIELDS = Object.freeze(['roleBackground', 'ageDemographics', 'appearance', 'personalityQuirks']);
 
 const PROFILE_LABELS = Object.freeze({
     roleBackground: 'Role/background',
+    ageDemographics: 'Age/demographics',
     appearance: 'Appearance',
     personalityQuirks: 'Personality/quirks',
 });
 
 const TEMPORARY_APPEARANCE = /\b(?:bleed(?:ing)?|blood(?:ied|y)?|bruis(?:e|ed|ing)|clothing|clothes|coat|costume|damp|dirt(?:y)?|dust(?:y|ed|[- ]caked|[- ]streaked)?|exhausted|freshly dressed|grime|injur(?:ed|y)|makeup|mud(?:dy)?|outfit|pose|red(?:dened)? (?:eyes?|wrists?|skin)|robe[sd]?|sweat(?:y|ing)?|tear(?:ful|y|[- ]streaked)|tired|uniform|wearing|weary|wound(?:ed|s)?|split lip)\b/iu;
-const DURABLE_APPEARANCE = /\b(?:age[ds]?|bald|beard|build|cheek(?:ed|s)?|complexion|ear[sd]?|eye[sd]?|face|facial|freckle[sd]?|hair|height|horn[sd]?|markings?|moustache|mustache|scar(?:red|s)?|short(?:er|est)?|skin|species|stature|tall(?:er|est)?|tattoo(?:ed|s)?|voice|wing[sd]?)\b/iu;
+const DURABLE_APPEARANCE = /\b(?:bald|beard|build|cheek(?:ed|s)?|complexion|ear[sd]?|eye[sd]?|face|facial|freckle[sd]?|hair|height|horn[sd]?|markings?|moustache|mustache|scar(?:red|s)?|short(?:er|est)?|skin|species|stature|tall(?:er|est)?|tattoo(?:ed|s)?|voice|wing[sd]?)\b/iu;
+const AGE_DEMOGRAPHICS = /\b(?:age[ds]?|adolescen(?:ce|t|ts)|adult|child(?:hood|ren)?|elder(?:ly)?|infants?|middle[- ]aged|minors?|newborns?|preteens?|teen(?:age[drs]?|s)?|toddlers?|young(?:er|est)?|years?[- ]old|year[- ]old)\b|\b(?:at most|about|around|approximately|nearly|only|roughly|under|over)\s+(?:\d{1,3}|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)\b|\b(?:\d{1,3}|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)\s+(?:at most|years? old)\b/iu;
 const TEMPORARY_PERSONALITY = /\b(?:adoring|afraid|angry|annoyed|anxious|awed|conflicted|confused|defiant|desperate|distressed|embarrassed|enraged|fearful|frightened|furious|grieving|guilty|happy|hesitant|hopeful|horrified|hostile|jealous|nervous|proud|relieved|resentful|sad|scared|shocked|suspicious|terrified|uncertain|upset|wary|worried)\b/iu;
 const DURABLE_BEHAVIOR = /\b(?:always|characteristically|clums(?:y|ily|iness)|devoted|earnest|habit(?:ual|ually|s)?|known for|often|personality|quirk[sy]?|regularly|repeatedly|speech pattern|stammer(?:s|ed|ing)?|stumble(?:s|d|ing)?|stutter(?:s|ed|ing)?|temper(?:ament|ed)?|tends? to|trips?|typically|usually)\b/iu;
 const DURABLE_WORLDVIEW = /\b(?:adherent|belie(?:f|fs|ve[sd]?)|believer|conservative|creed|devout|ideology|liberal|pacifist|principle|reformist|traditionalist|worldview|zealot)\b/iu;
@@ -21,6 +23,7 @@ const NON_BIOGRAPHICAL_ROLE = /\b(?:absence|absent|best course of action|belie(?
 const NON_ATOMIC_ROLE_CLAUSE = /\b(?:although|as far as|because|even though|if|once|since|though|unless|until|when(?:ever)?|whereas|while)\b/iu;
 const PROFILE_CONTROL_SYNTAX = /[|=]|```|<\/?(?:stat|background_updates)\b|\b(?:Active Threads|Characters|Current Beat|EGO|Emotions|ID|Inventory(?:\s*&\s*Objects)?|Location|Physical State|Positions|Psyche|SUPEREGO|Time\s*&\s*Weather)\s*:/iu;
 const CURRENT_ACTION_AS_TRAIT = /^(?:awaiting|complying|defending|escorting|fighting|fleeing|grieving|guarding|heading|investigating|resisting|scrutinizing|studying|surviving|transporting|watching|waiting)\b/iu;
+const NON_ATOMIC_PROFILE_SUBJECT = /^(?:he|she|they|it)\b/iu;
 
 function clean(value) {
     return String(value ?? '').replace(/\s+/gu, ' ').trim();
@@ -68,9 +71,9 @@ export function normalizeEntityProfile(value) {
 
 export function parseEntityProfileDescription(value) {
     const source = clean(value);
-    if (!source || !/\b(?:Role\/background|Appearance|Personality\/quirks):/iu.test(source)) return {};
+    if (!source || !/\b(?:Role\/background|Age\/demographics|Appearance|Personality\/quirks):/iu.test(source)) return {};
     const profile = {};
-    const pattern = /(Role\/background|Appearance|Personality\/quirks):\s*([\s\S]*?)(?=\s+(?:Role\/background|Appearance|Personality\/quirks):|$)/giu;
+    const pattern = /(Role\/background|Age\/demographics|Appearance|Personality\/quirks):\s*([\s\S]*?)(?=\s+(?:Role\/background|Age\/demographics|Appearance|Personality\/quirks):|$)/giu;
     for (const match of source.matchAll(pattern)) {
         const field = Object.entries(PROFILE_LABELS).find(([, label]) => label.toLocaleLowerCase() === match[1].toLocaleLowerCase())?.[0];
         if (field) profile[field] = characterProfileDetails(match[2]);
@@ -112,15 +115,20 @@ export function characterProfileDetailIsAdmissible(field, detail) {
     const value = clean(raw);
     if (!value || value.length < 2 || value.length > 180 || PROFILE_CONTROL_SYNTAX.test(raw) || !canonicalProseIsThirdPerson(raw)) return false;
     if (/^(?:unknown|none|n\/a|not established|unrevealed)$/iu.test(value)) return false;
-    if (field === 'appearance') return !TEMPORARY_APPEARANCE.test(value);
+    if (NON_ATOMIC_PROFILE_SUBJECT.test(value)) return false;
+    if (field === 'ageDemographics') return AGE_DEMOGRAPHICS.test(value)
+        && !TEMPORARY_APPEARANCE.test(value) && !TEMPORARY_PERSONALITY.test(value);
+    if (field === 'appearance') return !AGE_DEMOGRAPHICS.test(value) && !TEMPORARY_APPEARANCE.test(value);
     if (field === 'roleBackground') {
         return !TRANSIENT_ROLE.test(value) && !NON_BIOGRAPHICAL_ROLE.test(value)
             && !NON_ATOMIC_ROLE_CLAUSE.test(value)
+            && (!AGE_DEMOGRAPHICS.test(value) || DURABLE_ROLE.test(value))
             && !TEMPORARY_PERSONALITY.test(value) && (!DURABLE_APPEARANCE.test(value) || DURABLE_ROLE.test(value));
     }
     if (field !== 'personalityQuirks') return false;
     return !TEMPORARY_PERSONALITY.test(value)
         && !TEMPORARY_APPEARANCE.test(value)
+        && !AGE_DEMOGRAPHICS.test(value)
         && (!DURABLE_APPEARANCE.test(value) || DURABLE_BEHAVIOR.test(value) || DURABLE_WORLDVIEW.test(value))
         && !DURABLE_ROLE.test(value)
         && !CURRENT_ACTION_AS_TRAIT.test(value)
@@ -138,12 +146,14 @@ export function canonicalCharacterProfileField(field, detail) {
     // Prefer a supported signal for the field the model selected. This avoids
     // turning mixed phrases such as "scarred veteran" or "short-tempered"
     // into appearance merely because they contain one physical-looking word.
-    if (field === 'appearance' && DURABLE_APPEARANCE.test(value)) return field;
-    if (field === 'personalityQuirks' && (DURABLE_BEHAVIOR.test(value) || DURABLE_WORLDVIEW.test(value))) return field;
     if (field === 'roleBackground' && DURABLE_ROLE.test(value)) return field;
+    if (field === 'ageDemographics' && AGE_DEMOGRAPHICS.test(value) && !DURABLE_ROLE.test(value)) return field;
+    if (field === 'appearance' && DURABLE_APPEARANCE.test(value) && !AGE_DEMOGRAPHICS.test(value)) return field;
+    if (field === 'personalityQuirks' && (DURABLE_BEHAVIOR.test(value) || DURABLE_WORLDVIEW.test(value))) return field;
+    if (DURABLE_ROLE.test(value)) return 'roleBackground';
+    if (AGE_DEMOGRAPHICS.test(value)) return 'ageDemographics';
     if (DURABLE_APPEARANCE.test(value)) return 'appearance';
     if (DURABLE_BEHAVIOR.test(value) || DURABLE_WORLDVIEW.test(value)) return 'personalityQuirks';
-    if (DURABLE_ROLE.test(value)) return 'roleBackground';
     return field;
 }
 
@@ -152,6 +162,7 @@ export function canonicalCharacterProfileField(field, detail) {
 export function durableCharacterProfileDetail(field, detail, evidenceWindows = []) {
     const value = clean(detail);
     if (!characterProfileDetailIsAdmissible(field, detail)) return false;
+    if (field === 'ageDemographics') return AGE_DEMOGRAPHICS.test(value);
     if (field === 'appearance') return DURABLE_APPEARANCE.test(value);
     if (field === 'roleBackground') {
         if (DURABLE_ROLE.test(value)) return true;

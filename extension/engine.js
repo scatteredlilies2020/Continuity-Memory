@@ -75,9 +75,10 @@ const extractionSchema = {
                     description: { type: 'string', description: 'Durable description for a non-person entity. Leave empty for a person; characterProfile is validated and formatted into the stored description.' },
                     characterProfile: {
                         type: 'object', additionalProperties: false,
-                        required: ['roleBackground', 'appearance', 'personalityQuirks'],
+                        required: ['roleBackground', 'ageDemographics', 'appearance', 'personalityQuirks'],
                         properties: {
                             roleBackground: { type: 'array', maxItems: 8, items: { type: 'string' }, description: 'Atomic established roles, identity-defining history, and durable social functions grammatically attributed to this named person. Never copy a nearby person. Ground in narrative or accepted memory, never status/control-panel fields. Empty when unknown or not a person.' },
+                            ageDemographics: { type: 'array', maxItems: 8, items: { type: 'string' }, description: 'Atomic established age, life-stage, and demographic identity details grammatically attributed to this named person. Never treat age as personality or copy another person. Ground in narrative or accepted memory, never status/control-panel fields. Exclude guesses unless the narrative itself establishes the estimate.' },
                             appearance: { type: 'array', maxItems: 8, items: { type: 'string' }, description: 'Atomic concise physical traits grammatically attributed to this named person. Never copy another person, an internal reaction, or narrative action. Ground in narrative or accepted memory, never status/control-panel fields. Exclude temporary clothing, wounds, emotion, and pose.' },
                             personalityQuirks: { type: 'array', maxItems: 8, items: { type: 'string' }, description: 'Atomic established recurring temperament, habits, speech patterns, and quirks grammatically attributed to this named person. Never copy another person or a physical comparison. Ground in narrative or accepted memory, never status/control-panel fields. Exclude one-off reactions.' },
                         },
@@ -266,7 +267,7 @@ const ARC_JSON_SHAPE_EXAMPLE = JSON.stringify({
 const JSON_SHAPE_EXAMPLE = JSON.stringify({
     scene: { location: '', time: '', participants: [], activity: '', mood: '' },
     sceneCapsule: { title: '', storyTime: '', location: '', participants: [], opening: '', beats: [], emotionalArc: '', closing: '', importance: 3, temporal: { frame: 'main narrative', relation: 'unknown', elapsed: '', certainty: 'unknown' } },
-    entities: [{ targetId: '', name: '', type: '', aliases: [], description: '', characterProfile: { roleBackground: '', appearance: '', personalityQuirks: '' }, importance: 3 }],
+    entities: [{ targetId: '', name: '', type: '', aliases: [], description: '', characterProfile: { roleBackground: '', ageDemographics: '', appearance: '', personalityQuirks: '' }, importance: 3 }],
     identityResolutions: [{ reference: '', canonical: '', evidence: '' }],
     recordMerges: [{ category: 'facts', canonicalId: '', duplicateIds: [], evidence: '' }],
     facts: [{ targetId: '', subject: '', predicate: '', value: '', category: '', importance: 3, persistence: 'persistent' }],

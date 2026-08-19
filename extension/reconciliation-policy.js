@@ -2719,15 +2719,16 @@ const AUDIT_ATTRIBUTION_VERB = /\b(?:believes?|believed|claims?|claimed|alleges?
 const AUDIT_ACTIVE_ATTRIBUTION_VERB = /(?:believes?|believed|claims?|claimed|alleges?|alleged|reports?|reported|rumou?rs?|rumou?red|suspects?|suspected|speculates?|speculated|thinks?|thought|assumes?|assumed|infers?|inferred|concludes?|concluded|remembers?|remembered|recalls?|recalled|says?|said|states?|stated|reveals?|revealed|discloses?|disclosed|explains?|explained|informs?|informed|insists?|insisted|argues?|argued)/iu;
 const AUDIT_SOURCE_SUBJECTIVE = /(?:[“”"]|\b(?:i|we)\s+(?:say|said|tell|told|claim|claimed|state|stated|insist|insisted|argue|argued|believe|believed|think|thought|suspect|suspected|remember|remembered|recall|recalled)\b|\b(?:according to|in (?:his|her|their|my|our) (?:view|memory|belief)|appears?|appeared|seems?|seemed|probably|possibly|perhaps|maybe|might|unconfirmed|disputed)\b|\b(?:belief|claim|allegation|rumou?r|report|record|dossier|testimony|perspective|inference|conclusion|memory)\b)/iu;
 const AUDIT_SOURCE_AUTHORITATIVE = /\bOOC\s*:\s*(?:correction|canon|canonical|fact|established|actually|retcon)\b/iu;
-const CHARACTER_PROFILE_SECTION = /(Role\/background|Appearance|Personality\/quirks):\s*/giu;
-const CHARACTER_PROFILE_ORDER = ['roleBackground', 'appearance', 'personalityQuirks'];
+const CHARACTER_PROFILE_SECTION = /(Role\/background|Age\/demographics|Appearance|Personality\/quirks):\s*/giu;
+const CHARACTER_PROFILE_ORDER = ['roleBackground', 'ageDemographics', 'appearance', 'personalityQuirks'];
 const CHARACTER_PROFILE_LABEL = {
     roleBackground: 'Role/background',
+    ageDemographics: 'Age/demographics',
     appearance: 'Appearance',
     personalityQuirks: 'Personality/quirks',
 };
 const CHARACTER_PROFILE_GENERIC_TERMS = new Set([
-    'role', 'background', 'appearance', 'personality', 'quirk', 'quirks', 'character', 'entity',
+    'role', 'background', 'age', 'demographics', 'appearance', 'personality', 'quirk', 'quirks', 'character', 'entity',
 ]);
 const AUDIT_HISTORICAL_RELATIONSHIP = /\b(?:former|previous|prior|once|used to|had been|was|were|trained|raised|parent|apprentice|student|mentor)\b/iu;
 const AUDIT_ENTITY_HISTORY = /\b(?:former|formerly|previous|prior|once|used to|served|commanded|member|trained|born|birth|parentage|biological parent|true identity|real identity)\b/iu;
@@ -3231,6 +3232,7 @@ function sourceEvidenceProfile(reference, messages) {
 function characterProfileKey(label) {
     const value = normalized(label).replace(/\s+/gu, '');
     if (value === 'role/background') return 'roleBackground';
+    if (value === 'age/demographics') return 'ageDemographics';
     if (value === 'appearance') return 'appearance';
     if (value === 'personality/quirks') return 'personalityQuirks';
     return '';
@@ -3257,6 +3259,7 @@ function suppliedCharacterProfile(entity) {
     if (!profile || typeof profile !== 'object' || Array.isArray(profile)) return null;
     const supplied = {
         roleBackground: characterProfileDetails(profile.roleBackground),
+        ageDemographics: characterProfileDetails(profile.ageDemographics),
         appearance: characterProfileDetails(profile.appearance),
         personalityQuirks: characterProfileDetails(profile.personalityQuirks),
     };
@@ -3587,7 +3590,7 @@ function canonicalRecordProfileRoles(entity, result, world, messages) {
 }
 
 function sourceDerivedCharacterProfile(entity, objectiveWindows, messages, result, world) {
-    const derived = { roleBackground: [], appearance: [], personalityQuirks: [] };
+    const derived = { roleBackground: [], ageDemographics: [], appearance: [], personalityQuirks: [] };
     const add = (field, detail) => {
         const value = cleanText(detail)
             .replace(field === 'roleBackground' ? /^(?:a|an|the|my|his|her|their|our|your)\s+/iu : /^(?:a|an|the)\s+/iu, '')
@@ -3599,15 +3602,16 @@ function sourceDerivedCharacterProfile(entity, objectiveWindows, messages, resul
         .map(escaped).join('|');
     const copula = new RegExp(`(?:^|[^\\p{L}\\p{N}])(?:${grammaticalSubject}|he|she|they)\\s+(?:is|was|appears?|seems?)\\s+([^.!?]{2,180})`, 'giu');
     const appearanceCue = /\b(?:bald|beard|build|cheek(?:ed|s)?|complexion|ear[sd]?|eye[sd]?|face|facial|freckle[sd]?|hair|height|horn[sd]?|markings?|moustache|mustache|scar(?:red|s)?|short|skin|stature|tall|tattoo(?:ed|s)?|voice|wing[sd]?|blood|bruise|dust|grime|injur|mud|tear|wound)\b/iu;
+    const ageCue = /\b(?:age[ds]?|adolescen(?:ce|t|ts)|adult|child(?:hood|ren)?|elder(?:ly)?|infants?|middle[- ]aged|minors?|newborns?|preteens?|teen(?:age[drs]?|s)?|toddlers?|young(?:er|est)?|years?[- ]old|year[- ]old)\b|\b(?:at most|about|around|approximately|nearly|only|roughly|under|over)\s+(?:\d{1,3}|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)\b|\b(?:\d{1,3}|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)\s+(?:at most|years? old)\b/iu;
     const roleCue = /\b(?:acolyte|adviser|advisor|agent|apprentice|attendant|captain|commander|council|doctor|emperor|empress|guard|heir|investigator|Jedi|king|knight|leader|lieutenant|mage|master|member|mentor|minister|mistress|officer|Padawan|pilot|prince|princess|queen|seneschal|Sith|soldier|student|teacher|veteran)\b/iu;
     const worldviewCue = /\b(?:adherent|belie(?:f|fs|ve[sd]?)|believer|creed|devout|ideology|principle|worldview)\b/iu;
     const behaviorCue = /\b(?:always|characteristically|habit(?:ual|ually)?|often|quirk|regularly|repeatedly|stammer|stumble|stutter|temper(?:ament|ed)?|typically|usually)\b|\bby nature\b/iu;
     const addObserved = detail => {
         const value = cleanText(detail);
         if (/^(?:a|an|the)\s+/iu.test(value) || roleCue.test(value)) add('roleBackground', value);
+        else if (ageCue.test(value)) add('ageDemographics', value);
         else if (worldviewCue.test(value) || behaviorCue.test(value)) add('personalityQuirks', value.replace(/\s+by nature$/iu, ''));
         else if (appearanceCue.test(value)) add('appearance', value);
-        else add('personalityQuirks', value.replace(/\s+by nature$/iu, ''));
     };
     for (const window of objectiveWindows) {
         for (const match of window.matchAll(copula)) {
@@ -3894,7 +3898,7 @@ export function recoverRelationshipBackedEntityDescriptions(result, world, messa
             || isDisputedEntityPlaceholder(stored?.description || entity?.description)
             || !cleanText(stored?.description || entity?.description))) {
             const profile = {};
-            for (const key of ['roleBackground', 'appearance', 'personalityQuirks']) {
+            for (const key of CHARACTER_PROFILE_ORDER) {
                 profile[key] = characterProfileDetails([
                     ...(storedProfile?.[key] || []), ...(incomingProfile?.[key] || []),
                 ]);
