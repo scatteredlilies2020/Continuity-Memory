@@ -11,7 +11,9 @@ const PROFILE_LABELS = Object.freeze({
 
 const TEMPORARY_APPEARANCE = /\b(?:bleed(?:ing)?|blood(?:ied|y)?|bruis(?:e|ed|ing)|clothing|clothes|coat|costume|damp|dirt(?:y)?|dust(?:y|ed|[- ]caked|[- ]streaked)?|exhausted|freshly dressed|grime|injur(?:ed|y)|makeup|mud(?:dy)?|outfit|pose|red(?:dened)? (?:eyes?|wrists?|skin)|robe[sd]?|sweat(?:y|ing)?|tear(?:ful|y|[- ]streaked)|tired|uniform|wearing|weary|wound(?:ed|s)?|split lip)\b/iu;
 const DURABLE_APPEARANCE = /\b(?:bald|beard|build|cheek(?:ed|s)?|complexion|ear[sd]?|eye[sd]?|face|facial|freckle[sd]?|hair|height|horn[sd]?|markings?|moustache|mustache|scar(?:red|s)?|short(?:er|est)?|skin|species|stature|tall(?:er|est)?|tattoo(?:ed|s)?|voice|wing[sd]?)\b/iu;
-const AGE_DEMOGRAPHICS = /\b(?:age[ds]?|adolescen(?:ce|t|ts)|adult|child(?:hood|ren)?|elder(?:ly)?|infants?|middle[- ]aged|minors?|newborns?|preteens?|teen(?:age[drs]?|s)?|toddlers?|young(?:er|est)?|years?[- ]old|year[- ]old)\b|\b(?:at most|about|around|approximately|nearly|only|roughly|under|over)\s+(?:\d{1,3}|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)\b|\b(?:\d{1,3}|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)\s+(?:at most|years? old)\b/iu;
+const AGE_DEMOGRAPHICS = /\b(?:age[ds]?|adolescen(?:ce|t|ts)|adult|child(?:hood|ren)?|elder(?:ly)?|infants?|middle[- ]aged|minors?|newborns?|preteens?|teen(?:age[drs]?|s)?|toddlers?|young(?:er|est)?|years?[- ]old|year[- ]old|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)\b|\b(?:at most|about|around|approximately|nearly|only|roughly|under|over)\s+(?:\d{1,3}|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)\b|\b(?:\d{1,3}|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)\s+(?:at most|years? old)\b|^(?:0|[1-9]\d?|1[0-4]\d|150)$/iu;
+const PROFILE_UNCERTAINTY = /\b(?:alleged(?:ly)?|claimed|disputed|in dispute|possibly|probably|rumou?red?|rumor|supposed(?:ly)?|uncertain|unconfirmed|unknown)\b/iu;
+const TRANSIENT_PROFILE_CONTEXT = /\b(?:at present|at the moment|attempt(?:ed|ing|s)?|currently|just now|nearly|right now|suddenly|trying to)\b/iu;
 const TEMPORARY_PERSONALITY = /\b(?:adoring|afraid|angry|annoyed|anxious|awed|conflicted|confused|defiant|desperate|distressed|embarrassed|enraged|fearful|frightened|furious|grieving|guilty|happy|hesitant|hopeful|horrified|hostile|jealous|nervous|proud|relieved|resentful|sad|scared|shocked|suspicious|terrified|uncertain|upset|wary|worried)\b/iu;
 const DURABLE_BEHAVIOR = /\b(?:always|characteristically|clums(?:y|ily|iness)|devoted|earnest|habit(?:ual|ually|s)?|known for|often|personality|quirk[sy]?|regularly|repeatedly|speech pattern|stammer(?:s|ed|ing)?|stumble(?:s|d|ing)?|stutter(?:s|ed|ing)?|temper(?:ament|ed)?|tends? to|trips?|typically|usually)\b/iu;
 const DURABLE_WORLDVIEW = /\b(?:adherent|belie(?:f|fs|ve[sd]?)|believer|conservative|creed|devout|ideology|liberal|pacifist|principle|reformist|traditionalist|worldview|zealot)\b/iu;
@@ -116,6 +118,8 @@ export function characterProfileDetailIsAdmissible(field, detail) {
     if (!value || value.length < 2 || value.length > 180 || PROFILE_CONTROL_SYNTAX.test(raw) || !canonicalProseIsThirdPerson(raw)) return false;
     if (/^(?:unknown|none|n\/a|not established|unrevealed)$/iu.test(value)) return false;
     if (NON_ATOMIC_PROFILE_SUBJECT.test(value)) return false;
+    if (PROFILE_UNCERTAINTY.test(value)) return false;
+    if (TRANSIENT_PROFILE_CONTEXT.test(value) && !DURABLE_BEHAVIOR.test(value)) return false;
     if (field === 'ageDemographics') return AGE_DEMOGRAPHICS.test(value)
         && !TEMPORARY_APPEARANCE.test(value) && !TEMPORARY_PERSONALITY.test(value);
     if (field === 'appearance') return !AGE_DEMOGRAPHICS.test(value) && !TEMPORARY_APPEARANCE.test(value);
