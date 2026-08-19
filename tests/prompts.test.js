@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
     buildExtractionSystemPrompt,
     buildHierarchySystemPrompt,
+    buildRetrievalSystemPrompt,
     CONTINUITY_COVERAGE_RULES,
     DEFAULT_ARC_SYSTEM_PROMPT,
     DEFAULT_ARC_TASK_TEMPLATE,
@@ -15,18 +16,19 @@ import {
     DEFAULT_RETRIEVAL_SYSTEM_PROMPT,
     EPISTEMIC_MEMORY_RULES,
     HIERARCHY_CONCISION_RULES,
+    NO_EM_DASH_STYLE_RULE,
     RELATIONSHIP_DESCRIPTION_RULE,
     renderPromptTemplate,
 } from '../extension/prompts.js';
 
 test('JB prompt is appended to extraction instructions only when enabled', () => {
-    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', false, '<rules>custom</rules>'), 'Base extraction instructions.');
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', false, '<rules>custom</rules>'), `Base extraction instructions.\n\n${NO_EM_DASH_STYLE_RULE}`);
     assert.equal(
         buildExtractionSystemPrompt('Base extraction instructions.', true, '<rules>custom</rules>'),
-        'Base extraction instructions.\n\n<rules>custom</rules>',
+        `Base extraction instructions.\n\n<rules>custom</rules>\n\n${NO_EM_DASH_STYLE_RULE}`,
     );
-    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', true, '   '), 'Base extraction instructions.');
-    assert.equal(buildExtractionSystemPrompt('', true, '<rules>custom</rules>'), '<rules>custom</rules>');
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', true, '   '), `Base extraction instructions.\n\n${NO_EM_DASH_STYLE_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('', true, '<rules>custom</rules>'), `<rules>custom</rules>\n\n${NO_EM_DASH_STYLE_RULE}`);
     assert.match(DEFAULT_JB_PROMPT, /^<rules>[\s\S]*<\/rules>$/);
 });
 
@@ -41,10 +43,20 @@ test('custom prompt templates cannot omit required payloads', () => {
 });
 
 test('hierarchy concision rules apply to defaults and custom instructions', () => {
-    assert.equal(buildHierarchySystemPrompt(DEFAULT_ARC_SYSTEM_PROMPT), DEFAULT_ARC_SYSTEM_PROMPT);
-    assert.equal(buildHierarchySystemPrompt(DEFAULT_ERA_SYSTEM_PROMPT), DEFAULT_ERA_SYSTEM_PROMPT);
-    assert.equal(buildHierarchySystemPrompt('Custom hierarchy instructions.'), `Custom hierarchy instructions.\n\n${HIERARCHY_CONCISION_RULES}`);
+    assert.equal(buildHierarchySystemPrompt(DEFAULT_ARC_SYSTEM_PROMPT), `${DEFAULT_ARC_SYSTEM_PROMPT}\n\n${NO_EM_DASH_STYLE_RULE}`);
+    assert.equal(buildHierarchySystemPrompt(DEFAULT_ERA_SYSTEM_PROMPT), `${DEFAULT_ERA_SYSTEM_PROMPT}\n\n${NO_EM_DASH_STYLE_RULE}`);
+    assert.equal(buildHierarchySystemPrompt('Custom hierarchy instructions.'), `Custom hierarchy instructions.\n\n${HIERARCHY_CONCISION_RULES}\n\n${NO_EM_DASH_STYLE_RULE}`);
     assert.match(HIERARCHY_CONCISION_RULES, /without omission ellipses/i);
+});
+
+test('all generated prose prompts avoid em dashes while preserving custom instructions', () => {
+    assert.equal(buildRetrievalSystemPrompt('Custom retrieval instructions.'), `Custom retrieval instructions.\n\n${NO_EM_DASH_STYLE_RULE}`);
+    for (const prompt of [
+        buildExtractionSystemPrompt(DEFAULT_EXTRACTION_SYSTEM_PROMPT),
+        buildRetrievalSystemPrompt(DEFAULT_RETRIEVAL_SYSTEM_PROMPT),
+        buildHierarchySystemPrompt(DEFAULT_ARC_SYSTEM_PROMPT),
+        buildHierarchySystemPrompt(DEFAULT_ERA_SYSTEM_PROMPT),
+    ]) assert.match(prompt, /avoid em dashes/i);
 });
 
 test('prompt templates replace optional and required placeholders', () => {
@@ -70,7 +82,6 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /dynamic the authoritative self-contained description/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /never retain a fulfilled or misleading title/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, new RegExp(RELATIONSHIP_DESCRIPTION_RULE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-    assert.match(DEFAULT_INJECTION_INSTRUCTION, /Relationship ↔ is direction-neutral/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /include a named person being visited, met, contacted, or reported to/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /exclude someone mentioned only as an object's former owner/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /combine simultaneous values of one predicate/);
@@ -101,7 +112,10 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /keep coexisting forms together/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /shift signals changed familiarity, distance, respect, or hierarchy/);
     assert.match(DEFAULT_INJECTION_INSTRUCTION, /without explanation/);
-    assert.match(DEFAULT_INJECTION_INSTRUCTION, /private information unless current chat or memory establishes that they learned it/);
+    assert.match(DEFAULT_INJECTION_INSTRUCTION, /Knowledge boundaries are hard/);
+    assert.match(DEFAULT_INJECTION_INSTRUCTION, /must not mention, identify, infer, react to, or act on protected information/);
+    assert.match(DEFAULT_INJECTION_INSTRUCTION, /Other rows never grant that knowledge/);
+    assert.ok(DEFAULT_INJECTION_INSTRUCTION.length < 700);
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(CONTINUITY_COVERAGE_RULES));
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(EPISTEMIC_MEMORY_RULES));
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /category is "character belief"/);

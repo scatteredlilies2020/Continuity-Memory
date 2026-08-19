@@ -6,7 +6,7 @@ const IRREGULAR_NEGATIVE_BASES = new Map([
     ['ai', 'am'],
 ]);
 const CJK_RUN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
-const LIFECYCLE_GUIDANCE = 'Raw chat controls. Established Facts are objective canon and override Character perspectives, reports, or guesses unless raw chat or a user correction changes canon. Entity rows describe the entity itself; possessive objects and proof about someone are not that person. Relationship ↔ is direction-neutral: roles come from Description and established facts, never endpoint order or Type word order. Events and plans outside Open matters are past; current conditions appear only under Current state.';
+const LIFECYCLE_GUIDANCE = 'Raw chat controls. Established Facts are objective canon and override perspectives, reports, and guesses unless raw chat or a user correction changes canon. Entity rows describe only their entity; possessions and evidence about someone are separate. Relationship ↔ is direction-neutral; derive roles only from Description and established facts, never endpoint or Type order. Only Current state is current. Events and plans outside Open matters are past. In generated prose, avoid em dashes; use commas, colons, parentheses, semicolons, or separate sentences.';
 const BM25_K1 = 1.2;
 const RRF_OFFSET = 20;
 const RETRIEVAL_FIELDS = {
@@ -1685,7 +1685,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.176';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.177';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';

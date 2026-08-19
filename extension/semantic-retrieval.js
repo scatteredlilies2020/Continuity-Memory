@@ -1,14 +1,14 @@
 import { extractMessageFromData } from '/script.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
-import { isThinkingControlError } from './thinking-policy.js?v=0.14.0-standalone.176';
-import { generateWithThinkingPolicy, requestDirectText } from './engine.js?v=0.14.0-standalone.176';
+import { isThinkingControlError } from './thinking-policy.js?v=0.14.0-standalone.177';
+import { generateWithThinkingPolicy, requestDirectText } from './engine.js?v=0.14.0-standalone.177';
 import { parseExpandedTerms } from './semantic-terms.js';
 import { recentRetrievalQuery } from './retrieval-query.js';
-import { getSettings } from './settings.js?v=0.14.0-standalone.176';
-import { buildThinkingRequest } from './thinking-policy.js?v=0.14.0-standalone.176';
-import { DEFAULT_RETRIEVAL_QUERY_TEMPLATE, DEFAULT_RETRIEVAL_SYSTEM_PROMPT, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.176';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.176';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.176';
+import { getSettings } from './settings.js?v=0.14.0-standalone.177';
+import { buildThinkingRequest } from './thinking-policy.js?v=0.14.0-standalone.177';
+import { buildRetrievalSystemPrompt, DEFAULT_RETRIEVAL_QUERY_TEMPLATE, DEFAULT_RETRIEVAL_SYSTEM_PROMPT, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.177';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.177';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.177';
 
 const cache = new Map();
 
@@ -20,7 +20,7 @@ export function clearRetrievalExpansionCache() {
 
 async function requestExpansion(prompt) {
     const settings = getSettings();
-    const systemPrompt = String(settings.retrievalSystemPrompt ?? DEFAULT_RETRIEVAL_SYSTEM_PROMPT);
+    const systemPrompt = buildRetrievalSystemPrompt(settings.retrievalSystemPrompt ?? DEFAULT_RETRIEVAL_SYSTEM_PROMPT);
     const profileId = settings.retrievalProfileId || settings.memoryProfileId;
     if (!profileId) {
         return await generateWithThinkingPolicy({ prompt, systemPrompt, responseLength: 300 });

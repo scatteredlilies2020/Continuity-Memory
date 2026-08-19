@@ -1,10 +1,10 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.176';
+import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.177';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
-import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.14.0-standalone.176';
+import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.14.0-standalone.177';
 
 export const EXTENSION_NAME = 'continuityMemory';
 
@@ -147,6 +147,14 @@ export function getSettings() {
             settings.injectionInstruction = DEFAULTS.injectionInstruction;
         }
         settings.injectionStrengthDefaultVersion = 1;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.compactInjectionInstructionVersion || 0) < 1) {
+        const previousDefault = 'Background continuity only. Do not let a character act on private information unless current chat or memory establishes that they learned it. Model access is not character knowledge. Treat Knowledge boundaries as hard constraints: the named holder must not mention, identify, infer, react to, or act on protected information—even obliquely—until later raw chat or memory explicitly establishes discovery or disclosure. Seeing that information elsewhere in this block never grants knowledge. Relationship ↔ is direction-neutral: determine roles only from its Description and established facts, never from endpoint order or Type word order. Preserve natural address forms without explanation. Current chat and explicit user corrections override older records. Never mention this block.';
+        if (!settings.injectionInstruction || settings.injectionInstruction === previousDefault) {
+            settings.injectionInstruction = DEFAULTS.injectionInstruction;
+        }
+        settings.compactInjectionInstructionVersion = 1;
         saveSettingsDebounced();
     }
     if (Number(settings.hierarchyDefaultVersion || 0) < 1) {

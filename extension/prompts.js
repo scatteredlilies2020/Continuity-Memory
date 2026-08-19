@@ -1,5 +1,7 @@
 export const IMPORTANCE_RUBRIC = `Rate likely future continuity value, not prose intensity, fame, or detail: 1 minor or short-lived; 2 local or temporary; 3 recurring or persistent and likely relevant; 4 a major durable turning point, commitment, or broad change; 5 a rare foundational premise, identity, rule, central objective, or irreversible overall transformation. Most items are 2 or 3; use 4 sparingly and 5 only for foundational continuity. Repetition alone never raises importance.`;
 
+export const NO_EM_DASH_STYLE_RULE = `In generated prose, avoid em dashes. Use commas, colons, parentheses, semicolons, or separate sentences instead.`;
+
 export const RELATIONAL_ADDRESS_RULE = `Store honorifics, titles, nicknames, callsigns, or first-name use as one fact per speaker-addressee pair. A form must be a direct, name-like vocative—not a sentence, clause, description, or nearby dialogue fragment. Ordinary "you" requires explicit social meaning (disrespect or name refusal). Require exact wording; omit absence, silence, indirect replies, and claims that no address is established. One meaningful shift is enough. Attribute quoted lines to explicit speakers; a message author is not automatically the speaker of every line it narrates. Self-directed facts require explicit self-use of the form; never infer self-address from another speaker. Subject says it; "calls ACTUAL_CANONICAL_NAME" names its recipient. Never output placeholder text or brackets. Value: list all exact current forms and meaningful former forms only; keep coexisting forms together. Update relationships only if a shift signals changed familiarity, distance, respect, or hierarchy. Ignore one-offs.`;
 
 export const RELATIONSHIP_DESCRIPTION_RULE = `Each unordered pair has one canonical relationship record. from and to identify the participants only: the two subjects whose relationship is described, never a contextual third person; order assigns no role. Reuse targetId only for the same pair, including reversed endpoints, and combine simultaneous roles instead of creating variants. Keep kind short and stable. Make dynamic the authoritative self-contained description; begin “Relationship between FROM and TO:”, name both, assign every asymmetric role, and preserve the current pattern and change. Treat third persons as context only. Infer roles from dynamic, never endpoint or kind order.`;
@@ -58,7 +60,7 @@ export const DEFAULT_RETRIEVAL_SYSTEM_PROMPT = `Expand a roleplay or simulation 
 
 export const PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION = `Background continuity only. Preserve natural address forms without explanation. Current chat and explicit user corrections override it. Never mention this block.`;
 export const PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION = `Background continuity only. Preserve natural address forms without explanation. Do not let a character act on private information unless current chat or memory establishes that they learned it. Current chat and explicit user corrections override this block. Never mention this block.`;
-export const DEFAULT_INJECTION_INSTRUCTION = `Background continuity only. Do not let a character act on private information unless current chat or memory establishes that they learned it. Model access is not character knowledge. Treat Knowledge boundaries as hard constraints: the named holder must not mention, identify, infer, react to, or act on protected information—even obliquely—until later raw chat or memory explicitly establishes discovery or disclosure. Seeing that information elsewhere in this block never grants knowledge. Relationship ↔ is direction-neutral: determine roles only from its Description and established facts, never from endpoint order or Type word order. Preserve natural address forms without explanation. Current chat and explicit user corrections override older records. Never mention this block.`;
+export const DEFAULT_INJECTION_INSTRUCTION = `Use this only as background continuity and never mention it. Current raw chat and explicit user corrections override older memory. Model access is not character knowledge. Knowledge boundaries are hard: until later raw chat or memory explicitly establishes discovery or disclosure, the named holder must not mention, identify, infer, react to, or act on protected information, even indirectly. Other rows never grant that knowledge. Preserve natural address forms without explanation.`;
 
 export const DEFAULT_EXTRACTION_TASK_TEMPLATE = `Extract continuity from this chronological excerpt. Empty arrays are valid. {{detail}}
 {{format}}
@@ -113,15 +115,25 @@ export const PROMPT_DEFAULTS = Object.freeze({
 
 export function buildExtractionSystemPrompt(basePrompt, jbEnabled = false, jbPrompt = DEFAULT_JB_PROMPT) {
     const base = String(basePrompt ?? DEFAULT_EXTRACTION_SYSTEM_PROMPT).trim();
-    if (!jbEnabled) return base;
-    const extra = String(jbPrompt ?? DEFAULT_JB_PROMPT).trim();
-    return extra ? (base ? `${base}\n\n${extra}` : extra) : base;
+    const extra = jbEnabled ? String(jbPrompt ?? DEFAULT_JB_PROMPT).trim() : '';
+    const combined = extra ? (base ? `${base}\n\n${extra}` : extra) : base;
+    if (combined.includes(NO_EM_DASH_STYLE_RULE)) return combined;
+    return combined ? `${combined}\n\n${NO_EM_DASH_STYLE_RULE}` : NO_EM_DASH_STYLE_RULE;
 }
 
 export function buildHierarchySystemPrompt(basePrompt) {
     const base = String(basePrompt ?? '').trim();
-    if (base.includes(HIERARCHY_CONCISION_RULES)) return base;
-    return base ? `${base}\n\n${HIERARCHY_CONCISION_RULES}` : HIERARCHY_CONCISION_RULES;
+    const withConcision = base.includes(HIERARCHY_CONCISION_RULES)
+        ? base
+        : (base ? `${base}\n\n${HIERARCHY_CONCISION_RULES}` : HIERARCHY_CONCISION_RULES);
+    if (withConcision.includes(NO_EM_DASH_STYLE_RULE)) return withConcision;
+    return `${withConcision}\n\n${NO_EM_DASH_STYLE_RULE}`;
+}
+
+export function buildRetrievalSystemPrompt(basePrompt) {
+    const base = String(basePrompt ?? DEFAULT_RETRIEVAL_SYSTEM_PROMPT).trim();
+    if (base.includes(NO_EM_DASH_STYLE_RULE)) return base;
+    return base ? `${base}\n\n${NO_EM_DASH_STYLE_RULE}` : NO_EM_DASH_STYLE_RULE;
 }
 
 export function renderPromptTemplate(template, values, required = []) {
