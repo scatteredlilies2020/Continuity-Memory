@@ -74,10 +74,9 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /reports, logs, turns, status updates, or simulation results/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /State is a replaceable condition/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /durable, tense-neutral identity summaries/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Role\/background:/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Appearance:/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Personality\/quirks:/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Omit unknown sections, never invent/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /characterProfile fields roleBackground, appearance, personalityQuirks/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /empty if unknown\/non-person/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /never invent/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /unfinished matters in atomic threads/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Threads are atomic unresolved conditions/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /emit its targetId resolved/);

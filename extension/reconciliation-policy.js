@@ -2798,10 +2798,16 @@ function characterProfileObjectiveParts(message) {
     const source = String(message?.text ?? message?.mes ?? '').replace(/\r/g, ' ');
     return source.split(/\n+|(?<=[.!?])\s+(?=[\p{L}\p{N}“"'*_<])/u)
         .map(cleanText)
-        .filter(chunk => chunk
-            && !/^<\/?[^>]+>$/u.test(chunk)
-            && chunk !== '```'
-            && (AUDIT_SOURCE_AUTHORITATIVE.test(chunk) || !AUDIT_SOURCE_SUBJECTIVE.test(chunk)))
+        .map(chunk => {
+            if (!chunk || /^<\/?[^>]+>$/u.test(chunk) || chunk === '```') return '';
+            if (AUDIT_SOURCE_AUTHORITATIVE.test(chunk) || !AUDIT_SOURCE_SUBJECTIVE.test(chunk)) return chunk;
+            // Quoted claims cannot establish appearance or personality. Keep
+            // only a bare proper-name self-introduction as a discourse anchor
+            // so immediately preceding objective narration can be attributed
+            // without treating anything else the speaker says as canon.
+            const introduction = chunk.match(/\b(?:I\s+am|I['’]m|my\s+name\s+is)\s+[\p{Lu}][\p{L}\p{N}'’-]*(?:\s+[\p{Lu}][\p{L}\p{N}'’-]*){0,3}\b/u);
+            return introduction?.[0] || '';
+        })
         .map(chunk => cleanText(chunk.replace(/^\*+|\*+$/gu, '')))
         .filter(Boolean);
 }
@@ -2851,6 +2857,17 @@ function parseCharacterProfile(value) {
     return Object.keys(profile).length ? profile : null;
 }
 
+function suppliedCharacterProfile(entity) {
+    const profile = entity?.characterProfile;
+    if (!profile || typeof profile !== 'object' || Array.isArray(profile)) return null;
+    const supplied = {
+        roleBackground: cleanText(profile.roleBackground),
+        appearance: cleanText(profile.appearance),
+        personalityQuirks: cleanText(profile.personalityQuirks),
+    };
+    return CHARACTER_PROFILE_ORDER.some(key => supplied[key]) ? supplied : null;
+}
+
 function formatCharacterProfile(profile) {
     const sections = CHARACTER_PROFILE_ORDER
         .filter(key => cleanText(profile?.[key]))
@@ -2885,6 +2902,21 @@ function characterProfileEvidenceWindows(entity, objectiveSequences, people) {
     for (const segments of objectiveSequences) {
         for (let index = 0; index < segments.length; index++) {
             if (!textMentionsIdentityVariant(segments[index], variants)) continue;
+            // A self-introduction can explicitly resolve immediately preceding
+            // pronoun-led description to the named speaker. Walk backward only
+            // through unnamed clauses and stop at any other known person, so a
+            // nearby character's appearance cannot bleed into this profile.
+            const selfIntroduction = variants.some(variant => new RegExp(
+                `\\b(?:I\\s+am|I['’]m|my\\s+name\\s+is)\\s+${escaped(variant)}\\b`, 'iu',
+            ).test(segments[index]));
+            if (selfIntroduction) {
+                let start = index;
+                for (let prior = index - 1; prior >= 0 && prior >= index - 3; prior--) {
+                    if (otherPeople.some(person => textMentionsEntity(segments[prior], person))) break;
+                    start = prior;
+                    windows.push(segments.slice(start, index + 1).join(' '));
+                }
+            }
             for (let width = 1; width <= 3 && index + width <= segments.length; width++) {
                 const added = segments[index + width - 1];
                 const returnsToEntity = textMentionsIdentityVariant(added, variants);
@@ -2942,8 +2974,12 @@ export function sanitizeStructuredCharacterProfiles(result, world, messages) {
     let discarded = 0;
     const warnings = [];
     for (const entity of result.entities) {
-        if (!entityIsPersonLike(entity?.type)) continue;
-        const incoming = parseCharacterProfile(entity?.description);
+        if (!entityIsPersonLike(entity?.type)) {
+            delete entity.characterProfile;
+            continue;
+        }
+        const incoming = suppliedCharacterProfile(entity) || parseCharacterProfile(entity?.description);
+        delete entity.characterProfile;
         if (!incoming) continue;
         const targetId = cleanText(entity?.targetId);
         const existing = (world?.entities || []).find(item => (targetId && cleanText(item?.id) === targetId)

@@ -1937,6 +1937,76 @@ test('structured character profiles discard only unsupported neighboring details
     assert.ok(validation.localWarnings.some(item => /withheld 2 unsupported detail/u.test(item)));
 });
 
+test('schema-separated character profile fields are grounded and assembled into the entity description', () => {
+    const result = extraction();
+    result.entities.push({
+        name: 'Nima', type: 'person', aliases: [], importance: 4, description: '',
+        characterProfile: {
+            roleBackground: 'young acolyte, Toska’s personal attendant',
+            appearance: 'round-cheeked, black hair cropped unevenly at her jaw, green eyes',
+            personalityQuirks: 'earnest, stutters, repeatedly trips',
+        },
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{
+        name: 'Narrator', isUser: false,
+        text: 'A young acolyte rounds the arch too fast. She is round-cheeked, with black hair cropped unevenly at her jaw. Her bow nearly finds the floor. “I’m Nima.”\nNima serves as Toska’s personal attendant. Nima is earnest. Nima stutters. Nima repeatedly trips while following Toska.',
+    }]);
+
+    assert.equal(result.entities[0].description, 'Role/background: young acolyte, Toska’s personal attendant; Appearance: round-cheeked, black hair cropped unevenly at her jaw; Personality/quirks: earnest, stutters, repeatedly trips.');
+    assert.equal(validation.discardedCharacterProfileDetails, 1);
+    assert.equal('characterProfile' in result.entities[0], false);
+    assert.doesNotMatch(result.entities[0].description, /green eyes/iu);
+});
+
+test('a self-introduction does not pull another named person into a character profile', () => {
+    const result = extraction();
+    result.entities.push(
+        {
+            name: 'Nima', type: 'person', aliases: [], importance: 4, description: '',
+            characterProfile: { roleBackground: 'young acolyte', appearance: 'silver hair', personalityQuirks: '' },
+        },
+        { name: 'Maren', type: 'person', aliases: [], importance: 3, description: '' },
+    );
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{
+        name: 'Narrator', isUser: false,
+        text: 'Maren has silver hair. A young acolyte enters. “I’m Nima,” she says.',
+    }]);
+
+    assert.equal(validation.discardedCharacterProfileDetails, 1);
+    assert.equal(result.entities[0].description, 'Role/background: young acolyte.');
+    assert.doesNotMatch(result.entities[0].description, /silver hair/iu);
+});
+
+test('schema profile fields safely convert a legacy free-form person without losing established traits', () => {
+    const result = extraction();
+    result.entities.push({
+        targetId: 'entity_nima', name: 'Nima', type: 'person', aliases: [], importance: 4, description: '',
+        characterProfile: {
+            roleBackground: 'young naive acolyte and Toska’s personal attendant',
+            appearance: 'round-cheeked with jaw-length black hair',
+            personalityQuirks: 'earnest, stutters, frequently trips, telepathic',
+        },
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [{
+            id: 'entity_nima', name: 'Nima', type: 'person', aliases: [],
+            description: 'Young naive acolyte and Toska’s personal attendant; earnest, stutters, and frequently trips.',
+        }],
+        facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{
+        name: 'Narrator', isUser: false,
+        text: 'Nima enters the room. She is round-cheeked with jaw-length black hair.',
+    }]);
+
+    assert.equal(result.entities[0].description, 'Role/background: young naive acolyte, Toska’s personal attendant; Appearance: round-cheeked with jaw-length black hair; Personality/quirks: earnest, stutters, frequently trips.');
+    assert.equal(validation.discardedCharacterProfileDetails, 1);
+    assert.doesNotMatch(result.entities[0].description, /telepathic/iu);
+});
+
 test('structured character profiles retain prior sections when a new profile invents replacements', () => {
     const established = 'Role/background: Toska’s base-born attendant; Appearance: round-cheeked, black hair; Personality/quirks: earnest, devoted.';
     const result = extraction();

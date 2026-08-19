@@ -6,26 +6,26 @@ import { proxies } from '/scripts/openai.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.180';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.181';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.180';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.181';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, compactDuplicateMemoryRecords, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.180';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.180';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.181';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.181';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.180';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, NO_EM_DASH_STYLE_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.180';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.181';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, NO_EM_DASH_STYLE_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.181';
 import { applySourceAttributionFailClosed, canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.180';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.180';
-import { onRuntimeStop, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.180';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.181';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.181';
+import { onRuntimeStop, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.181';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
 
@@ -69,10 +69,20 @@ const extractionSchema = {
         entities: {
             type: 'array', items: {
                 type: 'object', additionalProperties: false,
-                required: ['targetId', 'name', 'type', 'aliases', 'description', 'importance'],
+                required: ['targetId', 'name', 'type', 'aliases', 'description', 'characterProfile', 'importance'],
                 properties: {
                     targetId: { type: 'string' }, name: { type: 'string' }, type: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } },
-                    description: { type: 'string' }, importance: { type: 'integer', minimum: 1, maximum: 5 },
+                    description: { type: 'string', description: 'Durable description for a non-person entity. Leave empty for a person; characterProfile is validated and formatted into the stored description.' },
+                    characterProfile: {
+                        type: 'object', additionalProperties: false,
+                        required: ['roleBackground', 'appearance', 'personalityQuirks'],
+                        properties: {
+                            roleBackground: { type: 'string', description: 'For a recurring named person only: established role, identity-defining background, and durable social function, using source wording. Empty when unknown or not a person.' },
+                            appearance: { type: 'string', description: 'For a recurring named person only: durable observable appearance using source wording. Exclude temporary clothing, wounds, emotion, and pose. Empty when unknown or not a person.' },
+                            personalityQuirks: { type: 'string', description: 'For a recurring named person only: established recurring temperament, habits, speech patterns, and quirks using source wording. Exclude one-off reactions. Empty when unknown or not a person.' },
+                        },
+                    },
+                    importance: { type: 'integer', minimum: 1, maximum: 5 },
                 },
             },
         },
@@ -256,7 +266,7 @@ const ARC_JSON_SHAPE_EXAMPLE = JSON.stringify({
 const JSON_SHAPE_EXAMPLE = JSON.stringify({
     scene: { location: '', time: '', participants: [], activity: '', mood: '' },
     sceneCapsule: { title: '', storyTime: '', location: '', participants: [], opening: '', beats: [], emotionalArc: '', closing: '', importance: 3, temporal: { frame: 'main narrative', relation: 'unknown', elapsed: '', certainty: 'unknown' } },
-    entities: [{ targetId: '', name: '', type: '', aliases: [], description: '', importance: 3 }],
+    entities: [{ targetId: '', name: '', type: '', aliases: [], description: '', characterProfile: { roleBackground: '', appearance: '', personalityQuirks: '' }, importance: 3 }],
     identityResolutions: [{ reference: '', canonical: '', evidence: '' }],
     recordMerges: [{ category: 'facts', canonicalId: '', duplicateIds: [], evidence: '' }],
     facts: [{ targetId: '', subject: '', predicate: '', value: '', category: '', importance: 3, persistence: 'persistent' }],
@@ -387,7 +397,12 @@ function extractionStateContext(world, messages) {
     const entities = (world?.entities || []).filter(entity => {
         const names = [entity.name, ...(entity.aliases || [])].map(value => String(value || '').toLocaleLowerCase()).filter(Boolean);
         return names.some(name => conversation.includes(name)) || activeSubjects.has(String(entity.name || '').toLocaleLowerCase());
-    }).slice(0, 30).map(entity => ({ targetId: entity.id, name: entity.name, aliases: entity.aliases || [] }));
+    }).slice(0, 30).map(entity => ({
+        targetId: entity.id,
+        name: entity.name,
+        aliases: entity.aliases || [],
+        description: String(entity.description || '').replace(/\s+/g, ' ').trim().slice(0, 600),
+    }));
     const rankCanonical = (items, searchable, subjects, limit) => (items || []).map(item => {
         const source = latestSourceRange(item);
         const content = searchable(item);
