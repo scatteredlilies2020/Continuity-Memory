@@ -6,26 +6,27 @@ import { proxies } from '/scripts/openai.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.191';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.192';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.191';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.192';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, compactDuplicateMemoryRecords, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.191';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.191';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.192';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.192';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.191';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, NO_EM_DASH_STYLE_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.191';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.192';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, NO_EM_DASH_STYLE_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.192';
 import { applySourceAttributionFailClosed, canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.191';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.191';
-import { onRuntimeStop, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.191';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.192';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.192';
+import { onRuntimeStop, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.192';
+import { completedDetachedWorldIsNewer, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.192';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
 
@@ -1012,7 +1013,30 @@ async function reconnectDetachedExtraction(worldId, chatKey) {
         if (!health?.detachedJobs) return;
         const { jobs } = await api.listExtractionJobs({ worldId, chatKey });
         const active = jobs.find(job => job.status === 'queued' || job.status === 'processing');
-        if (!active || watchedDetachedJobs.has(active.id)) return;
+        if (!active) {
+            // A detached job can finish between the initial world load and
+            // this status request. Refresh completed work too so the viewer,
+            // retrieval, coverage, and portable chat snapshot cannot remain
+            // on the pre-job revision until another page reload.
+            const completed = latestCompletedDetachedJob(jobs);
+            if (!completed) return;
+            const world = (await api.getWorld(worldId)).world;
+            if (!completedDetachedWorldIsNewer(runtime.world, world, completed)) return;
+            updateRuntime({
+                world,
+                status: 'idle',
+                progress: null,
+                arcStatus: completed.hierarchyError
+                    ? 'L2/L3 hierarchy deferred; saved L1 remains intact.'
+                    : `Detached hierarchy complete: L2 ${completed.l2 || 0}, L3 ${completed.l3 || 0}.`,
+                arcError: completed.hierarchyError || '',
+                lastValidation: completed.validation || `Detached extraction saved ${completed.messages || 0} message(s).`,
+                lastCompletedAt: completed.completedAt || new Date().toISOString(),
+            });
+            await embedWorldInChat(world);
+            return;
+        }
+        if (watchedDetachedJobs.has(active.id)) return;
         watchedDetachedJobs.add(active.id);
         activeDetachedJobs.add(active.id);
         updateRuntime({
