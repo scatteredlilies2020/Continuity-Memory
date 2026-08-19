@@ -2966,7 +2966,7 @@ function characterProfileObjectiveParts(message) {
     return source.split(/\n+|(?<=[.!?])\s+(?=[\p{L}\p{N}“"'*_<])/u)
         .map(cleanText)
         .map(chunk => {
-            if (!chunk || /^<\/?[^>]+>$/u.test(chunk) || chunk === '```') return '';
+            if (!chunk || /^<\/?[^>]+>$/u.test(chunk) || chunk === '```' || looksLikeStructuredProfilePanel(chunk)) return '';
             if (AUDIT_SOURCE_AUTHORITATIVE.test(chunk) || !AUDIT_SOURCE_SUBJECTIVE.test(chunk)) return chunk;
             // Quoted claims cannot establish appearance or personality. Keep
             // only a bare proper-name self-introduction as a discourse anchor
@@ -2979,14 +2979,67 @@ function characterProfileObjectiveParts(message) {
         .filter(Boolean);
 }
 
+const PROFILE_PANEL_NAME = /(?:^|[-_ ])(?:character|current|scene|world)?[-_ ]*(?:dashboard|hud|metadata|panel|profile|sheet|stat(?:e|s|us)?|status|tracker)(?:$|[-_ ])/iu;
+const PROFILE_PANEL_HEADING = /^\s*(?:#{1,6}\s*)?(?:character\s+|current\s+|scene\s+|world\s+)?(?:dashboard|hud|metadata|panel|profile|sheet|stats?|state|status|tracker)\b/iu;
+const PROFILE_PANEL_KEY_VALUE = /^\s*(?:[-*+]\s*)?(?:["']?)[\p{L}\p{N}_][\p{L}\p{N}_ &'’/().-]{0,48}(?:["']?)\s*(?::|=|=>|->)\s*\S/iu;
+
+function looksLikeStructuredProfilePanel(value) {
+    const source = String(value ?? '').trim();
+    if (!source) return false;
+    if (PROFILE_PANEL_HEADING.test(source)) return true;
+    if ((source.match(/\|/gu) || []).length >= 2 || (source.match(/(?:^|\s)[\p{L}\p{N}_][\p{L}\p{N}_ &'’/().-]{0,32}\s*=\s*/gu) || []).length >= 1) return true;
+    if ((source.match(/["'][^"'\n]{1,48}["']\s*:/gu) || []).length >= 2) return true;
+    if (/^\s*\|.*\|\s*$/u.test(source) || /^\s*[{}[\]]/u.test(source) && /[":]/u.test(source)) return true;
+    return PROFILE_PANEL_KEY_VALUE.test(source);
+}
+
+function structuredPanelBody(value) {
+    const lines = String(value ?? '').split(/\r?\n/u).map(line => line.trim()).filter(Boolean);
+    if (!lines.length) return false;
+    const structured = lines.filter(line => looksLikeStructuredProfilePanel(line)).length;
+    const markdownTable = lines.some(line => /^\|?(?:\s*:?-{3,}:?\s*\|){1,}/u.test(line));
+    return markdownTable || structured >= 2 || (lines.length <= 3 && structured === lines.length);
+}
+
 function stripGeneratedProfileControlBlocks(value) {
     let source = String(value ?? '');
-    for (const tag of ['stat', 'background_updates']) {
-        const paired = new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}\\s*>`, 'giu');
-        const unclosed = new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*$`, 'giu');
-        source = source.replace(paired, ' ').replace(unclosed, ' ');
+    // Profiles never use fenced material as evidence. This covers named and
+    // unnamed JSON, YAML, TOML, INI, Markdown, and custom stat-box formats.
+    source = source.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/gu, ' ');
+    source = source.replace(/<table\b[^>]*>[\s\S]*?<\/table\s*>/giu, ' ');
+    const taggedPanel = /<([a-z][\w:-]*)\b[^>]*>([\s\S]*?)<\/\1\s*>/giu;
+    const bracketedPanel = /\[([a-z][\w -]*)[^\]]*\]([\s\S]*?)\[\/\1\]/giu;
+    for (let pass = 0; pass < 3; pass++) {
+        source = source.replace(taggedPanel, (whole, tag, body) => (
+            PROFILE_PANEL_NAME.test(String(tag).replace(/:/gu, '-')) || structuredPanelBody(body) ? ' ' : whole
+        ));
+        source = source.replace(bracketedPanel, (whole, tag, body) => (
+            PROFILE_PANEL_NAME.test(tag) || structuredPanelBody(body) ? ' ' : whole
+        ));
     }
-    return source.replace(/```[\s\S]*?```/gu, block => /\b(?:Active Threads|Characters|Current Beat|EGO|Emotions|ID|Physical State|Positions|Psyche|SUPEREGO|Time\s*&\s*Weather)\s*=/iu.test(block) ? ' ' : block);
+    // Also handle unclosed conventional panels and untagged key-value/table
+    // runs. A single ordinary speaker label is retained; two structured rows
+    // establish that this is a panel rather than narrative prose.
+    source = source.replace(/<(?:background[-_ ]?updates?|character[-_ ]?(?:sheet|status)|dashboard|hud|metadata|panel|stats?|status|tracker|world[-_ ]?state)\b[^>]*>[\s\S]*$/giu, ' ');
+    const lines = source.split(/\r?\n/u);
+    const kept = [];
+    for (let index = 0; index < lines.length;) {
+        const line = lines[index];
+        if (PROFILE_PANEL_HEADING.test(line)) {
+            index++;
+            while (index < lines.length && (looksLikeStructuredProfilePanel(lines[index]) || /^\s*(?:[-*+]\s+|[{}[\],]+\s*$)/u.test(lines[index]))) index++;
+            continue;
+        }
+        let end = index;
+        while (end < lines.length && looksLikeStructuredProfilePanel(lines[end])) end++;
+        if (end - index >= 2 || (end - index === 1 && ((line.match(/\|/gu) || []).length >= 2 || /[{}[\]]/u.test(line)))) {
+            index = end;
+            continue;
+        }
+        kept.push(line);
+        index++;
+    }
+    return kept.join('\n');
 }
 
 function strongestEvidenceWindow(reference, segments) {

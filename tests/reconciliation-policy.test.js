@@ -2067,6 +2067,51 @@ Toska is a Jedi Padawan. Toska has shoulder-length brown hair and blue eyes. Tos
     assert.equal(validation.discardedCharacterProfileDetails, 4);
 });
 
+test('arbitrary structured statbox formats cannot become character-profile evidence', () => {
+    const result = extraction();
+    result.entities.push({
+        name: 'Toska', type: 'person', aliases: [], importance: 5, description: '',
+        characterProfile: {
+            roleBackground: ['Jedi Padawan', 'fleet admiral', 'oracle'],
+            appearance: ['blue eyes', 'silver hair', 'horns'],
+            personalityQuirks: ['stutters', 'ruthless', 'cheerful'],
+        },
+    });
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{
+        name: 'Narrator', isUser: false,
+        text: `<character_sheet>
+Role: fleet admiral
+Appearance: silver hair
+</character_sheet>
+
+\`\`\`json
+{"appearance":"horns","personality":"ruthless"}
+\`\`\`
+
+| Field | Value |
+| --- | --- |
+| Role | oracle |
+| Temperament | cheerful |
+
+[Vitals]
+Mood -> triumphant
+Goal -> seize the throne
+[/Vitals]
+
+Toska is a Jedi Padawan. Toska has blue eyes. Toska stutters.`,
+    }]);
+
+    assert.deepEqual(result.entities[0].profile, {
+        roleBackground: ['Jedi Padawan'],
+        appearance: ['blue eyes'],
+        personalityQuirks: ['stutters'],
+    });
+    assert.doesNotMatch(result.entities[0].description, /admiral|oracle|silver|horns|ruthless|cheerful/iu);
+    assert.equal(validation.discardedCharacterProfileDetails, 6);
+});
+
 test('a contaminated stored profile field is not allowed to perpetuate itself', () => {
     const result = extraction();
     result.entities.push({ targetId: 'toska', name: 'Toska', type: 'person', aliases: [], importance: 5, description: '' });

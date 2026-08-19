@@ -1,6 +1,6 @@
-import { fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.185';
+import { fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.186';
 
-export const EXTRACTION_VERSION = 51;
+export const EXTRACTION_VERSION = 52;
 
 function ranges(indexes) {
     const result = [];
