@@ -169,8 +169,9 @@ test('rolling snapshot is bounded, chronological, and sourced only from supplied
     assert.match(ROLLING_STORY_RULE, /newest excerpt has no reserved share/i);
     assert.match(ROLLING_STORY_RULE, /ordinary completed scene normally needs one majorDevelopments entry/i);
     assert.match(ROLLING_STORY_RULE, /removing it would make a later identity/i);
-    assert.match(ROLLING_STORY_RULE, /Generalize or omit exact counts, percentages, durations, colors/i);
-    assert.match(ROLLING_STORY_RULE, /games, routine reassurance, temporary injuries or treatment/i);
+    assert.match(ROLLING_STORY_RULE, /Aggressively collapse counts, percentages, measurements, colors/i);
+    assert.match(ROLLING_STORY_RULE, /Retain an exact detail only when that exactness directly controls an unresolved choice/i);
+    assert.match(ROLLING_STORY_RULE, /combat forms, treatment, and other inventories/i);
     assert.match(ROLLING_STORY_RULE, /majorDevelopments spans the history rather than the newest scene/i);
     assert.match(ROLLING_STORY_RULE, /never end, truncate, or replace text with an ellipsis/i);
     assert.match(ROLLING_STORY_RULE, /overarching ambitions, hidden capabilities, identity secrets, asymmetric knowledge/i);
@@ -179,6 +180,10 @@ test('rolling snapshot is bounded, chronological, and sourced only from supplied
     assert.match(ROLLING_STORY_RULE, /each consequential secret identity says exactly who knows which link/i);
     assert.match(ROLLING_STORY_RULE, /no event is duplicated/i);
     assert.match(ROLLING_STORY_RULE, /ownership and provenance remain unchanged/i);
+    assert.match(ROLLING_STORY_RULE, /Preserve every unresolved explicit ultimatum or conditional threat/i);
+    assert.match(ROLLING_STORY_RULE, /never soften death, destruction, loss, or a deadline/i);
+    assert.match(ROLLING_STORY_RULE, /do not intensify injury into near-death/i);
+    assert.match(ROLLING_STORY_RULE, /openMatters states each active ultimatum without euphemism/i);
     assert.match(ROLLING_STORY_TASK_TEMPLATE, /silent causal and detail-necessity checks/i);
     assert.match(ROLLING_STORY_TASK_TEMPLATE, /\{\{allowance\}\}/);
     assert.match(ROLLING_STORY_TASK_TEMPLATE, /\{\{targetMinimum\}\}/);
