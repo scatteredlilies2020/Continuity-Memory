@@ -20,6 +20,8 @@ import {
     L1_EPISTEMIC_COVERAGE_RULE,
     PRE_ATOMIC_IDENTITY_L1_EPISTEMIC_COVERAGE_RULE,
     RELATIONSHIP_DESCRIPTION_RULE,
+    ROLLING_STORY_QUALITY_RULE,
+    ROLLING_STORY_QUALITY_TASK_TEMPLATE,
     ROLLING_STORY_RULE,
     ROLLING_STORY_TASK_TEMPLATE,
     renderPromptTemplate,
@@ -204,6 +206,24 @@ test('rolling snapshot is bounded, chronological, and sourced only from supplied
     assert.doesNotMatch(storyTask, /\{\{/);
     assert.doesNotMatch(DEFAULT_EXTRACTION_TASK_TEMPLATE, /story_so_far/i);
     assert.doesNotMatch(buildExtractionSystemPrompt(DEFAULT_EXTRACTION_SYSTEM_PROMPT), /storySoFar is a separate/i);
+});
+
+test('final Story quality repair protects stakes and removes low-value inventory before save', () => {
+    assert.match(ROLLING_STORY_QUALITY_RULE, /objective identity from what each character learned/i);
+    assert.match(ROLLING_STORY_QUALITY_RULE, /never imply disclosure/i);
+    assert.match(ROLLING_STORY_QUALITY_RULE, /active ultimatum with its actor, demanded action, and exact stated consequence/i);
+    assert.match(ROLLING_STORY_QUALITY_RULE, /never replace an order with a warning/i);
+    assert.match(ROLLING_STORY_QUALITY_RULE, /Never strengthen source severity or certainty/i);
+    assert.match(ROLLING_STORY_QUALITY_RULE, /Remove rosters, technique lists, injury lists/i);
+    const repair = renderPromptTemplate(ROLLING_STORY_QUALITY_TASK_TEMPLATE, {
+        allowance: 1500,
+        characterBudget: 4500,
+        format: 'Return schema-valid JSON.',
+        candidate: 'Premise: draft.',
+        messages: 'Development: authoritative evidence.',
+    }, ['candidate', 'messages']);
+    assert.match(repair, /CANDIDATE COMPLETE SNAPSHOT:\nPremise: draft\./);
+    assert.match(repair, /AUTHORITATIVE CHRONOLOGICAL EVIDENCE FOR THIS UPDATE:\nDevelopment: authoritative evidence\./);
 });
 
 test('default structured task prompts avoid repeating full schemas', () => {
