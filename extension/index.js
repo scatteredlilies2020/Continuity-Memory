@@ -1,26 +1,26 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.14.0-standalone.250';
+import { api } from './api.js?v=0.14.0-standalone.251';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, maybeAutoUpdateRollingStory, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.250';
-import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.250';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.250';
-import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.250';
-import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.250';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.250';
+import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, maybeAutoUpdateRollingStory, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.251';
+import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.251';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.251';
+import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.251';
+import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.251';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.251';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.250';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.250';
-import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.250';
-import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.250';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.251';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.251';
+import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.251';
+import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.251';
 import { completeL1MessageCount, isL1StabilityProtectedMessage, resolveL1GroupSize } from './l1-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
-import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.14.0-standalone.250';
-import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.250';
-import { resolveStoryBatchMessages } from './story-cadence.js?v=0.14.0-standalone.250';
+import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.14.0-standalone.251';
+import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.251';
+import { resolveStoryBatchMessages } from './story-cadence.js?v=0.14.0-standalone.251';
 import { createBackgroundScheduler } from './background-scheduler.js';
 
 const PROMPT_KEY = 'continuity_memory_context';
@@ -82,10 +82,17 @@ globalThis.continuityMemoryGenerateInterceptor = async (coreChat, contextSize, a
         });
         if (readiness.notification) showGenerationNotification('success', readiness.notification);
     } catch (error) {
-        abort(true);
-        const message = `Roleplay generation stopped until Continuity is ready: ${error.message}`;
-        updateRuntime({ status: 'error', lastError: error.message, injectionStatus: message, retryStatus: message });
-        console.error('[Continuity] Roleplay readiness gate stopped generation.', error);
+        // Memory is an enhancement, not a hard dependency for roleplay. A
+        // storage/model failure must not cancel the user's generation; fall
+        // back to SillyTavern's normal context reduction and raw chat.
+        const message = `Continuity was unavailable for this reply; continuing without the latest memory: ${error.message}`;
+        updateRuntime({ status: 'error', lastError: error.message, injectionStatus: message, retryStatus: message, roleplayGate: null });
+        console.error('[Continuity] Roleplay readiness failed; continuing without fresh memory.', error);
+        try {
+            await reduceChatContext(coreChat, contextSize, abort, type);
+        } catch (reductionError) {
+            console.error('[Continuity] Raw context fallback also failed.', reductionError);
+        }
         showGenerationNotification('error', message);
     }
 };
