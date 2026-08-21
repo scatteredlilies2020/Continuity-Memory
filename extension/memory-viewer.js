@@ -88,6 +88,11 @@ function entry(category, item, index) {
             ? 'Rebuild pending; Build / Continue restarts from the first eligible message'
             : item.rebuildIncomplete ? `Interrupted; Build / Continue resumes after message ${through}` : 'Complete at its stored boundary');
         if (item.rebuildIncomplete) add(fields, 'Rebuild target', `Message ${item.rebuildTargetTo}`);
+        const checkpoints = Array.isArray(item.checkpoints) ? item.checkpoints : [];
+        const newestCheckpoint = Number(checkpoints.at(-1)?.to);
+        add(fields, 'Recovery checkpoints', checkpoints.length
+            ? `${checkpoints.length}; newest through message ${newestCheckpoint}`
+            : 'None yet; an affected legacy or early range rebuilds from the beginning');
         add(fields, 'Narrative', item.text);
         add(fields, 'Construction', item.rebuiltFromRawChat ? 'Built from raw chat from the beginning' : 'Rolling update from raw chat');
         add(fields, 'Last updated', item.updatedAt);

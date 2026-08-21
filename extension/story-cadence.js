@@ -1,4 +1,10 @@
+import { partitionL1StabilityBuffer } from './l1-policy.js';
+
 export const DEFAULT_STORY_BATCH_MESSAGES = 8;
+
+export function stableStoryMessages(messages) {
+    return partitionL1StabilityBuffer(Array.isArray(messages) ? messages : []).extractable;
+}
 
 export function resolveStoryBatchMessages(value) {
     const numeric = Math.round(Number(value) || DEFAULT_STORY_BATCH_MESSAGES);

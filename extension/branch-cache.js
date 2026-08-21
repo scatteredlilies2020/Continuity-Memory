@@ -1,4 +1,4 @@
-import { fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.235';
+import { fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.236';
 import { l1StabilityRepairFrom } from './l1-policy.js';
 import { mergeExtraction, removeChatContributions, restoreRetainedReplayRecords } from './memory-model.js';
 
@@ -10,6 +10,10 @@ function remapWorldChatKey(world, from, to) {
     remapped.sources ||= {};
     remapped.sources[to] = remapped.sources[from];
     delete remapped.sources[from];
+    if (remapped.storySoFar?.[from]) {
+        remapped.storySoFar[to] = remapped.storySoFar[from];
+        delete remapped.storySoFar[from];
+    }
 
     const remapRefs = item => {
         if (!item || typeof item !== 'object') return;

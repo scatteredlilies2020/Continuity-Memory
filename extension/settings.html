@@ -195,7 +195,7 @@
                 </label>
                 <label>Messages per Story update
                     <input id="continuity_story_batch" class="text_pole" type="number" min="2" max="50" step="1">
-                    <small>default 8; independent from Messages per L1. The first automatic Story is created after one complete Story batch, without L1’s stability buffer.</small>
+                    <small>default 8; independent from Messages per L1. Story uses the same two-message stable raw-chat boundary as L1, but runs in its own processing lane and never reads L1/L2/L3.</small>
                 </label>
                 <div class="continuity-button-row">
                     <button id="continuity_story_build" class="menu_button"><i class="fa-solid fa-hammer"></i> Build / Continue</button>

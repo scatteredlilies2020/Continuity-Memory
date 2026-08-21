@@ -6,36 +6,37 @@ import { oai_settings, openai_setting_names, openai_settings, proxies } from '/s
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError, isTransientApiError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.235';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.236';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.235';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.236';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, compactDuplicateMemoryRecords, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens, storyResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.235';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.235';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.236';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.236';
 import { embedWorldInChat } from './portable.js';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.235';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.235';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.236';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.236';
 import { applySourceAttributionFailClosed, canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.235';
-import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.14.0-standalone.235';
-import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.235';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.235';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.236';
+import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.14.0-standalone.236';
+import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.236';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.236';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.14.0-standalone.235';
-import { storyCompressionTarget, storyGenerationTargets } from './story-output-policy.js?v=0.14.0-standalone.235';
-import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.235';
-import { resolveProfileThinkingMode } from './story-thinking.js?v=0.14.0-standalone.235';
-import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.235';
-import { compileRollingStorySnapshot, ROLLING_STORY_SNAPSHOT_EXAMPLE, ROLLING_STORY_SNAPSHOT_SCHEMA } from './story-snapshot.js?v=0.14.0-standalone.235';
-import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.235';
+import { dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.14.0-standalone.236';
+import { storyCompressionTarget, storyGenerationTargets } from './story-output-policy.js?v=0.14.0-standalone.236';
+import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.236';
+import { resolveProfileThinkingMode } from './story-thinking.js?v=0.14.0-standalone.236';
+import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, stableStoryMessages, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.236';
+import { compileRollingStorySnapshot, ROLLING_STORY_SNAPSHOT_EXAMPLE, ROLLING_STORY_SNAPSHOT_SCHEMA } from './story-snapshot.js?v=0.14.0-standalone.236';
+import { planStoryMutationRecovery, withStoryCheckpoint } from './story-checkpoints.js?v=0.14.0-standalone.236';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.236';
 
 const temporalRelationSchema = {
     type: 'object',
@@ -1894,7 +1895,7 @@ async function runManualRollingStory(rebuildFromBeginning) {
     const worldId = getBoundWorldId();
     const chatKey = getChatKey();
     if (!worldId || !chatKey) throw new Error('Open a chat with Continuity memory first.');
-    const allMessages = collectMemoryEligibleMessages(getContext().chat || []);
+    const allMessages = stableStoryMessages(collectMemoryEligibleMessages(getContext().chat || []));
     if (!allMessages.length) throw new Error('This chat has no eligible raw messages to summarize.');
     const epoch = runtime.storyGeneration;
     let world = runtime.world?.id === worldId ? runtime.world : null;
@@ -1903,6 +1904,7 @@ async function runManualRollingStory(rebuildFromBeginning) {
     let plan;
     let messages = [];
     let chunks = [];
+    let checkpointState = null;
     let action = rebuildFromBeginning ? 'Rebuilding' : 'Building';
     updateRuntime({
         storyProcessing: true,
@@ -1935,6 +1937,7 @@ async function runManualRollingStory(rebuildFromBeginning) {
         plan = rebuildFromBeginning
             ? rollingStoryRebuildPlan(allMessages)
             : rollingStoryBuildPlan(allMessages, previous);
+        checkpointState = rebuildFromBeginning ? null : previous;
         messages = plan.messages;
         if (!messages.length) {
             updateRuntime({ storyStatus: 'idle', storyProgress: null, storyLastError: '', storyFailure: null, storyRetryStatus: 'Story so far is already caught up to the eligible raw-chat boundary.' });
@@ -1983,7 +1986,7 @@ async function runManualRollingStory(rebuildFromBeginning) {
                 throw error;
             }
             const incomplete = index < chunks.length - 1;
-            savedWorld = await persistRollingStory(worldId, chatKey, {
+            checkpointState = withStoryCheckpoint(checkpointState, {
                 text: story,
                 from: plan.from,
                 to: Number(chunk.messages.at(-1)?.index ?? 0),
@@ -1992,7 +1995,8 @@ async function runManualRollingStory(rebuildFromBeginning) {
                 rebuildIncomplete: incomplete,
                 rebuildRestartPending: false,
                 rebuildTargetTo: plan.targetTo,
-            });
+            }, allMessages, fingerprintMessage);
+            savedWorld = await persistRollingStory(worldId, chatKey, checkpointState);
         }
         await embedWorldInChat(savedWorld);
         updateRuntime({ storyStatus: 'idle', storyProgress: null, storyFailure: null, storyRetryStatus: rebuildFromBeginning
@@ -2034,9 +2038,9 @@ export async function maybeAutoUpdateRollingStory(sourceMessages = null) {
     const worldId = getBoundWorldId();
     const chatKey = getChatKey();
     if (!worldId || !chatKey) return null;
-    const messages = Array.isArray(sourceMessages)
+    const messages = stableStoryMessages(Array.isArray(sourceMessages)
         ? sourceMessages
-        : collectMemoryEligibleMessages(getContext().chat || []);
+        : collectMemoryEligibleMessages(getContext().chat || []));
     if (!messages.length) return null;
     let world = runtime.world?.id === worldId ? runtime.world : (await api.getWorld(worldId)).world;
     if (runtime.world?.id !== worldId) updateRuntime({ world });
@@ -2053,6 +2057,7 @@ export async function maybeAutoUpdateRollingStory(sourceMessages = null) {
     const epoch = runtime.storyGeneration;
     let story = String(previous?.text || '').trim();
     let savedWorld = world;
+    let checkpointState = previous;
     const firstIndex = Number(previous?.from ?? messages[0]?.index ?? ready[0].index);
     updateRuntime({
         storyProcessing: true,
@@ -2092,7 +2097,7 @@ export async function maybeAutoUpdateRollingStory(sourceMessages = null) {
                 error.code = RUNTIME_CANCELLED_CODE;
                 throw error;
             }
-            savedWorld = await persistRollingStory(worldId, chatKey, {
+            checkpointState = withStoryCheckpoint(checkpointState, {
                 text: story,
                 from: firstIndex,
                 to: Number(chunk.messages.at(-1)?.index ?? firstIndex),
@@ -2100,7 +2105,8 @@ export async function maybeAutoUpdateRollingStory(sourceMessages = null) {
                 rebuiltFromRawChat: rebuilding ? true : false,
                 rebuildIncomplete: rebuilding && index < chunks.length - 1,
                 ...(rebuilding ? { rebuildTargetTo } : {}),
-            });
+            }, messages, fingerprintMessage);
+            savedWorld = await persistRollingStory(worldId, chatKey, checkpointState);
         }
         await embedWorldInChat(savedWorld);
         updateRuntime({ storyStatus: 'idle', storyProgress: null, storyFailure: null, storyRetryStatus: `Story so far advanced by ${ready.length} raw message(s).` });
@@ -2474,7 +2480,7 @@ export function getBranchRepairStatus(world = runtime.world, sourceMessages = nu
     );
 }
 
-export async function repairDivergedBranch({ sourceMessages = null } = {}) {
+export async function repairDivergedBranch({ sourceMessages = null, sourceMutation = false } = {}) {
     if (runtime.processing) throw new Error('Wait for current processing to finish.');
     const worldId = getBoundWorldId();
     const chatKey = getChatKey();
@@ -2484,21 +2490,40 @@ export async function repairDivergedBranch({ sourceMessages = null } = {}) {
     let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
     const divergence = getBranchRepairStatus(world, messages);
     const stabilityRepairFrom = l1StabilityRepairFrom(messages, world.extractions, chatKey);
-    if (!divergence.detected && stabilityRepairFrom === null) return { repaired: false, repairFrom: null, retained: 0 };
+    const storyMessages = stableStoryMessages(messages);
+    const fingerprintedStoryMessages = storyMessages.map(message => ({ index: Number(message.index), fingerprint: fingerprintMessage(message) }));
+    const storyRecoveryFor = targetWorld => planStoryMutationRecovery(
+        targetWorld.storySoFar?.[chatKey], fingerprintedStoryMessages,
+        { mutationObserved: sourceMutation, knownChangeFrom: divergence.earliestIndex },
+    );
+    const storyRecovery = storyRecoveryFor(world);
+    let appliedStoryRecovery = storyRecovery;
+    const structuredRepair = divergence.detected || stabilityRepairFrom !== null;
+    if (!structuredRepair && !storyRecovery.changed) return { repaired: false, repairFrom: null, retained: 0, storyRepaired: false };
 
     const repairStarts = [divergence.detected ? divergence.repairFrom : null, stabilityRepairFrom]
         .filter(value => value !== null && value !== undefined)
         .map(Number)
         .filter(Number.isFinite);
-    let repairFrom = Math.min(...repairStarts);
-    let retained = (world.extractions || [])
+    let repairFrom = structuredRepair ? Math.min(...repairStarts) : null;
+    let retained = structuredRepair ? (world.extractions || [])
         .filter(item => item.chatKey === chatKey && Number(item.to) < repairFrom)
-        .sort((a, b) => Number(a.from) - Number(b.from));
-    if (retained.some(item => !item.result || typeof item.result !== 'object')) {
+        .sort((a, b) => Number(a.from) - Number(b.from)) : [];
+    if (structuredRepair && retained.some(item => !item.result || typeof item.result !== 'object')) {
         repairFrom = 0;
         retained = [];
     }
+    const applyStoryRecovery = (targetWorld, recovery = storyRecoveryFor(targetWorld)) => {
+        appliedStoryRecovery = recovery;
+        if (!recovery.changed) return;
+        targetWorld.storySoFar ||= {};
+        if (recovery.story) targetWorld.storySoFar[chatKey] = structuredClone(recovery.story);
+        else delete targetWorld.storySoFar[chatKey];
+    };
     const replay = targetWorld => {
+        const previousStory = structuredClone(targetWorld.storySoFar?.[chatKey]);
+        const recovery = storyRecoveryFor(targetWorld);
+        appliedStoryRecovery = recovery;
         const previousWorld = structuredClone(targetWorld);
         removeChatContributions(targetWorld, chatKey);
         for (const item of retained) {
@@ -2512,26 +2537,35 @@ export async function repairDivergedBranch({ sourceMessages = null } = {}) {
             });
         }
         restoreRetainedReplayRecords(targetWorld, previousWorld, chatKey);
+        if (recovery.changed) applyStoryRecovery(targetWorld, recovery);
+        else if (previousStory) {
+            targetWorld.storySoFar ||= {};
+            targetWorld.storySoFar[chatKey] = previousStory;
+        }
     };
 
     const stabilityRewound = stabilityRepairFrom !== null;
     const repairLabel = divergence.detected
         ? `Removing stale memory from message ${repairFrom} onward${stabilityRewound ? ' and restoring the two-message stability buffer' : ''}…`
-        : `Rewinding memory from message ${repairFrom} onward to restore the two-message stability buffer…`;
+        : stabilityRewound ? `Rewinding memory from message ${repairFrom} onward to restore the two-message stability buffer…`
+            : `Rewinding Story so far to ${storyRecovery.checkpointTo === null ? 'the beginning' : `checkpoint ${storyRecovery.checkpointTo}`} after a raw-chat change…`;
     updateRuntime({ processing: true, status: 'repairing', lastError: '', retryStatus: repairLabel });
     try {
-        replay(world);
+        if (structuredRepair) replay(world);
+        else applyStoryRecovery(world);
         try {
             world = (await api.saveWorld(world)).world;
         } catch (error) {
             if (error.status !== 409) throw error;
             world = (await api.getWorld(worldId)).world;
-            replay(world);
+            if (structuredRepair) replay(world);
+            else applyStoryRecovery(world);
             world = (await api.saveWorld(world)).world;
         }
         const completedLabel = divergence.detected
             ? `Stale branch memory removed from message ${repairFrom} onward. Rebuilding from active messages…`
-            : `Two-message stability buffer restored by rewinding memory from message ${repairFrom} onward.`;
+            : stabilityRewound ? `Two-message stability buffer restored by rewinding memory from message ${repairFrom} onward.`
+                : `Story so far safely rewound after a raw-chat change.`;
         updateRuntime({ world, status: 'idle', progress: null, retryStatus: completedLabel });
         await embedWorldInChat(world);
         return {
@@ -2541,6 +2575,8 @@ export async function repairDivergedBranch({ sourceMessages = null } = {}) {
             divergenceDetected: divergence.detected,
             stabilityRewound,
             divergentIndexes: divergence.divergentIndexes || [],
+            storyRepaired: Boolean(appliedStoryRecovery.changed),
+            storyCheckpointTo: appliedStoryRecovery.checkpointTo ?? null,
         };
     } catch (error) {
         updateRuntime({ status: 'error', progress: null, lastError: error.message, retryStatus: `Branch repair failed: ${error.message}` });

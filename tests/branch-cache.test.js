@@ -46,6 +46,7 @@ function parentWorld() {
             messageFingerprints: chunk.map(message => ({ index: message.index, fingerprint: fingerprintMessage(message) })),
         });
     }
+    world.storySoFar = { [parentKey]: { text: 'Parent Story.', from: 0, to: 21 } };
     return world;
 }
 
@@ -59,6 +60,8 @@ test('a truncated branch reuses every stable parent L1 before its new tail', () 
     assert.equal(result.retained, 2);
     assert.equal(result.repairFrom, 16);
     assert.equal(result.world.sources[parentKey], undefined);
+    assert.equal(result.world.storySoFar[parentKey], undefined);
+    assert.equal(result.world.storySoFar[branchKey], undefined);
     assert.equal(result.world.sources[branchKey].processedMessages.length, 16);
     assert.deepEqual(result.world.extractions.map(item => [item.from, item.to]), [[0, 7], [8, 15]]);
     assert.equal(result.world.capsules[0].id, firstCapsuleId);

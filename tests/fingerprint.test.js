@@ -31,6 +31,7 @@ function worldFor(sourceMessages = messages()) {
         arcs: [{ id: 'arc-1', chatKey: oldKey, capsuleIds: ['capsule-1'] }],
         extractions: [{ id: 'extraction-1', chatKey: oldKey, from: 0, to: 1 }],
         threads: [],
+        storySoFar: { [oldKey]: { text: 'The club formed.', from: 0, to: 1 } },
         sources: { [oldKey]: { lastProcessedIndex: 1, processedMessages } },
     };
 }
@@ -97,6 +98,8 @@ test('accepts an imported source when the current chat is one message ahead', ()
     assert.equal(result.world.capsules[0].chatKey, newKey);
     assert.equal(result.world.arcs[0].chatKey, newKey);
     assert.equal(result.world.extractions[0].chatKey, newKey);
+    assert.equal(result.world.storySoFar[oldKey], undefined);
+    assert.equal(result.world.storySoFar[newKey].text, 'The club formed.');
 });
 
 test('blocks changed branches and memories ahead of the current chat', () => {

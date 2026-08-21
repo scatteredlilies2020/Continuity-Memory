@@ -139,6 +139,10 @@ function remapChatKey(world, from, to) {
     aligned.sources ||= {};
     aligned.sources[to] = aligned.sources[from];
     delete aligned.sources[from];
+    if (aligned.storySoFar?.[from]) {
+        aligned.storySoFar[to] = aligned.storySoFar[from];
+        delete aligned.storySoFar[from];
+    }
 
     const remapRefs = item => {
         if (!item || typeof item !== 'object') return;
@@ -210,7 +214,10 @@ function consolidateSourceAliases(world, candidates, currentChatKey) {
         .filter(item => !(item.arcIds || []).some(id => removedArcIds.has(id)))
         .map(filterSources)
         .filter(Boolean);
-    for (const key of droppedKeys) delete consolidated.sources?.[key];
+    for (const key of droppedKeys) {
+        delete consolidated.sources?.[key];
+        delete consolidated.storySoFar?.[key];
+    }
 
     return {
         keep,

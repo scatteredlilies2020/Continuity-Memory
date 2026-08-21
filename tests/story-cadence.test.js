@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { completeStoryMessages, DEFAULT_STORY_BATCH_MESSAGES, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryCoverage, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, storyChunkMessageLimit } from '../extension/story-cadence.js';
+import { completeStoryMessages, DEFAULT_STORY_BATCH_MESSAGES, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryCoverage, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, stableStoryMessages, storyChunkMessageLimit } from '../extension/story-cadence.js';
 
 test('story cadence defaults to eight messages and remains independently adjustable', () => {
     assert.equal(DEFAULT_STORY_BATCH_MESSAGES, 8);
@@ -14,6 +14,11 @@ test('automatic story cadence waits for complete story batches', () => {
     assert.deepEqual(completeStoryMessages(messages.slice(0, 7), 8), []);
     assert.deepEqual(completeStoryMessages(messages, 8).map(item => item.index), Array.from({ length: 16 }, (_, index) => index));
     assert.equal(completeStoryMessages(messages, 8, true).length, 17);
+});
+
+test('Story never runs beyond the same two-message stable boundary used by L1', () => {
+    const messages = Array.from({ length: 12 }, (_, index) => ({ index }));
+    assert.deepEqual(stableStoryMessages(messages).map(item => item.index), Array.from({ length: 10 }, (_, index) => index));
 });
 
 test('fresh story construction packs context-safe chunks while later updates keep their cadence', () => {
