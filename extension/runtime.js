@@ -9,6 +9,7 @@ export const STORY_RUNTIME_STATUSES = Object.freeze([
     'pending-story-rebuild',
     'updating-story',
     'rebuilding-story',
+    'refining-story',
 ]);
 
 export function isRuntimeCancellation(error) {

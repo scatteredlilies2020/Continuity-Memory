@@ -6,38 +6,38 @@ import { oai_settings, openai_setting_names, openai_settings, proxies } from '/s
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError, isTransientApiError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.247';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.248';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.247';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.248';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, compactDuplicateMemoryRecords, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens, storyResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.247';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.247';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.248';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.248';
 import { embedWorldInChat } from './portable.js';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.247';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_QUALITY_RULE, ROLLING_STORY_QUALITY_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, ROLLING_STORY_VERIFY_RULE, ROLLING_STORY_VERIFY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.247';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.248';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_QUALITY_RULE, ROLLING_STORY_QUALITY_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, ROLLING_STORY_VERIFY_RULE, ROLLING_STORY_VERIFY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.248';
 import { applySourceAttributionFailClosed, canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.247';
-import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.14.0-standalone.247';
-import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.247';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.247';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.248';
+import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.14.0-standalone.248';
+import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.248';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.248';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.14.0-standalone.247';
-import { storyCompressionTarget, storyGenerationTargets } from './story-output-policy.js?v=0.14.0-standalone.247';
-import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.247';
-import { resolveProfileThinkingMode } from './story-thinking.js?v=0.14.0-standalone.247';
-import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, stableStoryMessages, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.247';
-import { compileRollingStorySnapshot, ROLLING_STORY_SNAPSHOT_EXAMPLE, ROLLING_STORY_SNAPSHOT_SCHEMA } from './story-snapshot.js?v=0.14.0-standalone.247';
-import { planStoryMutationRecovery, withStoryCheckpoint } from './story-checkpoints.js?v=0.14.0-standalone.247';
-import { buildStorySourceUnits, resolveStorySourceMode, storedStorySourceMode, storySourceModeLabel, storySourcePolicyIsCurrent, STORY_SOURCE_L1, STORY_SOURCE_POLICY_VERSION } from './story-source.js?v=0.14.0-standalone.247';
-import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.247';
+import { dynamicStoryRefineSourceChunk, dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.14.0-standalone.248';
+import { storyCompressionTarget, storyGenerationTargets } from './story-output-policy.js?v=0.14.0-standalone.248';
+import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.248';
+import { resolveProfileThinkingMode } from './story-thinking.js?v=0.14.0-standalone.248';
+import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, stableStoryMessages, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.248';
+import { compileRollingStorySnapshot, ROLLING_STORY_SNAPSHOT_EXAMPLE, ROLLING_STORY_SNAPSHOT_SCHEMA } from './story-snapshot.js?v=0.14.0-standalone.248';
+import { planStoryMutationRecovery, withStoryCheckpoint } from './story-checkpoints.js?v=0.14.0-standalone.248';
+import { buildStorySourceUnits, resolveStorySourceMode, storedStorySourceMode, storySourceModeLabel, storySourcePolicyIsCurrent, STORY_SOURCE_L1, STORY_SOURCE_POLICY_VERSION } from './story-source.js?v=0.14.0-standalone.248';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.248';
 
 const temporalRelationSchema = {
     type: 'object',
@@ -1007,7 +1007,7 @@ async function repairRollingStoryQuality(candidate, priorStory, messages, {
     throw lastError;
 }
 
-async function regenerateRollingStory(priorStory, messages, expectedEpoch = runtime.storyGeneration, { qualityRepair = false } = {}) {
+async function regenerateRollingStory(priorStory, messages, expectedEpoch = runtime.storyGeneration) {
     const settings = getSettings();
     const allowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext).tokens;
     const { profileId, directKind } = resolveStoryRequestProfile(settings, DIRECT_PROFILE_ID);
@@ -1071,24 +1071,7 @@ async function regenerateRollingStory(priorStory, messages, expectedEpoch = runt
                 oversized.measuredTokens = measuredTokens;
                 throw oversized;
             }
-            if (!qualityRepair) return story;
-            updateRuntime({ storyRetryStatus: 'Checking Story stakes, knowledge boundaries, severity, and compression before saving…' });
-            const review = await verifyRollingStoryQuality(story, priorStory, messages, { profileId, directKind, thinkingMode });
-            if (review.valid) return story;
-            const feedback = review.issues.length
-                ? review.issues.map((issue, index) => `${index + 1}. ${issue}`).join('\n')
-                : 'The verifier rejected the candidate without details. Recheck exact learned names, hidden identity links, active ultimata, severity, and inventories.';
-            updateRuntime({ storyRetryStatus: `Story quality verifier found ${review.issues.length || 1} issue(s); repairing before saving.` });
-            return repairRollingStoryQuality(story, priorStory, messages, {
-                allowance,
-                characterBudget: generationTargets.characterBudget,
-                profileId,
-                directKind,
-                thinkingMode,
-                usesStructuredSchema,
-                expectedEpoch,
-                initialFeedback: feedback,
-            });
+            return story;
         } catch (error) {
             lastError = error;
             const oversizedStory = Boolean(error?.storyCandidate) || /exceeded its \d+-token allowance/i.test(String(error?.message || ''));
@@ -2049,6 +2032,128 @@ export async function deleteRollingStory() {
     }
 }
 
+export async function refineRollingStory() {
+    if (runtime.storyProcessing) throw new Error('A Story operation is already running.');
+    const worldId = getBoundWorldId();
+    const chatKey = getChatKey();
+    if (!worldId || !chatKey) throw new Error('Open a chat with Continuity memory first.');
+    const epoch = runtime.storyGeneration;
+    let world = runtime.world?.id === worldId ? runtime.world : null;
+    let previous;
+    let chunks = [];
+    updateRuntime({
+        storyProcessing: true,
+        storyStatus: 'refining-story',
+        storyLastError: '',
+        storyFailure: null,
+        storyProgress: { phase: 'pending', label: 'preparing Story refinement' },
+        storyRetryStatus: 'Preparing the stored Story and its covered source for manual refinement…',
+    });
+    try {
+        await requireRetryStorage();
+        world = world || (await api.getWorld(worldId)).world;
+        previous = world.storySoFar?.[chatKey];
+        if (!String(previous?.text || '').trim()) throw new Error('Build Story so far before refining it.');
+        if (previous.rebuildIncomplete || previous.rebuildRestartPending) {
+            throw new Error('Finish the pending Story build before refining it.');
+        }
+        const settings = getSettings();
+        const sourceMode = resolveStorySourceMode(settings.storySourceMode);
+        if (storedStorySourceMode(previous) !== sourceMode || !storySourcePolicyIsCurrent(previous, sourceMode)) {
+            throw new Error('The stored Story uses a different source policy. Build / Continue or Rebuild it before refining.');
+        }
+        const allMessages = stableStoryMessages(collectMemoryEligibleMessages(getContext().chat || []));
+        const through = Number(previous.to);
+        const coveredMessages = allMessages.filter(message => Number(message.index) <= through);
+        if (!coveredMessages.length) throw new Error('The stored Story has no covered source available to review.');
+        const sourceBreakdown = buildStorySourceUnits(coveredMessages, world.capsules, chatKey, sourceMode, through);
+        if (sourceBreakdown.blockedFrom !== null || !sourceBreakdown.units.length) {
+            throw new Error(sourceMode === STORY_SOURCE_L1
+                ? `Story refinement is waiting for the missing L1 summary beginning at message ${Number(sourceBreakdown.blockedFrom ?? 0) + 1}.`
+                : 'The stored Story source is unavailable for refinement.');
+        }
+        const allowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext).tokens;
+        const sourceLimit = dynamicStoryRefineSourceChunk(getContext().maxContext, allowance);
+        chunks = await chunkMessages(sourceBreakdown.units, sourceLimit, Infinity, sourceLimit);
+        if (runtime.storyGeneration !== epoch) {
+            const error = new Error('Story refinement generation was stopped while preparing its source.');
+            error.code = RUNTIME_CANCELLED_CODE;
+            throw error;
+        }
+        const { profileId, directKind } = resolveStoryRequestProfile(settings, DIRECT_PROFILE_ID);
+        const thinkingMode = resolveThinkingModeForProfile(settings.storyThinkingMode, profileId);
+        const usesStructuredSchema = requestSupportsStructuredSchema(rollingStoryJsonSchema, profileId, directKind, thinkingMode);
+        const characterBudget = storyGenerationTargets(allowance).characterBudget;
+        let story = String(previous.text).trim();
+        let repairedChunks = 0;
+        let foundIssues = 0;
+        for (let index = 0; index < chunks.length; index++) {
+            if (runtime.storyGeneration !== epoch) {
+                const error = new Error('Story refinement generation was stopped; the stored Story was left unchanged.');
+                error.code = RUNTIME_CANCELLED_CODE;
+                throw error;
+            }
+            const chunk = chunks[index];
+            updateRuntime({
+                storyProgress: { phase: 'processing', current: index + 1, total: chunks.length, from: chunk.messages[0]?.index, to: chunk.messages.at(-1)?.index, inputTokens: chunk.tokens },
+                storyRetryStatus: `Reviewing Story refinement source ${index + 1}/${chunks.length}…`,
+            });
+            const review = await verifyRollingStoryQuality(story, story, chunk.messages, { profileId, directKind, thinkingMode });
+            if (runtime.storyGeneration !== epoch) {
+                const error = new Error('Story refinement generation was stopped; the stored Story was left unchanged.');
+                error.code = RUNTIME_CANCELLED_CODE;
+                throw error;
+            }
+            if (review.valid) continue;
+            foundIssues += review.issues.length || 1;
+            const feedback = review.issues.length
+                ? review.issues.map((issue, issueIndex) => `${issueIndex + 1}. ${issue}`).join('\n')
+                : 'The verifier rejected the candidate without details. Recheck exact learned names, hidden identity links, active ultimata, severity, and inventories.';
+            updateRuntime({ storyRetryStatus: `Refining Story from ${review.issues.length || 1} issue(s) found in source ${index + 1}/${chunks.length}…` });
+            story = await repairRollingStoryQuality(story, story, chunk.messages, {
+                allowance,
+                characterBudget,
+                profileId,
+                directKind,
+                thinkingMode,
+                usesStructuredSchema,
+                expectedEpoch: epoch,
+                initialFeedback: feedback,
+            });
+            repairedChunks++;
+        }
+        if (story === String(previous.text).trim()) {
+            updateRuntime({ storyStatus: 'idle', storyProgress: null, storyFailure: null, storyRetryStatus: `Refine complete: no material correction was needed across ${chunks.length} source chunk(s).` });
+            return { world, changed: false, issues: foundIssues, repairedChunks, chunks: chunks.length };
+        }
+        const refined = withStoryCheckpoint(previous, {
+            ...previous,
+            text: story,
+            updatedAt: new Date().toISOString(),
+        }, allMessages, fingerprintMessage);
+        world = await persistRollingStory(worldId, chatKey, refined);
+        await embedWorldInChat(world);
+        updateRuntime({ storyStatus: 'idle', storyProgress: null, storyFailure: null, storyRetryStatus: `Refine complete: repaired ${repairedChunks} source chunk(s) and saved the revised Story.` });
+        return { world, changed: true, issues: foundIssues, repairedChunks, chunks: chunks.length };
+    } catch (error) {
+        if (isRuntimeCancellation(error)) {
+            updateRuntime({ storyStatus: 'idle', storyProgress: null, storyLastError: '', storyFailure: null, storyRetryStatus: error.message });
+        } else {
+            const recovery = 'The stored Story was left unchanged; Refine can be retried.';
+            updateRuntime({
+                storyStatus: 'error',
+                storyProgress: null,
+                storyLastError: error.message,
+                storyFailure: { chatKey, message: error.message, recovery, at: new Date().toISOString() },
+                storyRetryStatus: `Story refinement failed safely: ${error.message} ${recovery}`,
+            });
+        }
+        throw error;
+    } finally {
+        updateRuntime({ storyProcessing: false });
+    }
+}
+
 async function runManualRollingStory(rebuildFromBeginning) {
     if (runtime.storyProcessing) throw new Error('A Story build is already running.');
     const worldId = getBoundWorldId();
@@ -2159,7 +2264,7 @@ async function runManualRollingStory(rebuildFromBeginning) {
                 storyProgress: { phase: 'processing', current: index + 1, total: chunks.length, from: chunk.messages[0]?.index, to: chunk.messages.at(-1)?.index, inputTokens: chunk.tokens },
                 storyRetryStatus: `${action} Story so far ${index + 1}/${chunks.length} from ${storySourceModeLabel(sourceMode)}…`,
             });
-            story = await regenerateRollingStory(story, chunk.messages, epoch, { qualityRepair: true });
+            story = await regenerateRollingStory(story, chunk.messages, epoch);
             if (runtime.storyGeneration !== epoch) {
                 const error = new Error('Story construction was stopped; the unfinished batch was discarded.');
                 error.code = RUNTIME_CANCELLED_CODE;
@@ -2297,7 +2402,7 @@ export async function maybeAutoUpdateRollingStory(sourceMessages = null) {
                 storyProgress: { phase: 'processing', current: index + 1, total: chunks.length, from: chunk.messages[0]?.index, to: chunk.messages.at(-1)?.index, inputTokens: chunk.tokens },
                 storyRetryStatus: `${rebuilding ? 'Resuming interrupted' : previous?.text ? 'Updating' : 'Building'} Story so far ${index + 1}/${chunks.length} with its selected model…`,
             });
-            story = await regenerateRollingStory(story, chunk.messages, epoch, { qualityRepair: true });
+            story = await regenerateRollingStory(story, chunk.messages, epoch);
             if (runtime.storyGeneration !== epoch) {
                 const error = new Error('Automatic Story update was stopped; the in-flight batch was discarded.');
                 error.code = RUNTIME_CANCELLED_CODE;

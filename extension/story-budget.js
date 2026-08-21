@@ -24,3 +24,10 @@ export function dynamicStorySourceChunk(contextSize, outputAllowance = null, inc
     const promptReserve = 2048;
     return Math.max(128, Math.floor(size - output - prior - promptReserve));
 }
+
+export function dynamicStoryRefineSourceChunk(contextSize, outputAllowance = null) {
+    const size = Math.max(0, Number(contextSize) || 50000);
+    const output = Math.max(128, Number(outputAllowance) || dynamicStoryBudget(size));
+    const promptReserve = 2048;
+    return Math.max(128, Math.floor(size - (output * 3) - promptReserve));
+}

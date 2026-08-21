@@ -81,6 +81,7 @@ test('Story stop covers pending preparation as well as active model requests', (
     try {
         assert.equal(STORY_RUNTIME_STATUSES.includes('pending-story-build'), true);
         assert.equal(STORY_RUNTIME_STATUSES.includes('pending-story-rebuild'), true);
+        assert.equal(STORY_RUNTIME_STATUSES.includes('refining-story'), true);
         assert.equal(stopRuntimeTask(STORY_RUNTIME_STATUSES, 'Pending Story stopped.'), true);
         assert.equal(runtime.generation, 30);
         assert.equal(runtime.storyGeneration, 51);

@@ -150,7 +150,7 @@
                         <option value="raw">Raw chat</option>
                     </select>
                 </label>
-                <small>L1 mode compresses completed history from chronological L1 scene summaries, then reads only the recent raw tail that is not yet eligible for an L1. It waits instead of substituting raw chat when an expected L1 is missing. Raw mode rereads chat directly. Changing source requires one safe Story rebuild and never changes structured memory.</small>
+                <small>L1 mode reads completed chronological L1 scene summaries only; newer chat remains raw in SillyTavern until L1 processes it. It waits instead of substituting raw chat when an expected L1 is missing. Raw mode rereads chat directly. Changing source requires one safe Story rebuild and never changes structured memory.</small>
                 <label>Story-so-far model
                     <select id="continuity_story_profile" class="text_pole">
                         <option value="">Same as extraction model (default)</option>
@@ -170,7 +170,7 @@
                         <option value="max">Maximum</option>
                     </select>
                 </label>
-                <small>Auto inherits the reasoning effort saved by the selected Story connection profile, then the active SillyTavern setting when that profile has no effort. Explicit choices affect only Story Build, Rebuild, and automatic Story updates. Unsupported controls safely fall back to provider behavior.</small>
+                <small>Auto inherits the reasoning effort saved by the selected Story connection profile, then the active SillyTavern setting when that profile has no effort. Explicit choices affect Story Build, Rebuild, Refine, and automatic Story updates. Unsupported controls safely fall back to provider behavior.</small>
                 <div class="continuity-story-direct-setting continuity-card-inset">
                     <b>Direct Story-so-far API</b>
                     <label>Provider
@@ -207,12 +207,13 @@
                 <div class="continuity-button-row">
                     <button id="continuity_story_build" class="menu_button"><i class="fa-solid fa-hammer"></i> Build / Continue</button>
                     <button id="continuity_story_rebuild" class="menu_button"><i class="fa-solid fa-rotate"></i> Rebuild</button>
+                    <button id="continuity_story_refine" class="menu_button"><i class="fa-solid fa-wand-magic-sparkles"></i> Refine</button>
                     <button id="continuity_story_stop" class="menu_button redWarningBG"><i class="fa-solid fa-stop"></i> Stop</button>
                     <button id="continuity_story_delete" class="menu_button redWarningBG"><i class="fa-solid fa-trash"></i> Delete story so far</button>
                 </div>
                 <div id="continuity_story_progress" class="continuity-progress">No Story build running.</div>
                 <progress id="continuity_story_progress_bar" max="1" value="0" style="width: 100%; display: none;"></progress>
-                <small>Build / Continue immediately shows pending preparation, keeps completed work, and resumes a stopped or failed Story. Rebuild immediately deletes the current Story, then starts again from the first eligible source. Both show chunk progress and pack as much selected source history as safely fits each request. Automatic later updates use the cadence above. Stop discards only the in-flight request.</small>
+                <small>Build / Continue and Rebuild use one successful model call per chunk. Build keeps completed work and resumes a stopped or failed Story. Rebuild immediately deletes the current Story, then starts again from the first eligible source. Refine separately performs the slower factual review and repairs only issues it finds; it never runs automatically. Stop discards only the in-flight request.</small>
                 <small id="continuity_story_status">No rolling story is stored for this chat yet.</small>
                 <label class="continuity-ai-retrieval-setting">AI retrieval model
                     <select id="continuity_retrieval_profile" class="text_pole">
