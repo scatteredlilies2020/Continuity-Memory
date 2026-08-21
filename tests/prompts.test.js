@@ -221,22 +221,28 @@ test('final Story quality repair protects stakes and removes low-value inventory
         allowance: 1500,
         characterBudget: 4500,
         format: 'Return schema-valid JSON.',
+        prior: 'Premise: protected history.',
         candidate: 'Premise: draft.',
         messages: 'Development: authoritative evidence.',
         feedback: '(none)',
-    }, ['candidate', 'messages']);
+    }, ['prior', 'candidate', 'messages']);
+    assert.match(repair, /PREVIOUS SAVED SNAPSHOT — PROTECTED BASELINE:\nPremise: protected history\./);
     assert.match(repair, /CANDIDATE COMPLETE SNAPSHOT:\nPremise: draft\./);
     assert.match(repair, /AUTHORITATIVE CHRONOLOGICAL EVIDENCE FOR THIS UPDATE:\nDevelopment: authoritative evidence\./);
     assert.match(repair, /VERIFIER FEEDBACK FROM THE PREVIOUS ATTEMPT:\n\(none\)/);
     assert.match(ROLLING_STORY_QUALITY_RULE, /Represent identity knowledge as exact links/i);
     assert.match(ROLLING_STORY_QUALITY_RULE, /must not be erased merely because the link remains hidden/i);
+    assert.match(ROLLING_STORY_QUALITY_RULE, /previous saved snapshot is the protected baseline/i);
+    assert.match(ROLLING_STORY_QUALITY_RULE, /Never silently reinterpret older history during continuation/i);
     assert.match(ROLLING_STORY_VERIFY_RULE, /learning that a former apprentice was named A does not mean learning B=A/i);
     assert.match(ROLLING_STORY_VERIFY_RULE, /hiding B=A never permits erasing that the name A was learned/i);
     const verification = renderPromptTemplate(ROLLING_STORY_VERIFY_TASK_TEMPLATE, {
         format: 'Return validation JSON.',
+        prior: 'Toska learned the name Lucas Alcazar.',
         candidate: 'Toska knows the name Lucas.',
         messages: 'Toska does not know Lucifer is Lucas.',
-    }, ['candidate', 'messages']);
+    }, ['prior', 'candidate', 'messages']);
+    assert.match(verification, /PREVIOUS SAVED SNAPSHOT — PROTECTED BASELINE:\nToska learned the name Lucas Alcazar\./);
     assert.match(verification, /CANDIDATE SNAPSHOT:\nToska knows the name Lucas\./);
     assert.match(verification, /AUTHORITATIVE CHRONOLOGICAL EVIDENCE:\nToska does not know Lucifer is Lucas\./);
 });

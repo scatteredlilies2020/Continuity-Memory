@@ -6,38 +6,38 @@ import { oai_settings, openai_setting_names, openai_settings, proxies } from '/s
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError, isTransientApiError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.244';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.245';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.244';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.245';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, compactDuplicateMemoryRecords, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens, storyResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.244';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.244';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.245';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.245';
 import { embedWorldInChat } from './portable.js';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.244';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_QUALITY_RULE, ROLLING_STORY_QUALITY_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, ROLLING_STORY_VERIFY_RULE, ROLLING_STORY_VERIFY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.244';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.245';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_QUALITY_RULE, ROLLING_STORY_QUALITY_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, ROLLING_STORY_VERIFY_RULE, ROLLING_STORY_VERIFY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.245';
 import { applySourceAttributionFailClosed, canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.244';
-import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.14.0-standalone.244';
-import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.244';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.244';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.245';
+import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.14.0-standalone.245';
+import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.245';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.245';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.14.0-standalone.244';
-import { storyCompressionTarget, storyGenerationTargets } from './story-output-policy.js?v=0.14.0-standalone.244';
-import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.244';
-import { resolveProfileThinkingMode } from './story-thinking.js?v=0.14.0-standalone.244';
-import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, stableStoryMessages, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.244';
-import { compileRollingStorySnapshot, ROLLING_STORY_SNAPSHOT_EXAMPLE, ROLLING_STORY_SNAPSHOT_SCHEMA } from './story-snapshot.js?v=0.14.0-standalone.244';
-import { planStoryMutationRecovery, withStoryCheckpoint } from './story-checkpoints.js?v=0.14.0-standalone.244';
-import { buildStorySourceUnits, resolveStorySourceMode, storedStorySourceMode, storySourceModeLabel, STORY_SOURCE_L1 } from './story-source.js?v=0.14.0-standalone.244';
-import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.244';
+import { dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.14.0-standalone.245';
+import { storyCompressionTarget, storyGenerationTargets } from './story-output-policy.js?v=0.14.0-standalone.245';
+import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.245';
+import { resolveProfileThinkingMode } from './story-thinking.js?v=0.14.0-standalone.245';
+import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, stableStoryMessages, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.245';
+import { compileRollingStorySnapshot, ROLLING_STORY_SNAPSHOT_EXAMPLE, ROLLING_STORY_SNAPSHOT_SCHEMA } from './story-snapshot.js?v=0.14.0-standalone.245';
+import { planStoryMutationRecovery, withStoryCheckpoint } from './story-checkpoints.js?v=0.14.0-standalone.245';
+import { buildStorySourceUnits, resolveStorySourceMode, storedStorySourceMode, storySourceModeLabel, STORY_SOURCE_L1 } from './story-source.js?v=0.14.0-standalone.245';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.245';
 
 const temporalRelationSchema = {
     type: 'object',
@@ -888,7 +888,7 @@ function storyRetryableError(error) {
         || /empty rolling story|invalid json|no json object|unexpected end|reached its output limit|finish_reason:\s*(?:length|max_tokens)|exceeded its \d+-token allowance/i.test(String(error?.message || ''));
 }
 
-async function verifyRollingStoryQuality(candidate, messages, {
+async function verifyRollingStoryQuality(candidate, priorStory, messages, {
     profileId,
     directKind,
     thinkingMode,
@@ -897,12 +897,17 @@ async function verifyRollingStoryQuality(candidate, messages, {
     const format = usesStructuredSchema
         ? 'Return one schema-valid JSON object.'
         : 'Return one JSON object with the exact shape {"valid":true,"issues":[]}.';
-    const values = { candidate, messages: formatExtractionMessages(messages), format };
-    const prompt = renderPromptTemplate(ROLLING_STORY_VERIFY_TASK_TEMPLATE, values, ['candidate', 'messages']);
+    const values = {
+        prior: String(priorStory || '').trim() || '(No previous saved snapshot; verify against the chronological evidence.)',
+        candidate,
+        messages: formatExtractionMessages(messages),
+        format,
+    };
+    const prompt = renderPromptTemplate(ROLLING_STORY_VERIFY_TASK_TEMPLATE, values, ['prior', 'candidate', 'messages']);
     const fallbackPrompt = renderPromptTemplate(ROLLING_STORY_VERIFY_TASK_TEMPLATE, {
         ...values,
         format: 'Return one JSON object with the exact shape {"valid":true,"issues":[]}.',
-    }, ['candidate', 'messages']);
+    }, ['prior', 'candidate', 'messages']);
     const raw = await requestStructured(
         prompt,
         ROLLING_STORY_VERIFY_RULE,
@@ -923,7 +928,7 @@ async function verifyRollingStoryQuality(candidate, messages, {
     };
 }
 
-async function repairRollingStoryQuality(candidate, messages, {
+async function repairRollingStoryQuality(candidate, priorStory, messages, {
     allowance,
     characterBudget,
     profileId,
@@ -938,6 +943,7 @@ async function repairRollingStoryQuality(candidate, messages, {
     const values = {
         allowance,
         characterBudget,
+        prior: String(priorStory || '').trim() || '(No previous saved snapshot; preserve the complete supplied evidence.)',
         candidate,
         messages: formatExtractionMessages(messages),
         format,
@@ -952,12 +958,12 @@ async function repairRollingStoryQuality(candidate, messages, {
             throw error;
         }
         try {
-            const prompt = renderPromptTemplate(ROLLING_STORY_QUALITY_TASK_TEMPLATE, { ...values, feedback }, ['candidate', 'messages']);
+            const prompt = renderPromptTemplate(ROLLING_STORY_QUALITY_TASK_TEMPLATE, { ...values, feedback }, ['prior', 'candidate', 'messages']);
             const fallbackPrompt = renderPromptTemplate(ROLLING_STORY_QUALITY_TASK_TEMPLATE, {
                 ...values,
                 feedback,
                 format: `Return one JSON object with this exact shape: ${ROLLING_STORY_SNAPSHOT_EXAMPLE}`,
-            }, ['candidate', 'messages']);
+            }, ['prior', 'candidate', 'messages']);
             const retry = attempt > 1
                 ? `\n\nRETRY REQUIREMENT: Return complete valid JSON below ${allowance} tokens. Apply every quality correction before responding.`
                 : '';
@@ -979,7 +985,7 @@ async function repairRollingStoryQuality(candidate, messages, {
                 throw new Error(`The repaired Story exceeded its ${allowance}-token allowance (${measuredTokens} tokens).`);
             }
             updateRuntime({ storyRetryStatus: `Verifying repaired Story against its source before saving (attempt ${attempt}/3)…` });
-            const review = await verifyRollingStoryQuality(repaired, messages, { profileId, directKind, thinkingMode });
+            const review = await verifyRollingStoryQuality(repaired, priorStory, messages, { profileId, directKind, thinkingMode });
             if (!review.valid) {
                 feedback = review.issues.length
                     ? review.issues.map((issue, index) => `${index + 1}. ${issue}`).join('\n')
@@ -1066,7 +1072,7 @@ async function regenerateRollingStory(priorStory, messages, expectedEpoch = runt
             }
             if (!qualityRepair) return story;
             updateRuntime({ storyRetryStatus: 'Checking Story stakes, knowledge boundaries, severity, and compression before saving…' });
-            return repairRollingStoryQuality(story, messages, {
+            return repairRollingStoryQuality(story, priorStory, messages, {
                 allowance,
                 characterBudget: generationTargets.characterBudget,
                 profileId,

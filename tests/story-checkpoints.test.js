@@ -74,6 +74,19 @@ test('a deleted message invalidates its checkpoint and every later checkpoint', 
     assert.deepEqual(recovery.story.checkpoints.map(item => item.to), [31]);
 });
 
+test('a deletion before the earliest retained checkpoint schedules a safe automatic rebuild', () => {
+    const source = messages(100);
+    const story = advance(null, source, 95);
+    const shifted = source.slice(1).map((message, index) => ({ ...message, index }));
+    const recovery = planStoryMutationRecovery(story, fingerprinted(shifted), { mutationObserved: true });
+    assert.equal(recovery.changed, true);
+    assert.equal(recovery.checkpointTo, null);
+    assert.equal(recovery.story.text, '');
+    assert.equal(recovery.story.rebuildIncomplete, true);
+    assert.equal(recovery.story.rebuildRestartPending, true);
+    assert.equal(recovery.story.rebuildTargetTo, 98);
+});
+
 test('a mutation after the covered Story boundary leaves it intact', () => {
     const source = messages(100);
     const story = advance(null, source, 63);
