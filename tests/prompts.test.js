@@ -167,15 +167,21 @@ test('rolling snapshot is bounded, chronological, and sourced only from prior sn
     assert.match(ROLLING_STORY_RULE, /overarching ambitions, hidden capabilities, identity secrets, asymmetric knowledge/i);
     assert.match(ROLLING_STORY_TASK_TEMPLATE, /silent causal and detail-necessity checks/i);
     assert.match(ROLLING_STORY_TASK_TEMPLATE, /\{\{allowance\}\}/);
-    assert.match(ROLLING_STORY_TASK_TEMPLATE, /\{\{target\}\}/);
+    assert.match(ROLLING_STORY_TASK_TEMPLATE, /\{\{targetMinimum\}\}/);
+    assert.match(ROLLING_STORY_TASK_TEMPLATE, /\{\{targetMaximum\}\}/);
+    assert.match(ROLLING_STORY_TASK_TEMPLATE, /\{\{characterBudget\}\}/);
     const storyTask = renderPromptTemplate(ROLLING_STORY_TASK_TEMPLATE, {
         allowance: 1280,
-        target: 1024,
+        targetMinimum: 870,
+        targetMaximum: 1024,
+        characterBudget: 3840,
         format: 'Return JSON.',
         prior: 'An older causal spine.',
         messages: '[0] A new event.',
     }, ['prior', 'messages']);
-    assert.match(storyTask, /must not exceed 1280 tokens/i);
+    assert.match(storyTask, /absolute limit of 1280 tokens/i);
+    assert.match(storyTask, /870–1024 tokens/i);
+    assert.match(storyTask, /3840 characters/i);
     assert.doesNotMatch(storyTask, /\{\{/);
     assert.doesNotMatch(DEFAULT_EXTRACTION_TASK_TEMPLATE, /story_so_far/i);
     assert.doesNotMatch(buildExtractionSystemPrompt(DEFAULT_EXTRACTION_SYSTEM_PROMPT), /storySoFar is a separate/i);

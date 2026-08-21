@@ -71,7 +71,7 @@ Record only what has already occurred. boundaryState means state at the covered 
 
 Before returning, silently verify that premise begins with the earliest load-bearing cause, majorDevelopments spans the history rather than the newest scene, boundaryState contains no historical recap, openMatters contains no inventory, and every retained number, named object, minor actor, or physical specification is indispensable.`;
 
-export const ROLLING_STORY_TASK_TEMPLATE = `Rewrite the complete world-state snapshot through the end of this raw excerpt. The compiled snapshot must not exceed {{allowance}} tokens. For a substantial history with enough load-bearing material, aim for approximately {{target}}–{{allowance}} tokens: use the available span to preserve more important continuity, never padding or scene detail.
+export const ROLLING_STORY_TASK_TEMPLATE = `Rewrite the complete world-state snapshot through the end of this raw excerpt. The compiled snapshot has an absolute limit of {{allowance}} tokens. Different tokenizers disagree, so prevent overshoot: for a substantial history aim for approximately {{targetMinimum}}–{{targetMaximum}} tokens by your estimate and keep the compiled prose below approximately {{characterBudget}} characters. These are whole-snapshot safety targets, not per-section or per-entry cutoffs. Use the available span for important continuity, never padding or scene detail.
 Perform the silent causal and detail-necessity checks required by the system instruction. Return only the requested JSON object; do not expose analysis.
 {{format}}
 
