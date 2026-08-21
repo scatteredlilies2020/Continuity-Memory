@@ -7,7 +7,7 @@
   "css": "extension/style.css",
   "generate_interceptor": "continuityMemoryGenerateInterceptor",
   "author": "scatteredlilies2020",
-  "version": "0.14.0-standalone.229",
+  "version": "0.14.0-standalone.230",
   "description": "Standalone structured continuity for roleplay and simulations; does not use Lorebooks or World Info.",
   "homePage": "https://github.com/scatteredlilies2020/Continuity-Memory"
 }

@@ -1319,7 +1319,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     let storyBlock = '';
     if (options.includeStorySoFar !== false) {
         const story = plain(world.storySoFar?.[chatKey]?.text);
-        const storyAllowance = Math.min(3000, Math.max(128, Math.round(Number(options.storySoFarTokens) || 1000)));
+        const storyAllowance = Math.min(3000, Math.max(128, Math.round(Number(options.storySoFarTokens) || 1500)));
         const storyHeader = '\nStory so far:\n';
         if (story) storyBlock = `${storyHeader}${clipToTokens(story, Math.max(1, storyAllowance - estimatedTokens(storyHeader)))}\n`;
     }
@@ -1711,7 +1711,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.229';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.230';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';

@@ -1,6 +1,6 @@
 export function dynamicStoryBudget(contextSize) {
     const size = Math.max(0, Number(contextSize) || 50000);
-    return Math.min(6000, Math.max(1000, Math.round(size * 0.02)));
+    return Math.min(6000, Math.max(1500, Math.round(size * 0.02)));
 }
 
 export function resolveStoryBudget(configuredTokens, contextSize) {
@@ -13,7 +13,7 @@ export function resolveStoryBudget(configuredTokens, contextSize) {
 
 export function storyWithinAllowance(tokenCount, outputAllowance) {
     const count = Math.max(0, Number(tokenCount) || 0);
-    const allowance = Math.max(128, Number(outputAllowance) || 1000);
+    const allowance = Math.max(128, Number(outputAllowance) || 1500);
     return count <= allowance;
 }
 
