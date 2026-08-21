@@ -6,33 +6,33 @@ import { proxies } from '/scripts/openai.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError, isTransientApiError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.219';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.220';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.219';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.220';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, compactDuplicateMemoryRecords, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens, storyResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.219';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.219';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.220';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.220';
 import { embedWorldInChat } from './portable.js';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.219';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.219';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.220';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.220';
 import { applySourceAttributionFailClosed, canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.219';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.219';
-import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.219';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.219';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.220';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.220';
+import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.220';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.220';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { dynamicStorySourceChunk, resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.219';
-import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.219';
-import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.219';
-import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.219';
+import { dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.14.0-standalone.220';
+import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.220';
+import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.220';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.220';
 
 const temporalRelationSchema = {
     type: 'object',
@@ -200,7 +200,7 @@ const rollingStoryJsonSchema = Object.freeze({
         type: 'object',
         additionalProperties: false,
         required: ['storySoFar'],
-        properties: { storySoFar: { type: 'string', maxLength: 12000 } },
+        properties: { storySoFar: { type: 'string', maxLength: 100000 } },
     },
 });
 
@@ -840,7 +840,7 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
 
 function storyRetryableError(error) {
     return isTransientApiError(error)
-        || /empty rolling story|invalid json|no json object|unexpected end|reached its output limit|finish_reason:\s*(?:length|max_tokens)/i.test(String(error?.message || ''));
+        || /empty rolling story|invalid json|no json object|unexpected end|reached its output limit|finish_reason:\s*(?:length|max_tokens)|exceeded its \d+-token allowance/i.test(String(error?.message || ''));
 }
 
 async function regenerateRollingStory(priorStory, messages, expectedEpoch = runtime.generation) {
@@ -855,7 +855,7 @@ async function regenerateRollingStory(priorStory, messages, expectedEpoch = runt
             ? 'Return one schema-valid JSON object.'
             : 'Return one JSON object with this exact shape: {"storySoFar":""}',
     };
-    const template = `Rewrite the rolling story through the end of this raw excerpt. Keep it within approximately ${allowance} tokens.\n{{format}}\n\nPRIOR ROLLING STORY:\n{{prior}}\n\nNEW RAW CHAT:\n{{messages}}`;
+    const template = `Rewrite the rolling story through the end of this raw excerpt. storySoFar must not exceed ${allowance} tokens.\n{{format}}\n\nPRIOR ROLLING STORY:\n{{prior}}\n\nNEW RAW CHAT:\n{{messages}}`;
     const prompt = renderPromptTemplate(template, values, ['prior', 'messages']);
     const fallbackPrompt = renderPromptTemplate(template, {
         ...values,
@@ -869,9 +869,11 @@ async function regenerateRollingStory(priorStory, messages, expectedEpoch = runt
             throw error;
         }
         try {
-            const retryRequirement = attempt > 1
-                ? `\n\nRETRY REQUIREMENT: The provider ended the previous response before valid completion. Return complete valid JSON and compress storySoFar to clearly below ${allowance} tokens.`
-                : '';
+            const previousFailure = String(lastError?.message || '');
+            const retryRequirement = attempt <= 1 ? ''
+                : /exceeded its \d+-token allowance/i.test(previousFailure)
+                    ? `\n\nRETRY REQUIREMENT: The previous storySoFar exceeded its cap. Compress the complete causal digest to at most ${allowance} tokens; do not merely cut off its ending.`
+                    : `\n\nRETRY REQUIREMENT: The provider ended the previous response before valid completion. Return complete valid JSON and compress storySoFar to at most ${allowance} tokens.`;
             const raw = await requestStructured(
                 `${prompt}${retryRequirement}`,
                 ROLLING_STORY_RULE,
@@ -882,8 +884,12 @@ async function regenerateRollingStory(priorStory, messages, expectedEpoch = runt
                 `${fallbackPrompt}${retryRequirement}`,
             );
             const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
-            const story = String(parsed?.storySoFar || '').replace(/\s+/gu, ' ').trim().slice(0, 12000);
+            const story = String(parsed?.storySoFar || '').replace(/\s+/gu, ' ').trim().slice(0, 100000);
             if (!story) throw new Error('The summarizer returned an empty rolling story.');
+            const measuredTokens = Math.max(1, Number(await getTokenCountAsync(story)) || Math.ceil([...story].length / 4));
+            if (!storyWithinAllowance(measuredTokens, allowance)) {
+                throw new Error(`The rolling story exceeded its ${allowance}-token allowance (${measuredTokens} tokens).`);
+            }
             return story;
         } catch (error) {
             lastError = error;
@@ -895,7 +901,10 @@ async function regenerateRollingStory(priorStory, messages, expectedEpoch = runt
             if (isRuntimeCancellation(error) || attempt >= 3 || !storyRetryableError(error)) throw error;
             const delay = 750 * (2 ** (attempt - 1));
             const outputLimit = /reached its output limit|finish_reason:\s*(?:length|max_tokens)/i.test(String(error?.message || ''));
-            updateRuntime({ retryStatus: outputLimit
+            const oversizedStory = /exceeded its \d+-token allowance/i.test(String(error?.message || ''));
+            updateRuntime({ retryStatus: oversizedStory
+                ? `Story output exceeded its ${allowance}-token cap. Retrying compression in ${delay} ms without limiting the model's thinking budget.`
+                : outputLimit
                 ? `Story API attempt ${attempt}/3 exhausted the provider output limit. Retrying with stricter compression in ${delay} ms; the selected profile controls output capacity and the Story allowance is unchanged.`
                 : `Story API attempt ${attempt}/3 failed temporarily. Retrying in ${delay} ms; the last completed checkpoint is safe.` });
             await new Promise(resolve => setTimeout(resolve, delay));

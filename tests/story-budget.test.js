@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { dynamicStoryBudget, dynamicStorySourceChunk, resolveStoryBudget } from '../extension/story-budget.js';
+import { dynamicStoryBudget, dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from '../extension/story-budget.js';
 
 test('automatic rolling-story budget scales with context and keeps a one-thousand-token minimum', () => {
     assert.equal(dynamicStoryBudget(32000), 1000);
@@ -20,4 +20,9 @@ test('story source chunks use all context remaining after output, prior story, a
     assert.equal(dynamicStorySourceChunk(128000), 120832);
     assert.equal(dynamicStorySourceChunk(1000), 128);
     assert.equal(dynamicStorySourceChunk(1000000), 985952);
+});
+
+test('the final rolling digest is capped independently from the uncapped API completion', () => {
+    assert.equal(storyWithinAllowance(1280, 1280), true);
+    assert.equal(storyWithinAllowance(1281, 1280), false);
 });
