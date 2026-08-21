@@ -4,10 +4,10 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, buildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, rebuildRollingStory, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.233';
+import { buildNextArc, buildNextEra, buildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, rebuildRollingStory, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.234';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.233';
+import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.234';
 import { clearRetrievalExpansionCache } from './semantic-retrieval.js';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
@@ -15,23 +15,23 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.233';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.233';
-import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, STORY_RUNTIME_STATUSES, stopRuntime, stopRuntimeTask, updateRuntime } from './runtime.js?v=0.14.0-standalone.233';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.234';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.234';
+import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, STORY_RUNTIME_STATUSES, stopRuntime, stopRuntimeTask, updateRuntime } from './runtime.js?v=0.14.0-standalone.234';
 import { completeL1MessageCount, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.233';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.233';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.233';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.234';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.234';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.234';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.233';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.233';
-import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.233';
-import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.233';
-import { resolveStoryBatchMessages, rollingStoryCoverage } from './story-cadence.js?v=0.14.0-standalone.233';
+import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.234';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.234';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.234';
+import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.234';
+import { resolveStoryBatchMessages, rollingStoryCoverage } from './story-cadence.js?v=0.14.0-standalone.234';
 import { createRenderScheduler } from './render-scheduler.js';
-import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.14.0-standalone.233';
-import { connectionProfileHasModel } from './profile-request-policy.js?v=0.14.0-standalone.233';
+import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.14.0-standalone.234';
+import { connectionProfileHasModel } from './profile-request-policy.js?v=0.14.0-standalone.234';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -1026,7 +1026,6 @@ export function renderRuntime(refreshSettings = true) {
         $('#continuity_story_so_far_tokens').val(settings.storySoFarTokens);
         $('#continuity_story_batch').val(resolveStoryBatchMessages(settings.storyBatchMessages));
         $('#continuity_story_thinking').val(settings.storyThinkingMode);
-        $('#continuity_retrieval_thinking').val(settings.retrievalThinkingMode);
         $('.continuity-ai-retrieval-setting').toggle(settings.retrievalMode === 'ai-expanded');
         $('.continuity-text-retrieval-setting').toggle(settings.retrievalMode !== 'embedding-hybrid');
         $('.continuity-embedding-setting').toggle(settings.retrievalMode === 'embedding-hybrid');
@@ -1237,7 +1236,6 @@ export function renderRuntime(refreshSettings = true) {
         activeModel: (() => { try { return getContext().getChatCompletionModel?.() || null; } catch { return null; } })(),
         extractionConnection: memoryProfile || 'Current active SillyTavern model',
         thinkingMode: settings.thinkingMode,
-        retrievalThinkingMode: settings.retrievalThinkingMode,
         thinkingControl: runtime.thinkingControl || null,
         lastGenerationRetrieval: retrievalSnapshotDiagnostics(runtime.lastGenerationRetrieval),
         nextRetrievalPreview: retrievalSnapshotDiagnostics(runtime.nextRetrievalPreview),
@@ -1662,7 +1660,6 @@ export function initUI() {
     setSetting('#continuity_story_so_far_tokens', 'storySoFarTokens', value => Math.min(12000, Math.max(0, Number(value) || 0)));
     setSetting('#continuity_story_batch', 'storyBatchMessages', resolveStoryBatchMessages);
     setSetting('#continuity_story_thinking', 'storyThinkingMode');
-    setSetting('#continuity_retrieval_thinking', 'retrievalThinkingMode');
     $('#continuity_story_build').on('click', async () => {
         const stored = runtime.world?.storySoFar?.[getChatKey()];
         const eligibleMessages = collectMemoryEligibleMessages(getContext().chat || []);
