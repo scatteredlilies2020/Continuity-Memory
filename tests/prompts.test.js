@@ -19,6 +19,7 @@ import {
     HIERARCHY_CONCISION_RULES,
     RELATIONSHIP_DESCRIPTION_RULE,
     ROLLING_STORY_RULE,
+    ROLLING_STORY_TASK_TEMPLATE,
     renderPromptTemplate,
 } from '../extension/prompts.js';
 
@@ -148,21 +149,38 @@ test('rolling story is sourced only from its prior text and the new raw excerpt'
     assert.match(ROLLING_STORY_RULE, /Never call a condition current, present, latest, or ongoing/i);
     assert.match(ROLLING_STORY_RULE, /Do not predict or narrate future events/i);
     assert.match(ROLLING_STORY_RULE, /only as expressed or unresolved, never as completed/i);
-    assert.match(ROLLING_STORY_RULE, /as short as possible without losing load-bearing continuity/i);
+    assert.match(ROLLING_STORY_RULE, /as short as possible without losing its load-bearing causal chain/i);
     assert.match(ROLLING_STORY_RULE, /dense telegraphic prose/i);
     assert.match(ROLLING_STORY_RULE, /compress wording, never causal meaning/i);
     assert.match(ROLLING_STORY_RULE, /Attribute beliefs, reports, deception, and uncertainty/i);
     assert.match(ROLLING_STORY_RULE, /Omit headings, bullets, formatting/i);
-    assert.match(ROLLING_STORY_RULE, /globally re-rank both sources instead of appending/i);
-    assert.match(ROLLING_STORY_RULE, /never recency, position, length, drama, prose intensity/i);
-    assert.match(ROLLING_STORY_RULE, /Preserve older foundational premises/i);
-    assert.match(ROLLING_STORY_RULE, /New material earns space only when/i);
-    assert.match(ROLLING_STORY_RULE, /A calm scene may matter/i);
-    assert.match(ROLLING_STORY_RULE, /remove recent low-consequence material before older load-bearing continuity/i);
+    assert.match(ROLLING_STORY_RULE, /Re-rank the whole history on every call/i);
+    assert.match(ROLLING_STORY_RULE, /not recency, position, message count, scene length, drama, prose intensity/i);
+    assert.match(ROLLING_STORY_RULE, /Preserve origins, irreversible transformations/i);
+    assert.match(ROLLING_STORY_RULE, /newest excerpt has no reserved share/i);
+    assert.match(ROLLING_STORY_RULE, /A calm discovery or decision may pass/i);
     assert.match(ROLLING_STORY_RULE, /token allowance is a ceiling, never a target/i);
-    assert.match(ROLLING_STORY_RULE, /Begin with the earliest foundational premise/i);
-    assert.match(ROLLING_STORY_RULE, /Do not inventory supporting cast, equipment specifications, numeric strength/i);
-    assert.match(ROLLING_STORY_RULE, /action-by-action combat choreography/i);
+    assert.match(ROLLING_STORY_RULE, /Open with the earliest premise, origin, or initiating cause/i);
+    assert.match(ROLLING_STORY_RULE, /supporting-cast rosters, vehicle or unit names, equipment specifications/i);
+    assert.match(ROLLING_STORY_RULE, /Do not retell how each move, conversation, journey, recovery, briefing/i);
+    assert.match(ROLLING_STORY_RULE, /Returning the prior story unchanged is preferred/i);
+    assert.match(ROLLING_STORY_RULE, /Silently map the history into causal phases/i);
+    assert.match(ROLLING_STORY_RULE, /no one completed scene or newest excerpt should occupy more than about one fifth/i);
+    assert.match(ROLLING_STORY_RULE, /completed scene normally receives one compact outcome-and-consequence clause/i);
+    assert.match(ROLLING_STORY_RULE, /removing it would make a later identity/i);
+    assert.match(ROLLING_STORY_RULE, /Generalize exact counts, percentages, durations, colors/i);
+    assert.match(ROLLING_STORY_RULE, /games, ordinary reassurance, temporary injury or treatment/i);
+    assert.match(ROLLING_STORY_RULE, /newest scene has not displaced older causal coverage/i);
+    assert.match(ROLLING_STORY_TASK_TEMPLATE, /silent causal-phase and detail-necessity checks/i);
+    assert.match(ROLLING_STORY_TASK_TEMPLATE, /\{\{allowance\}\}/);
+    const storyTask = renderPromptTemplate(ROLLING_STORY_TASK_TEMPLATE, {
+        allowance: 1280,
+        format: 'Return JSON.',
+        prior: 'An older causal spine.',
+        messages: '[0] A new event.',
+    }, ['prior', 'messages']);
+    assert.match(storyTask, /must not exceed 1280 tokens/i);
+    assert.doesNotMatch(storyTask, /\{\{/);
     assert.doesNotMatch(DEFAULT_EXTRACTION_TASK_TEMPLATE, /story_so_far/i);
     assert.doesNotMatch(buildExtractionSystemPrompt(DEFAULT_EXTRACTION_SYSTEM_PROMPT), /storySoFar is a separate/i);
 });
