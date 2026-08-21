@@ -53,7 +53,7 @@ test('viewer orders hierarchy records chronologically and exposes message ranges
     const page = memoryViewerPage(world, 'l1');
     assert.deepEqual(page.items.map(item => item.title), ['Early', 'Later']);
     assert.deepEqual(page.items[0].sources, ['Messages 0–9']);
-    assert.ok(page.items[0].fields.some(field => field.label === 'Coverage warnings' && field.value.includes('durable vow')));
+    assert.ok(!page.items[0].fields.some(field => field.label === 'Coverage warnings'));
 });
 
 test('viewer searches structured content and paginates safely', () => {
