@@ -36,6 +36,7 @@ export const runtime = {
     nextRetrievalPreview: null,
     contextReduction: { mode: 'waiting', hiddenMessages: 0, hiddenTokens: 0, tailMessages: 0, tailTurns: 0, tailTokens: 0, tailBudget: 0, fixedPromptTokens: null, totalPromptTokens: null, safetyTokens: 0 },
     progress: null,
+    storyFailure: null,
     roleplayGate: null,
     pendingExtractionReview: null,
     world: null,
