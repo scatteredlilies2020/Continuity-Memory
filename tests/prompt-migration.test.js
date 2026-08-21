@@ -3,6 +3,8 @@ import test from 'node:test';
 import {
     CANONICAL_EPISTEMIC_MEMORY_RULES,
     EPISTEMIC_MEMORY_RULES,
+    L1_EPISTEMIC_COVERAGE_RULE,
+    PRE_ATOMIC_IDENTITY_L1_EPISTEMIC_COVERAGE_RULE,
     PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES,
     PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES,
 } from '../extension/prompts.js';
@@ -44,4 +46,16 @@ test('prompt-rule compaction is idempotent', () => {
     const once = retainLatestPromptRule('Custom instruction.\nOld rule.', 'Latest rule.', ['Old rule.']);
     const twice = retainLatestPromptRule(once, 'Latest rule.', ['Old rule.']);
     assert.equal(twice, once);
+});
+
+test('L1 identity-boundary migration replaces the previous rule without duplication', () => {
+    const compacted = retainLatestPromptRule(
+        `Custom extraction instruction.\n${PRE_ATOMIC_IDENTITY_L1_EPISTEMIC_COVERAGE_RULE}\n${PRE_ATOMIC_IDENTITY_L1_EPISTEMIC_COVERAGE_RULE}`,
+        L1_EPISTEMIC_COVERAGE_RULE,
+        [PRE_ATOMIC_IDENTITY_L1_EPISTEMIC_COVERAGE_RULE],
+        ['For consequential secrets, identities,'],
+    );
+    assert.match(compacted, /Custom extraction instruction/u);
+    assert.equal(compacted.split(L1_EPISTEMIC_COVERAGE_RULE).length - 1, 1);
+    assert.doesNotMatch(compacted, /learning a name is not recognizing its holder/u);
 });

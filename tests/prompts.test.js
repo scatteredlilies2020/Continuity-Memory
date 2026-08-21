@@ -18,6 +18,7 @@ import {
     EPISTEMIC_MEMORY_RULES,
     HIERARCHY_CONCISION_RULES,
     L1_EPISTEMIC_COVERAGE_RULE,
+    PRE_ATOMIC_IDENTITY_L1_EPISTEMIC_COVERAGE_RULE,
     RELATIONSHIP_DESCRIPTION_RULE,
     ROLLING_STORY_RULE,
     ROLLING_STORY_TASK_TEMPLATE,
@@ -128,8 +129,10 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /category is "character belief"/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /without inferring a hidden answer/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Knowledge is non-transitive/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /objective truth, what each focal holder learned or believes, and what remains unknown/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /learning a name is not recognizing its holder/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /separates objective truth from each focal holder's knowledge/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Identity links are atomic/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /still does not know each consequential hidden link/);
+    assert.ok(!DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(PRE_ATOMIC_IDENTITY_L1_EPISTEMIC_COVERAGE_RULE));
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(L1_EPISTEMIC_COVERAGE_RULE));
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Mere solitary discovery does not require a thread/);
     assert.match(DEFAULT_RETRIEVAL_SYSTEM_PROMPT, /roleplay or simulation/);
@@ -141,7 +144,7 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /consequential knowledge gaps as open threads/);
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /Most items are 2 or 3/);
     assert.match(DEFAULT_ERA_SYSTEM_PROMPT, /Most items are 2 or 3/);
-    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 10750);
+    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 10900);
     assert.ok(DEFAULT_ARC_SYSTEM_PROMPT.length < 1950);
     assert.ok(DEFAULT_ERA_SYSTEM_PROMPT.length < 1950);
 });
@@ -171,6 +174,11 @@ test('rolling snapshot is bounded, chronological, and sourced only from supplied
     assert.match(ROLLING_STORY_RULE, /majorDevelopments spans the history rather than the newest scene/i);
     assert.match(ROLLING_STORY_RULE, /never end, truncate, or replace text with an ellipsis/i);
     assert.match(ROLLING_STORY_RULE, /overarching ambitions, hidden capabilities, identity secrets, asymmetric knowledge/i);
+    assert.match(ROLLING_STORY_RULE, /Treat identity links as atomic/i);
+    assert.match(ROLLING_STORY_RULE, /learning one name, alias, role, face, or piece of history does not reveal another undisclosed identity link/i);
+    assert.match(ROLLING_STORY_RULE, /each consequential secret identity says exactly who knows which link/i);
+    assert.match(ROLLING_STORY_RULE, /no event is duplicated/i);
+    assert.match(ROLLING_STORY_RULE, /ownership and provenance remain unchanged/i);
     assert.match(ROLLING_STORY_TASK_TEMPLATE, /silent causal and detail-necessity checks/i);
     assert.match(ROLLING_STORY_TASK_TEMPLATE, /\{\{allowance\}\}/);
     assert.match(ROLLING_STORY_TASK_TEMPLATE, /\{\{targetMinimum\}\}/);

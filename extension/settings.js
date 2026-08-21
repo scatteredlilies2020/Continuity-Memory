@@ -1,11 +1,11 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CANONICAL_THIRD_PERSON_RULE, CHARACTER_PROFILE_RULE, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, L1_EPISTEMIC_COVERAGE_RULE, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.240';
+import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CANONICAL_THIRD_PERSON_RULE, CHARACTER_PROFILE_RULE, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, L1_EPISTEMIC_COVERAGE_RULE, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PRE_ATOMIC_IDENTITY_L1_EPISTEMIC_COVERAGE_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.241';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
-import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.14.0-standalone.240';
-import { retainLatestPromptRule } from './prompt-migration.js?v=0.14.0-standalone.240';
+import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.14.0-standalone.241';
+import { retainLatestPromptRule } from './prompt-migration.js?v=0.14.0-standalone.241';
 
 export const EXTENSION_NAME = 'continuityMemory';
 
@@ -538,7 +538,7 @@ export function getSettings() {
     }
     {
         const extractionPrompt = String(settings.extractionSystemPrompt || PROMPT_DEFAULTS.extractionSystemPrompt);
-        const compactedPrompt = retainLatestPromptRule(
+        let compactedPrompt = retainLatestPromptRule(
             extractionPrompt,
             EPISTEMIC_MEMORY_RULES,
             [
@@ -556,9 +556,15 @@ export function getSettings() {
                 'Work for a body is not membership.',
             ],
         );
-        if (compactedPrompt !== extractionPrompt || Number(settings.epistemicPromptVersion || 0) < 8) {
+        compactedPrompt = retainLatestPromptRule(
+            compactedPrompt,
+            L1_EPISTEMIC_COVERAGE_RULE,
+            [PRE_ATOMIC_IDENTITY_L1_EPISTEMIC_COVERAGE_RULE],
+            ['For consequential secrets, identities,'],
+        );
+        if (compactedPrompt !== extractionPrompt || Number(settings.epistemicPromptVersion || 0) < 9) {
             settings.extractionSystemPrompt = compactedPrompt;
-            settings.epistemicPromptVersion = Math.max(8, Number(settings.epistemicPromptVersion || 0));
+            settings.epistemicPromptVersion = Math.max(9, Number(settings.epistemicPromptVersion || 0));
             saveSettingsDebounced();
         }
     }
