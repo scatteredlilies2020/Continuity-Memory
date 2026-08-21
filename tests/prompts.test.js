@@ -144,6 +144,10 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
 test('rolling story is sourced only from its prior text and the new raw excerpt', () => {
     assert.match(ROLLING_STORY_RULE, /prior story plus the new raw excerpt only/i);
     assert.match(ROLLING_STORY_RULE, /Do not consult, copy, cite, or name L1, L2, L3/i);
+    assert.match(ROLLING_STORY_RULE, /Narrate only what has already occurred/i);
+    assert.match(ROLLING_STORY_RULE, /Never call a condition current, present, latest, or ongoing/i);
+    assert.match(ROLLING_STORY_RULE, /Do not predict or narrate future events/i);
+    assert.match(ROLLING_STORY_RULE, /report only that it was expressed or left unresolved/i);
     assert.match(DEFAULT_EXTRACTION_TASK_TEMPLATE, /\{\{story_so_far\}\}/);
 });
 

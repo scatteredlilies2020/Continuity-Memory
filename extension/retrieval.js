@@ -1287,7 +1287,6 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     const budget = Math.max(128, Number(budgetTokens));
     const guidance = String(injectionInstruction ?? DEFAULT_INJECTION_INSTRUCTION).trim();
     const parts = { value: `<continuity>\n${guidance}${guidance ? '\n' : ''}${LIFECYCLE_GUIDANCE}\n` };
-    const recallPrefixLength = parts.value.length;
     const sections = [];
     const seenRows = new Set();
     const addSection = (title, rows) => sections.push({
@@ -1708,13 +1707,11 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     addSection('Supporting continuity', prioritizedClosureRecords.map(supportRow));
 
     addFairSections(parts, sections, budget);
-    if (storyBlock) {
-        parts.value = `${parts.value.slice(0, recallPrefixLength)}${storyBlock}${parts.value.slice(recallPrefixLength)}`;
-    }
+    if (storyBlock) parts.value += storyBlock;
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.204';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.205';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';

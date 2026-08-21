@@ -451,6 +451,8 @@ test('story-so-far allowance is additive and cannot displace existing recall', (
     assert.equal(enabled.prompt.replace(/\nStory so far:\n.*\n/u, ''), disabled.prompt);
     assert.deepEqual(enabled.retrievalDiagnostics.selections, disabled.retrievalDiagnostics.selections);
     assert.ok(enabled.estimatedTokens > disabled.estimatedTokens);
+    assert.ok(enabled.prompt.indexOf('Story so far:') > enabled.prompt.indexOf('Facts:'));
+    assert.match(enabled.prompt, /Story so far:\n[^\n]+\n<\/continuity>$/u);
 });
 
 test('a deliberately small fixed recall allowance remains functional and bounded', () => {
