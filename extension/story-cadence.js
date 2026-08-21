@@ -11,3 +11,7 @@ export function completeStoryMessages(messages, batchSize, includePartial = fals
     const size = resolveStoryBatchMessages(batchSize);
     return source.slice(0, Math.floor(source.length / size) * size);
 }
+
+export function storyChunkMessageLimit(hasPriorStory, batchSize) {
+    return hasPriorStory ? resolveStoryBatchMessages(batchSize) : Infinity;
+}

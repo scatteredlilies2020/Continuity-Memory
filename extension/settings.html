@@ -159,7 +159,7 @@
                     <button id="continuity_story_stop" class="menu_button redWarningBG"><i class="fa-solid fa-stop"></i> Stop</button>
                     <button id="continuity_story_delete" class="menu_button redWarningBG"><i class="fa-solid fa-trash"></i> Delete story so far</button>
                 </div>
-                <small>Story building uses its own message cadence plus a context-safe token ceiling. Stop discards only the in-flight story batch and keeps every completed batch without clearing pending extraction work.</small>
+                <small>Initial Build and intentional Rebuild pack as much raw history as safely fits each model request. Later updates use the message cadence above. Stop discards only the in-flight story batch and keeps every completed batch without clearing pending extraction work.</small>
                 <small id="continuity_story_status">No rolling story is stored for this chat yet.</small>
                 <label class="continuity-ai-retrieval-setting">AI retrieval model
                     <select id="continuity_retrieval_profile" class="text_pole">
@@ -417,7 +417,7 @@
                     <button id="continuity_stop" class="menu_button redWarningBG"><i class="fa-solid fa-stop"></i> Stop & clear queue</button>
                     <button id="continuity_undo_latest_l1" class="menu_button"><i class="fa-solid fa-rotate-left"></i> Undo latest L1</button>
                 </div>
-                <small>Build creates all missing memory and resumes interrupted work without redoing completed chunks.</small>
+                <small>Build creates all missing structured memory and Story so far, and resumes interrupted work without redoing completed chunks.</small>
                 <div id="continuity_coverage" class="continuity-progress">Checking chat coverage…</div>
                 <div id="continuity_progress" class="continuity-progress"></div>
                 <div id="continuity_arc_status" class="continuity-progress"></div>
@@ -428,7 +428,7 @@
                     <small>Keeps L1, extracted base memory, and extraction records. Deletes L2 and L3 together, rebuilds L2 from the existing L1, then rebuilds L3 from the new L2.</small>
                     <hr>
                     <button id="continuity_restart_build" class="menu_button redWarningBG"><i class="fa-solid fa-radiation"></i> Erase everything & start over</button>
-                    <small>Immediately erases all Continuity memory for this world, including reviewed corrections, corrected records, L1/L2/L3, extraction records, retrieval cache, and vectors, then builds again from the first message. Each fresh L1 chunk is saved as it completes, so Build resumes missing ranges after an interruption. No backup is saved.</small>
+                    <small>Immediately erases all Continuity memory for this world, including Story so far, reviewed corrections, corrected records, L1/L2/L3, extraction records, retrieval cache, and vectors, then rebuilds structured memory and Story so far from the first message. Each completed chunk is saved. No backup is saved.</small>
                 </details>
             </div>
 

@@ -20,7 +20,7 @@ Continuity combines several forms of memory instead:
 - Recent messages remain in their original form.
 - Structured records preserve facts, relationships, states, events, and compact background developments.
 - L1, L2, and L3 records maintain a chronological history.
-- A compact story-so-far spine keeps the whole covered narrative, from its beginning through the latest L1, in working context by default.
+- A compact story-so-far spine keeps the whole covered narrative, from its beginning through its independently stored raw-chat boundary, in working context by default.
 - Retrieval selects relevant older memories for each response.
 - Relevant events and open threads receive full detail, while a small always-present continuity ledger retains strong completed-event and unresolved-thread titles through unrelated scenes.
 - Reviewed corrections remain authoritative when extraction gets something wrong.
@@ -67,7 +67,7 @@ Relevant existing mutable records are supplied to each extraction with stable ID
 
 Continuity offers three retrieval modes.
 
-Retrieval supplements the default story-so-far overview rather than replacing it. Story so far is a separate persisted rolling narrative, generated only by its selected model from its previous version plus new raw chat. It never reads or exposes L1, L2, L3, extraction output, or retrieved records; those remain relevance-based recall. Its first automatic build occurs after its own complete message batch (default 8, independently adjustable, with no L1 stability-buffer delay), and later updates use the same cadence. Its automatic additive allowance uses 2% of model context with a 1,000-token minimum and 6,000-token maximum, so enabling it does not reduce recall. Story so far can be built or recalculated independently from raw chat, stopped safely, or deleted without changing structured memory. Automatic recall uses 20% of model context; fixed overrides remain available for both lanes.
+Retrieval supplements the default story-so-far overview rather than replacing it. Story so far is a separate persisted rolling narrative, generated only by its selected model from its previous version plus new raw chat. It never reads or exposes L1, L2, L3, extraction output, or retrieved records; those remain relevance-based recall. Its first automatic build occurs after its own complete message batch (default 8, independently adjustable, with no L1 stability-buffer delay). A fresh or intentional rebuild packs as much raw history as safely fits each request; later updates use the configured message cadence. The main Build action also creates or advances Story so far, and Erase everything & start over reconstructs it after structured memory. Its automatic additive allowance uses 2% of model context with a 1,000-token minimum and 6,000-token maximum, so enabling it does not reduce recall. Story so far can also be built or recalculated independently from raw chat, stopped safely, or deleted without changing structured memory. Automatic recall uses 20% of model context; fixed overrides remain available for both lanes.
 
 ### Local matching
 
