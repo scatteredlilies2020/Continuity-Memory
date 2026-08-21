@@ -137,6 +137,7 @@ test('detached extraction jobs remain separate from roleplay generation and save
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-detached-test-'));
     t.after(() => fs.rm(root, { recursive: true, force: true }));
     const extracted = {
+        storySoFar: 'Alice begins the morning by making tea without sugar.',
         scene: { location: 'Kitchen', time: 'Morning', participants: ['Alice'], activity: 'Making tea', mood: 'calm' },
         sceneCapsule: {
             title: 'Morning tea', storyTime: 'Morning', location: 'Kitchen', participants: ['Alice'],
@@ -178,6 +179,7 @@ test('detached extraction jobs remain separate from roleplay generation and save
     assert.equal(job.messages, 1);
     const loaded = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: worldId } });
     assert.equal(loaded.payload.world.capsules.length, 1);
+    assert.equal(loaded.payload.world.storySoFar['character:chat'].text, extracted.storySoFar);
     assert.equal(loaded.payload.world.facts.some(item => item.subject === 'Alice' && item.value === 'without sugar'), true);
     assert.equal(loaded.payload.world.sources['character:chat'].processedMessages.length, 1);
 });
@@ -186,6 +188,7 @@ test('detached jobs report source tokens and build eligible L2/L3 without a brow
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-detached-hierarchy-test-'));
     t.after(() => fs.rm(root, { recursive: true, force: true }));
     const extracted = {
+        storySoFar: 'Alice continues steadily along the road toward the destination.',
         scene: { location: 'Road', time: 'Later', participants: ['Alice'], activity: 'Walking', mood: 'calm' },
         sceneCapsule: {
             title: 'Another step', storyTime: 'Later', location: 'Road', participants: ['Alice'],

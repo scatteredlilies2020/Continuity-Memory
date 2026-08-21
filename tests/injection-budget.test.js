@@ -12,5 +12,7 @@ test('dynamic injection budget uses twenty percent of context without a fixed ce
 
 test('explicit injection budgets remain available', () => {
     assert.deepEqual(resolveInjectionBudget(4500, 128000), { tokens: 4500, mode: 'fixed', contextSize: 128000 });
+    assert.deepEqual(resolveInjectionBudget(14000, 128000), { tokens: 14000, mode: 'fixed', contextSize: 128000 });
+    assert.deepEqual(resolveInjectionBudget(256, 128000), { tokens: 256, mode: 'fixed', contextSize: 128000 });
     assert.deepEqual(resolveInjectionBudget(0, 128000), { tokens: 25600, mode: 'dynamic', contextSize: 128000 });
 });

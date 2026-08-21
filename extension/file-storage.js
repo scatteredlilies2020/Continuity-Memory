@@ -1,6 +1,6 @@
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 11;
 const STORAGE_VERSION = 2;
 const SHARD_CHUNK_SIZE = 128;
 const INDEX_FILES = ['continuity-memory-index.json', 'continuity-memory-index-redundant.json'];
@@ -9,7 +9,7 @@ const WORLD_ID_RE = /^[a-z0-9][a-z0-9_-]{0,79}$/;
 const FILE_RE = /^[a-z0-9][a-z0-9_.-]{0,220}\.json$/i;
 const ARRAY_SHARDS = ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds', 'corrections'];
 const LEGACY_ARRAY_SHARDS = ['beliefs'];
-const SINGLE_SHARDS = ['scene', 'sources', 'continuation'];
+const SINGLE_SHARDS = ['scene', 'sources', 'continuation', 'storySoFar'];
 const ALL_SHARDS = [...SINGLE_SHARDS, ...ARRAY_SHARDS];
 const READ_SHARDS = [...ALL_SHARDS, ...LEGACY_ARRAY_SHARDS];
 
@@ -76,6 +76,7 @@ function emptyWorld(id, name) {
         corrections: [],
         sources: {},
         continuation: null,
+        storySoFar: {},
     };
 }
 
@@ -90,6 +91,7 @@ function normalizeWorld(input, expectedId) {
     base.scene = input.scene && typeof input.scene === 'object' ? input.scene : null;
     base.sources = input.sources && typeof input.sources === 'object' && !Array.isArray(input.sources) ? input.sources : {};
     base.continuation = input.continuation && typeof input.continuation === 'object' && !Array.isArray(input.continuation) ? input.continuation : null;
+    base.storySoFar = input.storySoFar && typeof input.storySoFar === 'object' && !Array.isArray(input.storySoFar) ? input.storySoFar : {};
     base.createdAt = input.createdAt || base.createdAt;
     base.updatedAt = now();
     base.revision = Math.max(0, Number(input.revision) || 0) + 1;
@@ -143,6 +145,7 @@ function splitShardValue(world, category) {
     if (category === 'scene') return world.scene ? [world.scene] : [];
     if (category === 'sources') return Object.keys(world.sources || {}).length ? [world.sources] : [];
     if (category === 'continuation') return world.continuation ? [world.continuation] : [];
+    if (category === 'storySoFar') return Object.keys(world.storySoFar || {}).length ? [world.storySoFar] : [];
     if (!ARRAY_SHARDS.includes(category)) return [world[category]];
     const values = world[category] || [];
     const parts = [];
@@ -312,7 +315,7 @@ export function createFileStorageApi({ fetchFn = globalThis.fetch, requestHeader
                 return shard.data;
             });
             if (ARRAY_SHARDS.includes(category) || LEGACY_ARRAY_SHARDS.includes(category)) world[category] = parts.flat();
-            else world[category] = parts.length ? parts[0] : (category === 'sources' ? {} : null);
+            else world[category] = parts.length ? parts[0] : (['sources', 'storySoFar'].includes(category) ? {} : null);
         }
         migrateLegacyBeliefs(world);
         return world;

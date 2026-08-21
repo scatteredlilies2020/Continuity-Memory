@@ -93,6 +93,12 @@ export function prepareContinuationWorld(value, { chatKey, attachedAt = new Date
     world.scene = source.scene ? remapRecord(source.scene, inheritedKey) : null;
     world.extractions = [];
     world.sources = {};
+    const inheritedStory = Object.values(source.storySoFar || {})
+        .filter(item => item && typeof item === 'object' && clean(item.text))
+        .sort((left, right) => Number(left.to ?? -1) - Number(right.to ?? -1)
+            || String(left.updatedAt || '').localeCompare(String(right.updatedAt || '')))
+        .at(-1);
+    world.storySoFar = inheritedStory ? { [clean(chatKey)]: clone(inheritedStory) } : {};
     world.name = clean(name, `${clean(source.name, 'Continuity Memory')} · Continuation`).slice(0, 120);
     world.revision = -1;
     world.continuation = {

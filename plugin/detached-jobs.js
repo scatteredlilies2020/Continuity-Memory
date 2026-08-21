@@ -111,6 +111,7 @@ function assertNotTruncated(payload) {
 function validateResult(result, world, messages) {
     if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('Extractor returned no JSON object.');
     if (!Array.isArray(result.facts)) throw new Error('Extractor field "facts" is not an array.');
+    if (typeof result.storySoFar !== 'string') throw new Error('Extractor field "storySoFar" is not a string.');
     migrateLegacyBeliefs(result);
     if (!result.sceneCapsule || typeof result.sceneCapsule !== 'object' || !Array.isArray(result.sceneCapsule.beats)) {
         throw new Error('Extractor returned no valid chronological scene capsule.');
@@ -315,21 +316,25 @@ function shouldRetryWithoutSchema(error) {
 }
 
 async function extractTask(job, task, world) {
+    const priorStory = String(world?.storySoFar?.[job.chatKey]?.text || '').trim() || '(No prior story yet.)';
+    const request = task.storySoFarPlaceholder ? requestFromTemplate(task.request, task.storySoFarPlaceholder, priorStory) : task.request;
+    const fallbackRequest = task.storySoFarPlaceholder ? requestFromTemplate(task.fallbackRequest, task.storySoFarPlaceholder, priorStory) : task.fallbackRequest;
+    const uncontrolledRequest = task.storySoFarPlaceholder ? requestFromTemplate(task.uncontrolledRequest, task.storySoFarPlaceholder, priorStory) : task.uncontrolledRequest;
     let lastError;
     for (let attempt = 1; attempt <= 2; attempt++) {
         try {
             let raw;
             try {
-                raw = await backendRequest(job, task.request);
+                raw = await backendRequest(job, request);
             } catch (error) {
-                if (task.uncontrolledRequest && isThinkingControlError(error)) {
-                    raw = await backendRequest(job, task.uncontrolledRequest);
-                } else if (task.fallbackRequest && shouldRetryWithoutSchema(error)) {
+                if (uncontrolledRequest && isThinkingControlError(error)) {
+                    raw = await backendRequest(job, uncontrolledRequest);
+                } else if (fallbackRequest && shouldRetryWithoutSchema(error)) {
                     try {
-                        raw = await backendRequest(job, task.fallbackRequest);
+                        raw = await backendRequest(job, fallbackRequest);
                     } catch (fallbackError) {
-                        if (!task.uncontrolledRequest || !isThinkingControlError(fallbackError)) throw fallbackError;
-                        raw = await backendRequest(job, task.uncontrolledRequest);
+                        if (!uncontrolledRequest || !isThinkingControlError(fallbackError)) throw fallbackError;
+                        raw = await backendRequest(job, uncontrolledRequest);
                     }
                 } else {
                     throw error;

@@ -74,6 +74,17 @@ test('merges durable records and updates matching facts instead of duplicating t
     assert.deepEqual(target.sources[meta.chatKey].processedMessages, [{ index: 0, fingerprint: 'first', version: EXTRACTION_VERSION }]);
 });
 
+test('rolling story advances independently per chat and ignores older backfill', () => {
+    const target = world();
+    mergeExtraction(target, extraction({ storySoFar: 'Yui and Mio began practicing together.' }), { chatKey: 'chat', from: 0, to: 7, allowStateUpdates: true });
+    mergeExtraction(target, extraction({ storySoFar: 'Yui and Mio practiced, then arranged a weekend rehearsal.' }), { chatKey: 'chat', from: 8, to: 15, allowStateUpdates: true });
+    mergeExtraction(target, extraction({ storySoFar: 'Stale historical rewrite.' }), { chatKey: 'chat', from: 0, to: 3, allowStateUpdates: false });
+    mergeExtraction(target, extraction({ storySoFar: 'Another branch begins elsewhere.' }), { chatKey: 'other', from: 0, to: 7, allowStateUpdates: true });
+
+    assert.equal(target.storySoFar.chat.text, 'Yui and Mio practiced, then arranged a weekend rehearsal.');
+    assert.equal(target.storySoFar.other.text, 'Another branch begins elsewhere.');
+});
+
 test('a sparse relationship update cannot erase the established role description', () => {
     const target = world();
     target.entities.push(
@@ -495,8 +506,8 @@ test('retrieval appends high-importance established identity canon to a matching
 
     const injected = buildMemoryPrompt(target, [{ name: 'User', mes: 'What did Caelen Veyr do?' }], 2000, 'roleplay');
     assert.match(injected.prompt, /Caelen Veyr \(person\).*established canon: former identity and service: Jedi Master and former Jedi Council member/i);
-    assert.match(injected.prompt, /Established Facts are objective canon/);
-    assert.match(injected.prompt, /avoid em dashes/i);
+    assert.match(injected.prompt, /Facts are objective canon unless corrected/);
+    assert.doesNotMatch(injected.prompt, /avoid em dashes/i);
 });
 
 test('validated placeholder targets rename in place and migrate relationship endpoints', () => {
@@ -1808,9 +1819,10 @@ test('hierarchy retrieval counts importance once and favors stronger matches', (
         { id: 'strong-match', title: 'Strong match', summary: 'alpha beta', importance: 1 },
     ];
     const result = buildMemoryPrompt(target, [{ name: 'User', mes: 'alpha beta' }], 1200);
-    assert.match(result.prompt, /Strong match/);
-    assert.match(result.prompt, /High five/);
-    assert.doesNotMatch(result.prompt, /High four/);
+    const selectedL2 = result.prompt.match(/L2 continuity:\n([\s\S]*?)(?:\n\n|<\/continuity>)/)?.[1] || '';
+    assert.match(selectedL2, /Strong match/);
+    assert.match(selectedL2, /High five/);
+    assert.doesNotMatch(selectedL2, /High four/);
 });
 
 test('multilingual injection estimates remain within the token budget', () => {

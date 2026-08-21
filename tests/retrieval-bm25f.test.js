@@ -207,7 +207,7 @@ test('relationship retrieval is neutral and puts its description before type and
 
     assert.match(result.prompt, /Lucas Alcazar ↔ Darth Segundus: Description: Lucas is Darth Segundus’s Sith apprentice.*Type: Sith master and apprentice\. Status: active\./);
     assert.doesNotMatch(result.prompt, /Lucas Alcazar → Darth Segundus/);
-    assert.match(result.prompt, /Relationship ↔ is direction-neutral/);
+    assert.match(result.prompt, /Relationship ↔ has no directional role/);
     assert.match(selections(result, 'Relationships')[0].label, /Lucas Alcazar ↔ Darth Segundus/);
 });
 
@@ -409,6 +409,62 @@ test('L2 is selected by relevance and is never inserted merely because it exists
     const relevant = buildMemoryPrompt(target, user('Harrowing'), 2000);
     assert.deepEqual(selections(relevant, 'L2 continuity').map(item => item.id), ['arc']);
     assert.match(relevant.prompt, /L2 continuity:/);
+});
+
+test('story so far is injected from its independent rolling stream, never hierarchy records', () => {
+    const target = world({
+        storySoFar: { chat: { text: 'Mara left home, found Ivo, and together they reached the flooded city.', from: 0, to: 79 } },
+        capsules: [{ id: 'l1-secret', title: 'Internal L1 wording', opening: '', beats: [], closing: 'Must not enter overview.', chatKey: 'chat', from: 0, to: 7 }],
+        arcs: [{ id: 'l2-secret', title: 'Internal L2 wording', summary: 'Must not enter overview.', capsuleIds: [] }],
+        eras: [{ id: 'l3-secret', title: 'Internal L3 wording', summary: 'Must not enter overview.', arcIds: [] }],
+    });
+
+    const result = buildMemoryPrompt(target, user('A quiet unrelated moment.'), 4000, 'chat');
+    const overview = result.prompt.match(/Story so far:\n([\s\S]*?)(?:\n\n|<\/continuity>)/)?.[1] || '';
+    assert.match(overview, /Mara left home/);
+    assert.doesNotMatch(overview, /Internal L[123] wording/);
+    assert.deepEqual(selections(result, 'Story so far'), []);
+
+    const disabled = buildMemoryPrompt(target, user('A quiet unrelated moment.'), 4000, 'chat', [], undefined, new Map(), { includeStorySoFar: false });
+    assert.doesNotMatch(disabled.prompt, /Story so far/);
+});
+
+test('story-so-far allowance is additive and cannot displace existing recall', () => {
+    const facts = Array.from({ length: 12 }, (_, index) => ({
+        id: `signal-${index}`,
+        subject: 'Mara',
+        predicate: `signal protocol ${index}`,
+        value: `Signal protocol detail ${index} remains operational and relevant.`,
+        category: 'system rule',
+        persistence: 'persistent',
+        importance: 4,
+        sources: [{ chatKey: 'chat', from: index, to: index }],
+    }));
+    const target = world({
+        facts,
+        storySoFar: { chat: { text: 'Mara crossed the frontier and established the signal network.', from: 0, to: 95 } },
+    });
+    const options = { includeStorySoFar: true, storySoFarTokens: 256 };
+    const enabled = buildMemoryPrompt(target, user('Mara checks every signal protocol.'), 1000, 'chat', [], undefined, new Map(), options);
+    const disabled = buildMemoryPrompt(target, user('Mara checks every signal protocol.'), 1000, 'chat', [], undefined, new Map(), { includeStorySoFar: false });
+
+    assert.equal(enabled.prompt.replace(/\nStory so far:\n.*\n/u, ''), disabled.prompt);
+    assert.deepEqual(enabled.retrievalDiagnostics.selections, disabled.retrievalDiagnostics.selections);
+    assert.ok(enabled.estimatedTokens > disabled.estimatedTokens);
+});
+
+test('a deliberately small fixed recall allowance remains functional and bounded', () => {
+    const target = world({
+        facts: Array.from({ length: 20 }, (_, index) => ({
+            id: `compact-${index}`, subject: 'Mara', predicate: `rule ${index}`, value: `Compact rule detail ${index}.`,
+            category: 'rule', persistence: 'persistent', importance: 3, sources: [{ chatKey: 'chat', from: index, to: index }],
+        })),
+    });
+    const result = buildMemoryPrompt(target, user('Mara reviews every rule.'), 128, 'chat', [], undefined, new Map(), { includeStorySoFar: false });
+    assert.ok(result.estimatedTokens < 1000);
+    assert.doesNotMatch(result.prompt, /Facts:/);
+    assert.match(result.prompt, /^<continuity>/);
+    assert.match(result.prompt, /<\/continuity>$/);
 });
 
 test('older L1 evidence must occur within one beat or neighboring beats', () => {

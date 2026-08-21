@@ -6,29 +6,30 @@ import { proxies } from '/scripts/openai.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.194';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.202';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.194';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.202';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, compactDuplicateMemoryRecords, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.194';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.194';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.202';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.202';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.194';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, NO_EM_DASH_STYLE_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.194';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.202';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.202';
 import { applySourceAttributionFailClosed, canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.194';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.194';
-import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.194';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.194';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.202';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.202';
+import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.202';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.202';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
+import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.202';
 
 const temporalRelationSchema = {
     type: 'object',
@@ -45,8 +46,9 @@ const temporalRelationSchema = {
 const extractionSchema = {
     type: 'object',
     additionalProperties: false,
-    required: ['scene', 'sceneCapsule', 'entities', 'identityResolutions', 'recordMerges', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds'],
+    required: ['storySoFar', 'scene', 'sceneCapsule', 'entities', 'identityResolutions', 'recordMerges', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds'],
     properties: {
+        storySoFar: { type: 'string', maxLength: 12000 },
         scene: {
             type: 'object', additionalProperties: false,
             required: ['location', 'time', 'participants', 'activity', 'mood'],
@@ -187,6 +189,19 @@ const extractionJsonSchema = Object.freeze({
     value: extractionSchema,
 });
 
+const rollingStoryJsonSchema = Object.freeze({
+    name: 'continuity_rolling_story',
+    description: 'A standalone rolling narrative summary derived only from its prior text and new raw chat.',
+    strict: true,
+    returnInvalid: true,
+    value: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['storySoFar'],
+        properties: { storySoFar: { type: 'string', maxLength: 12000 } },
+    },
+});
+
 const arcSchema = {
     type: 'object',
     additionalProperties: false,
@@ -258,7 +273,7 @@ The correction is authoritative only for the scope it states. Distinguish establ
 Change only records that conflict with the correction or are necessary to preserve it.
 Use exact category names and target IDs from the supplied candidate records. For update, return the complete corrected public record as JSON encoded inside recordJson. For delete, use "{}". For add, leave targetId empty and return the complete new record.
 Check every relevant representation of the mistake. In particular, update or remove an L1 capsule when it repeats the incorrect event; otherwise derived summaries can relearn the error.
-Do not alter unrelated details, invent unsupported events, create new L1 capsules, or edit chat messages. ${NO_EM_DASH_STYLE_RULE} Return JSON only.`;
+Do not alter unrelated details, invent unsupported events, create new L1 capsules, or edit chat messages. Return JSON only.`;
 
 const ARC_JSON_SHAPE_EXAMPLE = JSON.stringify({
     title: '', storyTime: '', participants: [], summary: '', turningPoints: [],
@@ -266,6 +281,7 @@ const ARC_JSON_SHAPE_EXAMPLE = JSON.stringify({
 });
 
 const JSON_SHAPE_EXAMPLE = JSON.stringify({
+    storySoFar: '',
     scene: { location: '', time: '', participants: [], activity: '', mood: '' },
     sceneCapsule: { title: '', storyTime: '', location: '', participants: [], opening: '', beats: [], emotionalArc: '', closing: '', importance: 3, temporal: { frame: 'main narrative', relation: 'unknown', elapsed: '', certainty: 'unknown' } },
     entities: [{ targetId: '', name: '', type: '', aliases: [], description: '', characterProfile: { roleBackground: '', ageDemographics: '', appearance: '', personalityQuirks: '' }, importance: 3 }],
@@ -365,6 +381,7 @@ async function chunkMessages(messages, tokenLimit, maxMessages = Infinity) {
 function validateResult(result, world, messages) {
     if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('Extractor returned no JSON object.');
     if (!Array.isArray(result.facts)) throw new Error('Extractor field "facts" is not an array.');
+    if (typeof result.storySoFar !== 'string') throw new Error('Extractor field "storySoFar" is not a string.');
     migrateLegacyBeliefs(result);
     if (!result.sceneCapsule || typeof result.sceneCapsule !== 'object' || !Array.isArray(result.sceneCapsule.beats)) {
         throw new Error('Extractor returned no valid chronological scene capsule.');
@@ -521,7 +538,13 @@ async function extractChunk(messages, world = runtime.world) {
     throw new Error(`Structured extraction failed twice: ${lastError?.message || 'unknown error'}`);
 }
 
-function prepareExtractionPrompts(messages, world = runtime.world) {
+const DETACHED_STORY_PLACEHOLDER = '__CONTINUITY_ROLLING_STORY_PRIOR__';
+
+function rollingStoryText(world, chatKey = getChatKey()) {
+    return String(world?.storySoFar?.[chatKey]?.text || '').trim();
+}
+
+function prepareExtractionPrompts(messages, world = runtime.world, storyOverride = null) {
     const settings = getSettings();
     const detail = settings.detail;
     const detailInstruction = detail === 'light'
@@ -536,12 +559,13 @@ function prepareExtractionPrompts(messages, world = runtime.world) {
     const taskValues = {
         detail: detailInstruction,
         messages: formatExtractionMessages(messages, attributionContext),
+        story_so_far: storyOverride ?? rollingStoryText(world),
         active_states: extractionStateContext(world, messages),
         temporal_context: extractionTemporalContext(world),
     };
-    const prompt = renderStructuredTaskPrompt(taskTemplate, DEFAULT_EXTRACTION_TASK_TEMPLATE, taskValues, JSON_SHAPE_EXAMPLE, usesStructuredSchema, ['messages', 'active_states', 'temporal_context']);
+    const prompt = renderStructuredTaskPrompt(taskTemplate, DEFAULT_EXTRACTION_TASK_TEMPLATE, taskValues, JSON_SHAPE_EXAMPLE, usesStructuredSchema, ['story_so_far', 'messages', 'active_states', 'temporal_context']);
     const fallbackPrompt = usesStructuredSchema
-        ? renderStructuredTaskPrompt(taskTemplate, DEFAULT_EXTRACTION_TASK_TEMPLATE, taskValues, JSON_SHAPE_EXAMPLE, false, ['messages', 'active_states', 'temporal_context'])
+        ? renderStructuredTaskPrompt(taskTemplate, DEFAULT_EXTRACTION_TASK_TEMPLATE, taskValues, JSON_SHAPE_EXAMPLE, false, ['story_so_far', 'messages', 'active_states', 'temporal_context'])
         : prompt;
     return {
         prompt,
@@ -815,6 +839,40 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
     return extractProfileResponse(response, apiMap, profile.name);
 }
 
+async function regenerateRollingStory(priorStory, messages) {
+    const settings = getSettings();
+    const allowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext).tokens;
+    const profileId = settings.arcProfileId || settings.memoryProfileId;
+    const directKind = settings.arcProfileId === DIRECT_PROFILE_ID ? 'summary' : 'extraction';
+    const usesStructuredSchema = requestSupportsStructuredSchema(rollingStoryJsonSchema, profileId, directKind);
+    const values = {
+        prior: String(priorStory || '').trim() || '(No prior story yet.)',
+        messages: formatExtractionMessages(messages),
+        format: usesStructuredSchema
+            ? 'Return one schema-valid JSON object.'
+            : 'Return one JSON object with this exact shape: {"storySoFar":""}',
+    };
+    const template = `Rewrite the rolling story through the end of this raw excerpt. Keep it within approximately ${allowance} tokens.\n{{format}}\n\nPRIOR ROLLING STORY:\n{{prior}}\n\nNEW RAW CHAT:\n{{messages}}`;
+    const prompt = renderPromptTemplate(template, values, ['prior', 'messages']);
+    const fallbackPrompt = renderPromptTemplate(template, {
+        ...values,
+        format: 'Return one JSON object with this exact shape: {"storySoFar":""}',
+    }, ['prior', 'messages']);
+    const raw = await requestStructured(
+        prompt,
+        ROLLING_STORY_RULE,
+        rollingStoryJsonSchema,
+        Math.min(8000, Math.max(2048, allowance * 2)),
+        profileId,
+        directKind,
+        fallbackPrompt,
+    );
+    const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
+    const story = String(parsed?.storySoFar || '').replace(/\s+/gu, ' ').trim().slice(0, 12000);
+    if (!story) throw new Error('The summarizer returned an empty rolling story.');
+    return story;
+}
+
 function detachedRequestBodies({ prompt, fallbackPrompt, systemPrompt, usesStructuredSchema }, {
     jsonSchema = extractionJsonSchema,
     layer = 'l1',
@@ -919,12 +977,13 @@ function splitDetachedMessages(messages) {
 }
 
 function prepareDetachedTask(messages, world) {
-    const prepared = prepareExtractionPrompts(messages, world);
+    const prepared = prepareExtractionPrompts(messages, world, DETACHED_STORY_PLACEHOLDER);
     const requests = detachedRequestBodies(prepared);
     if (!requests) return null;
     const split = splitDetachedMessages(messages);
     return {
         messages,
+        storySoFarPlaceholder: DETACHED_STORY_PLACEHOLDER,
         ...requests,
         ...(split ? { parts: split.map(part => prepareDetachedTask(part, world)) } : {}),
     };
@@ -1695,6 +1754,99 @@ async function persistVerifiedEmptyWorld(worldId) {
         throw new Error(`Memory purge did not persist an empty world (${resetResiduals.join(', ')}).`);
     }
     return world;
+}
+
+async function persistRollingStory(worldId, chatKey, story) {
+    const apply = world => {
+        world.storySoFar ||= {};
+        if (story) world.storySoFar[chatKey] = structuredClone(story);
+        else delete world.storySoFar[chatKey];
+    };
+    let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
+    apply(world);
+    try {
+        world = (await api.saveWorld(world)).world;
+    } catch (error) {
+        if (error.status !== 409) throw error;
+        world = (await api.getWorld(worldId)).world;
+        apply(world);
+        world = (await api.saveWorld(world)).world;
+    }
+    updateRuntime({ world });
+    return world;
+}
+
+export async function deleteRollingStory() {
+    if (runtime.processing) throw new Error('Wait for current processing to finish.');
+    const worldId = getBoundWorldId();
+    const chatKey = getChatKey();
+    if (!worldId || !chatKey) throw new Error('Open a chat with Continuity memory first.');
+    await requireRetryStorage();
+    updateRuntime({ processing: true, status: 'deleting-story', lastError: '', retryStatus: 'Deleting this chat’s rolling story…' });
+    try {
+        const world = await persistRollingStory(worldId, chatKey, null);
+        await embedWorldInChat(world);
+        updateRuntime({ status: 'idle', retryStatus: 'This chat’s rolling story was deleted. Structured recall was unchanged.' });
+        return { world, deleted: true };
+    } catch (error) {
+        updateRuntime({ status: 'error', lastError: error.message, retryStatus: `Rolling-story deletion failed: ${error.message}` });
+        throw error;
+    } finally {
+        updateRuntime({ processing: false });
+    }
+}
+
+export async function rebuildRollingStory() {
+    if (runtime.processing) throw new Error('Wait for current processing to finish.');
+    const worldId = getBoundWorldId();
+    const chatKey = getChatKey();
+    if (!worldId || !chatKey) throw new Error('Open a chat with Continuity memory first.');
+    const messages = collectMemoryEligibleMessages(getContext().chat || []);
+    if (!messages.length) throw new Error('This chat has no eligible raw messages to summarize.');
+    await requireRetryStorage();
+    const settings = getSettings();
+    const chunkLimit = resolveExtractionChunk(settings.extractionChunkTokens, getContext().maxContext);
+    const chunks = await chunkMessages(messages, chunkLimit, settings.extractionBatchMessages);
+    const epoch = runtime.generation;
+    let story = '';
+    let savedWorld = runtime.world;
+    updateRuntime({ processing: true, paused: false, status: 'rebuilding-story', lastError: '', progress: { current: 0, total: chunks.length }, retryStatus: `Recalculating Story so far from ${messages.length} raw message(s)…` });
+    try {
+        for (let index = 0; index < chunks.length; index++) {
+            if (runtime.generation !== epoch) {
+                const error = new Error('Rolling-story recalculation was stopped; completed batches remain saved.');
+                error.code = RUNTIME_CANCELLED_CODE;
+                throw error;
+            }
+            const chunk = chunks[index];
+            updateRuntime({
+                progress: { current: index + 1, total: chunks.length, from: chunk.messages[0]?.index, to: chunk.messages.at(-1)?.index },
+                retryStatus: `Recalculating Story so far ${index + 1}/${chunks.length} from raw chat only…`,
+            });
+            story = await regenerateRollingStory(story, chunk.messages);
+            if (runtime.generation !== epoch) {
+                const error = new Error('Rolling-story recalculation was stopped; the unfinished batch was discarded.');
+                error.code = RUNTIME_CANCELLED_CODE;
+                throw error;
+            }
+            savedWorld = await persistRollingStory(worldId, chatKey, {
+                text: story,
+                from: Number(messages[0]?.index ?? 0),
+                to: Number(chunk.messages.at(-1)?.index ?? 0),
+                updatedAt: new Date().toISOString(),
+                rebuiltFromRawChat: true,
+            });
+        }
+        await embedWorldInChat(savedWorld);
+        updateRuntime({ status: 'idle', progress: null, retryStatus: `Story so far recalculated from ${messages.length} raw message(s) in ${chunks.length} batch(es). Structured recall was unchanged.` });
+        return { world: savedWorld, messages: messages.length, batches: chunks.length };
+    } catch (error) {
+        if (isRuntimeCancellation(error)) updateRuntime({ status: 'paused', progress: null, lastError: '', retryStatus: error.message });
+        else updateRuntime({ status: 'error', progress: null, lastError: error.message, retryStatus: `Story-so-far recalculation failed safely: ${error.message}` });
+        throw error;
+    } finally {
+        updateRuntime({ processing: false });
+    }
 }
 
 export async function eraseAllMemory() {

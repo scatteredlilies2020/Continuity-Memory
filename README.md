@@ -20,6 +20,7 @@ Continuity combines several forms of memory instead:
 - Recent messages remain in their original form.
 - Structured records preserve facts, relationships, states, events, and compact background developments.
 - L1, L2, and L3 records maintain a chronological history.
+- A compact story-so-far spine keeps the whole covered narrative, from its beginning through the latest L1, in working context by default.
 - Retrieval selects relevant older memories for each response.
 - Relevant events and open threads receive full detail, while a small always-present continuity ledger retains strong completed-event and unresolved-thread titles through unrelated scenes.
 - Reviewed corrections remain authoritative when extraction gets something wrong.
@@ -65,6 +66,8 @@ Relevant existing mutable records are supplied to each extraction with stable ID
 ## Memory retrieval
 
 Continuity offers three retrieval modes.
+
+Retrieval supplements the default story-so-far overview rather than replacing it. Story so far is a separate persisted rolling narrative, rewritten from its previous version plus each newly processed raw excerpt. It never reads or exposes L1, L2, L3, or retrieved records; those remain relevance-based recall. Its automatic additive allowance uses 2% of model context with a 1,000-token minimum and 6,000-token maximum, so enabling it does not reduce recall. Story so far can be built or recalculated independently from raw chat, or deleted without changing structured memory. Automatic recall uses 20% of model context; fixed overrides remain available for both lanes.
 
 ### Local matching
 

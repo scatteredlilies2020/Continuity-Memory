@@ -17,19 +17,19 @@ import {
     DEFAULT_RETRIEVAL_SYSTEM_PROMPT,
     EPISTEMIC_MEMORY_RULES,
     HIERARCHY_CONCISION_RULES,
-    NO_EM_DASH_STYLE_RULE,
     RELATIONSHIP_DESCRIPTION_RULE,
+    ROLLING_STORY_RULE,
     renderPromptTemplate,
 } from '../extension/prompts.js';
 
 test('JB prompt is appended to extraction instructions only when enabled', () => {
-    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', false, '<rules>custom</rules>'), `Base extraction instructions.\n\n${CHARACTER_PROFILE_RULE}\n\n${NO_EM_DASH_STYLE_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', false, '<rules>custom</rules>'), `Base extraction instructions.\n\n${CHARACTER_PROFILE_RULE}\n\n${ROLLING_STORY_RULE}`);
     assert.equal(
         buildExtractionSystemPrompt('Base extraction instructions.', true, '<rules>custom</rules>'),
-        `Base extraction instructions.\n\n<rules>custom</rules>\n\n${CHARACTER_PROFILE_RULE}\n\n${NO_EM_DASH_STYLE_RULE}`,
+        `Base extraction instructions.\n\n<rules>custom</rules>\n\n${CHARACTER_PROFILE_RULE}\n\n${ROLLING_STORY_RULE}`,
     );
-    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', true, '   '), `Base extraction instructions.\n\n${CHARACTER_PROFILE_RULE}\n\n${NO_EM_DASH_STYLE_RULE}`);
-    assert.equal(buildExtractionSystemPrompt('', true, '<rules>custom</rules>'), `<rules>custom</rules>\n\n${CHARACTER_PROFILE_RULE}\n\n${NO_EM_DASH_STYLE_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', true, '   '), `Base extraction instructions.\n\n${CHARACTER_PROFILE_RULE}\n\n${ROLLING_STORY_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('', true, '<rules>custom</rules>'), `<rules>custom</rules>\n\n${CHARACTER_PROFILE_RULE}\n\n${ROLLING_STORY_RULE}`);
     assert.match(DEFAULT_JB_PROMPT, /^<rules>[\s\S]*<\/rules>$/);
 });
 
@@ -44,20 +44,20 @@ test('custom prompt templates cannot omit required payloads', () => {
 });
 
 test('hierarchy concision rules apply to defaults and custom instructions', () => {
-    assert.equal(buildHierarchySystemPrompt(DEFAULT_ARC_SYSTEM_PROMPT), `${DEFAULT_ARC_SYSTEM_PROMPT}\n\n${NO_EM_DASH_STYLE_RULE}`);
-    assert.equal(buildHierarchySystemPrompt(DEFAULT_ERA_SYSTEM_PROMPT), `${DEFAULT_ERA_SYSTEM_PROMPT}\n\n${NO_EM_DASH_STYLE_RULE}`);
-    assert.equal(buildHierarchySystemPrompt('Custom hierarchy instructions.'), `Custom hierarchy instructions.\n\n${HIERARCHY_CONCISION_RULES}\n\n${NO_EM_DASH_STYLE_RULE}`);
+    assert.equal(buildHierarchySystemPrompt(DEFAULT_ARC_SYSTEM_PROMPT), DEFAULT_ARC_SYSTEM_PROMPT);
+    assert.equal(buildHierarchySystemPrompt(DEFAULT_ERA_SYSTEM_PROMPT), DEFAULT_ERA_SYSTEM_PROMPT);
+    assert.equal(buildHierarchySystemPrompt('Custom hierarchy instructions.'), `Custom hierarchy instructions.\n\n${HIERARCHY_CONCISION_RULES}`);
     assert.match(HIERARCHY_CONCISION_RULES, /without omission ellipses/i);
 });
 
-test('all generated prose prompts avoid em dashes while preserving custom instructions', () => {
-    assert.equal(buildRetrievalSystemPrompt('Custom retrieval instructions.'), `Custom retrieval instructions.\n\n${NO_EM_DASH_STYLE_RULE}`);
+test('prompt builders preserve custom instructions without adding prose-style directives', () => {
+    assert.equal(buildRetrievalSystemPrompt('Custom retrieval instructions.'), 'Custom retrieval instructions.');
     for (const prompt of [
         buildExtractionSystemPrompt(DEFAULT_EXTRACTION_SYSTEM_PROMPT),
         buildRetrievalSystemPrompt(DEFAULT_RETRIEVAL_SYSTEM_PROMPT),
         buildHierarchySystemPrompt(DEFAULT_ARC_SYSTEM_PROMPT),
         buildHierarchySystemPrompt(DEFAULT_ERA_SYSTEM_PROMPT),
-    ]) assert.match(prompt, /avoid em dashes/i);
+    ]) assert.doesNotMatch(prompt, /avoid em dashes/i);
 });
 
 test('prompt templates replace optional and required placeholders', () => {
@@ -116,11 +116,11 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Value: list all exact current forms and meaningful former forms only/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /keep coexisting forms together/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /shift signals changed familiarity, distance, respect, or hierarchy/);
-    assert.match(DEFAULT_INJECTION_INSTRUCTION, /without explanation/);
-    assert.match(DEFAULT_INJECTION_INSTRUCTION, /Knowledge boundaries are hard/);
-    assert.match(DEFAULT_INJECTION_INSTRUCTION, /must not mention, identify, infer, react to, or act on protected information/);
-    assert.match(DEFAULT_INJECTION_INSTRUCTION, /Other rows never grant that knowledge/);
-    assert.ok(DEFAULT_INJECTION_INSTRUCTION.length < 700);
+    assert.match(DEFAULT_INJECTION_INSTRUCTION, /never mention this block/i);
+    assert.match(DEFAULT_INJECTION_INSTRUCTION, /Model access does not grant character knowledge/);
+    assert.match(DEFAULT_INJECTION_INSTRUCTION, /prevents that holder from using protected information/);
+    assert.match(DEFAULT_INJECTION_INSTRUCTION, /discovery or disclosure/);
+    assert.ok(DEFAULT_INJECTION_INSTRUCTION.length < 350);
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(CONTINUITY_COVERAGE_RULES));
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(EPISTEMIC_MEMORY_RULES));
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /category is "character belief"/);
@@ -139,6 +139,12 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 10450);
     assert.ok(DEFAULT_ARC_SYSTEM_PROMPT.length < 1950);
     assert.ok(DEFAULT_ERA_SYSTEM_PROMPT.length < 1950);
+});
+
+test('rolling story is sourced only from its prior text and the new raw excerpt', () => {
+    assert.match(ROLLING_STORY_RULE, /prior story plus the new raw excerpt only/i);
+    assert.match(ROLLING_STORY_RULE, /Do not consult, copy, cite, or name L1, L2, L3/i);
+    assert.match(DEFAULT_EXTRACTION_TASK_TEMPLATE, /\{\{story_so_far\}\}/);
 });
 
 test('default structured task prompts avoid repeating full schemas', () => {

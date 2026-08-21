@@ -6,7 +6,7 @@ const IRREGULAR_NEGATIVE_BASES = new Map([
     ['ai', 'am'],
 ]);
 const CJK_RUN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
-const LIFECYCLE_GUIDANCE = 'Raw chat controls. Established Facts are objective canon and override perspectives, reports, and guesses unless raw chat or a user correction changes canon. Entity rows describe only their entity; possessions and evidence about someone are separate. Relationship ↔ is direction-neutral; derive roles only from Description and established facts, never endpoint or Type order. Only Current state is current. Events and plans outside Open matters are past. In generated prose, avoid em dashes; use commas, colons, parentheses, semicolons, or separate sentences.';
+const LIFECYCLE_GUIDANCE = 'Facts are objective canon unless corrected; perspectives and reports are not. Entity rows describe only their entity. Relationship ↔ has no directional role; use its Description and established facts. Only Current state is current. Open matters are pending; other events and plans are past.';
 const BM25_K1 = 1.2;
 const RRF_OFFSET = 20;
 const RETRIEVAL_FIELDS = {
@@ -1159,7 +1159,22 @@ function addFairSections(parts, sections, budget) {
 
     const closingSize = estimatedTokens('</continuity>');
     const headersSize = populated.reduce((total, section) => total + estimatedTokens(`\n${section.title}:\n`), 0);
-    let remaining = Math.max(0, budget - estimatedTokens(parts.value) - closingSize - headersSize);
+    const available = Math.max(0, budget - estimatedTokens(parts.value) - closingSize);
+    if (!available) return;
+    if (headersSize >= available) {
+        let remaining = available;
+        for (const section of populated) {
+            const header = `\n${section.title}:\n`;
+            const headerSize = estimatedTokens(header);
+            if (headerSize + 1 > remaining) continue;
+            const row = clipToTokens(section.rows[0], remaining - headerSize);
+            if (!row) continue;
+            parts.value += `${header}${row}\n`;
+            remaining = Math.max(0, remaining - headerSize - estimatedTokens(`${row}\n`));
+        }
+        return;
+    }
+    let remaining = available - headersSize;
     const selected = populated.map(() => []);
 
     const firstRowsSize = populated.reduce((total, section) => total + estimatedTokens(`${section.rows[0]}\n`), 0);
@@ -1269,9 +1284,10 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         category,
         matching(items, queryTerms, extra, category, semanticRanks).slice(0, limit),
     );
-    const budget = Math.max(1000, Number(budgetTokens));
+    const budget = Math.max(128, Number(budgetTokens));
     const guidance = String(injectionInstruction ?? DEFAULT_INJECTION_INSTRUCTION).trim();
     const parts = { value: `<continuity>\n${guidance}${guidance ? '\n' : ''}${LIFECYCLE_GUIDANCE}\n` };
+    const recallPrefixLength = parts.value.length;
     const sections = [];
     const seenRows = new Set();
     const addSection = (title, rows) => sections.push({
@@ -1300,6 +1316,14 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         const needle = plain(value).toLocaleLowerCase();
         return Boolean(needle && currentFocusText.includes(needle));
     };
+
+    let storyBlock = '';
+    if (options.includeStorySoFar !== false) {
+        const story = plain(world.storySoFar?.[chatKey]?.text);
+        const storyAllowance = Math.min(3000, Math.max(128, Math.round(Number(options.storySoFarTokens) || 1000)));
+        const storyHeader = '\nStory so far:\n';
+        if (story) storyBlock = `${storyHeader}${clipToTokens(story, Math.max(1, storyAllowance - estimatedTokens(storyHeader)))}\n`;
+    }
 
     if (storedSceneIsCurrentFocus) {
         addSection('Checkpoint', [
@@ -1684,10 +1708,13 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     addSection('Supporting continuity', prioritizedClosureRecords.map(supportRow));
 
     addFairSections(parts, sections, budget);
+    if (storyBlock) {
+        parts.value = `${parts.value.slice(0, recallPrefixLength)}${storyBlock}${parts.value.slice(recallPrefixLength)}`;
+    }
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.194';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.202';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';

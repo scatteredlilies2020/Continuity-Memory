@@ -1,10 +1,10 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CANONICAL_THIRD_PERSON_RULE, CHARACTER_PROFILE_RULE, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.194';
+import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CANONICAL_THIRD_PERSON_RULE, CHARACTER_PROFILE_RULE, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.202';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
-import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.14.0-standalone.194';
+import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.14.0-standalone.202';
 
 export const EXTENSION_NAME = 'continuityMemory';
 
@@ -12,6 +12,8 @@ const DEFAULTS = Object.freeze({
     enabled: true,
     showNotifications: true,
     retrievalMode: 'ai-expanded',
+    storySoFarEnabled: true,
+    storySoFarTokens: 0,
     retrievalQueryMessages: 6,
     embeddingQueryMessages: 4,
     embeddingTopK: 100,
@@ -249,6 +251,23 @@ export function getSettings() {
             );
         }
         settings.promptPunctuationVersion = 1;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.storySoFarTokenDefaultVersion || 0) < 2) {
+        if (settings.storySoFarTokens === undefined || [750, 1000].includes(Number(settings.storySoFarTokens))) settings.storySoFarTokens = 0;
+        settings.storySoFarTokenDefaultVersion = 2;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.removeStyleDirectiveVersion || 0) < 1) {
+        const obsolete = 'In generated prose, avoid em dashes. Use commas, colons, parentheses, semicolons, or separate sentences instead.';
+        for (const key of ['extractionSystemPrompt', 'retrievalSystemPrompt', 'injectionInstruction', 'arcSystemPrompt', 'eraSystemPrompt']) {
+            if (typeof settings[key] !== 'string' || !settings[key].includes(obsolete)) continue;
+            settings[key] = settings[key].replaceAll(obsolete, '')
+                .replace(/[ \t]{2,}/gu, ' ')
+                .replace(/\n{3,}/gu, '\n\n')
+                .trim();
+        }
+        settings.removeStyleDirectiveVersion = 1;
         saveSettingsDebounced();
     }
     if (Number(settings.durableMemoryPromptVersion || 0) < 1) {

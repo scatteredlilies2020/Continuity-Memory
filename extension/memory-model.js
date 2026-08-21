@@ -1209,6 +1209,7 @@ export function mergeExtraction(world, result, meta) {
     world.backgrounds ||= [];
     world.corrections ||= [];
     world.sources ||= {};
+    world.storySoFar ||= {};
     compactRepeatedEntityDescriptions(world);
     // Extraction-time attribution checks have already removed unsafe
     // relationships. Let the accepted canonical relationship restore a role
@@ -1404,6 +1405,17 @@ export function mergeExtraction(world, result, meta) {
         messageFingerprints: structuredClone(meta.messageFingerprints || []),
         updatedAt: new Date().toISOString(),
     };
+
+    const rollingStory = clipped(result.storySoFar, 12000);
+    const previousStory = world.storySoFar[meta.chatKey];
+    if (rollingStory && (!previousStory || Number(meta.to) >= Number(previousStory.to ?? -1))) {
+        world.storySoFar[meta.chatKey] = {
+            text: rollingStory,
+            from: 0,
+            to: Number(meta.to),
+            updatedAt: new Date().toISOString(),
+        };
+    }
     const extractionIndex = world.extractions.findIndex(item => item.chatKey === meta.chatKey && Number(item.from) === Number(meta.from) && Number(item.to) === Number(meta.to));
     if (extractionIndex >= 0) {
         extractionRecord.createdAt = world.extractions[extractionIndex].createdAt || extractionRecord.updatedAt;
@@ -1483,6 +1495,7 @@ export function removeChatContributions(world, chatKey) {
         world.scene = sources.length ? { ...world.scene, sources } : null;
     }
     if (world.sources) delete world.sources[chatKey];
+    if (world.storySoFar) delete world.storySoFar[chatKey];
     return world;
 }
 
@@ -1670,6 +1683,7 @@ export function resetWorldMemory(world, { preserveCorrections = false } = {}) {
         world.corrections = corrections;
     }
     world.sources = {};
+    world.storySoFar = {};
     world.continuation = null;
     return world;
 }
@@ -1681,6 +1695,7 @@ export function freshResetResiduals(world, { allowCorrections = false } = {}) {
     const residuals = [];
     if (world?.scene) residuals.push('scene');
     if (world?.continuation) residuals.push('continuation');
+    if (Object.keys(world?.storySoFar || {}).length) residuals.push('storySoFar');
     if (Object.keys(world?.sources || {}).length) residuals.push('sources');
     if (!allowCorrections && (world?.corrections || []).length) residuals.push(`corrections:${world.corrections.length}`);
     for (const category of ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds']) {

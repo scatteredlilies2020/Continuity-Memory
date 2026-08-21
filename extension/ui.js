@@ -4,10 +4,10 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.194';
+import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, rebuildRollingStory, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.202';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.194';
+import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.202';
 import { clearRetrievalExpansionCache } from './semantic-retrieval.js';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
@@ -15,18 +15,19 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.194';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.194';
-import { isRuntimeCancellation, runtime, onRuntimeChange, pauseRuntime, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.194';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.202';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.202';
+import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.202';
 import { completeL1MessageCount, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.194';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.194';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.194';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.202';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.202';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.202';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.194';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.194';
-import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.194';
+import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.202';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.202';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.202';
+import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.202';
 import { createRenderScheduler } from './render-scheduler.js';
 
 let worlds = [];
@@ -941,6 +942,8 @@ export function renderRuntime(refreshSettings = true) {
         $('#continuity_enabled').prop('checked', settings.enabled);
         $('#continuity_notifications').prop('checked', settings.showNotifications);
         $('#continuity_retrieval_mode').val(settings.retrievalMode);
+        $('#continuity_story_so_far').prop('checked', settings.storySoFarEnabled);
+        $('#continuity_story_so_far_tokens').val(settings.storySoFarTokens);
         $('.continuity-ai-retrieval-setting').toggle(settings.retrievalMode === 'ai-expanded');
         $('.continuity-text-retrieval-setting').toggle(settings.retrievalMode !== 'embedding-hybrid');
         $('.continuity-embedding-setting').toggle(settings.retrievalMode === 'embedding-hybrid');
@@ -951,6 +954,13 @@ export function renderRuntime(refreshSettings = true) {
         updateEmbeddingProviderUI(settings);
         $('#continuity_embedding_provider').text(`Provider: ${embeddingProviderDescription()}`);
     }
+    const rollingStory = runtime.world?.storySoFar?.[getChatKey()];
+    const resolvedStoryAllowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext);
+    $('#continuity_story_recalculate').prop('disabled', runtime.processing || !runtime.world);
+    $('#continuity_story_delete').prop('disabled', runtime.processing || !rollingStory?.text);
+    $('#continuity_story_status').text(rollingStory?.text
+        ? `Stored through message ${Number(rollingStory.to ?? -1) + 1}; approximately ${Math.ceil(String(rollingStory.text).length / 4)} tokens before injection clipping. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`
+        : `No rolling story is stored for this chat yet. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`);
     const embedding = runtime.embeddingIndex;
     const embeddingTotal = Math.max(0, Number(embedding?.total) || 0);
     const embeddingIndexed = Math.min(embeddingTotal, Math.max(0, Number(embedding?.indexed) || 0));
@@ -1084,7 +1094,6 @@ export function renderRuntime(refreshSettings = true) {
     $('#continuity_coverage').text(coverage.total
         ? `${coverage.processed}/${coverage.total} messages processed · ${coverage.pending} pending (${coverage.buffered} protected buffer, ${coverage.changed} changed, ${coverage.outdated} need narrative upgrade) · ranges: ${formatRanges(coverage.pendingRanges)}`
         : 'No processable chat messages.');
-    $('#continuity_pause').html(runtime.paused ? '<i class="fa-solid fa-play"></i> Resume' : '<i class="fa-solid fa-pause"></i> Pause');
     const reduction = runtime.contextReduction || {};
     const totalPromptTokens = reduction.totalPromptTokens == null ? null : Math.max(0, Math.round(Number(reduction.totalPromptTokens) || 0));
     $('#continuity_context_stats').text(String(reduction.mode || '').startsWith('active')
@@ -1530,6 +1539,29 @@ export function initUI() {
     setSetting('#continuity_enabled', 'enabled', Boolean);
     setSetting('#continuity_notifications', 'showNotifications', Boolean);
     setSetting('#continuity_retrieval_mode', 'retrievalMode');
+    setSetting('#continuity_story_so_far', 'storySoFarEnabled', Boolean);
+    setSetting('#continuity_story_so_far_tokens', 'storySoFarTokens', value => Math.min(12000, Math.max(0, Number(value) || 0)));
+    $('#continuity_story_recalculate').on('click', async () => {
+        const existing = runtime.world?.storySoFar?.[getChatKey()]?.text;
+        const messageCount = collectMemoryEligibleMessages(getContext().chat || []).length;
+        if (!messageCount) return toast('error', 'This chat has no eligible raw messages to summarize.');
+        if (!window.confirm(`${existing ? 'Recalculate' : 'Build'} Story so far from all ${messageCount} eligible raw chat messages? This calls the selected summarizer in batches but does not read or modify L1, L2, L3, facts, state, or retrieval records.`)) return;
+        try {
+            const result = await rebuildRollingStory();
+            toast('success', `Story so far recalculated from ${result.messages} raw message(s).`);
+        } catch (error) {
+            if (!isRuntimeCancellation(error)) toast('error', error.message);
+        }
+    });
+    $('#continuity_story_delete').on('click', async () => {
+        if (!window.confirm('Delete only this chat’s Story so far? Structured recall, L1/L2/L3, facts, state, and chat messages will remain unchanged.')) return;
+        try {
+            await deleteRollingStory();
+            toast('success', 'Story so far deleted; structured recall was unchanged.');
+        } catch (error) {
+            toast('error', error.message);
+        }
+    });
     $('#continuity_retrieval_mode').on('change', () => {
         if (getSettings().retrievalMode === 'embedding-hybrid' && runtime.world) scheduleEmbeddingIndexSync(runtime.world, 0);
     });
@@ -1594,7 +1626,7 @@ export function initUI() {
         return Math.min(maximum, Math.max(0, Number(value) || 0));
     });
     setSetting('#continuity_detail', 'detail');
-    setSetting('#continuity_budget', 'injectionBudgetTokens', value => Math.min(12000, Math.max(0, Number(value) || 0)));
+    setSetting('#continuity_budget', 'injectionBudgetTokens', value => Math.min(100000, Math.max(0, Number(value) || 0)));
     setSetting('#continuity_injection_position', 'injectionPosition');
     setSetting('#continuity_injection_depth', 'injectionDepth', value => Math.min(100, Math.max(0, Number(value) || 0)));
     setSetting('#continuity_injection_role', 'injectionRole');
@@ -1660,12 +1692,6 @@ export function initUI() {
     $('#continuity_detach').on('click', () => detachToEmptyMemory()
         .then(result => !result.cancelled && toast('success', 'Attached memory retained unchanged and detached from this chat.'))
         .catch(error => toast('error', error.message)));
-    $('#continuity_pause').on('click', () => {
-        if (restorePendingExtractionReview()) return;
-        if (runtime.paused) { resumeRuntime(); continueQueue(); }
-        else pauseRuntime();
-        renderRuntime();
-    });
     $('#continuity_stop').on('click', () => { stopRuntime(); toast('info', 'Processing stopped and the queue was cleared.'); });
     $('#continuity_build').on('click', () => buildMemory()
         .then(result => !result.cancelled && toast(result.continued || result.arcs || result.eras ? 'success' : 'info', result.continued || result.arcs || result.eras ? 'Memory build completed.' : 'Memory is already up to date.'))
@@ -1754,6 +1780,11 @@ export function previewInjection() {
     const recent = (context.chat || []).slice(-12);
     const settings = getSettings();
     const budget = resolveInjectionBudget(settings.injectionBudgetTokens, context.maxContext);
+    const storyBudget = resolveStoryBudget(settings.storySoFarTokens, context.maxContext);
     const coverage = getProcessingCoverage(runtime.world);
-    return buildMemoryPrompt(runtime.world, recent, budget.tokens, getChatKey(), [], settings.injectionInstruction, new Map(), { includeSceneCheckpoint: coverage.pending === 0 });
+    return buildMemoryPrompt(runtime.world, recent, budget.tokens, getChatKey(), [], settings.injectionInstruction, new Map(), {
+        includeSceneCheckpoint: coverage.pending === 0,
+        includeStorySoFar: settings.storySoFarEnabled,
+        storySoFarTokens: storyBudget.tokens,
+    });
 }

@@ -123,7 +123,7 @@
                         </label>
                         <label>Extraction request template
                             <textarea id="continuity_extraction_template" class="text_pole continuity-prompt-editor" rows="7"></textarea>
-                            <small>Placeholders: <code>{{detail}}</code>, <code>{{schema}}</code>, <code>{{messages}}</code>. Schema and messages are appended automatically if omitted.</small>
+                            <small>Placeholders: <code>{{detail}}</code>, <code>{{schema}}</code>, <code>{{story_so_far}}</code>, <code>{{messages}}</code>. Required context is appended automatically if omitted.</small>
                         </label>
                     </details>
                 </details>
@@ -137,6 +137,17 @@
                     </select>
                 </label>
                 <small>AI-expanded uses a small cached LLM request and never silently substitutes local retrieval; a failed expansion stops roleplay generation. Embedding hybrid uses Continuity's own embedding provider configuration and local matching, without an LLM retrieval request.</small>
+                <label class="checkbox_label"><input id="continuity_story_so_far" type="checkbox"><span>Include compact story so far (default)</span></label>
+                <small>Always includes one compact rolling narrative from the beginning to now. It is updated only from its previous version and new raw chat; structured memory remains retrieval-only. Its allowance is additional and never reduces recall.</small>
+                <label>Story-so-far allowance
+                    <input id="continuity_story_so_far_tokens" class="text_pole" type="number" min="0" max="12000" step="32">
+                    <small>0 = automatic 2% of model context, minimum 1,000 and maximum 6,000. A fixed override may range from 128 to 12,000, below or above the automatic bounds. Existing recall keeps its full allowance.</small>
+                </label>
+                <div class="continuity-button-row">
+                    <button id="continuity_story_recalculate" class="menu_button"><i class="fa-solid fa-rotate"></i> Build / Rebuild story so far</button>
+                    <button id="continuity_story_delete" class="menu_button redWarningBG"><i class="fa-solid fa-trash"></i> Delete story so far</button>
+                </div>
+                <small id="continuity_story_status">No rolling story is stored for this chat yet.</small>
                 <label class="continuity-ai-retrieval-setting">AI retrieval model
                     <select id="continuity_retrieval_profile" class="text_pole">
                         <option value="">Same as extraction model</option>
@@ -233,9 +244,9 @@
                 <details>
                     <summary>Advanced memory injection</summary>
                     <div class="continuity-grid">
-                        <label>Injection budget
-                            <input id="continuity_budget" class="text_pole" type="number" min="0" max="12000" step="250">
-                            <small>0 = dynamic: 20% of the model context</small>
+                        <label>Recall allowance
+                            <input id="continuity_budget" class="text_pole" type="number" min="0" max="100000" step="250">
+                            <small>structured recall tokens; 0 = automatic 20% of model context. Fixed overrides may range from 128 to 100,000. Story so far is additional.</small>
                         </label>
                         <label>Injection position
                         <select id="continuity_injection_position" class="text_pole">
@@ -390,7 +401,6 @@
                 <div class="continuity-button-row">
                     <button id="continuity_build" class="menu_button"><i class="fa-solid fa-hammer"></i> Build</button>
                     <button id="continuity_repair_rollback" class="menu_button" style="display: none;"><i class="fa-solid fa-clock-rotate-left"></i> Repair rollback</button>
-                    <button id="continuity_pause" class="menu_button"><i class="fa-solid fa-pause"></i> Pause</button>
                     <button id="continuity_stop" class="menu_button redWarningBG"><i class="fa-solid fa-stop"></i> Stop & clear queue</button>
                     <button id="continuity_undo_latest_l1" class="menu_button"><i class="fa-solid fa-rotate-left"></i> Undo latest L1</button>
                 </div>

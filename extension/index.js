@@ -1,24 +1,25 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.14.0-standalone.194';
+import { api } from './api.js?v=0.14.0-standalone.202';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.194';
-import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.194';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.194';
-import { invalidateRuntimeWork, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.194';
-import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.194';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.194';
+import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.202';
+import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.202';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.202';
+import { invalidateRuntimeWork, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.202';
+import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.202';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.202';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.194';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.194';
-import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.194';
-import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.194';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.202';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.202';
+import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.202';
+import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.202';
 import { completeL1MessageCount, isL1StabilityProtectedMessage, resolveL1GroupSize } from './l1-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
-import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.14.0-standalone.194';
+import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.14.0-standalone.202';
+import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.202';
 
 const PROMPT_KEY = 'continuity_memory_context';
 let lastObservedWorldId = null;
@@ -371,6 +372,7 @@ async function refreshInjection(useRetrievalAssist = false, strictEmbedding = fa
         updateRuntime({ retrievalAssist });
     }
     const budget = resolveInjectionBudget(settings.injectionBudgetTokens, getContext().maxContext);
+    const storyBudget = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext);
     const sourceMessages = Array.isArray(coverageMessages)
         ? coverageMessages
         : collectMemoryEligibleMessages(getContext().chat || []);
@@ -384,7 +386,7 @@ async function refreshInjection(useRetrievalAssist = false, strictEmbedding = fa
         expandedTerms,
         settings.injectionInstruction,
         semanticRanks,
-        { ...promptOptions, invalidSourceRanges, includeSceneCheckpoint: coverage.pending === 0 },
+        { ...promptOptions, invalidSourceRanges, includeSceneCheckpoint: coverage.pending === 0, includeStorySoFar: settings.storySoFarEnabled, storySoFarTokens: storyBudget.tokens },
     );
     const managerApplied = useRetrievalAssist && getContext().mainApi === 'openai'
         && configurePromptManagerInjection(promptManager, settings, prompt);
@@ -398,7 +400,7 @@ async function refreshInjection(useRetrievalAssist = false, strictEmbedding = fa
     );
     const placementStatus = managerApplied ? 'Prompt Manager placement' : settings.injectionPosition === 'at-depth' ? `chat depth ${placement.depth}` : 'main-prompt placement';
     const injectionStatus = prompt
-        ? `Ready to inject approximately ${estimatedTokens} tokens via ${placementStatus} (${budget.mode} budget: ${budget.tokens} tokens).`
+        ? `Ready to inject approximately ${estimatedTokens} tokens via ${placementStatus} (${budget.mode} recall allowance: ${budget.tokens} tokens${settings.storySoFarEnabled ? ` + ${storyBudget.mode} story allowance: ${storyBudget.tokens} tokens` : ''}).`
         : 'The selected memory has no injectable records yet.';
     const retrievalSnapshot = createRetrievalSnapshot({
         phase,
