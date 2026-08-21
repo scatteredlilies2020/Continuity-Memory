@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { normalizeStoryThinkingMode, profileReasoningEffort, resolveStoryThinkingMode } from '../extension/story-thinking.js';
+import { normalizeStoryThinkingMode, profileReasoningEffort, resolveProfileThinkingMode, resolveStoryThinkingMode } from '../extension/story-thinking.js';
 
 test('Story thinking defaults to automatic profile inheritance', () => {
     assert.equal(normalizeStoryThinkingMode(undefined), 'auto');
@@ -19,4 +19,5 @@ test('automatic Story thinking reads the selected connection profile preset effo
     const profile = { preset: 'GLM Story' };
     assert.equal(profileReasoningEffort(profile, { 'GLM Story': 1 }, [{}, { reasoning_effort: 'high' }]), 'high');
     assert.equal(profileReasoningEffort({ reasoning_effort: 'low', preset: 'GLM Story' }, { 'GLM Story': 1 }, [{}, { reasoning_effort: 'high' }]), 'low');
+    assert.equal(resolveProfileThinkingMode('auto', profile, { 'GLM Story': 1 }, [{}, { reasoning_effort: 'high' }], 'low'), 'high');
 });

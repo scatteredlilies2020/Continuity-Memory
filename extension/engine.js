@@ -6,34 +6,34 @@ import { oai_settings, openai_setting_names, openai_settings, proxies } from '/s
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError, isTransientApiError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.221';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.222';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.221';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.222';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, compactDuplicateMemoryRecords, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens, storyResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.221';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.221';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.222';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.222';
 import { embedWorldInChat } from './portable.js';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.221';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.221';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.222';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.222';
 import { applySourceAttributionFailClosed, canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.221';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.221';
-import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.221';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.221';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.222';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.222';
+import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.222';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.222';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.14.0-standalone.221';
-import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.221';
-import { profileReasoningEffort, resolveStoryThinkingMode } from './story-thinking.js?v=0.14.0-standalone.221';
-import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.221';
-import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.221';
+import { dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.14.0-standalone.222';
+import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.222';
+import { resolveProfileThinkingMode } from './story-thinking.js?v=0.14.0-standalone.222';
+import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.222';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.222';
 
 const temporalRelationSchema = {
     type: 'object',
@@ -320,6 +320,7 @@ export function applyExtractionRequestSettings(data) {
 }
 
 export async function generateWithThinkingPolicy(options, thinkingMode = getSettings().thinkingMode) {
+    thinkingMode = resolveThinkingModeForProfile(thinkingMode);
     activeExtractionThinkingMode = thinkingMode;
     try {
         try {
@@ -594,8 +595,22 @@ function directRequestConfig(kind) {
     return { provider, url: parsed.toString().replace(/\/$/, ''), model: String(model).trim(), secretId };
 }
 
+export function resolveThinkingModeForProfile(configuredMode, profileId = '') {
+    const profile = profileId && profileId !== DIRECT_PROFILE_ID
+        ? ConnectionManagerRequestService.getProfile(profileId)
+        : null;
+    return resolveProfileThinkingMode(
+        configuredMode,
+        profile,
+        openai_setting_names,
+        openai_settings,
+        oai_settings?.reasoning_effort,
+    );
+}
+
 function requestSupportsStructuredSchema(jsonSchema, profileId = getSettings().memoryProfileId, directKind = 'extraction', thinkingMode = getSettings().thinkingMode) {
     if (!profileId) return false;
+    thinkingMode = resolveThinkingModeForProfile(thinkingMode, profileId);
     if (profileId === DIRECT_PROFILE_ID) {
         const config = directRequestConfig(directKind);
         const thinking = buildThinkingRequest({
@@ -634,6 +649,7 @@ function renderStructuredTaskPrompt(template, defaultTemplate, values, schemaExa
 }
 
 async function requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, kind, withSchema = true, thinkingMode = getSettings().thinkingMode) {
+    thinkingMode = resolveThinkingModeForProfile(thinkingMode, DIRECT_PROFILE_ID);
     const config = directRequestConfig(kind);
     const thinking = buildThinkingRequest({
         mode: thinkingMode,
@@ -734,11 +750,12 @@ function extractProfileResponse(response, apiMap, profileName) {
     return result;
 }
 
-export async function requestDirectText(prompt, systemPrompt, responseLength = 300, kind = 'extraction') {
-    return requestDirectStructured(prompt, systemPrompt, null, responseLength, kind, false);
+export async function requestDirectText(prompt, systemPrompt, responseLength = 300, kind = 'extraction', thinkingMode = getSettings().thinkingMode) {
+    return requestDirectStructured(prompt, systemPrompt, null, responseLength, kind, false, thinkingMode);
 }
 
 async function requestStructured(prompt, systemPrompt, jsonSchema, responseLength = null, profileId = getSettings().memoryProfileId, directKind = 'extraction', fallbackPrompt = prompt, thinkingMode = getSettings().thinkingMode) {
+    thinkingMode = resolveThinkingModeForProfile(thinkingMode, profileId);
     if (profileId === DIRECT_PROFILE_ID) {
         let directThinkingMode = thinkingMode;
         try {
@@ -853,20 +870,11 @@ function storyRetryableError(error) {
         || /empty rolling story|invalid json|no json object|unexpected end|reached its output limit|finish_reason:\s*(?:length|max_tokens)|exceeded its \d+-token allowance/i.test(String(error?.message || ''));
 }
 
-function storyRequestThinkingMode(settings, profileId) {
-    let profileEffort = '';
-    if (profileId && profileId !== DIRECT_PROFILE_ID) {
-        const profile = ConnectionManagerRequestService.getProfile(profileId);
-        profileEffort = profileReasoningEffort(profile, openai_setting_names, openai_settings);
-    }
-    return resolveStoryThinkingMode(settings.storyThinkingMode, profileEffort, oai_settings?.reasoning_effort);
-}
-
 async function regenerateRollingStory(priorStory, messages, expectedEpoch = runtime.generation) {
     const settings = getSettings();
     const allowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext).tokens;
     const { profileId, directKind } = resolveStoryRequestProfile(settings, DIRECT_PROFILE_ID);
-    const thinkingMode = storyRequestThinkingMode(settings, profileId);
+    const thinkingMode = resolveThinkingModeForProfile(settings.storyThinkingMode, profileId);
     const usesStructuredSchema = requestSupportsStructuredSchema(rollingStoryJsonSchema, profileId, directKind, thinkingMode);
     const values = {
         prior: String(priorStory || '').trim() || '(No prior story yet.)',
@@ -941,6 +949,7 @@ function detachedRequestBodies({ prompt, fallbackPrompt, systemPrompt, usesStruc
     directKind = 'extraction',
 } = {}) {
     const settings = getSettings();
+    const thinkingMode = resolveThinkingModeForProfile(settings.thinkingMode, profileId);
     const messagesFor = userPrompt => [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -952,7 +961,7 @@ function detachedRequestBodies({ prompt, fallbackPrompt, systemPrompt, usesStruc
         const config = directRequestConfig(directKind);
         model = config.model;
         thinking = buildThinkingRequest({
-            mode: settings.thinkingMode,
+            mode: thinkingMode,
             source: config.provider === 'openrouter' ? 'openrouter' : 'custom',
             model,
             url: config.url,
@@ -971,7 +980,7 @@ function detachedRequestBodies({ prompt, fallbackPrompt, systemPrompt, usesStruc
         const proxy = proxies.find(item => item.name === profile.proxy);
         model = connectionProfileModel(profile);
         thinking = buildThinkingRequest({
-            mode: settings.thinkingMode,
+            mode: thinkingMode,
             source: apiMap.source,
             model,
             url: profile['api-url'],

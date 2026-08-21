@@ -89,12 +89,16 @@
                     <summary>Advanced extraction options</summary>
                     <label>Reasoning / thinking
                         <select id="continuity_thinking" class="text_pole">
-                            <option value="off">Off / lowest supported (default)</option>
+                            <option value="auto">Auto (selected profile)</option>
+                            <option value="off">Off</option>
                             <option value="minimum">Minimum</option>
-                            <option value="default">Provider default</option>
+                            <option value="low">Low</option>
+                            <option value="medium">Medium</option>
+                            <option value="high">High</option>
+                            <option value="max">Maximum</option>
                         </select>
                     </label>
-                    <small>Continuity requests no thinking when supported, otherwise the provider's lowest level (for Gemini 3 Flash, minimal). Reasoning is never stored in memory.</small>
+                    <small>Applies to extraction/L1, AI retrieval, correction, and L2/L3. Auto inherits each category's selected connection profile preset, then SillyTavern's active reasoning setting. Explicit levels are translated for Gemini, OpenAI-compatible, OpenRouter, Qwen, DeepSeek, and other detected providers; unsupported controls safely fall back. Reasoning is never stored in memory.</small>
                     <div class="continuity-grid">
                         <label>Detail
                             <select id="continuity_detail" class="text_pole">

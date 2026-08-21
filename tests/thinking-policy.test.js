@@ -37,6 +37,16 @@ test('passes explicit Story-style reasoning efforts through to supported profile
     assert.deepEqual(buildThinkingRequest({ mode: 'auto', source: 'openai', model: 'gpt-5.5' }).payload, {});
 });
 
+test('translates explicit effort levels for Gemini and OpenRouter profiles', () => {
+    const gemini = buildThinkingRequest({ mode: 'high', source: 'google', model: 'gemini-3.1-pro-preview' });
+    assert.equal(gemini.payload.reasoning_effort, 'high');
+    assert.equal(gemini.payload.include_reasoning, true);
+
+    const openrouter = buildThinkingRequest({ mode: 'medium', source: 'custom', url: 'https://openrouter.ai/api/v1', model: 'google/gemini-3.1-pro-preview' });
+    assert.equal(openrouter.payload.reasoning_effort, 'medium');
+    assert.deepEqual(JSON.parse(openrouter.payload.custom_include_body), { reasoning: { effort: 'medium', exclude: true } });
+});
+
 test('uses valid thinking controls for Gemini 2.5 and Gemini 3+ models', () => {
     const pro31 = buildThinkingRequest({ mode: 'off', source: 'google', model: 'gemini-3.1-pro-preview' });
     assert.equal(pro31.adapter, 'gemini');

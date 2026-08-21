@@ -2,6 +2,7 @@ export const STORY_THINKING_MODES = Object.freeze(['auto', 'off', 'minimum', 'lo
 
 export function normalizeStoryThinkingMode(value) {
     const mode = String(value || '').toLowerCase();
+    if (mode === 'default') return 'default';
     return STORY_THINKING_MODES.includes(mode) ? mode : 'auto';
 }
 
@@ -19,4 +20,12 @@ export function profileReasoningEffort(profile, presetNames, presets) {
     if (profile?.reasoning_effort) return String(profile.reasoning_effort);
     const index = profile?.preset ? presetNames?.[profile.preset] : undefined;
     return index === undefined ? '' : String(presets?.[index]?.reasoning_effort || '');
+}
+
+export function resolveProfileThinkingMode(configuredMode, profile, presetNames, presets, activeEffort = '') {
+    return resolveStoryThinkingMode(
+        configuredMode,
+        profileReasoningEffort(profile, presetNames, presets),
+        activeEffort,
+    );
 }

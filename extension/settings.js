@@ -1,10 +1,10 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CANONICAL_THIRD_PERSON_RULE, CHARACTER_PROFILE_RULE, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.221';
+import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CANONICAL_THIRD_PERSON_RULE, CHARACTER_PROFILE_RULE, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.222';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
-import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.14.0-standalone.221';
+import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.14.0-standalone.222';
 
 export const EXTENSION_NAME = 'continuityMemory';
 
@@ -83,7 +83,7 @@ const DEFAULTS = Object.freeze({
     arcGroupSize: 24,
     eraStartArcs: 12,
     eraGroupSize: 6,
-    thinkingMode: 'off',
+    thinkingMode: 'auto',
     contextReductionEnabled: true,
     rawTailMode: 'tokens',
     rawTailValue: 0,
@@ -543,6 +543,11 @@ export function getSettings() {
             settings.storyOpenRouterSecretId = settings.summaryOpenRouterSecretId || '';
         }
         settings.independentDirectCategoryVersion = 1;
+        saveSettingsDebounced();
+    }
+    if (Number(settings.thinkingEffortOptionsVersion || 0) < 1) {
+        if (settings.thinkingMode === 'default') settings.thinkingMode = 'auto';
+        settings.thinkingEffortOptionsVersion = 1;
         saveSettingsDebounced();
     }
     for (const [key, value] of Object.entries(DEFAULTS)) {
