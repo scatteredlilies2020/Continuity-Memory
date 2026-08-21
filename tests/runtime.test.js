@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { invalidateRuntimeWork, isRuntimeCancellation, pauseRuntime, RUNTIME_CANCELLED_CODE, runtime, stopRuntime, stopRuntimeTask } from '../extension/runtime.js';
+import { invalidateRuntimeWork, isRuntimeCancellation, pauseRuntime, RUNTIME_CANCELLED_CODE, runtime, STORY_RUNTIME_STATUSES, stopRuntime, stopRuntimeTask } from '../extension/runtime.js';
 
 test('a source mutation invalidates in-flight work and clears queued stale ranges', () => {
     const rejected = [];
@@ -68,6 +68,20 @@ test('a scoped task stop cancels only the matching active task without clearing 
         assert.equal(runtime.retryStatus, 'Story stopped.');
         assert.equal(runtime.queue, queued);
         assert.equal(runtime.queue.length, 1);
+    } finally {
+        Object.assign(runtime, before);
+    }
+});
+
+test('Story stop covers pending preparation as well as active model requests', () => {
+    const before = { ...runtime, queue: runtime.queue };
+    Object.assign(runtime, { processing: true, activeTask: 'story', status: 'pending-story-build', generation: 30, queue: [] });
+    try {
+        assert.equal(STORY_RUNTIME_STATUSES.includes('pending-story-build'), true);
+        assert.equal(STORY_RUNTIME_STATUSES.includes('pending-story-rebuild'), true);
+        assert.equal(stopRuntimeTask(STORY_RUNTIME_STATUSES, 'Pending Story stopped.'), true);
+        assert.equal(runtime.generation, 31);
+        assert.equal(runtime.status, 'stopping');
     } finally {
         Object.assign(runtime, before);
     }

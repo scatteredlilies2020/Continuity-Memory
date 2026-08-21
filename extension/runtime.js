@@ -4,6 +4,12 @@ const listeners = new Set();
 const stopHandlers = new Set();
 
 export const RUNTIME_CANCELLED_CODE = 'CONTINUITY_RUNTIME_CANCELLED';
+export const STORY_RUNTIME_STATUSES = Object.freeze([
+    'pending-story-build',
+    'pending-story-rebuild',
+    'updating-story',
+    'rebuilding-story',
+]);
 
 export function isRuntimeCancellation(error) {
     if (error?.code === RUNTIME_CANCELLED_CODE) return true;
@@ -15,6 +21,7 @@ export const runtime = {
     paused: false,
     queue: [],
     processing: false,
+    activeTask: null,
     generation: 0,
     stopSequence: 0,
     lastStartedAt: null,

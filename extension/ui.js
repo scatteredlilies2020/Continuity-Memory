@@ -4,10 +4,10 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, buildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, rebuildRollingStory, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.215';
+import { buildNextArc, buildNextEra, buildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, rebuildRollingStory, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.216';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.215';
+import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.216';
 import { clearRetrievalExpansionCache } from './semantic-retrieval.js';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
@@ -15,23 +15,23 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.215';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.215';
-import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, stopRuntimeTask, updateRuntime } from './runtime.js?v=0.14.0-standalone.215';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.216';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.216';
+import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, STORY_RUNTIME_STATUSES, stopRuntime, stopRuntimeTask, updateRuntime } from './runtime.js?v=0.14.0-standalone.216';
 import { completeL1MessageCount, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.215';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.215';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.215';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.216';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.216';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.216';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.215';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.215';
-import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.215';
-import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.215';
-import { resolveStoryBatchMessages } from './story-cadence.js?v=0.14.0-standalone.215';
+import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.216';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.216';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.216';
+import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.216';
+import { resolveStoryBatchMessages } from './story-cadence.js?v=0.14.0-standalone.216';
 import { createRenderScheduler } from './render-scheduler.js';
-import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.14.0-standalone.215';
-import { connectionProfileHasModel } from './profile-request-policy.js?v=0.14.0-standalone.215';
+import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.14.0-standalone.216';
+import { connectionProfileHasModel } from './profile-request-policy.js?v=0.14.0-standalone.216';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -1037,9 +1037,26 @@ export function renderRuntime(refreshSettings = true) {
     }
     const rollingStory = runtime.world?.storySoFar?.[getChatKey()];
     const resolvedStoryAllowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext);
+    const storyProcessing = runtime.processing && runtime.activeTask === 'story';
+    const storyProgress = storyProcessing ? runtime.progress : null;
     $('#continuity_story_build, #continuity_story_rebuild').prop('disabled', runtime.processing || !runtime.world);
-    $('#continuity_story_stop').prop('disabled', !(runtime.processing && ['rebuilding-story', 'updating-story'].includes(runtime.status)));
+    $('#continuity_story_stop').prop('disabled', !storyProcessing || runtime.status === 'stopping');
     $('#continuity_story_delete').prop('disabled', runtime.processing || !rollingStory);
+    $('#continuity_story_progress').text(!storyProcessing
+        ? 'No Story build running.'
+        : String(runtime.status).startsWith('pending-story-')
+            ? runtime.retryStatus || 'Pending Story build: preparing raw history…'
+            : runtime.status === 'stopping'
+                ? runtime.retryStatus || 'Stopping Story build safely…'
+                : storyProgress?.total
+                    ? `Processing Story chunk ${storyProgress.current}/${storyProgress.total} · messages ${Number(storyProgress.from ?? 0) + 1}–${Number(storyProgress.to ?? 0) + 1} · ~${storyProgress.inputTokens || '?'} source tokens`
+                    : runtime.retryStatus || 'Story build is processing…');
+    $('#continuity_story_progress_bar')
+        .toggle(storyProcessing)
+        .attr('max', Math.max(1, Number(storyProgress?.total) || 1));
+    if (storyProcessing && storyProgress?.total) $('#continuity_story_progress_bar').attr('value', Math.max(0, Number(storyProgress.current) || 0));
+    else if (storyProcessing) $('#continuity_story_progress_bar').removeAttr('value');
+    else $('#continuity_story_progress_bar').attr('value', 0);
     $('#continuity_story_status').text(rollingStory?.rebuildRestartPending
         ? `Rebuild is pending from the first eligible raw message; Build / Continue will retry it. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`
         : rollingStory?.rebuildIncomplete
@@ -1150,7 +1167,9 @@ export function renderRuntime(refreshSettings = true) {
     const queueText = runtime.queue.length ? ` · ${runtime.queue.length} queued` : '';
     $('#continuity_status').text(`${runtime.paused ? 'Paused' : runtime.status}${queueText}`);
     const progress = runtime.progress;
-    $('#continuity_progress').text(progress
+    $('#continuity_progress').text(progress?.phase === 'pending'
+        ? `Pending: ${progress.label || 'preparing work'} · messages ${Number(progress.from ?? 0) + 1}–${Number(progress.to ?? 0) + 1}`
+        : progress
         ? `Processing chunk ${progress.current}/${progress.total} · messages ${progress.from}–${progress.to} · ~${progress.inputTokens || '?'} source tokens`
         : runtime.lastError ? `Last error: ${runtime.lastError}` : runtime.lastCompletedAt ? `Last completed: ${new Date(runtime.lastCompletedAt).toLocaleString()}` : 'Idle');
     const extractionReview = runtime.pendingExtractionReview;
@@ -1661,7 +1680,7 @@ export function initUI() {
         }
     });
     $('#continuity_story_stop').on('click', () => {
-        const stopped = stopRuntimeTask(['rebuilding-story', 'updating-story'], 'Stopping Story so far; completed batches remain saved and the in-flight batch will be discarded.');
+        const stopped = stopRuntimeTask(STORY_RUNTIME_STATUSES, 'Stopping Story so far; completed batches remain saved and the in-flight batch will be discarded.');
         if (stopped) toast('info', 'Stopping Story so far. The last completed batch was kept.');
     });
     $('#continuity_story_delete').on('click', async () => {
