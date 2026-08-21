@@ -4,10 +4,10 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, buildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, rebuildRollingStory, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.214';
+import { buildNextArc, buildNextEra, buildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, rebuildRollingStory, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.215';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.214';
+import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.215';
 import { clearRetrievalExpansionCache } from './semantic-retrieval.js';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
@@ -15,23 +15,23 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.214';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.214';
-import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, stopRuntimeTask, updateRuntime } from './runtime.js?v=0.14.0-standalone.214';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.215';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.215';
+import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, stopRuntimeTask, updateRuntime } from './runtime.js?v=0.14.0-standalone.215';
 import { completeL1MessageCount, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.214';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.214';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.214';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.215';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.215';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.215';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.214';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.214';
-import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.214';
-import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.214';
-import { resolveStoryBatchMessages } from './story-cadence.js?v=0.14.0-standalone.214';
+import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.215';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.215';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.215';
+import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.215';
+import { resolveStoryBatchMessages } from './story-cadence.js?v=0.14.0-standalone.215';
 import { createRenderScheduler } from './render-scheduler.js';
-import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.14.0-standalone.214';
-import { connectionProfileHasModel } from './profile-request-policy.js?v=0.14.0-standalone.214';
+import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.14.0-standalone.215';
+import { connectionProfileHasModel } from './profile-request-policy.js?v=0.14.0-standalone.215';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -1042,8 +1042,10 @@ export function renderRuntime(refreshSettings = true) {
     $('#continuity_story_delete').prop('disabled', runtime.processing || !rollingStory);
     $('#continuity_story_status').text(rollingStory?.rebuildRestartPending
         ? `Rebuild is pending from the first eligible raw message; Build / Continue will retry it. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`
+        : rollingStory?.rebuildIncomplete
+            ? `Rebuild incomplete; saved through message ${Number(rollingStory.to ?? -1) + 1}. Build / Continue will resume after that checkpoint. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`
         : rollingStory?.text
-            ? `Stored through message ${Number(rollingStory.to ?? -1) + 1}; approximately ${Math.ceil(String(rollingStory.text).length / 4)} tokens before injection clipping. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`
+            ? `Complete: stored through message ${Number(rollingStory.to ?? -1) + 1}; approximately ${Math.ceil(String(rollingStory.text).length / 4)} tokens before injection clipping. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`
             : `No rolling story is stored for this chat yet. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`);
     const embedding = runtime.embeddingIndex;
     const embeddingTotal = Math.max(0, Number(embedding?.total) || 0);
@@ -1650,10 +1652,10 @@ export function initUI() {
     $('#continuity_story_rebuild').on('click', async () => {
         const messageCount = collectMemoryEligibleMessages(getContext().chat || []).length;
         if (!messageCount) return toast('error', 'This chat has no eligible raw messages to summarize.');
-        if (!window.confirm(`Rebuild Story so far from all ${messageCount} eligible raw chat messages, starting at the beginning? This replaces the stored Story as new batches complete but does not read or modify structured memory.`)) return;
+        if (!window.confirm(`Delete the current Story so far, then rebuild it from all ${messageCount} eligible raw chat messages starting at the beginning? The deletion is immediate. If rebuilding stops or fails, Build / Continue retries from the last new checkpoint. Structured memory is unchanged.`)) return;
         try {
             const result = await rebuildRollingStory();
-            toast('success', `Story so far rebuilt from ${result.messages} raw message(s).`);
+            toast('success', `Rebuild complete: Story so far recreated from ${result.messages} raw message(s).`);
         } catch (error) {
             if (!isRuntimeCancellation(error)) toast('error', error.message);
         }

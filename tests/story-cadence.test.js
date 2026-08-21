@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { completeStoryMessages, DEFAULT_STORY_BATCH_MESSAGES, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildPlan, storyChunkMessageLimit } from '../extension/story-cadence.js';
+import { completeStoryMessages, DEFAULT_STORY_BATCH_MESSAGES, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, storyChunkMessageLimit } from '../extension/story-cadence.js';
 
 test('story cadence defaults to eight messages and remains independently adjustable', () => {
     assert.equal(DEFAULT_STORY_BATCH_MESSAGES, 8);
@@ -49,6 +49,15 @@ test('Rebuild always starts from raw message zero even after an interruption', (
     assert.equal(plan.resuming, false);
     assert.equal(plan.story, '');
     assert.deepEqual(plan.messages, messages);
+});
+
+test('Rebuild deletes the prior Story before its first replacement request', () => {
+    const checkpoint = rollingStoryRebuildCheckpoint({ from: 0, targetTo: 42 }, '2026-08-21T00:00:00.000Z');
+    assert.deepEqual(checkpoint, {
+        text: '', from: 0, to: -1, updatedAt: '2026-08-21T00:00:00.000Z',
+        rebuiltFromRawChat: true, rebuildIncomplete: true,
+        rebuildRestartPending: true, rebuildTargetTo: 42,
+    });
 });
 
 test('Build restarts a rebuild whose first request failed before a new checkpoint', () => {

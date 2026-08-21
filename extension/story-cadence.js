@@ -69,3 +69,17 @@ export function rollingStoryRebuildPlan(messages) {
         restarting: true,
     };
 }
+
+export function rollingStoryRebuildCheckpoint(plan, updatedAt = new Date().toISOString()) {
+    const from = Number(plan?.from ?? 0);
+    return {
+        text: '',
+        from,
+        to: from - 1,
+        updatedAt,
+        rebuiltFromRawChat: true,
+        rebuildIncomplete: true,
+        rebuildRestartPending: true,
+        rebuildTargetTo: Number(plan?.targetTo ?? from - 1),
+    };
+}
