@@ -16,8 +16,19 @@ export function storyChunkMessageLimit(hasPriorStory, batchSize) {
     return hasPriorStory ? resolveStoryBatchMessages(batchSize) : Infinity;
 }
 
-export function rollingStoryRebuildPlan(messages, previous) {
+export function rollingStoryBuildPlan(messages, previous) {
     const source = Array.isArray(messages) ? messages : [];
+    const restartTargetTo = Number(previous?.rebuildTargetTo);
+    if (previous?.rebuildRestartPending && Number.isFinite(restartTargetTo)) {
+        return {
+            messages: source.filter(message => Number(message.index) <= restartTargetTo),
+            story: '',
+            from: Number(source[0]?.index ?? 0),
+            targetTo: restartTargetTo,
+            resuming: true,
+            restarting: true,
+        };
+    }
     const savedTo = Number(previous?.to);
     const targetTo = Number(previous?.rebuildTargetTo);
     const resumable = Boolean(previous?.rebuildIncomplete && previous?.text)
@@ -25,12 +36,16 @@ export function rollingStoryRebuildPlan(messages, previous) {
         && Number.isFinite(targetTo)
         && savedTo < targetTo;
     if (!resumable) {
+        const hasStory = Boolean(previous?.text);
         return {
-            messages: source,
-            story: '',
-            from: Number(source[0]?.index ?? 0),
+            messages: hasStory && Number.isFinite(savedTo)
+                ? source.filter(message => Number(message.index) > savedTo)
+                : source,
+            story: hasStory ? String(previous.text).trim() : '',
+            from: Number(previous?.from ?? source[0]?.index ?? 0),
             targetTo: Number(source.at(-1)?.index ?? 0),
             resuming: false,
+            restarting: false,
         };
     }
     return {
@@ -39,5 +54,18 @@ export function rollingStoryRebuildPlan(messages, previous) {
         from: Number(previous.from ?? source[0]?.index ?? 0),
         targetTo,
         resuming: true,
+        restarting: false,
+    };
+}
+
+export function rollingStoryRebuildPlan(messages) {
+    const source = Array.isArray(messages) ? messages : [];
+    return {
+        messages: source,
+        story: '',
+        from: Number(source[0]?.index ?? 0),
+        targetTo: Number(source.at(-1)?.index ?? 0),
+        resuming: false,
+        restarting: true,
     };
 }

@@ -36,6 +36,18 @@ test('viewer exposes only the current chat story with its raw message boundary',
     assert.equal(memoryViewerPage(world, 'story', '', 0, 30, 'other-chat').total, 0);
 });
 
+test('viewer exposes a rebuild that failed before its first replacement checkpoint', () => {
+    const pending = structuredClone(world);
+    pending.storySoFar.chat = {
+        text: '', from: 0, to: -1, rebuildIncomplete: true,
+        rebuildRestartPending: true, rebuildTargetTo: 42,
+    };
+    const page = memoryViewerPage(pending, 'story', '', 0, 30, 'chat');
+    assert.equal(page.total, 1);
+    assert.equal(page.items[0].title, 'Story so far (rebuild pending)');
+    assert.ok(page.items[0].fields.some(field => field.label === 'Build state' && field.value.includes('restarts from the first eligible message')));
+});
+
 test('viewer orders hierarchy records chronologically and exposes message ranges', () => {
     const page = memoryViewerPage(world, 'l1');
     assert.deepEqual(page.items.map(item => item.title), ['Early', 'Later']);

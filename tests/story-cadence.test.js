@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { completeStoryMessages, DEFAULT_STORY_BATCH_MESSAGES, resolveStoryBatchMessages, rollingStoryRebuildPlan, storyChunkMessageLimit } from '../extension/story-cadence.js';
+import { completeStoryMessages, DEFAULT_STORY_BATCH_MESSAGES, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildPlan, storyChunkMessageLimit } from '../extension/story-cadence.js';
 
 test('story cadence defaults to eight messages and remains independently adjustable', () => {
     assert.equal(DEFAULT_STORY_BATCH_MESSAGES, 8);
@@ -24,7 +24,7 @@ test('fresh story construction packs context-safe chunks while later updates kee
 
 test('an interrupted story rebuild resumes after its last saved message without losing its story', () => {
     const messages = Array.from({ length: 20 }, (_, index) => ({ index }));
-    const plan = rollingStoryRebuildPlan(messages, {
+    const plan = rollingStoryBuildPlan(messages, {
         text: 'Saved rolling checkpoint.', from: 0, to: 7,
         rebuildIncomplete: true, rebuildTargetTo: 19,
     });
@@ -35,10 +35,34 @@ test('an interrupted story rebuild resumes after its last saved message without 
     assert.deepEqual(plan.messages.map(item => item.index), Array.from({ length: 12 }, (_, index) => index + 8));
 });
 
-test('a completed story begins an intentional rebuild from raw message zero', () => {
+test('Build advances a completed story without starting over', () => {
     const messages = Array.from({ length: 5 }, (_, index) => ({ index }));
-    const plan = rollingStoryRebuildPlan(messages, { text: 'Complete story.', from: 0, to: 4, rebuildIncomplete: false, rebuildTargetTo: 4 });
+    const plan = rollingStoryBuildPlan(messages, { text: 'Complete story.', from: 0, to: 3, rebuildIncomplete: false, rebuildTargetTo: 3 });
     assert.equal(plan.resuming, false);
+    assert.equal(plan.story, 'Complete story.');
+    assert.deepEqual(plan.messages, [messages[4]]);
+});
+
+test('Rebuild always starts from raw message zero even after an interruption', () => {
+    const messages = Array.from({ length: 5 }, (_, index) => ({ index }));
+    const plan = rollingStoryRebuildPlan(messages, { text: 'Ignored checkpoint.', from: 0, to: 2, rebuildIncomplete: true, rebuildTargetTo: 4 });
+    assert.equal(plan.resuming, false);
+    assert.equal(plan.story, '');
+    assert.deepEqual(plan.messages, messages);
+});
+
+test('Build restarts a rebuild whose first request failed before a new checkpoint', () => {
+    const messages = Array.from({ length: 7 }, (_, index) => ({ index }));
+    const plan = rollingStoryBuildPlan(messages, {
+        text: 'Old completed Story remains available until replacement begins.',
+        from: 0,
+        to: 6,
+        rebuildIncomplete: true,
+        rebuildRestartPending: true,
+        rebuildTargetTo: 6,
+    });
+    assert.equal(plan.resuming, true);
+    assert.equal(plan.restarting, true);
     assert.equal(plan.story, '');
     assert.deepEqual(plan.messages, messages);
 });

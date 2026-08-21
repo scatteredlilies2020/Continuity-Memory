@@ -4,10 +4,10 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, maybeAutoUpdateRollingStory, rebuildRollingStory, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.211';
+import { buildNextArc, buildNextEra, buildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, rebuildRollingStory, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.212';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.211';
+import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.212';
 import { clearRetrievalExpansionCache } from './semantic-retrieval.js';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
@@ -15,20 +15,20 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.211';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.211';
-import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, stopRuntimeTask, updateRuntime } from './runtime.js?v=0.14.0-standalone.211';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.212';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.212';
+import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, stopRuntimeTask, updateRuntime } from './runtime.js?v=0.14.0-standalone.212';
 import { completeL1MessageCount, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.211';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.211';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.211';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.212';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.212';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.212';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.211';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.211';
-import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.211';
-import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.211';
-import { resolveStoryBatchMessages } from './story-cadence.js?v=0.14.0-standalone.211';
+import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.212';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.212';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.212';
+import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.212';
+import { resolveStoryBatchMessages } from './story-cadence.js?v=0.14.0-standalone.212';
 import { createRenderScheduler } from './render-scheduler.js';
 
 let worlds = [];
@@ -977,12 +977,14 @@ export function renderRuntime(refreshSettings = true) {
     }
     const rollingStory = runtime.world?.storySoFar?.[getChatKey()];
     const resolvedStoryAllowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext);
-    $('#continuity_story_recalculate').prop('disabled', runtime.processing || !runtime.world);
+    $('#continuity_story_build, #continuity_story_rebuild').prop('disabled', runtime.processing || !runtime.world);
     $('#continuity_story_stop').prop('disabled', !(runtime.processing && ['rebuilding-story', 'updating-story'].includes(runtime.status)));
-    $('#continuity_story_delete').prop('disabled', runtime.processing || !rollingStory?.text);
-    $('#continuity_story_status').text(rollingStory?.text
-        ? `Stored through message ${Number(rollingStory.to ?? -1) + 1}; approximately ${Math.ceil(String(rollingStory.text).length / 4)} tokens before injection clipping. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`
-        : `No rolling story is stored for this chat yet. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`);
+    $('#continuity_story_delete').prop('disabled', runtime.processing || !rollingStory);
+    $('#continuity_story_status').text(rollingStory?.rebuildRestartPending
+        ? `Rebuild is pending from the first eligible raw message; Build / Continue will retry it. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`
+        : rollingStory?.text
+            ? `Stored through message ${Number(rollingStory.to ?? -1) + 1}; approximately ${Math.ceil(String(rollingStory.text).length / 4)} tokens before injection clipping. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`
+            : `No rolling story is stored for this chat yet. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`);
     const embedding = runtime.embeddingIndex;
     const embeddingTotal = Math.max(0, Number(embedding?.total) || 0);
     const embeddingIndexed = Math.min(embeddingTotal, Math.max(0, Number(embedding?.indexed) || 0));
@@ -1451,11 +1453,10 @@ async function buildMemory() {
 async function buildStoryWithMemory(result, rebuildFromBeginning) {
     const settings = getSettings();
     if (result.cancelled || !settings.enabled || !settings.storySoFarEnabled) return result;
-    const existing = runtime.world?.storySoFar?.[getChatKey()]?.text;
     try {
-        const story = rebuildFromBeginning || !existing
+        const story = rebuildFromBeginning
             ? await rebuildRollingStory()
-            : await maybeAutoUpdateRollingStory();
+            : await buildRollingStory();
         return { ...result, story };
     } catch (error) {
         if (isRuntimeCancellation(error)) return { ...result, cancelled: true, storyCancelled: true };
@@ -1582,14 +1583,37 @@ export function initUI() {
     setSetting('#continuity_story_so_far', 'storySoFarEnabled', Boolean);
     setSetting('#continuity_story_so_far_tokens', 'storySoFarTokens', value => Math.min(12000, Math.max(0, Number(value) || 0)));
     setSetting('#continuity_story_batch', 'storyBatchMessages', resolveStoryBatchMessages);
-    $('#continuity_story_recalculate').on('click', async () => {
-        const existing = runtime.world?.storySoFar?.[getChatKey()]?.text;
+    $('#continuity_story_build').on('click', async () => {
+        const stored = runtime.world?.storySoFar?.[getChatKey()];
+        const eligibleMessages = collectMemoryEligibleMessages(getContext().chat || []);
+        const messageCount = eligibleMessages.length;
+        if (!messageCount) return toast('error', 'This chat has no eligible raw messages to summarize.');
+        const targetTo = Number(stored?.rebuildTargetTo);
+        const savedTo = Number(stored?.to ?? -1);
+        const pending = stored?.rebuildRestartPending
+            ? eligibleMessages.filter(message => !Number.isFinite(targetTo) || Number(message.index) <= targetTo).length
+            : stored?.rebuildIncomplete
+                ? eligibleMessages.filter(message => Number(message.index) > savedTo && (!Number.isFinite(targetTo) || Number(message.index) <= targetTo)).length
+                : stored?.text ? eligibleMessages.filter(message => Number(message.index) > savedTo).length : messageCount;
+        if (!pending) return toast('info', 'Story so far is already current through the eligible raw-chat boundary.');
+        const action = stored?.rebuildRestartPending || stored?.rebuildIncomplete ? 'Continue' : stored?.text ? 'Advance' : 'Build';
+        if (!window.confirm(`${action} Story so far using ${pending} eligible raw message(s)? Completed Story checkpoints will be kept. Structured memory will not be changed.`)) return;
+        try {
+            const result = await buildRollingStory();
+            toast(result.caughtUp ? 'info' : 'success', result.caughtUp
+                ? 'Story so far is already current through the eligible raw-chat boundary.'
+                : `Story so far ${result.resumed ? 'continued' : 'built or advanced'} through ${result.messages} raw message(s).`);
+        } catch (error) {
+            if (!isRuntimeCancellation(error)) toast('error', error.message);
+        }
+    });
+    $('#continuity_story_rebuild').on('click', async () => {
         const messageCount = collectMemoryEligibleMessages(getContext().chat || []).length;
         if (!messageCount) return toast('error', 'This chat has no eligible raw messages to summarize.');
-        if (!window.confirm(`${existing ? 'Recalculate' : 'Build'} Story so far from all ${messageCount} eligible raw chat messages? This calls the selected summarizer in batches but does not read or modify L1, L2, L3, facts, state, or retrieval records.`)) return;
+        if (!window.confirm(`Rebuild Story so far from all ${messageCount} eligible raw chat messages, starting at the beginning? This replaces the stored Story as new batches complete but does not read or modify structured memory.`)) return;
         try {
             const result = await rebuildRollingStory();
-            toast('success', `Story so far recalculated from ${result.messages} raw message(s).`);
+            toast('success', `Story so far rebuilt from ${result.messages} raw message(s).`);
         } catch (error) {
             if (!isRuntimeCancellation(error)) toast('error', error.message);
         }
@@ -1740,7 +1764,11 @@ export function initUI() {
         .catch(error => toast('error', error.message)));
     $('#continuity_stop').on('click', () => { stopRuntime(); toast('info', 'Processing stopped and the queue was cleared.'); });
     $('#continuity_build').on('click', () => buildMemory()
-        .then(result => !result.cancelled && toast(result.continued || result.arcs || result.eras || result.story ? 'success' : 'info', result.continued || result.arcs || result.eras || result.story ? 'Memory and Story build completed.' : 'Memory and Story are already up to date.'))
+        .then(result => {
+            if (result.cancelled) return;
+            const changed = Boolean(result.continued || result.arcs || result.eras || result.story?.messages);
+            toast(changed ? 'success' : 'info', changed ? 'Memory and Story build completed.' : 'Memory and Story are already up to date.');
+        })
         .catch(error => toast('error', error.message)));
     $('#continuity_undo_latest_l1').on('click', () => undoLatestL1Memory()
         .then(result => !result.cancelled && toast('success', `Undid L1 messages ${result.from}–${result.to}${result.removedL2 || result.removedL3 ? `; removed ${result.removedL2} L2 and ${result.removedL3} L3` : ''}. The range will rebuild before the next reply.`))

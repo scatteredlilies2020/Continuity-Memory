@@ -155,11 +155,12 @@
                     <small>default 8; independent from Messages per L1. The first automatic Story is created after one complete Story batch, without L1’s stability buffer.</small>
                 </label>
                 <div class="continuity-button-row">
-                    <button id="continuity_story_recalculate" class="menu_button"><i class="fa-solid fa-rotate"></i> Build / Rebuild story so far</button>
+                    <button id="continuity_story_build" class="menu_button"><i class="fa-solid fa-hammer"></i> Build / Continue</button>
+                    <button id="continuity_story_rebuild" class="menu_button"><i class="fa-solid fa-rotate"></i> Rebuild</button>
                     <button id="continuity_story_stop" class="menu_button redWarningBG"><i class="fa-solid fa-stop"></i> Stop</button>
                     <button id="continuity_story_delete" class="menu_button redWarningBG"><i class="fa-solid fa-trash"></i> Delete story so far</button>
                 </div>
-                <small>Initial Build and intentional Rebuild pack as much raw history as safely fits each model request. Later updates use the message cadence above. Temporary API failures retry three times. Stop or persistent failure discards only the in-flight request; retry resumes from the last saved Story checkpoint.</small>
+                <small>Build / Continue keeps completed work and resumes a stopped or failed Story. Rebuild starts again from the first eligible raw message. Both pack as much raw history as safely fits each request. Automatic later updates use the cadence above. Temporary API failures retry three times; Stop discards only the in-flight request.</small>
                 <small id="continuity_story_status">No rolling story is stored for this chat yet.</small>
                 <label class="continuity-ai-retrieval-setting">AI retrieval model
                     <select id="continuity_retrieval_profile" class="text_pole">

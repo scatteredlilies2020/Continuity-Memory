@@ -57,7 +57,7 @@ function categoryItems(world, category, chatKey = '') {
     if (category === 'scene') return world.scene ? [world.scene] : [];
     if (category === 'story') {
         const story = world.storySoFar?.[chatKey];
-        return story?.text ? [story] : [];
+        return story && (story.text || story.rebuildIncomplete || story.rebuildRestartPending) ? [story] : [];
     }
     if (category === 'l1') return world.capsules || [];
     if (category === 'l2') return world.arcs || [];
@@ -78,12 +78,15 @@ function entry(category, item, index) {
         add(fields, 'Tone / conditions', item.mood);
         addTemporal(fields, item);
     } else if (category === 'story') {
-        const coveredRange = rangeLabel(item);
+        const coveredRange = item.rebuildRestartPending ? '' : rangeLabel(item);
         const through = Number(item.to);
-        title = `Story so far${Number.isFinite(through) ? ` (through message ${through})` : ''}`;
+        const hasBoundary = Number.isFinite(through) && through >= 0 && !item.rebuildRestartPending;
+        title = `Story so far${item.rebuildRestartPending ? ' (rebuild pending)' : hasBoundary ? ` (through message ${through})` : ''}`;
         add(fields, 'Covered raw-chat range', coveredRange);
-        add(fields, 'Stored through', Number.isFinite(through) ? `Message ${through}` : '');
-        add(fields, 'Build state', item.rebuildIncomplete ? `Interrupted; retry resumes after message ${through}` : 'Complete at its stored boundary');
+        add(fields, 'Stored through', hasBoundary ? `Message ${through}` : '');
+        add(fields, 'Build state', item.rebuildRestartPending
+            ? 'Rebuild pending; Build / Continue restarts from the first eligible message'
+            : item.rebuildIncomplete ? `Interrupted; Build / Continue resumes after message ${through}` : 'Complete at its stored boundary');
         if (item.rebuildIncomplete) add(fields, 'Rebuild target', `Message ${item.rebuildTargetTo}`);
         add(fields, 'Narrative', item.text);
         add(fields, 'Construction', item.rebuiltFromRawChat ? 'Built from raw chat from the beginning' : 'Rolling update from raw chat');
