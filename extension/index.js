@@ -1,26 +1,26 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.14.0-standalone.249';
+import { api } from './api.js?v=0.14.0-standalone.250';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, maybeAutoUpdateRollingStory, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.249';
-import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.249';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.249';
-import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.249';
-import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.249';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.249';
+import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, maybeAutoUpdateRollingStory, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.250';
+import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.250';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.250';
+import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.250';
+import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.250';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.250';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.249';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.249';
-import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.249';
-import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.249';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.250';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.250';
+import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.250';
+import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.250';
 import { completeL1MessageCount, isL1StabilityProtectedMessage, resolveL1GroupSize } from './l1-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
-import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.14.0-standalone.249';
-import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.249';
-import { resolveStoryBatchMessages } from './story-cadence.js?v=0.14.0-standalone.249';
+import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.14.0-standalone.250';
+import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.250';
+import { resolveStoryBatchMessages } from './story-cadence.js?v=0.14.0-standalone.250';
 import { createBackgroundScheduler } from './background-scheduler.js';
 
 const PROMPT_KEY = 'continuity_memory_context';
@@ -644,9 +644,11 @@ async function init() {
             if ((runtime.processing || runtime.queue.length) && policy.invalidateActiveWork) {
                 invalidateRuntimeWork('A source message changed; discarded memory work based on its previous content.');
             }
-            invalidateStoryWork('A source message changed; discarded Story work based on its previous content.');
+            if (policy.repairSuffix) {
+                invalidateStoryWork('A source message changed; discarded Story work based on its previous content.');
+            }
             scheduleInjectionRefresh();
-            scheduleMutationSync(350, policy.repairSuffix);
+            if (policy.repairSuffix) scheduleMutationSync(350, true);
         });
     }
     if (event_types.MESSAGE_DELETED) {

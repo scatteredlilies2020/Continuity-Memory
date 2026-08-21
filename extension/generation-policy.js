@@ -31,7 +31,7 @@ export function roleplaySourceMessages(messages, type) {
 export function sourceMutationPolicy(protectedTail = false) {
     return {
         invalidateActiveWork: !protectedTail,
-        repairSuffix: true,
+        repairSuffix: !protectedTail,
     };
 }
 

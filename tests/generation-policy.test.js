@@ -26,14 +26,14 @@ test('temporarily excludes the reply being replaced during swipe generation', ()
     assert.deepEqual(roleplaySourceMessages(messages, 'regenerate'), messages);
 });
 
-test('old source mutations cancel overlapping work and always repair their suffix', () => {
+test('old source mutations cancel overlapping work and repair their suffix', () => {
     assert.deepEqual(sourceMutationPolicy(false), {
         invalidateActiveWork: true,
         repairSuffix: true,
     });
     assert.deepEqual(sourceMutationPolicy(true), {
         invalidateActiveWork: false,
-        repairSuffix: true,
+        repairSuffix: false,
     });
 });
 
