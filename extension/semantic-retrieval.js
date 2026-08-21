@@ -1,14 +1,14 @@
 import { extractMessageFromData } from '/script.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
-import { isThinkingControlError } from './thinking-policy.js?v=0.14.0-standalone.213';
-import { generateWithThinkingPolicy, requestDirectText } from './engine.js?v=0.14.0-standalone.213';
+import { isThinkingControlError } from './thinking-policy.js?v=0.14.0-standalone.214';
+import { generateWithThinkingPolicy, requestDirectText } from './engine.js?v=0.14.0-standalone.214';
 import { parseExpandedTerms } from './semantic-terms.js';
 import { recentRetrievalQuery } from './retrieval-query.js';
-import { getSettings } from './settings.js?v=0.14.0-standalone.213';
-import { buildThinkingRequest } from './thinking-policy.js?v=0.14.0-standalone.213';
-import { buildRetrievalSystemPrompt, DEFAULT_RETRIEVAL_QUERY_TEMPLATE, DEFAULT_RETRIEVAL_SYSTEM_PROMPT, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.213';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.213';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.213';
+import { getSettings } from './settings.js?v=0.14.0-standalone.214';
+import { buildThinkingRequest } from './thinking-policy.js?v=0.14.0-standalone.214';
+import { buildRetrievalSystemPrompt, DEFAULT_RETRIEVAL_QUERY_TEMPLATE, DEFAULT_RETRIEVAL_SYSTEM_PROMPT, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.214';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.214';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.214';
 
 const cache = new Map();
 
@@ -28,24 +28,25 @@ async function requestExpansion(prompt) {
     if (profileId === '__direct__') return requestDirectText(prompt, systemPrompt, 300, 'retrieval');
     const profile = ConnectionManagerRequestService.getProfile(profileId);
     const apiMap = ConnectionManagerRequestService.validateProfile(profile);
+    const model = connectionProfileModel(profile, 'AI retrieval');
     const messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }];
     const options = isolatedProfileOptions();
     const thinking = buildThinkingRequest({
         mode: settings.thinkingMode,
         source: apiMap.source,
-        model: profile.model,
+        model,
         url: profile['api-url'],
         profileName: profile.name,
     });
     let response;
     try {
         response = await ConnectionManagerRequestService.sendRequest(
-            profileId, messages, 300, options, isolatedProfilePayload({ ...outputTokenPayload(profile.model, 300), ...thinking.payload }),
+            profileId, messages, 300, options, isolatedProfilePayload({ ...outputTokenPayload(model, 300), ...thinking.payload }),
         );
     } catch (error) {
         if (!thinking.controlled || !isThinkingControlError(error)) throw error;
         response = await ConnectionManagerRequestService.sendRequest(
-            profileId, messages, 300, options, isolatedProfilePayload(outputTokenPayload(profile.model, 300)),
+            profileId, messages, 300, options, isolatedProfilePayload(outputTokenPayload(model, 300)),
         );
     }
     const result = extractMessageFromData(response, apiMap.selected);

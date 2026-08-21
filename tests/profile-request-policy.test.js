@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isolatedProfileOptions, isolatedProfilePayload } from '../extension/profile-request-policy.js';
+import { connectionProfileHasModel, connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from '../extension/profile-request-policy.js';
 
 test('connection profile calls exclude preset and instruct prompt additions', () => {
     const signal = new AbortController().signal;
@@ -21,4 +21,14 @@ test('connection profile calls remove hard sampling and disable custom prompt po
     }), {
         custom_prompt_post_processing: '',
     });
+});
+
+test('connection profiles require an explicit model before requests are sent', () => {
+    assert.equal(connectionProfileHasModel({ model: '  gpt-test  ' }), true);
+    assert.equal(connectionProfileModel({ name: 'Ready', model: '  gpt-test  ' }, 'Story'), 'gpt-test');
+    assert.equal(connectionProfileHasModel({ name: 'Incomplete' }), false);
+    assert.throws(
+        () => connectionProfileModel({ name: 'Incomplete' }, 'Story'),
+        /Story connection profile “Incomplete” has no model ID.*Connection Manager.*Direct option/,
+    );
 });
