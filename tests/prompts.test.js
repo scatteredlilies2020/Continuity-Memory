@@ -17,6 +17,7 @@ import {
     DEFAULT_RETRIEVAL_SYSTEM_PROMPT,
     EPISTEMIC_MEMORY_RULES,
     HIERARCHY_CONCISION_RULES,
+    L1_EPISTEMIC_COVERAGE_RULE,
     RELATIONSHIP_DESCRIPTION_RULE,
     ROLLING_STORY_RULE,
     ROLLING_STORY_TASK_TEMPLATE,
@@ -127,6 +128,9 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /category is "character belief"/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /without inferring a hidden answer/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Knowledge is non-transitive/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /objective truth, what each focal holder learned or believes, and what remains unknown/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /learning a name is not recognizing its holder/);
+    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(L1_EPISTEMIC_COVERAGE_RULE));
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Mere solitary discovery does not require a thread/);
     assert.match(DEFAULT_RETRIEVAL_SYSTEM_PROMPT, /roleplay or simulation/);
     assert.match(DEFAULT_RETRIEVAL_SYSTEM_PROMPT, /immediate next response/);
@@ -137,14 +141,16 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /consequential knowledge gaps as open threads/);
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /Most items are 2 or 3/);
     assert.match(DEFAULT_ERA_SYSTEM_PROMPT, /Most items are 2 or 3/);
-    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 10450);
+    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 10750);
     assert.ok(DEFAULT_ARC_SYSTEM_PROMPT.length < 1950);
     assert.ok(DEFAULT_ERA_SYSTEM_PROMPT.length < 1950);
 });
 
-test('rolling snapshot is bounded, chronological, and sourced only from prior snapshot plus raw chat', () => {
-    assert.match(ROLLING_STORY_RULE, /prior snapshot plus new raw excerpt only/i);
-    assert.match(ROLLING_STORY_RULE, /Do not consult, copy, cite, or name L1, L2, L3/i);
+test('rolling snapshot is bounded, chronological, and sourced only from supplied Story material', () => {
+    assert.match(ROLLING_STORY_RULE, /prior snapshot plus new chronological source material only/i);
+    assert.match(ROLLING_STORY_RULE, /raw chat or explicitly labeled L1 scene summaries/i);
+    assert.match(ROLLING_STORY_RULE, /never consult L2, L3, retrieval results, or other memory/i);
+    assert.match(ROLLING_STORY_RULE, /Do not cite or name L1, L2, L3/i);
     assert.match(ROLLING_STORY_RULE, /Record only what has already occurred/i);
     assert.match(ROLLING_STORY_RULE, /do not write current, currently, present, latest, ongoing, now, or at present/i);
     assert.match(ROLLING_STORY_RULE, /plans and expectations belong only in openMatters and remain explicitly unresolved/i);

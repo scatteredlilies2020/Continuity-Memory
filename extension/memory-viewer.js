@@ -82,7 +82,7 @@ function entry(category, item, index) {
         const through = Number(item.to);
         const hasBoundary = Number.isFinite(through) && through >= 0 && !item.rebuildRestartPending;
         title = `Story so far${item.rebuildRestartPending ? ' (rebuild pending)' : hasBoundary ? ` (through message ${through})` : ''}`;
-        add(fields, 'Covered raw-chat range', coveredRange);
+        add(fields, 'Covered chat range', coveredRange);
         add(fields, 'Stored through', hasBoundary ? `Message ${through}` : '');
         add(fields, 'Build state', item.rebuildRestartPending
             ? 'Rebuild pending; Build / Continue restarts from the first eligible message'
@@ -94,7 +94,7 @@ function entry(category, item, index) {
             ? `${checkpoints.length}; newest through message ${newestCheckpoint}`
             : 'None yet; an affected legacy or early range rebuilds from the beginning');
         add(fields, 'Narrative', item.text);
-        add(fields, 'Construction', item.rebuiltFromRawChat ? 'Built from raw chat from the beginning' : 'Rolling update from raw chat');
+        add(fields, 'Source', item.sourceMode === 'l1' ? 'L1 summaries plus uncovered raw tail' : 'Raw chat');
         add(fields, 'Last updated', item.updatedAt);
     } else if (category === 'entities') {
         add(fields, 'Type', item.type);

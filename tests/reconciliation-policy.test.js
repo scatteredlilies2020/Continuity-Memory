@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { addressFactIdentity, applySourceAttributionFailClosed, canonicalFactReference, enrichEntityDescriptionsFromEstablishedFacts, entityIsPersonLike, entityTypesAreCompatible, hasSelfAddressEvidence, mergeAddressValues, reconcileResolvedIdentityThreads, reconciliationTargetIsCompatible, recoverRelationshipBackedEntityDescriptions, removeInvalidAddressFacts, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
+import { addressFactIdentity, applySourceAttributionFailClosed, canonicalFactReference, enrichEntityDescriptionsFromEstablishedFacts, ensureSceneCapsuleEpistemicCoverage, entityIsPersonLike, entityTypesAreCompatible, hasSelfAddressEvidence, mergeAddressValues, reconcileResolvedIdentityThreads, reconciliationTargetIsCompatible, recoverRelationshipBackedEntityDescriptions, removeInvalidAddressFacts, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
 
 function extraction() {
     return {
@@ -8,6 +8,43 @@ function extraction() {
         identityResolutions: [], recordMerges: [],
     };
 }
+
+test('L1 capsule deterministically retains a concealed-identity knowledge boundary', () => {
+    const result = extraction();
+    result.sceneCapsule = {
+        opening: 'Lucas discusses Caelen Veyr’s former apprentice with Toska.',
+        beats: [
+            'Lucas identifies Caelen’s former apprentice as Lucas Alcazar while speaking about him in the third person.',
+            'Toska learns the former apprentice’s name and questions Caelen’s secrecy.',
+        ],
+        emotionalArc: 'Toska becomes less certain about Caelen’s history.',
+        closing: 'The hooded Sith keeps his own identity concealed.',
+    };
+    result.facts.push({
+        subject: 'Toska', predicate: 'knowledge of Lucas Alcazar’s current identity',
+        value: 'Toska knows the former apprentice was named Lucas Alcazar but does not know that the hooded Sith is Lucas Alcazar.',
+        category: 'knowledge boundary', importance: 5, persistence: 'persistent',
+    });
+
+    assert.equal(ensureSceneCapsuleEpistemicCoverage(result), 1);
+    assert.match(result.sceneCapsule.beats.at(-1), /does not know that the hooded Sith is Lucas Alcazar/iu);
+    assert.equal(result.sceneCapsule.beats.length, 3);
+    assert.equal(ensureSceneCapsuleEpistemicCoverage(result), 0);
+});
+
+test('L1 epistemic repair reserves space instead of allowing a boundary to be trimmed', () => {
+    const result = extraction();
+    result.sceneCapsule = { beats: Array.from({ length: 10 }, (_, index) => `Development ${index + 1}.`) };
+    result.facts.push({
+        subject: 'Toska', predicate: 'knowledge of Lucas Alcazar’s identity',
+        value: 'Toska still has not established that the hooded Sith is Lucas Alcazar.',
+        category: 'knowledge boundary', importance: 4, persistence: 'persistent',
+    });
+
+    assert.equal(ensureSceneCapsuleEpistemicCoverage(result), 1);
+    assert.equal(result.sceneCapsule.beats.length, 10);
+    assert.match(result.sceneCapsule.beats.at(-1), /has not established/iu);
+});
 
 test('canonical fact references expose identity metadata needed for safe target reuse', () => {
     assert.deepEqual(canonicalFactReference({

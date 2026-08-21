@@ -26,6 +26,8 @@ For consequential ignorance, use a persistent fact: subject=holder; predicate="k
 export const EPISTEMIC_MEMORY_RULES = `${PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES}
 Work for a body is not membership. Entity descriptions retain roles.`;
 
+export const L1_EPISTEMIC_COVERAGE_RULE = `For consequential secrets, identities, disguises, discoveries, or misunderstandings, sceneCapsule distinguishes objective truth, what each focal holder learned or believes, and what remains unknown. Canonical names never imply character knowledge; learning a name is not recognizing its holder.`;
+
 export const LEGACY_HIERARCHY_ATTRIBUTION_RULE = 'Preserve who believed, reported, suspected, or knew each uncertain claim. Never turn an unresolved or subjective claim into objective canon.';
 export const PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE = 'Preserve who believed, reported, suspected, or knew each uncertain claim. Never turn an unresolved or subjective claim into an established fact.';
 export const HIERARCHY_ATTRIBUTION_RULE = `${PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE} Do not spread private knowledge. Keep only consequential knowledge gaps as open threads; resolve them when the gap closes. ${CANONICAL_THIRD_PERSON_RULE}`;
@@ -43,7 +45,7 @@ Keep sceneCapsule on the main chronological or causal spine. Omit atmosphere, re
 export const DEFAULT_EXTRACTION_SYSTEM_PROMPT = `Maintain long-term continuity for an open-ended roleplay or simulation.
 Extract supported information using the scenario's ontology. Subjects may be people, groups, institutions, places, objects, resources, processes, systems, or concepts. Track durable identity, rules, capabilities, control, conditions, relationships, intentions, events, consequences, and unresolved matters.
 Treat formatted panels and snapshots as evidence, not text to preserve. Keep changes, not formatting or unchanged repetition. Explicit user/OOC corrections override generated status.
-For dialogue, actions, reports, logs, turns, status updates, or simulation results, sceneCapsule preserves chronological and causal flow: opening, ordered developments, reactions, outcomes, transitions, ending. Do not flatten sequences. emotionalArc gives the principal movement or stays empty. opening, emotionalArc, and closing are one short sentence each; use at most 10 concise beats and omit nonessential prose.
+For dialogue, actions, reports, logs, turns, status updates, or simulation results, sceneCapsule preserves chronological and causal flow: opening, ordered developments, reactions, outcomes, transitions, ending. Do not flatten sequences. emotionalArc gives the principal movement or stays empty. opening, emotionalArc, and closing are one short sentence each; use at most 10 concise beats and omit nonessential prose. ${L1_EPISTEMIC_COVERAGE_RULE}
 Narrative time is independent of messages, tokens, boundaries, and real time. Use only established relations within local subjective frames. Preserve relative wording through temporal metadata. Never invent dates, durations, skips, or synchronization; perceived duration is not elapsed time.
 ${DURABLE_MEMORY_RULES}
 ${EPISTEMIC_MEMORY_RULES}
@@ -53,7 +55,7 @@ ${CONTINUITY_COVERAGE_RULES}
 ${IMPORTANCE_RUBRIC}
 sceneCapsule importance rates the whole excerpt.`;
 
-export const ROLLING_STORY_RULE = `Produce a compact world-state snapshot with history from the supplied prior snapshot plus new raw excerpt only. This is the global continuity spine, not a recap, transcript, scene summary, or memory inventory. Re-evaluate the whole snapshot on every call; never append merely because material is recent. If the excerpt changes no load-bearing continuity, preserve the prior content instead of forcing an update.
+export const ROLLING_STORY_RULE = `Produce a compact world-state snapshot with history from the supplied prior snapshot plus new chronological source material only. Source material may contain raw chat or explicitly labeled L1 scene summaries; use only what is supplied and never consult L2, L3, retrieval results, or other memory. This is the global continuity spine, not a recap, transcript, scene summary, or memory inventory. Re-evaluate the whole snapshot on every call; never append merely because material is recent. If the excerpt changes no load-bearing continuity, preserve the prior content instead of forcing an update.
 
 Return exactly four arrays in the requested JSON object. Their lengths are flexible; the complete snapshot token allowance, importance, and causal complexity determine how many entries they need:
 - premise: the earliest initiating facts and foundational role, identity, relationship, or objective changes without which the story becomes unintelligible; earliest cause first.
@@ -67,18 +69,18 @@ Every entry must pass this counterfactual test: removing it would make a later i
 
 Use one dense telegraphic sentence or fragment per array entry. Omit headings, markdown, atmosphere, sensory detail, scene-setting, dialogue retelling, transitions, literary phrasing, repetition, and internal commentary. The compiled snapshot's token allowance is the final maximum; for substantial history, use it efficiently rather than omitting load-bearing continuity. Compress wording, never causal meaning.
 
-Record only what has already occurred. boundaryState means state at the covered endpoint, but do not write current, currently, present, latest, ongoing, now, or at present. Plans and expectations belong only in openMatters and remain explicitly unresolved. Attribute beliefs, reports, deception, and uncertainty to their holders or sources. Use explicit names only where omission creates ambiguity. Do not consult, copy, cite, or name L1, L2, L3, retrieved records, hierarchy levels, memory categories, or internal IDs.
+Record only what has already occurred. boundaryState means state at the covered endpoint, but do not write current, currently, present, latest, ongoing, now, or at present. Plans and expectations belong only in openMatters and remain explicitly unresolved. Attribute beliefs, reports, deception, and uncertainty to their holders or sources. Use explicit names only where omission creates ambiguity. Do not cite or name L1, L2, L3, retrieved records, hierarchy levels, memory categories, or internal IDs in the returned snapshot.
 
 Before returning, silently verify that premise begins with the earliest load-bearing cause, majorDevelopments spans the history rather than the newest scene, boundaryState contains no historical recap, openMatters contains no inventory, and every retained number, named object, minor actor, or physical specification is indispensable.`;
 
-export const ROLLING_STORY_TASK_TEMPLATE = `Rewrite the complete world-state snapshot through the end of this raw excerpt. The compiled snapshot has an absolute limit of {{allowance}} tokens. Different tokenizers disagree, so prevent overshoot: for a substantial history aim for approximately {{targetMinimum}}–{{targetMaximum}} tokens by your estimate and keep the compiled prose below approximately {{characterBudget}} characters. These are whole-snapshot safety targets, not per-section or per-entry cutoffs. Use the available span for important continuity, never padding or scene detail.
+export const ROLLING_STORY_TASK_TEMPLATE = `Rewrite the complete world-state snapshot through the end of this chronological source material. The compiled snapshot has an absolute limit of {{allowance}} tokens. Different tokenizers disagree, so prevent overshoot: for a substantial history aim for approximately {{targetMinimum}}–{{targetMaximum}} tokens by your estimate and keep the compiled prose below approximately {{characterBudget}} characters. These are whole-snapshot safety targets, not per-section or per-entry cutoffs. Use the available span for important continuity, never padding or scene detail.
 Perform the silent causal and detail-necessity checks required by the system instruction. Return only the requested JSON object; do not expose analysis.
 {{format}}
 
 PRIOR WORLD-STATE SNAPSHOT:
 {{prior}}
 
-NEW RAW CHAT:
+NEW CHRONOLOGICAL SOURCE MATERIAL:
 {{messages}}`;
 
 export const DEFAULT_JB_PROMPT = `<rules>
