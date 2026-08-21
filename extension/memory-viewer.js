@@ -83,6 +83,8 @@ function entry(category, item, index) {
         title = `Story so far${Number.isFinite(through) ? ` (through message ${through})` : ''}`;
         add(fields, 'Covered raw-chat range', coveredRange);
         add(fields, 'Stored through', Number.isFinite(through) ? `Message ${through}` : '');
+        add(fields, 'Build state', item.rebuildIncomplete ? `Interrupted; retry resumes after message ${through}` : 'Complete at its stored boundary');
+        if (item.rebuildIncomplete) add(fields, 'Rebuild target', `Message ${item.rebuildTargetTo}`);
         add(fields, 'Narrative', item.text);
         add(fields, 'Construction', item.rebuiltFromRawChat ? 'Built from raw chat from the beginning' : 'Rolling update from raw chat');
         add(fields, 'Last updated', item.updatedAt);

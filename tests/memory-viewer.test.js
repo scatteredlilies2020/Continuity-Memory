@@ -31,6 +31,7 @@ test('viewer exposes only the current chat story with its raw message boundary',
     assert.deepEqual(page.items[0].sources, ['Messages 0–42']);
     assert.ok(page.items[0].fields.some(field => field.label === 'Covered raw-chat range' && field.value === 'Messages 0–42'));
     assert.ok(page.items[0].fields.some(field => field.label === 'Stored through' && field.value === 'Message 42'));
+    assert.ok(page.items[0].fields.some(field => field.label === 'Build state' && field.value === 'Complete at its stored boundary'));
     assert.ok(page.items[0].fields.some(field => field.label === 'Narrative' && field.value.includes('first concert')));
     assert.equal(memoryViewerPage(world, 'story', '', 0, 30, 'other-chat').total, 0);
 });

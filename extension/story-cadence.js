@@ -15,3 +15,29 @@ export function completeStoryMessages(messages, batchSize, includePartial = fals
 export function storyChunkMessageLimit(hasPriorStory, batchSize) {
     return hasPriorStory ? resolveStoryBatchMessages(batchSize) : Infinity;
 }
+
+export function rollingStoryRebuildPlan(messages, previous) {
+    const source = Array.isArray(messages) ? messages : [];
+    const savedTo = Number(previous?.to);
+    const targetTo = Number(previous?.rebuildTargetTo);
+    const resumable = Boolean(previous?.rebuildIncomplete && previous?.text)
+        && Number.isFinite(savedTo)
+        && Number.isFinite(targetTo)
+        && savedTo < targetTo;
+    if (!resumable) {
+        return {
+            messages: source,
+            story: '',
+            from: Number(source[0]?.index ?? 0),
+            targetTo: Number(source.at(-1)?.index ?? 0),
+            resuming: false,
+        };
+    }
+    return {
+        messages: source.filter(message => Number(message.index) > savedTo && Number(message.index) <= targetTo),
+        story: String(previous.text).trim(),
+        from: Number(previous.from ?? source[0]?.index ?? 0),
+        targetTo,
+        resuming: true,
+    };
+}

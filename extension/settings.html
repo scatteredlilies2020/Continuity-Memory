@@ -159,7 +159,7 @@
                     <button id="continuity_story_stop" class="menu_button redWarningBG"><i class="fa-solid fa-stop"></i> Stop</button>
                     <button id="continuity_story_delete" class="menu_button redWarningBG"><i class="fa-solid fa-trash"></i> Delete story so far</button>
                 </div>
-                <small>Initial Build and intentional Rebuild pack as much raw history as safely fits each model request. Later updates use the message cadence above. Stop discards only the in-flight story batch and keeps every completed batch without clearing pending extraction work.</small>
+                <small>Initial Build and intentional Rebuild pack as much raw history as safely fits each model request. Later updates use the message cadence above. Temporary API failures retry three times. Stop or persistent failure discards only the in-flight request; retry resumes from the last saved Story checkpoint.</small>
                 <small id="continuity_story_status">No rolling story is stored for this chat yet.</small>
                 <label class="continuity-ai-retrieval-setting">AI retrieval model
                     <select id="continuity_retrieval_profile" class="text_pole">

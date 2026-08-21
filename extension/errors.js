@@ -15,3 +15,10 @@ export function errorChainText(error) {
 export function isRateLimitError(error) {
     return /\b429\b|too many requests|rate[ _-]?limit|another request in the queue|requests? in[- ]flight/i.test(errorChainText(error));
 }
+
+export function isTransientApiError(error) {
+    const message = errorChainText(error);
+    if (isRateLimitError(error)) return true;
+    if (/\b(?:408|425|500|502|503|504|520|521|522|523|524)\b/.test(message)) return true;
+    return /aborted|connection (?:closed|reset)|econnreset|econnrefused|enotfound|fetch failed|failed to fetch|network error|socket hang up|temporarily unavailable|timed? ?out|timeout/i.test(message);
+}

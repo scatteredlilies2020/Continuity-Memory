@@ -5,33 +5,33 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { proxies } from '/scripts/openai.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
-import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.209';
+import { isRateLimitError, isTransientApiError } from './errors.js';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.210';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.209';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.210';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, compactDuplicateMemoryRecords, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.209';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.209';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.210';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.210';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.209';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.209';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.210';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.210';
 import { applySourceAttributionFailClosed, canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.209';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.209';
-import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.209';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.209';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.210';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.210';
+import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.210';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.210';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { dynamicStorySourceChunk, resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.209';
-import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.209';
-import { completeStoryMessages, resolveStoryBatchMessages, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.209';
+import { dynamicStorySourceChunk, resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.210';
+import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.210';
+import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryRebuildPlan, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.210';
 
 const temporalRelationSchema = {
     type: 'object',
@@ -833,7 +833,12 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
     return extractProfileResponse(response, apiMap, profile.name);
 }
 
-async function regenerateRollingStory(priorStory, messages) {
+function storyRetryableError(error) {
+    return isTransientApiError(error)
+        || /empty rolling story|invalid json|no json object|unexpected end/i.test(String(error?.message || ''));
+}
+
+async function regenerateRollingStory(priorStory, messages, expectedEpoch = runtime.generation) {
     const settings = getSettings();
     const allowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext).tokens;
     const { profileId, directKind } = resolveStoryRequestProfile(settings, DIRECT_PROFILE_ID);
@@ -851,19 +856,41 @@ async function regenerateRollingStory(priorStory, messages) {
         ...values,
         format: 'Return one JSON object with this exact shape: {"storySoFar":""}',
     }, ['prior', 'messages']);
-    const raw = await requestStructured(
-        prompt,
-        ROLLING_STORY_RULE,
-        rollingStoryJsonSchema,
-        Math.min(8000, Math.max(2048, allowance * 2)),
-        profileId,
-        directKind,
-        fallbackPrompt,
-    );
-    const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
-    const story = String(parsed?.storySoFar || '').replace(/\s+/gu, ' ').trim().slice(0, 12000);
-    if (!story) throw new Error('The summarizer returned an empty rolling story.');
-    return story;
+    let lastError;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        if (runtime.generation !== expectedEpoch) {
+            const error = new Error('Rolling-story request was stopped before retrying.');
+            error.code = RUNTIME_CANCELLED_CODE;
+            throw error;
+        }
+        try {
+            const raw = await requestStructured(
+                prompt,
+                ROLLING_STORY_RULE,
+                rollingStoryJsonSchema,
+                Math.min(8000, Math.max(2048, allowance * 2)),
+                profileId,
+                directKind,
+                fallbackPrompt,
+            );
+            const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
+            const story = String(parsed?.storySoFar || '').replace(/\s+/gu, ' ').trim().slice(0, 12000);
+            if (!story) throw new Error('The summarizer returned an empty rolling story.');
+            return story;
+        } catch (error) {
+            lastError = error;
+            if (runtime.generation !== expectedEpoch) {
+                const cancelled = new Error('Rolling-story request was stopped; no retry was started.');
+                cancelled.code = RUNTIME_CANCELLED_CODE;
+                throw cancelled;
+            }
+            if (isRuntimeCancellation(error) || attempt >= 3 || !storyRetryableError(error)) throw error;
+            const delay = 750 * (2 ** (attempt - 1));
+            updateRuntime({ retryStatus: `Story API attempt ${attempt}/3 failed temporarily. Retrying in ${delay} ms; the last completed checkpoint is safe.` });
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+    throw lastError;
 }
 
 function detachedRequestBodies({ prompt, fallbackPrompt, systemPrompt, usesStructuredSchema }, {
@@ -1793,18 +1820,22 @@ export async function rebuildRollingStory() {
     const worldId = getBoundWorldId();
     const chatKey = getChatKey();
     if (!worldId || !chatKey) throw new Error('Open a chat with Continuity memory first.');
-    const messages = collectMemoryEligibleMessages(getContext().chat || []);
-    if (!messages.length) throw new Error('This chat has no eligible raw messages to summarize.');
+    const allMessages = collectMemoryEligibleMessages(getContext().chat || []);
+    if (!allMessages.length) throw new Error('This chat has no eligible raw messages to summarize.');
     await requireRetryStorage();
+    const world = runtime.world?.id === worldId ? runtime.world : (await api.getWorld(worldId)).world;
+    const plan = rollingStoryRebuildPlan(allMessages, world.storySoFar?.[chatKey]);
+    const messages = plan.messages;
+    if (!messages.length) throw new Error('The interrupted Story rebuild has no remaining eligible raw messages.');
     const settings = getSettings();
     const allowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext).tokens;
     const rollingChunkLimit = dynamicStorySourceChunk(getContext().maxContext, allowance, true);
-    const firstChunkLimit = dynamicStorySourceChunk(getContext().maxContext, allowance, false);
+    const firstChunkLimit = dynamicStorySourceChunk(getContext().maxContext, allowance, plan.resuming);
     const chunks = await chunkMessages(messages, rollingChunkLimit, storyChunkMessageLimit(false, settings.storyBatchMessages), firstChunkLimit);
     const epoch = runtime.generation;
-    let story = '';
+    let story = plan.story;
     let savedWorld = runtime.world;
-    updateRuntime({ processing: true, paused: false, status: 'rebuilding-story', lastError: '', progress: { current: 0, total: chunks.length }, retryStatus: `Recalculating Story so far from ${messages.length} raw message(s)…` });
+    updateRuntime({ processing: true, paused: false, status: 'rebuilding-story', lastError: '', progress: { current: 0, total: chunks.length }, retryStatus: `${plan.resuming ? 'Resuming' : 'Recalculating'} Story so far from ${messages.length} raw message(s)…` });
     try {
         for (let index = 0; index < chunks.length; index++) {
             if (runtime.generation !== epoch) {
@@ -1815,9 +1846,9 @@ export async function rebuildRollingStory() {
             const chunk = chunks[index];
             updateRuntime({
                 progress: { current: index + 1, total: chunks.length, from: chunk.messages[0]?.index, to: chunk.messages.at(-1)?.index },
-                retryStatus: `Recalculating Story so far ${index + 1}/${chunks.length} from raw chat only…`,
+                retryStatus: `${plan.resuming ? 'Resuming' : 'Recalculating'} Story so far ${index + 1}/${chunks.length} from raw chat only…`,
             });
-            story = await regenerateRollingStory(story, chunk.messages);
+            story = await regenerateRollingStory(story, chunk.messages, epoch);
             if (runtime.generation !== epoch) {
                 const error = new Error('Rolling-story recalculation was stopped; the unfinished batch was discarded.');
                 error.code = RUNTIME_CANCELLED_CODE;
@@ -1825,18 +1856,24 @@ export async function rebuildRollingStory() {
             }
             savedWorld = await persistRollingStory(worldId, chatKey, {
                 text: story,
-                from: Number(messages[0]?.index ?? 0),
+                from: plan.from,
                 to: Number(chunk.messages.at(-1)?.index ?? 0),
                 updatedAt: new Date().toISOString(),
                 rebuiltFromRawChat: true,
+                rebuildIncomplete: index < chunks.length - 1,
+                rebuildTargetTo: plan.targetTo,
             });
         }
         await embedWorldInChat(savedWorld);
-        updateRuntime({ status: 'idle', progress: null, retryStatus: `Story so far recalculated from ${messages.length} raw message(s) in ${chunks.length} batch(es). Structured recall was unchanged.` });
-        return { world: savedWorld, messages: messages.length, batches: chunks.length };
+        updateRuntime({ status: 'idle', progress: null, retryStatus: `Story so far ${plan.resuming ? 'resumed and completed' : 'recalculated'} from ${messages.length} raw message(s) in ${chunks.length} batch(es). Structured recall was unchanged.` });
+        return { world: savedWorld, messages: messages.length, batches: chunks.length, resumed: plan.resuming };
     } catch (error) {
         if (isRuntimeCancellation(error)) updateRuntime({ status: 'idle', progress: null, lastError: '', retryStatus: error.message });
-        else updateRuntime({ status: 'error', progress: null, lastError: error.message, retryStatus: `Story-so-far recalculation failed safely: ${error.message}` });
+        else {
+            const checkpoint = savedWorld?.storySoFar?.[chatKey];
+            const resume = checkpoint?.rebuildIncomplete ? ` Retry will resume after message ${checkpoint.to}.` : '';
+            updateRuntime({ status: 'error', progress: null, lastError: error.message, retryStatus: `Story-so-far recalculation failed safely: ${error.message}${resume}` });
+        }
         throw error;
     } finally {
         updateRuntime({ processing: false });
@@ -1856,16 +1893,19 @@ export async function maybeAutoUpdateRollingStory(sourceMessages = null) {
     let world = runtime.world?.id === worldId ? runtime.world : (await api.getWorld(worldId)).world;
     if (runtime.world?.id !== worldId) updateRuntime({ world });
     const previous = world.storySoFar?.[chatKey];
-    const pending = messages.filter(message => Number(message.index) > Number(previous?.to ?? -1));
+    const rebuilding = Boolean(previous?.rebuildIncomplete && previous?.text && Number.isFinite(Number(previous?.rebuildTargetTo)));
+    const rebuildTargetTo = Number(previous?.rebuildTargetTo);
+    const pending = messages.filter(message => Number(message.index) > Number(previous?.to ?? -1)
+        && (!rebuilding || Number(message.index) <= rebuildTargetTo));
     const batchSize = resolveStoryBatchMessages(settings.storyBatchMessages);
-    const ready = completeStoryMessages(pending, batchSize);
+    const ready = rebuilding ? pending : completeStoryMessages(pending, batchSize);
     if (!ready.length) return null;
     await requireRetryStorage();
     const allowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext).tokens;
     const hasPriorStory = Boolean(previous?.text);
     const rollingChunkLimit = dynamicStorySourceChunk(getContext().maxContext, allowance, true);
     const firstChunkLimit = dynamicStorySourceChunk(getContext().maxContext, allowance, hasPriorStory);
-    const chunks = await chunkMessages(ready, rollingChunkLimit, storyChunkMessageLimit(hasPriorStory, batchSize), firstChunkLimit);
+    const chunks = await chunkMessages(ready, rollingChunkLimit, rebuilding ? Infinity : storyChunkMessageLimit(hasPriorStory, batchSize), firstChunkLimit);
     const epoch = runtime.generation;
     let story = String(previous?.text || '').trim();
     let savedWorld = world;
@@ -1876,7 +1916,7 @@ export async function maybeAutoUpdateRollingStory(sourceMessages = null) {
         status: 'updating-story',
         lastError: '',
         progress: { current: 0, total: chunks.length },
-        retryStatus: `${previous?.text ? 'Updating' : 'Building'} Story so far from ${ready.length} new raw message(s)…`,
+        retryStatus: `${rebuilding ? 'Resuming interrupted' : previous?.text ? 'Updating' : 'Building'} Story so far from ${ready.length} new raw message(s)…`,
     });
     try {
         for (let index = 0; index < chunks.length; index++) {
@@ -1888,9 +1928,9 @@ export async function maybeAutoUpdateRollingStory(sourceMessages = null) {
             const chunk = chunks[index];
             updateRuntime({
                 progress: { current: index + 1, total: chunks.length, from: chunk.messages[0]?.index, to: chunk.messages.at(-1)?.index },
-                retryStatus: `${previous?.text ? 'Updating' : 'Building'} Story so far ${index + 1}/${chunks.length} with its selected model…`,
+                retryStatus: `${rebuilding ? 'Resuming interrupted' : previous?.text ? 'Updating' : 'Building'} Story so far ${index + 1}/${chunks.length} with its selected model…`,
             });
-            story = await regenerateRollingStory(story, chunk.messages);
+            story = await regenerateRollingStory(story, chunk.messages, epoch);
             if (runtime.generation !== epoch) {
                 const error = new Error('Automatic Story update was stopped; the in-flight batch was discarded.');
                 error.code = RUNTIME_CANCELLED_CODE;
@@ -1901,7 +1941,9 @@ export async function maybeAutoUpdateRollingStory(sourceMessages = null) {
                 from: firstIndex,
                 to: Number(chunk.messages.at(-1)?.index ?? firstIndex),
                 updatedAt: new Date().toISOString(),
-                rebuiltFromRawChat: false,
+                rebuiltFromRawChat: rebuilding ? true : false,
+                rebuildIncomplete: rebuilding && index < chunks.length - 1,
+                ...(rebuilding ? { rebuildTargetTo } : {}),
             });
         }
         await embedWorldInChat(savedWorld);
@@ -1909,7 +1951,11 @@ export async function maybeAutoUpdateRollingStory(sourceMessages = null) {
         return { world: savedWorld, messages: ready.length, batches: chunks.length, fresh: !previous?.text };
     } catch (error) {
         if (isRuntimeCancellation(error)) updateRuntime({ status: 'idle', progress: null, lastError: '', retryStatus: error.message });
-        else updateRuntime({ status: 'error', progress: null, lastError: error.message, retryStatus: `Automatic Story update failed safely: ${error.message}` });
+        else {
+            const checkpoint = savedWorld?.storySoFar?.[chatKey];
+            const resume = checkpoint?.rebuildIncomplete ? ` Retry will resume after message ${checkpoint.to}.` : '';
+            updateRuntime({ status: 'error', progress: null, lastError: error.message, retryStatus: `Automatic Story update failed safely: ${error.message}${resume}` });
+        }
         throw error;
     } finally {
         updateRuntime({ processing: false });
