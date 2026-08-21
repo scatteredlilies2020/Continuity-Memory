@@ -24,6 +24,8 @@ import {
     ROLLING_STORY_QUALITY_TASK_TEMPLATE,
     ROLLING_STORY_RULE,
     ROLLING_STORY_TASK_TEMPLATE,
+    ROLLING_STORY_VERIFY_RULE,
+    ROLLING_STORY_VERIFY_TASK_TEMPLATE,
     renderPromptTemplate,
 } from '../extension/prompts.js';
 
@@ -221,9 +223,22 @@ test('final Story quality repair protects stakes and removes low-value inventory
         format: 'Return schema-valid JSON.',
         candidate: 'Premise: draft.',
         messages: 'Development: authoritative evidence.',
+        feedback: '(none)',
     }, ['candidate', 'messages']);
     assert.match(repair, /CANDIDATE COMPLETE SNAPSHOT:\nPremise: draft\./);
     assert.match(repair, /AUTHORITATIVE CHRONOLOGICAL EVIDENCE FOR THIS UPDATE:\nDevelopment: authoritative evidence\./);
+    assert.match(repair, /VERIFIER FEEDBACK FROM THE PREVIOUS ATTEMPT:\n\(none\)/);
+    assert.match(ROLLING_STORY_QUALITY_RULE, /Represent identity knowledge as exact links/i);
+    assert.match(ROLLING_STORY_QUALITY_RULE, /must not be erased merely because the link remains hidden/i);
+    assert.match(ROLLING_STORY_VERIFY_RULE, /learning that a former apprentice was named A does not mean learning B=A/i);
+    assert.match(ROLLING_STORY_VERIFY_RULE, /hiding B=A never permits erasing that the name A was learned/i);
+    const verification = renderPromptTemplate(ROLLING_STORY_VERIFY_TASK_TEMPLATE, {
+        format: 'Return validation JSON.',
+        candidate: 'Toska knows the name Lucas.',
+        messages: 'Toska does not know Lucifer is Lucas.',
+    }, ['candidate', 'messages']);
+    assert.match(verification, /CANDIDATE SNAPSHOT:\nToska knows the name Lucas\./);
+    assert.match(verification, /AUTHORITATIVE CHRONOLOGICAL EVIDENCE:\nToska does not know Lucifer is Lucas\./);
 });
 
 test('default structured task prompts avoid repeating full schemas', () => {

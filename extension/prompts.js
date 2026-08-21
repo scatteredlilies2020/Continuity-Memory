@@ -84,7 +84,7 @@ PRIOR WORLD-STATE SNAPSHOT:
 NEW CHRONOLOGICAL SOURCE MATERIAL:
 {{messages}}`;
 
-export const ROLLING_STORY_QUALITY_RULE = `Audit and rewrite a complete world-state snapshot before it is saved. Preserve its full causal span and all supported load-bearing continuity, but use the supplied chronological evidence to correct ambiguity or distortion. Distinguish objective identity from what each character learned: omniscient wording must never imply disclosure, and every consequential undisclosed identity link must remain explicit. Preserve each active ultimatum with its actor, demanded action, and exact stated consequence; never replace an order with a warning or soften death, destruction, loss, or a deadline into risk. Never strengthen source severity or certainty. Remove rosters, technique lists, injury lists, equipment specifications, construction details, percentages, measurements, and other exact inventory unless the exact detail directly controls an unresolved choice, rule, deadline, identity, or outcome; summarize only its durable capability or consequence. Remove repetition. Return the same four arrays as a compact complete snapshot, with no commentary or invented facts.`;
+export const ROLLING_STORY_QUALITY_RULE = `Audit and rewrite a complete world-state snapshot before it is saved. Preserve its full causal span and all supported load-bearing continuity, but use the supplied chronological evidence to correct ambiguity or distortion. Distinguish objective identity from what each character learned. Represent identity knowledge as exact links: objective A=B, holder knows NAME OR ROLE, and holder does or does not know A=B are separate claims. Learning a name, alias, role, history, or former association never grants another link, but it must not be erased merely because the link remains hidden. Never summarize this as vague knowledge of someone's “identity”; state the exact known or unknown link. Omniscient wording must never imply disclosure. Preserve each active ultimatum with its actor, demanded action, and exact stated consequence; never replace an order with a warning or soften death, destruction, loss, or a deadline into risk. Never strengthen source severity or certainty. Remove rosters, technique lists, injury lists, equipment specifications, construction details, percentages, measurements, and other exact inventory unless the exact detail directly controls an unresolved choice, rule, deadline, identity, or outcome; summarize only its durable capability or consequence. Remove repetition. Return the same four arrays as a compact complete snapshot, with no commentary or invented facts.`;
 
 export const ROLLING_STORY_QUALITY_TASK_TEMPLATE = `Perform the required final quality repair on the candidate snapshot. The repaired compiled snapshot must remain below {{allowance}} tokens and approximately {{characterBudget}} characters. Preserve complete thoughts and never truncate or use ellipses.
 {{format}}
@@ -93,6 +93,20 @@ CANDIDATE COMPLETE SNAPSHOT:
 {{candidate}}
 
 AUTHORITATIVE CHRONOLOGICAL EVIDENCE FOR THIS UPDATE:
+{{messages}}
+
+VERIFIER FEEDBACK FROM THE PREVIOUS ATTEMPT:
+{{feedback}}`;
+
+export const ROLLING_STORY_VERIFY_RULE = `Verify a repaired world-state snapshot against its authoritative chronological evidence. Check only material claims the snapshot makes or must preserve for active continuity; do not demand incidental omitted detail. Names, aliases, roles, histories, and identity links are separate facts: learning that a former apprentice was named A does not mean learning B=A, but hiding B=A never permits erasing that the name A was learned. Reject vague “does not know the identity” wording when the evidence distinguishes a known name from an unknown equality. Also reject a softened or incomplete active ultimatum, stronger severity or certainty than the evidence, and unnecessary exact inventories. Return valid=true only when no such contradiction or distortion remains. Issues must be concise corrective instructions grounded in the evidence.`;
+
+export const ROLLING_STORY_VERIFY_TASK_TEMPLATE = `Check the candidate snapshot against the evidence and return only the requested validation JSON.
+{{format}}
+
+CANDIDATE SNAPSHOT:
+{{candidate}}
+
+AUTHORITATIVE CHRONOLOGICAL EVIDENCE:
 {{messages}}`;
 
 export const DEFAULT_JB_PROMPT = `<rules>
