@@ -26,11 +26,15 @@ test('every model-driven Continuity category exposes independent direct controls
     assert.equal((html.match(/value="__direct_openrouter__"/g) || []).length, 5);
 });
 
-test('AI retrieval automatically inherits reasoning without another user setting', () => {
+test('AI retrieval has an independent reasoning control that defaults to Auto', () => {
     const html = readFileSync(new URL('../extension/settings.html', import.meta.url), 'utf8');
+    const settings = readFileSync(new URL('../extension/settings.js', import.meta.url), 'utf8');
     const retrieval = readFileSync(new URL('../extension/semantic-retrieval.js', import.meta.url), 'utf8');
+    const ui = readFileSync(new URL('../extension/ui.js', import.meta.url), 'utf8');
 
-    assert.doesNotMatch(html, /id="continuity_retrieval_thinking"/);
-    assert.equal((retrieval.match(/resolveThinkingModeForProfile\('auto', profileId\)/g) || []).length, 2);
+    assert.match(html, /id="continuity_retrieval_thinking"/);
+    assert.match(settings, /retrievalThinkingMode:\s*'auto'/);
+    assert.equal((retrieval.match(/settings\.retrievalThinkingMode/g) || []).length, 2);
     assert.doesNotMatch(retrieval, /resolveThinkingModeForProfile\(settings\.thinkingMode/);
+    assert.match(ui, /setSetting\('#continuity_retrieval_thinking', 'retrievalThinkingMode'\)/);
 });
