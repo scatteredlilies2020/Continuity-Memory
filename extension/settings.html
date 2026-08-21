@@ -215,6 +215,18 @@
                     </select>
                 </label>
                 <small class="continuity-ai-retrieval-setting">Used only for AI-expanded matching. Leave unchanged to share the extraction model.</small>
+                <label class="continuity-ai-retrieval-setting">AI retrieval reasoning / thinking
+                    <select id="continuity_retrieval_thinking" class="text_pole">
+                        <option value="auto">Auto (selected profile)</option>
+                        <option value="off">Off</option>
+                        <option value="minimum">Minimum</option>
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                        <option value="max">Maximum</option>
+                    </select>
+                </label>
+                <small class="continuity-ai-retrieval-setting">Auto inherits the reasoning effort saved by the selected AI retrieval profile, then the active SillyTavern setting when that profile has no effort. This affects only the short AI-expanded retrieval request.</small>
                 <div class="continuity-retrieval-direct-setting continuity-ai-retrieval-setting continuity-card-inset">
                     <b>Direct AI retrieval API</b>
                     <label>Provider

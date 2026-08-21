@@ -134,7 +134,7 @@ L1 extraction, Story so far, optional retrieval expansion, correction review, an
 
 Each category has its own direct provider, endpoint, credential, and model settings. Leaving a category on “Same as extraction model” still inherits Extraction. Embeddings retain their separate proxy/OpenRouter configuration. This allows each memory task to use an appropriate model without changing the main roleplay connection.
 
-Reasoning controls are translated independently for each selected provider. OpenRouter Auto explicitly preserves reasoning so endpoints that require it are not accidentally disabled by SillyTavern's missing-value fallback; if an endpoint reports that reasoning is mandatory, Continuity retries with reasoning enabled rather than removing the control.
+Reasoning controls are translated independently for each selected provider. Story and AI retrieval each have their own selector, defaulting to Auto, so changing extraction reasoning does not silently disable reasoning for another model. OpenRouter Auto explicitly preserves reasoning so endpoints that require it are not accidentally disabled by SillyTavern's missing-value fallback; if an endpoint reports that reasoning is mandatory, Continuity retries with reasoning enabled rather than removing the control.
 
 ## Storage and portability
 
