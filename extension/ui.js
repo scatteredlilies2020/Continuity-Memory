@@ -4,10 +4,10 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, buildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, rebuildRollingStory, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.212';
+import { buildNextArc, buildNextEra, buildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, rebuildRollingStory, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.213';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.212';
+import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.213';
 import { clearRetrievalExpansionCache } from './semantic-retrieval.js';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
@@ -15,21 +15,22 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.212';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.212';
-import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, stopRuntimeTask, updateRuntime } from './runtime.js?v=0.14.0-standalone.212';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.213';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.213';
+import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, stopRuntimeTask, updateRuntime } from './runtime.js?v=0.14.0-standalone.213';
 import { completeL1MessageCount, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.212';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.212';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.212';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.213';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.213';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.213';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.212';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.212';
-import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.212';
-import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.212';
-import { resolveStoryBatchMessages } from './story-cadence.js?v=0.14.0-standalone.212';
+import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.213';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.213';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.213';
+import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.213';
+import { resolveStoryBatchMessages } from './story-cadence.js?v=0.14.0-standalone.213';
 import { createRenderScheduler } from './render-scheduler.js';
+import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.14.0-standalone.213';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -41,7 +42,55 @@ let viewerSignature = '';
 let extractionReviewSession = null;
 let reviewRecoveryListenersInstalled = false;
 let nativeChatExportBridgeInstalled = false;
-const DIRECT_PROFILE_ID = '__direct__';
+const DIRECT_KINDS = Object.freeze(['extraction', 'retrieval', 'story', 'correction', 'summary']);
+const DIRECT_PROFILE_SETTINGS = Object.freeze({
+    extraction: 'memoryProfileId',
+    retrieval: 'retrievalProfileId',
+    story: 'storyProfileId',
+    correction: 'correctionProfileId',
+    summary: 'arcProfileId',
+});
+const DIRECT_PROFILE_SELECTORS = Object.freeze({
+    extraction: '#continuity_model_profile',
+    retrieval: '#continuity_retrieval_profile',
+    story: '#continuity_story_profile',
+    correction: '#continuity_correction_profile',
+    summary: '#continuity_arc_profile',
+});
+
+function directLabel(kind) {
+    return kind === 'summary' ? 'L2/L3 summarizer' : kind === 'story' ? 'Story' : kind === 'correction' ? 'correction' : kind === 'retrieval' ? 'retrieval' : 'extraction';
+}
+
+function directControl(kind, suffix) {
+    return `#continuity_${kind}_direct_${suffix}`;
+}
+
+function directSecretSaved(kind, settings) {
+    const provider = settings[`${kind}DirectProvider`] === 'openrouter' ? 'openrouter' : 'custom';
+    const slot = provider === 'openrouter' ? SECRET_KEYS.OPENROUTER : SECRET_KEYS.CUSTOM;
+    const stored = Array.isArray(secret_state[slot]) ? secret_state[slot] : [];
+    const secretId = String(settings[provider === 'openrouter' ? `${kind}OpenRouterSecretId` : `${kind}DirectSecretId`] || '').trim();
+    return secretId
+        ? stored.some(secret => secret?.id === secretId)
+        : provider === 'openrouter' && stored.some(secret => secret?.active !== false);
+}
+
+function renderDirectCategory(settings, kind) {
+    const profileSetting = DIRECT_PROFILE_SETTINGS[kind];
+    const direct = settings[profileSetting] === DIRECT_PROFILE_ID;
+    const openRouter = settings[`${kind}DirectProvider`] === 'openrouter';
+    $(DIRECT_PROFILE_SELECTORS[kind]).val(directProfileChoice(settings[profileSetting], openRouter ? 'openrouter' : 'custom'));
+    $(`.continuity-${kind}-direct-setting`).toggle(direct && (kind !== 'retrieval' || settings.retrievalMode === 'ai-expanded'));
+    $(directControl(kind, 'provider')).val(openRouter ? 'openrouter' : 'custom');
+    $(directControl(kind, 'url'))
+        .val(openRouter ? settings[`${kind}OpenRouterUrl`] : settings[`${kind}DirectUrl`])
+        .attr('placeholder', openRouter ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1');
+    $(directControl(kind, 'model')).val(openRouter ? settings[`${kind}OpenRouterModel`] : settings[`${kind}DirectModel`]);
+    $(directControl(kind, 'key_status')).text(directSecretSaved(kind, settings)
+        ? `A ${directLabel(kind)} ${openRouter ? 'OpenRouter key' : 'password/key'} is saved.`
+        : `No ${directLabel(kind)} ${openRouter ? 'OpenRouter key' : 'password/key'} saved; keyless endpoints remain supported.`);
+}
 
 function setControlValue(selector, value) {
     const element = document.querySelector(selector);
@@ -724,89 +773,89 @@ export async function ensureCurrentChatMemory(createIfMissing = false, recoverSt
 
 export function refreshModelProfiles() {
     const settings = getSettings();
-    const extractionSelect = $('#continuity_model_profile').empty()
-        .append($('<option>').val('').text('Current active SillyTavern model'))
-        .append($('<option>').val(DIRECT_PROFILE_ID).text('Direct OpenAI-compatible API'));
-    const retrievalSelect = $('#continuity_retrieval_profile').empty()
-        .append($('<option>').val('').text('Same as extraction model'));
-    const storySelect = $('#continuity_story_profile').empty()
-        .append($('<option>').val('').text('Same as extraction model (default)'))
-        .append($('<option>').val(DIRECT_PROFILE_ID).text('Direct OpenAI-compatible API'));
-    const arcSelect = $('#continuity_arc_profile').empty()
-        .append($('<option>').val('').text('Same as extraction model'))
-        .append($('<option>').val(DIRECT_PROFILE_ID).text('Direct OpenAI-compatible API'));
+    const selections = {
+        extraction: $(DIRECT_PROFILE_SELECTORS.extraction).empty().append($('<option>').val('').text('Current active SillyTavern model')),
+        retrieval: $(DIRECT_PROFILE_SELECTORS.retrieval).empty().append($('<option>').val('').text('Same as extraction model')),
+        story: $(DIRECT_PROFILE_SELECTORS.story).empty().append($('<option>').val('').text('Same as extraction model (default)')),
+        correction: $(DIRECT_PROFILE_SELECTORS.correction).empty().append($('<option>').val('').text('Same as extraction model')),
+        summary: $(DIRECT_PROFILE_SELECTORS.summary).empty().append($('<option>').val('').text('Same as extraction model')),
+    };
+    for (const select of Object.values(selections)) {
+        select
+            .append($('<option>').val(DIRECT_CUSTOM_CHOICE).text('Direct OpenAI-compatible / proxy'))
+            .append($('<option>').val(DIRECT_OPENROUTER_CHOICE).text('Direct OpenRouter'));
+    }
     try {
         for (const profile of ConnectionManagerRequestService.getSupportedProfiles()) {
             const model = profile.model ? ` — ${profile.model}` : '';
-            $('<option>').val(profile.id).text(`${profile.name}${model}`).appendTo(extractionSelect);
-            $('<option>').val(profile.id).text(`${profile.name}${model}`).appendTo(retrievalSelect);
-            $('<option>').val(profile.id).text(`${profile.name}${model}`).appendTo(storySelect);
-            $('<option>').val(profile.id).text(`${profile.name}${model}`).appendTo(arcSelect);
+            for (const select of Object.values(selections)) $('<option>').val(profile.id).text(`${profile.name}${model}`).appendTo(select);
         }
     } catch (error) {
         console.warn('[Continuity] Could not list connection profiles', error);
     }
-    const extractionExists = [...extractionSelect[0].options].some(option => option.value === settings.memoryProfileId);
-    if (!extractionExists && settings.memoryProfileId) {
-        settings.memoryProfileId = '';
-        saveSettings();
+    let repaired = false;
+    for (const kind of DIRECT_KINDS) {
+        const setting = DIRECT_PROFILE_SETTINGS[kind];
+        const profileId = String(settings[setting] || '').trim();
+        const exists = profileId === DIRECT_PROFILE_ID || [...selections[kind][0].options].some(option => option.value === profileId);
+        if (!exists && profileId) {
+            settings[setting] = '';
+            repaired = true;
+        }
+        selections[kind].val(directProfileChoice(settings[setting], settings[`${kind}DirectProvider`]));
     }
-    const retrievalExists = [...retrievalSelect[0].options].some(option => option.value === settings.retrievalProfileId);
-    if (!retrievalExists && settings.retrievalProfileId) {
-        settings.retrievalProfileId = '';
+    if (repaired) saveSettings();
+}
+
+function bindModelProfileSelector(kind) {
+    $(DIRECT_PROFILE_SELECTORS[kind]).on('change', function () {
+        const selected = parseProfileChoice($(this).val());
+        const settings = getSettings();
+        settings[DIRECT_PROFILE_SETTINGS[kind]] = selected.profileId;
+        if (selected.provider) settings[`${kind}DirectProvider`] = selected.provider;
+        if (kind === 'retrieval') clearRetrievalExpansionCache();
         saveSettings();
-    }
-    const storyExists = [...storySelect[0].options].some(option => option.value === settings.storyProfileId);
-    if (!storyExists && settings.storyProfileId) {
-        settings.storyProfileId = '';
-        saveSettings();
-    }
-    const arcExists = [...arcSelect[0].options].some(option => option.value === settings.arcProfileId);
-    if (!arcExists && settings.arcProfileId) {
-        settings.arcProfileId = '';
-        saveSettings();
-    }
-    extractionSelect.val(settings.memoryProfileId || '');
-    retrievalSelect.val(settings.retrievalProfileId || '');
-    storySelect.val(settings.storyProfileId || '');
-    arcSelect.val(settings.arcProfileId || '');
+        renderRuntime();
+    });
 }
 
 async function saveDirectApiKey(kind) {
-    const extraction = kind === 'extraction';
+    if (!DIRECT_KINDS.includes(kind)) throw new Error('Unknown direct API category.');
     const settings = getSettings();
-    const provider = settings[extraction ? 'extractionDirectProvider' : 'summaryDirectProvider'] === 'openrouter' ? 'openrouter' : 'custom';
-    const input = extraction ? '#continuity_extraction_direct_key' : '#continuity_summary_direct_key';
+    const provider = settings[`${kind}DirectProvider`] === 'openrouter' ? 'openrouter' : 'custom';
+    const input = directControl(kind, 'key');
     const value = String($(input).val() || '').trim();
-    if (!value) throw new Error(`Enter the ${extraction ? 'extraction' : 'summarizer'} API password first.`);
+    if (!value) throw new Error(`Enter the ${directLabel(kind)} API password first.`);
     const slot = provider === 'openrouter' ? SECRET_KEYS.OPENROUTER : SECRET_KEYS.CUSTOM;
-    const id = await writeSecret(slot, value, provider === 'openrouter' ? 'Continuity shared OpenRouter key' : `Continuity ${extraction ? 'L1 extractor' : 'L2/L3 summarizer'}`);
+    const id = await writeSecret(slot, value, `Continuity ${directLabel(kind)} ${provider === 'openrouter' ? 'OpenRouter key' : 'API password'}`);
     if (!id) throw new Error('SillyTavern could not save the direct API password.');
-    if (provider === 'custom') settings[extraction ? 'extractionDirectSecretId' : 'summaryDirectSecretId'] = id;
+    settings[provider === 'openrouter' ? `${kind}OpenRouterSecretId` : `${kind}DirectSecretId`] = id;
     saveSettings();
     $(input).val('');
     renderRuntime();
 }
 
 async function fetchDirectModels(kind) {
-    const extraction = kind === 'extraction';
-    const keyInput = extraction ? '#continuity_extraction_direct_key' : '#continuity_summary_direct_key';
+    if (!DIRECT_KINDS.includes(kind)) throw new Error('Unknown direct API category.');
+    const keyInput = directControl(kind, 'key');
     if (String($(keyInput).val() || '').trim()) await saveDirectApiKey(kind);
     const settings = getSettings();
-    const provider = settings[extraction ? 'extractionDirectProvider' : 'summaryDirectProvider'] === 'openrouter' ? 'openrouter' : 'custom';
-    const urlInput = extraction ? '#continuity_extraction_direct_url' : '#continuity_summary_direct_url';
-    const modelInput = extraction ? '#continuity_extraction_direct_model' : '#continuity_summary_direct_model';
-    const selectId = extraction ? '#continuity_extraction_direct_model_select' : '#continuity_summary_direct_model_select';
-    const statusId = extraction ? '#continuity_extraction_direct_models_status' : '#continuity_summary_direct_models_status';
+    const provider = settings[`${kind}DirectProvider`] === 'openrouter' ? 'openrouter' : 'custom';
+    const urlInput = directControl(kind, 'url');
+    const modelInput = directControl(kind, 'model');
+    const selectId = directControl(kind, 'model_select');
+    const statusId = directControl(kind, 'models_status');
     const url = String($(urlInput).val() || '').trim() || (provider === 'openrouter' ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1');
-    const secretId = provider === 'custom' ? settings[extraction ? 'extractionDirectSecretId' : 'summaryDirectSecretId'] : '';
+    const secretId = settings[provider === 'openrouter' ? `${kind}OpenRouterSecretId` : `${kind}DirectSecretId`] || '';
     $(statusId).text('Fetching models…');
     const response = await fetch('/api/backends/chat-completions/status', {
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify({
             chat_completion_source: provider,
-            ...(provider === 'openrouter' ? { api_url: url } : { custom_url: url, secret_id: secretId || undefined }),
+            ...(provider === 'openrouter'
+                ? { api_url: url, secret_id: secretId || undefined }
+                : { custom_url: url, secret_id: secretId || undefined }),
         }),
     });
     const payload = await response.json().catch(() => ({}));
@@ -1040,9 +1089,6 @@ export function renderRuntime(refreshSettings = true) {
             : !latestL1.replayable
                 ? 'This older memory cannot safely replay retained L1 records. Rebuild it from scratch first.'
                 : `Undo L1 messages ${latestL1.from}–${latestL1.to}; chat messages will remain.`);
-    const extractionOpenRouter = settings.extractionDirectProvider === 'openrouter';
-    const summaryOpenRouter = settings.summaryDirectProvider === 'openrouter';
-    const sharedOpenRouterSaved = Array.isArray(secret_state[SECRET_KEYS.OPENROUTER]) ? secret_state[SECRET_KEYS.OPENROUTER].length > 0 : Boolean(secret_state[SECRET_KEYS.OPENROUTER]);
     if (refreshSettings) {
         $('#continuity_embed_chat').prop('checked', settings.embedMemoryInChat);
         $('#continuity_context_reduction').prop('checked', settings.contextReductionEnabled);
@@ -1063,25 +1109,8 @@ export function renderRuntime(refreshSettings = true) {
         $('#continuity_era_start').val(settings.eraStartArcs);
         $('#continuity_era_group').val(settings.eraGroupSize);
         $('#continuity_thinking').val(settings.thinkingMode);
-        $('#continuity_model_profile').val(settings.memoryProfileId || '');
-        $('#continuity_retrieval_profile').val(settings.retrievalProfileId || '');
-        $('#continuity_story_profile').val(settings.storyProfileId || '');
-        $('#continuity_arc_profile').val(settings.arcProfileId || '');
         $('.continuity-ai-retrieval-setting').toggle(settings.retrievalMode === 'ai-expanded');
-        $('.continuity-extraction-direct-setting').toggle(settings.memoryProfileId === DIRECT_PROFILE_ID);
-        $('.continuity-summary-direct-setting').toggle(settings.arcProfileId === DIRECT_PROFILE_ID || settings.storyProfileId === DIRECT_PROFILE_ID);
-        $('#continuity_extraction_direct_provider').val(extractionOpenRouter ? 'openrouter' : 'custom');
-        $('#continuity_summary_direct_provider').val(summaryOpenRouter ? 'openrouter' : 'custom');
-        $('#continuity_extraction_direct_url').val(extractionOpenRouter ? settings.extractionOpenRouterUrl : settings.extractionDirectUrl).attr('placeholder', extractionOpenRouter ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1');
-        $('#continuity_extraction_direct_model').val(extractionOpenRouter ? settings.extractionOpenRouterModel : settings.extractionDirectModel);
-        $('#continuity_summary_direct_url').val(summaryOpenRouter ? settings.summaryOpenRouterUrl : settings.summaryDirectUrl).attr('placeholder', summaryOpenRouter ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1');
-        $('#continuity_summary_direct_model').val(summaryOpenRouter ? settings.summaryOpenRouterModel : settings.summaryDirectModel);
-        $('#continuity_extraction_direct_key_status').text(extractionOpenRouter
-            ? (sharedOpenRouterSaved ? 'The shared OpenRouter key is saved.' : 'No shared OpenRouter key saved.')
-            : (settings.extractionDirectSecretId ? 'An extraction password is saved.' : 'No extraction password saved; keyless endpoints remain supported.'));
-        $('#continuity_summary_direct_key_status').text(summaryOpenRouter
-            ? (sharedOpenRouterSaved ? 'The shared OpenRouter key is saved.' : 'No shared OpenRouter key saved.')
-            : (settings.summaryDirectSecretId ? 'A summarizer password is saved.' : 'No summarizer password saved; keyless endpoints remain supported.'));
+        for (const kind of DIRECT_KINDS) renderDirectCategory(settings, kind);
         // These fields can contain tens of thousands of characters. Reassigning an
         // unchanged textarea value forces browsers to redo selection and layout work.
         setControlValue('#continuity_extraction_prompt', settings.extractionSystemPrompt);
@@ -1714,32 +1743,42 @@ export function initUI() {
     setSetting('#continuity_era_start', 'eraStartArcs', value => Math.min(100, Math.max(8, Number(value) || 12)));
     setSetting('#continuity_era_group', 'eraGroupSize', value => Math.min(16, Math.max(3, Number(value) || 6)));
     setSetting('#continuity_thinking', 'thinkingMode');
-    setSetting('#continuity_model_profile', 'memoryProfileId');
-    setSetting('#continuity_retrieval_profile', 'retrievalProfileId');
-    setSetting('#continuity_story_profile', 'storyProfileId');
-    setSetting('#continuity_arc_profile', 'arcProfileId');
-    setSetting('#continuity_extraction_direct_provider', 'extractionDirectProvider', value => value === 'openrouter' ? 'openrouter' : 'custom');
-    setSetting('#continuity_summary_direct_provider', 'summaryDirectProvider', value => value === 'openrouter' ? 'openrouter' : 'custom');
-    $('#continuity_extraction_direct_provider').on('change', () => $('#continuity_extraction_direct_model_select').empty().hide() && $('#continuity_extraction_direct_models_status').text('Model list not fetched yet.'));
-    $('#continuity_summary_direct_provider').on('change', () => $('#continuity_summary_direct_model_select').empty().hide() && $('#continuity_summary_direct_models_status').text('Model list not fetched yet.'));
-    $('#continuity_extraction_direct_url, #continuity_extraction_direct_model, #continuity_summary_direct_url, #continuity_summary_direct_model').on('change', function () {
-        const settings = getSettings();
-        const extraction = this.id.includes('extraction');
-        const model = this.id.endsWith('_model');
-        const openRouter = settings[extraction ? 'extractionDirectProvider' : 'summaryDirectProvider'] === 'openrouter';
-        const key = extraction
-            ? openRouter ? model ? 'extractionOpenRouterModel' : 'extractionOpenRouterUrl' : model ? 'extractionDirectModel' : 'extractionDirectUrl'
-            : openRouter ? model ? 'summaryOpenRouterModel' : 'summaryOpenRouterUrl' : model ? 'summaryDirectModel' : 'summaryDirectUrl';
-        settings[key] = String($(this).val() || '').trim();
-        saveSettings();
-        renderRuntime();
-    });
-    $('#continuity_extraction_direct_save_key').on('click', () => saveDirectApiKey('extraction').then(() => toast('success', 'Extraction API password saved securely.')).catch(error => toast('error', error.message)));
-    $('#continuity_summary_direct_save_key').on('click', () => saveDirectApiKey('summary').then(() => toast('success', 'Summarizer API password saved securely.')).catch(error => toast('error', error.message)));
-    $('#continuity_extraction_direct_fetch_models').on('click', () => fetchDirectModels('extraction').then(models => toast('success', `Fetched ${models.length} extraction model(s).`)).catch(error => { $('#continuity_extraction_direct_models_status').text(error.message); toast('error', error.message); }));
-    $('#continuity_summary_direct_fetch_models').on('click', () => fetchDirectModels('summary').then(models => toast('success', `Fetched ${models.length} summarizer model(s).`)).catch(error => { $('#continuity_summary_direct_models_status').text(error.message); toast('error', error.message); }));
-    $('#continuity_extraction_direct_model_select').on('change', function () { $('#continuity_extraction_direct_model').val($(this).val()).trigger('change'); });
-    $('#continuity_summary_direct_model_select').on('change', function () { $('#continuity_summary_direct_model').val($(this).val()).trigger('change'); });
+    for (const kind of DIRECT_KINDS) {
+        bindModelProfileSelector(kind);
+        $(directControl(kind, 'provider')).on('change', function () {
+            const settings = getSettings();
+            settings[`${kind}DirectProvider`] = $(this).val() === 'openrouter' ? 'openrouter' : 'custom';
+            $(directControl(kind, 'model_select')).empty().hide();
+            $(directControl(kind, 'models_status')).text('Model list not fetched yet.');
+            if (kind === 'retrieval') clearRetrievalExpansionCache();
+            saveSettings();
+            renderRuntime();
+        });
+        $(`${directControl(kind, 'url')}, ${directControl(kind, 'model')}`).on('change', function () {
+            const settings = getSettings();
+            const model = this.id.endsWith('_model');
+            const openRouter = settings[`${kind}DirectProvider`] === 'openrouter';
+            const key = openRouter
+                ? `${kind}OpenRouter${model ? 'Model' : 'Url'}`
+                : `${kind}Direct${model ? 'Model' : 'Url'}`;
+            settings[key] = String($(this).val() || '').trim();
+            if (kind === 'retrieval') clearRetrievalExpansionCache();
+            saveSettings();
+            renderRuntime();
+        });
+        $(directControl(kind, 'save_key')).on('click', () => saveDirectApiKey(kind)
+            .then(() => toast('success', `${directLabel(kind)} API password saved securely.`))
+            .catch(error => toast('error', error.message)));
+        $(directControl(kind, 'fetch_models')).on('click', () => fetchDirectModels(kind)
+            .then(models => toast('success', `Fetched ${models.length} ${directLabel(kind)} model(s).`))
+            .catch(error => {
+                $(directControl(kind, 'models_status')).text(error.message);
+                toast('error', error.message);
+            }));
+        $(directControl(kind, 'model_select')).on('change', function () {
+            $(directControl(kind, 'model')).val($(this).val()).trigger('change');
+        });
+    }
     setSetting('#continuity_extraction_prompt', 'extractionSystemPrompt', String);
     setSetting('#continuity_jb_prompt', 'jbPrompt', String);
     setSetting('#continuity_extraction_template', 'extractionTaskTemplate', String);

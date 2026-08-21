@@ -6,32 +6,33 @@ import { proxies } from '/scripts/openai.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError, isTransientApiError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.212';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.213';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.212';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.213';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, compactDuplicateMemoryRecords, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.212';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.212';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.213';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.213';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.212';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.212';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.213';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.213';
 import { applySourceAttributionFailClosed, canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.212';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.212';
-import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.212';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.212';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.213';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.213';
+import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.213';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.213';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { dynamicStorySourceChunk, resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.212';
-import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.212';
-import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildPlan, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.212';
+import { dynamicStorySourceChunk, resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.213';
+import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.213';
+import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildPlan, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.213';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.213';
 
 const temporalRelationSchema = {
     type: 'object',
@@ -296,7 +297,6 @@ const JSON_SHAPE_EXAMPLE = JSON.stringify({
 });
 
 let activeExtractionThinkingMode = null;
-const DIRECT_PROFILE_ID = '__direct__';
 const watchedDetachedJobs = new Set();
 const activeDetachedJobs = new Set();
 
@@ -575,20 +575,21 @@ async function requestExtraction(prompt, systemPrompt, fallbackPrompt = prompt) 
 
 function directRequestConfig(kind) {
     const settings = getSettings();
-    const summary = kind === 'summary';
-    const provider = settings[summary ? 'summaryDirectProvider' : 'extractionDirectProvider'] === 'openrouter' ? 'openrouter' : 'custom';
+    const category = ['extraction', 'retrieval', 'story', 'correction', 'summary'].includes(kind) ? kind : 'extraction';
+    const label = category === 'summary' ? 'summarizer' : category;
+    const provider = settings[`${category}DirectProvider`] === 'openrouter' ? 'openrouter' : 'custom';
     const url = provider === 'openrouter'
-        ? settings[summary ? 'summaryOpenRouterUrl' : 'extractionOpenRouterUrl'] || 'https://openrouter.ai/api/v1'
-        : settings[summary ? 'summaryDirectUrl' : 'extractionDirectUrl'] || 'https://api.openai.com/v1';
+        ? settings[`${category}OpenRouterUrl`] || 'https://openrouter.ai/api/v1'
+        : settings[`${category}DirectUrl`] || 'https://api.openai.com/v1';
     const model = provider === 'openrouter'
-        ? settings[summary ? 'summaryOpenRouterModel' : 'extractionOpenRouterModel']
-        : settings[summary ? 'summaryDirectModel' : 'extractionDirectModel'];
-    const secretId = provider === 'custom' ? settings[summary ? 'summaryDirectSecretId' : 'extractionDirectSecretId'] : '';
+        ? settings[`${category}OpenRouterModel`]
+        : settings[`${category}DirectModel`];
+    const secretId = settings[provider === 'openrouter' ? `${category}OpenRouterSecretId` : `${category}DirectSecretId`] || '';
     let parsed;
     try { parsed = new URL(url); }
-    catch { throw new Error(`Enter a valid ${summary ? 'summarizer' : 'extraction'} API URL.`); }
+    catch { throw new Error(`Enter a valid ${label} API URL.`); }
     if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('Direct API URLs must use HTTP or HTTPS.');
-    if (!String(model || '').trim()) throw new Error(`Enter a ${summary ? 'summarizer' : 'extraction'} model ID.`);
+    if (!String(model || '').trim()) throw new Error(`Enter a ${label} model ID.`);
     return { provider, url: parsed.toString().replace(/\/$/, ''), model: String(model).trim(), secretId };
 }
 
@@ -645,7 +646,9 @@ async function requestDirectStructured(prompt, systemPrompt, jsonSchema, respons
         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }],
         stream: false,
         ...outputTokenPayload(config.model, resolveMemoryResponseTokens(responseLength, thinking.adapter)),
-        ...(config.provider === 'openrouter' ? { api_url: config.url } : { custom_url: config.url, secret_id: config.secretId || undefined }),
+        ...(config.provider === 'openrouter'
+            ? { api_url: config.url, secret_id: config.secretId || undefined }
+            : { custom_url: config.url, secret_id: config.secretId || undefined }),
         ...(withSchema && shouldSendStructuredSchema(thinking.adapter, jsonSchema) ? { json_schema: jsonSchema } : {}),
         ...thinking.payload,
     };
@@ -920,7 +923,7 @@ function detachedRequestBodies({ prompt, fallbackPrompt, systemPrompt, usesStruc
             chat_completion_source: config.provider,
             model,
             ...(config.provider === 'openrouter'
-                ? { api_url: config.url }
+                ? { api_url: config.url, secret_id: config.secretId || undefined }
                 : { custom_url: config.url, secret_id: config.secretId || undefined }),
         };
     } else if (profileId) {
@@ -1237,6 +1240,9 @@ export async function reviewMemoryCorrection(instruction) {
     const candidates = selectCorrectionContext(world, request);
     if (!candidates.length) throw new Error('No matching stored memories were found. Include specific names, places, or event details.');
     const prompt = `AUTHORITATIVE USER CORRECTION:\n${request}\n\nCANDIDATE STORED RECORDS:\n${candidates.map(item => JSON.stringify(item)).join('\n')}\n\nPropose the smallest complete correction plan. Every targetId must come from the candidate list.`;
+    const settings = getSettings();
+    const profileId = settings.correctionProfileId || settings.memoryProfileId;
+    const directKind = settings.correctionProfileId === DIRECT_PROFILE_ID ? 'correction' : 'extraction';
     const epoch = runtime.generation;
     updateRuntime({ processing: true, status: 'reviewing-correction', lastError: '', retryStatus: `Reviewing ${candidates.length} potentially relevant memory record(s)…` });
     try {
@@ -1244,7 +1250,9 @@ export async function reviewMemoryCorrection(instruction) {
             prompt,
             CORRECTION_SYSTEM_PROMPT,
             correctionJsonSchema,
-            resolveCorrectionResponseTokens(getSettings().correctionResponseTokens),
+            resolveCorrectionResponseTokens(settings.correctionResponseTokens),
+            profileId,
+            directKind,
         );
         if (runtime.generation !== epoch) throw new Error('Correction review was stopped; no proposal was retained.');
         const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;

@@ -125,14 +125,14 @@ When a roleplay request must wait for queued memory work, Continuity shows a sin
 
 ## Models and connections
 
-L1 extraction, L2 and L3 summarization, and optional retrieval expansion can use:
+L1 extraction, Story so far, optional retrieval expansion, correction review, and L2/L3 summarization can each independently use:
 
 - the active SillyTavern connection
 - a SillyTavern Connection Profile
-- a direct OpenAI-compatible endpoint
-- OpenRouter
+- a direct OpenAI-compatible endpoint or proxy, with its own URL and password/key
+- OpenRouter, with its own saved key and model
 
-Extraction and summarization can use different models. This allows routine memory processing to use a smaller model without changing the main roleplay connection.
+Each category has its own direct provider, endpoint, credential, and model settings. Leaving a category on “Same as extraction model” still inherits Extraction. Embeddings retain their separate proxy/OpenRouter configuration. This allows each memory task to use an appropriate model without changing the main roleplay connection.
 
 ## Storage and portability
 

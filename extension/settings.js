@@ -1,10 +1,10 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CANONICAL_THIRD_PERSON_RULE, CHARACTER_PROFILE_RULE, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.212';
+import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CANONICAL_THIRD_PERSON_RULE, CHARACTER_PROFILE_RULE, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.14.0-standalone.213';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
-import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.14.0-standalone.212';
+import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.14.0-standalone.213';
 
 export const EXTENSION_NAME = 'continuityMemory';
 
@@ -48,12 +48,36 @@ const DEFAULTS = Object.freeze({
     extractionDirectProvider: 'custom',
     extractionOpenRouterUrl: '',
     extractionOpenRouterModel: 'openai/gpt-4.1-mini',
+    extractionOpenRouterSecretId: '',
+    retrievalDirectUrl: '',
+    retrievalDirectModel: '',
+    retrievalDirectSecretId: '',
+    retrievalDirectProvider: 'custom',
+    retrievalOpenRouterUrl: '',
+    retrievalOpenRouterModel: 'openai/gpt-4.1-mini',
+    retrievalOpenRouterSecretId: '',
+    storyDirectUrl: '',
+    storyDirectModel: '',
+    storyDirectSecretId: '',
+    storyDirectProvider: 'custom',
+    storyOpenRouterUrl: '',
+    storyOpenRouterModel: 'openai/gpt-4.1-mini',
+    storyOpenRouterSecretId: '',
+    correctionProfileId: '',
+    correctionDirectUrl: '',
+    correctionDirectModel: '',
+    correctionDirectSecretId: '',
+    correctionDirectProvider: 'custom',
+    correctionOpenRouterUrl: '',
+    correctionOpenRouterModel: 'openai/gpt-4.1-mini',
+    correctionOpenRouterSecretId: '',
     summaryDirectUrl: '',
     summaryDirectModel: '',
     summaryDirectSecretId: '',
     summaryDirectProvider: 'custom',
     summaryOpenRouterUrl: '',
     summaryOpenRouterModel: 'openai/gpt-4.1-mini',
+    summaryOpenRouterSecretId: '',
     hierarchyMode: 'l3',
     arcGroupSize: 24,
     eraStartArcs: 12,
@@ -506,6 +530,19 @@ export function getSettings() {
         settings.rawTailValue = settings.rawTailMode === 'turns' ? oldTurns : oldTokens;
         delete settings.rawTailTurns;
         delete settings.rawTailTokens;
+    }
+    if (Number(settings.independentDirectCategoryVersion || 0) < 1) {
+        if (settings.storyProfileId === '__direct__') {
+            settings.storyDirectProvider = settings.summaryDirectProvider === 'openrouter' ? 'openrouter' : 'custom';
+            settings.storyDirectUrl = settings.summaryDirectUrl || '';
+            settings.storyDirectModel = settings.summaryDirectModel || '';
+            settings.storyDirectSecretId = settings.summaryDirectSecretId || '';
+            settings.storyOpenRouterUrl = settings.summaryOpenRouterUrl || '';
+            settings.storyOpenRouterModel = settings.summaryOpenRouterModel || 'openai/gpt-4.1-mini';
+            settings.storyOpenRouterSecretId = settings.summaryOpenRouterSecretId || '';
+        }
+        settings.independentDirectCategoryVersion = 1;
+        saveSettingsDebounced();
     }
     for (const [key, value] of Object.entries(DEFAULTS)) {
         if (settings[key] === undefined) {

@@ -2,6 +2,6 @@ export function resolveStoryRequestProfile(settings, directProfileId = '__direct
     const selected = String(settings?.storyProfileId || '').trim();
     return {
         profileId: selected || String(settings?.memoryProfileId || '').trim(),
-        directKind: selected === directProfileId ? 'summary' : 'extraction',
+        directKind: selected === directProfileId ? 'story' : 'extraction',
     };
 }

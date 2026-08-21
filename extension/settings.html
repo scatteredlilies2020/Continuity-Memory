@@ -50,7 +50,8 @@
                 <label>Extraction model
                     <select id="continuity_model_profile" class="text_pole">
                         <option value="">Current active SillyTavern model</option>
-                        <option value="__direct__">Direct OpenAI-compatible API</option>
+                        <option value="__direct_custom__">Direct OpenAI-compatible / proxy</option>
+                        <option value="__direct_openrouter__">Direct OpenRouter</option>
                     </select>
                 </label>
                 <small>Turns chat messages into structured L1 memory. Retrieval and summarization can use their own model below.</small>
@@ -58,7 +59,7 @@
                     <b>Direct extraction API</b>
                     <label>Provider
                         <select id="continuity_extraction_direct_provider" class="text_pole">
-                            <option value="custom">Custom / OpenAI-compatible</option>
+                            <option value="custom">Custom / OpenAI-compatible / proxy</option>
                             <option value="openrouter">OpenRouter</option>
                         </select>
                     </label>
@@ -142,10 +143,36 @@
                 <label>Story-so-far model
                     <select id="continuity_story_profile" class="text_pole">
                         <option value="">Same as extraction model (default)</option>
-                        <option value="__direct__">Direct OpenAI-compatible API</option>
+                        <option value="__direct_custom__">Direct OpenAI-compatible / proxy</option>
+                        <option value="__direct_openrouter__">Direct OpenRouter</option>
                     </select>
                 </label>
-                <small>Used only to build and update the rolling story. Leave the default to share the extraction model. Direct API uses the summarizer API configuration below.</small>
+                <small>Used only to build and update the rolling story. Leave the default to share the extraction model, or configure an independent direct endpoint below.</small>
+                <div class="continuity-story-direct-setting continuity-card-inset">
+                    <b>Direct Story-so-far API</b>
+                    <label>Provider
+                        <select id="continuity_story_direct_provider" class="text_pole">
+                            <option value="custom">Custom / OpenAI-compatible / proxy</option>
+                            <option value="openrouter">OpenRouter</option>
+                        </select>
+                    </label>
+                    <label>API URL
+                        <input id="continuity_story_direct_url" class="text_pole" type="url" placeholder="https://api.openai.com/v1">
+                    </label>
+                    <label>API password / key
+                        <input id="continuity_story_direct_key" class="text_pole" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved password">
+                    </label>
+                    <div class="continuity-button-row">
+                        <button id="continuity_story_direct_save_key" class="menu_button"><i class="fa-solid fa-key"></i> Save Story password</button>
+                        <button id="continuity_story_direct_fetch_models" class="menu_button"><i class="fa-solid fa-arrows-rotate"></i> Fetch models</button>
+                    </div>
+                    <div id="continuity_story_direct_key_status" class="continuity-progress">No Story password saved.</div>
+                    <select id="continuity_story_direct_model_select" class="text_pole" style="display: none;"></select>
+                    <div id="continuity_story_direct_models_status" class="continuity-progress">Model list not fetched yet.</div>
+                    <label>Model
+                        <input id="continuity_story_direct_model" class="text_pole" type="text" placeholder="gpt-4.1-mini">
+                    </label>
+                </div>
                 <label>Story-so-far allowance
                     <input id="continuity_story_so_far_tokens" class="text_pole" type="number" min="0" max="12000" step="32">
                     <small>0 = automatic 2% of model context, minimum 1,000 and maximum 6,000. A fixed override may range from 128 to 12,000, below or above the automatic bounds. Existing recall keeps its full allowance.</small>
@@ -165,9 +192,36 @@
                 <label class="continuity-ai-retrieval-setting">AI retrieval model
                     <select id="continuity_retrieval_profile" class="text_pole">
                         <option value="">Same as extraction model</option>
+                        <option value="__direct_custom__">Direct OpenAI-compatible / proxy</option>
+                        <option value="__direct_openrouter__">Direct OpenRouter</option>
                     </select>
                 </label>
                 <small class="continuity-ai-retrieval-setting">Used only for AI-expanded matching. Leave unchanged to share the extraction model.</small>
+                <div class="continuity-retrieval-direct-setting continuity-ai-retrieval-setting continuity-card-inset">
+                    <b>Direct AI retrieval API</b>
+                    <label>Provider
+                        <select id="continuity_retrieval_direct_provider" class="text_pole">
+                            <option value="custom">Custom / OpenAI-compatible / proxy</option>
+                            <option value="openrouter">OpenRouter</option>
+                        </select>
+                    </label>
+                    <label>API URL
+                        <input id="continuity_retrieval_direct_url" class="text_pole" type="url" placeholder="https://api.openai.com/v1">
+                    </label>
+                    <label>API password / key
+                        <input id="continuity_retrieval_direct_key" class="text_pole" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved password">
+                    </label>
+                    <div class="continuity-button-row">
+                        <button id="continuity_retrieval_direct_save_key" class="menu_button"><i class="fa-solid fa-key"></i> Save retrieval password</button>
+                        <button id="continuity_retrieval_direct_fetch_models" class="menu_button"><i class="fa-solid fa-arrows-rotate"></i> Fetch models</button>
+                    </div>
+                    <div id="continuity_retrieval_direct_key_status" class="continuity-progress">No retrieval password saved.</div>
+                    <select id="continuity_retrieval_direct_model_select" class="text_pole" style="display: none;"></select>
+                    <div id="continuity_retrieval_direct_models_status" class="continuity-progress">Model list not fetched yet.</div>
+                    <label>Model
+                        <input id="continuity_retrieval_direct_model" class="text_pole" type="text" placeholder="gpt-4.1-mini">
+                    </label>
+                </div>
                 <details class="continuity-text-retrieval-setting">
                     <summary>Advanced retrieval history</summary>
                     <label>Recent messages
@@ -310,7 +364,8 @@
                 <label>L2/L3 summarization model
                     <select id="continuity_arc_profile" class="text_pole">
                         <option value="">Same as extraction model</option>
-                        <option value="__direct__">Direct OpenAI-compatible API</option>
+                        <option value="__direct_custom__">Direct OpenAI-compatible / proxy</option>
+                        <option value="__direct_openrouter__">Direct OpenRouter</option>
                     </select>
                 </label>
                 <small>Creates the higher-level L2 and L3 summaries. Leave unchanged to share the extraction model. Connection profiles supply only the endpoint, model, and authentication; their presets, instruct templates, and custom prompt processing are excluded.</small>
@@ -318,7 +373,7 @@
                     <b>Direct L2/L3 summarizer API</b>
                     <label>Provider
                         <select id="continuity_summary_direct_provider" class="text_pole">
-                            <option value="custom">Custom / OpenAI-compatible</option>
+                            <option value="custom">Custom / OpenAI-compatible / proxy</option>
                             <option value="openrouter">OpenRouter</option>
                         </select>
                     </label>
@@ -478,6 +533,38 @@
                 <details>
                     <summary>Correct memory</summary>
                     <small>Describe a correction in plain language, including whether it changes an established fact or only one character's belief. Continuity finds matching stored records and shows every proposed change before anything is saved. Historical events enter L1 and rebuild affected L2/L3 summaries. Chat messages are never edited.</small>
+                    <label>Correction-review model
+                        <select id="continuity_correction_profile" class="text_pole">
+                            <option value="">Same as extraction model</option>
+                            <option value="__direct_custom__">Direct OpenAI-compatible / proxy</option>
+                            <option value="__direct_openrouter__">Direct OpenRouter</option>
+                        </select>
+                    </label>
+                    <div class="continuity-correction-direct-setting continuity-card-inset">
+                        <b>Direct correction-review API</b>
+                        <label>Provider
+                            <select id="continuity_correction_direct_provider" class="text_pole">
+                                <option value="custom">Custom / OpenAI-compatible / proxy</option>
+                                <option value="openrouter">OpenRouter</option>
+                            </select>
+                        </label>
+                        <label>API URL
+                            <input id="continuity_correction_direct_url" class="text_pole" type="url" placeholder="https://api.openai.com/v1">
+                        </label>
+                        <label>API password / key
+                            <input id="continuity_correction_direct_key" class="text_pole" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved password">
+                        </label>
+                        <div class="continuity-button-row">
+                            <button id="continuity_correction_direct_save_key" class="menu_button"><i class="fa-solid fa-key"></i> Save correction password</button>
+                            <button id="continuity_correction_direct_fetch_models" class="menu_button"><i class="fa-solid fa-arrows-rotate"></i> Fetch models</button>
+                        </div>
+                        <div id="continuity_correction_direct_key_status" class="continuity-progress">No correction password saved.</div>
+                        <select id="continuity_correction_direct_model_select" class="text_pole" style="display: none;"></select>
+                        <div id="continuity_correction_direct_models_status" class="continuity-progress">Model list not fetched yet.</div>
+                        <label>Model
+                            <input id="continuity_correction_direct_model" class="text_pole" type="text" placeholder="gpt-4.1-mini">
+                        </label>
+                    </div>
                     <textarea id="continuity_correction_input" class="text_pole" rows="4" placeholder="Example: [Character] already knew [information] before [scene]. Remove memories claiming they learned it there."></textarea>
                     <label>Maximum correction output tokens
                         <input id="continuity_correction_tokens" class="text_pole" type="number" min="1000" max="32000" step="1000">

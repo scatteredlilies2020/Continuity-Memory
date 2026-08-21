@@ -16,10 +16,10 @@ test('story model can use its own connection profile', () => {
     });
 });
 
-test('explicit Story Direct uses the summarizer API configuration', () => {
+test('explicit Story Direct uses its independent API configuration', () => {
     assert.deepEqual(resolveStoryRequestProfile({ memoryProfileId: 'extractor', storyProfileId: '__direct__' }), {
         profileId: '__direct__',
-        directKind: 'summary',
+        directKind: 'story',
     });
 });
 
