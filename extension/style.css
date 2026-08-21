@@ -10,6 +10,7 @@
 .continuity-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(145px,1fr)); gap:8px; margin-top:8px; }
 .continuity-grid.two { grid-template-columns:1fr 1fr; }
 .continuity-grid label { display:flex; flex-direction:column; gap:3px; }
+.continuity-field-row { display:flex; flex-direction:column; gap:3px; margin-top:6px; }
 .continuity-progress { min-height:1.3em; margin-top:6px; font-size:.9em; }
 .continuity-progress.continuity-error { color:#ff6b6b; font-weight:700; }
 .continuity-counts { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }

@@ -144,7 +144,7 @@
                 <small>AI-expanded uses a small cached LLM request and never silently substitutes local retrieval; a failed expansion stops roleplay generation. Embedding hybrid uses Continuity's own embedding provider configuration and local matching, without an LLM retrieval request.</small>
                 <label class="checkbox_label"><input id="continuity_story_so_far" type="checkbox"><span>Include compact story so far (default)</span></label>
                 <small>The stored narrative covers the story from the beginning to the processed boundary.</small>
-                <label>Story source
+                <label class="continuity-field-row">Story source
                     <select id="continuity_story_source" class="text_pole">
                         <option value="l1">L1 summaries + uncovered raw tail (default)</option>
                         <option value="raw">Raw chat</option>
