@@ -2,37 +2,38 @@ import { extractMessageFromData, generateRaw, getRequestHeaders } from '/script.
 import { getContext } from '/scripts/st-context.js';
 import { getTokenCountAsync } from '/scripts/tokenizers.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
-import { proxies } from '/scripts/openai.js';
+import { oai_settings, openai_setting_names, openai_settings, proxies } from '/scripts/openai.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError, isTransientApiError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.220';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.221';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.220';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.221';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, compactDuplicateMemoryRecords, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens, storyResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.220';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.220';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.221';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.221';
 import { embedWorldInChat } from './portable.js';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.220';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.220';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.221';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.221';
 import { applySourceAttributionFailClosed, canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.220';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.220';
-import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.220';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.220';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.221';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.221';
+import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.221';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.221';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.14.0-standalone.220';
-import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.220';
-import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.220';
-import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.220';
+import { dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.14.0-standalone.221';
+import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.221';
+import { profileReasoningEffort, resolveStoryThinkingMode } from './story-thinking.js?v=0.14.0-standalone.221';
+import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.221';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.221';
 
 const temporalRelationSchema = {
     type: 'object',
@@ -318,8 +319,8 @@ export function applyExtractionRequestSettings(data) {
     updateRuntime({ thinkingControl: { mode: activeExtractionThinkingMode, adapter: control.adapter, fallback: false } });
 }
 
-export async function generateWithThinkingPolicy(options) {
-    activeExtractionThinkingMode = getSettings().thinkingMode;
+export async function generateWithThinkingPolicy(options, thinkingMode = getSettings().thinkingMode) {
+    activeExtractionThinkingMode = thinkingMode;
     try {
         try {
             return await generateRaw(options);
@@ -593,13 +594,12 @@ function directRequestConfig(kind) {
     return { provider, url: parsed.toString().replace(/\/$/, ''), model: String(model).trim(), secretId };
 }
 
-function requestSupportsStructuredSchema(jsonSchema, profileId = getSettings().memoryProfileId, directKind = 'extraction') {
+function requestSupportsStructuredSchema(jsonSchema, profileId = getSettings().memoryProfileId, directKind = 'extraction', thinkingMode = getSettings().thinkingMode) {
     if (!profileId) return false;
-    const settings = getSettings();
     if (profileId === DIRECT_PROFILE_ID) {
         const config = directRequestConfig(directKind);
         const thinking = buildThinkingRequest({
-            mode: settings.thinkingMode,
+            mode: thinkingMode,
             source: config.provider === 'openrouter' ? 'openrouter' : 'custom',
             model: config.model,
             url: config.url,
@@ -610,7 +610,7 @@ function requestSupportsStructuredSchema(jsonSchema, profileId = getSettings().m
     const apiMap = ConnectionManagerRequestService.validateProfile(profile);
     const model = connectionProfileModel(profile);
     const thinking = buildThinkingRequest({
-        mode: settings.thinkingMode,
+        mode: thinkingMode,
         source: apiMap.source,
         model,
         url: profile['api-url'],
@@ -633,10 +633,10 @@ function renderStructuredTaskPrompt(template, defaultTemplate, values, schemaExa
     }, [usesFormatPlaceholder ? 'format' : 'schema', ...required]);
 }
 
-async function requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, kind, withSchema = true) {
+async function requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, kind, withSchema = true, thinkingMode = getSettings().thinkingMode) {
     const config = directRequestConfig(kind);
     const thinking = buildThinkingRequest({
-        mode: getSettings().thinkingMode,
+        mode: thinkingMode,
         source: config.provider === 'openrouter' ? 'openrouter' : 'custom',
         model: config.model,
         url: config.url,
@@ -653,7 +653,7 @@ async function requestDirectStructured(prompt, systemPrompt, jsonSchema, respons
         ...(withSchema && shouldSendStructuredSchema(thinking.adapter, jsonSchema) ? { json_schema: jsonSchema } : {}),
         ...thinking.payload,
     };
-    updateRuntime({ thinkingControl: { mode: getSettings().thinkingMode, adapter: thinking.adapter, fallback: false } });
+    updateRuntime({ thinkingControl: { mode: thinkingMode, adapter: thinking.adapter, fallback: false } });
     const response = await fetch('/api/backends/chat-completions/generate', {
         method: 'POST',
         headers: getRequestHeaders(),
@@ -738,24 +738,34 @@ export async function requestDirectText(prompt, systemPrompt, responseLength = 3
     return requestDirectStructured(prompt, systemPrompt, null, responseLength, kind, false);
 }
 
-async function requestStructured(prompt, systemPrompt, jsonSchema, responseLength = null, profileId = getSettings().memoryProfileId, directKind = 'extraction', fallbackPrompt = prompt) {
+async function requestStructured(prompt, systemPrompt, jsonSchema, responseLength = null, profileId = getSettings().memoryProfileId, directKind = 'extraction', fallbackPrompt = prompt, thinkingMode = getSettings().thinkingMode) {
     if (profileId === DIRECT_PROFILE_ID) {
+        let directThinkingMode = thinkingMode;
         try {
-            return await requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, directKind, true);
+            return await requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, directKind, true, directThinkingMode);
         } catch (error) {
+            if (!['auto', 'default'].includes(directThinkingMode) && isThinkingControlError(error)) {
+                directThinkingMode = 'default';
+                updateRuntime({ thinkingControl: { mode: thinkingMode, adapter: 'provider-default', fallback: true } });
+                try {
+                    return await requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, directKind, true, directThinkingMode);
+                } catch (retryError) {
+                    error = retryError;
+                }
+            }
             if (!shouldRetryWithoutSchema(error)) throw error;
             updateRuntime({ lastValidation: `Direct API JSON mode unavailable; using compatible plain mode: ${rootErrorMessage(error)}` });
-            return requestDirectStructured(fallbackPrompt, systemPrompt, jsonSchema, responseLength, directKind, false);
+            return requestDirectStructured(fallbackPrompt, systemPrompt, jsonSchema, responseLength, directKind, false, directThinkingMode);
         }
     }
     if (!profileId) {
         try {
-            return await generateWithThinkingPolicy({ prompt, systemPrompt, responseLength, jsonSchema });
+            return await generateWithThinkingPolicy({ prompt, systemPrompt, responseLength, jsonSchema }, thinkingMode);
         } catch (error) {
             if (!shouldRetryWithoutSchema(error)) throw error;
             console.warn('[Continuity] Native structured output failed; retrying with plain JSON prompting.', error);
             updateRuntime({ lastValidation: `Native JSON mode unavailable; using compatible plain mode: ${rootErrorMessage(error)}` });
-            return await generateWithThinkingPolicy({ prompt: fallbackPrompt, systemPrompt, responseLength });
+            return await generateWithThinkingPolicy({ prompt: fallbackPrompt, systemPrompt, responseLength }, thinkingMode);
         }
     }
 
@@ -769,7 +779,7 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
     const messages = messagesFor(prompt);
     const options = isolatedProfileOptions();
     const thinking = buildThinkingRequest({
-        mode: getSettings().thinkingMode,
+        mode: thinkingMode,
         source: apiMap.source,
         model,
         url: profile['api-url'],
@@ -777,7 +787,7 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
     });
     const profileResponseLength = resolveMemoryResponseTokens(responseLength, thinking.adapter) ?? undefined;
     let thinkingPayload = thinking.payload;
-    updateRuntime({ thinkingControl: { mode: getSettings().thinkingMode, adapter: thinking.adapter, fallback: false } });
+    updateRuntime({ thinkingControl: { mode: thinkingMode, adapter: thinking.adapter, fallback: false } });
     const compatibilityPayload = () => isolatedProfilePayload({
         ...outputTokenPayload(model, responseLength),
         ...thinkingPayload,
@@ -792,7 +802,7 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
         } catch (error) {
             if (!thinking.controlled || !isThinkingControlError(error)) throw error;
             thinkingPayload = {};
-            updateRuntime({ thinkingControl: { mode: getSettings().thinkingMode, adapter: thinking.adapter, fallback: true } });
+            updateRuntime({ thinkingControl: { mode: thinkingMode, adapter: thinking.adapter, fallback: true } });
             response = await ConnectionManagerRequestService.sendRequest(
                 profileId, messagesFor(fallbackPrompt), profileResponseLength, options, compatibilityPayload(),
             );
@@ -807,7 +817,7 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
         if (thinking.controlled && isThinkingControlError(error)) {
             console.warn(`[Continuity] ${thinking.adapter} rejected its thinking control; retrying without it.`, error);
             thinkingPayload = {};
-            updateRuntime({ thinkingControl: { mode: getSettings().thinkingMode, adapter: thinking.adapter, fallback: true } });
+            updateRuntime({ thinkingControl: { mode: thinkingMode, adapter: thinking.adapter, fallback: true } });
             try {
                 response = await ConnectionManagerRequestService.sendRequest(
                     profileId, messages, profileResponseLength, options, { ...compatibilityPayload(), json_schema: jsonSchema },
@@ -829,7 +839,7 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
         } catch (plainError) {
             if (!Object.keys(thinkingPayload).length || !isThinkingControlError(plainError)) throw plainError;
             thinkingPayload = {};
-            updateRuntime({ thinkingControl: { mode: getSettings().thinkingMode, adapter: thinking.adapter, fallback: true } });
+            updateRuntime({ thinkingControl: { mode: thinkingMode, adapter: thinking.adapter, fallback: true } });
             response = await ConnectionManagerRequestService.sendRequest(
                 profileId, messagesFor(fallbackPrompt), profileResponseLength, options, compatibilityPayload(),
             );
@@ -843,11 +853,21 @@ function storyRetryableError(error) {
         || /empty rolling story|invalid json|no json object|unexpected end|reached its output limit|finish_reason:\s*(?:length|max_tokens)|exceeded its \d+-token allowance/i.test(String(error?.message || ''));
 }
 
+function storyRequestThinkingMode(settings, profileId) {
+    let profileEffort = '';
+    if (profileId && profileId !== DIRECT_PROFILE_ID) {
+        const profile = ConnectionManagerRequestService.getProfile(profileId);
+        profileEffort = profileReasoningEffort(profile, openai_setting_names, openai_settings);
+    }
+    return resolveStoryThinkingMode(settings.storyThinkingMode, profileEffort, oai_settings?.reasoning_effort);
+}
+
 async function regenerateRollingStory(priorStory, messages, expectedEpoch = runtime.generation) {
     const settings = getSettings();
     const allowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext).tokens;
     const { profileId, directKind } = resolveStoryRequestProfile(settings, DIRECT_PROFILE_ID);
-    const usesStructuredSchema = requestSupportsStructuredSchema(rollingStoryJsonSchema, profileId, directKind);
+    const thinkingMode = storyRequestThinkingMode(settings, profileId);
+    const usesStructuredSchema = requestSupportsStructuredSchema(rollingStoryJsonSchema, profileId, directKind, thinkingMode);
     const values = {
         prior: String(priorStory || '').trim() || '(No prior story yet.)',
         messages: formatExtractionMessages(messages),
@@ -882,6 +902,7 @@ async function regenerateRollingStory(priorStory, messages, expectedEpoch = runt
                 profileId,
                 directKind,
                 `${fallbackPrompt}${retryRequirement}`,
+                thinkingMode,
             );
             const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
             const story = String(parsed?.storySoFar || '').replace(/\s+/gu, ' ').trim().slice(0, 100000);

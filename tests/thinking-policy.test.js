@@ -28,6 +28,15 @@ test('uses GPT-5.6 supported minimum reasoning effort', () => {
     assert.equal(buildThinkingRequest({ mode: 'minimum', source: 'openai', model: 'gpt-5.4' }).payload.reasoning_effort, 'min');
 });
 
+test('passes explicit Story-style reasoning efforts through to supported profiles', () => {
+    for (const effort of ['low', 'medium', 'high', 'max']) {
+        const result = buildThinkingRequest({ mode: effort, source: 'openai', model: 'gpt-5.5' });
+        assert.equal(result.payload.include_reasoning, true);
+        assert.equal(result.payload.reasoning_effort, effort);
+    }
+    assert.deepEqual(buildThinkingRequest({ mode: 'auto', source: 'openai', model: 'gpt-5.5' }).payload, {});
+});
+
 test('uses valid thinking controls for Gemini 2.5 and Gemini 3+ models', () => {
     const pro31 = buildThinkingRequest({ mode: 'off', source: 'google', model: 'gemini-3.1-pro-preview' });
     assert.equal(pro31.adapter, 'gemini');

@@ -1,7 +1,9 @@
-import { minimumReasoningEffort } from './model-compatibility.js?v=0.14.0-standalone.220';
+import { minimumReasoningEffort } from './model-compatibility.js?v=0.14.0-standalone.221';
 
 function normalizedMode(mode) {
-    return ['off', 'minimum', 'default'].includes(mode) ? mode : 'off';
+    const value = String(mode || '').toLowerCase();
+    if (value === 'min') return 'minimum';
+    return ['off', 'minimum', 'low', 'medium', 'high', 'max', 'auto', 'default'].includes(value) ? value : 'off';
 }
 
 function identifyGemini({ source = '', model = '', url = '', profileName = '' } = {}) {
@@ -62,7 +64,7 @@ function customBody(adapter, mode, model, reasoningEffort = '') {
 export function buildThinkingRequest({ mode, source = '', model = '', url = '', profileName = '' } = {}) {
     mode = normalizedMode(mode);
     const gemini = identifyGemini({ source, model, url, profileName });
-    if (mode === 'default') {
+    if (mode === 'default' || mode === 'auto') {
         return { adapter: gemini ? 'gemini-provider-default' : (source || 'provider-default'), payload: {}, controlled: false };
     }
     if (gemini && !gemini.knownThinkingModel) {
@@ -71,11 +73,14 @@ export function buildThinkingRequest({ mode, source = '', model = '', url = '', 
 
     const nativeGoogleSource = /^(?:google|makersuite|vertexai|vertex-ai)$/i.test(String(source));
     const minimalGeminiEffort = nativeGoogleSource ? 'min' : 'minimal';
+    const requestedEffort = mode === 'minimum' ? minimumReasoningEffort(model) : mode;
     const reasoningEffort = gemini
         ? (mode === 'off' && gemini.canDisableThinking
             ? 'none'
-            : gemini.supportsMinimalThinking ? minimalGeminiEffort : 'low')
-        : (mode === 'off' ? 'none' : minimumReasoningEffort(model));
+            : mode === 'off' ? (gemini.supportsMinimalThinking ? minimalGeminiEffort : 'low')
+                : mode === 'minimum' ? (gemini.supportsMinimalThinking ? minimalGeminiEffort : 'low')
+                    : requestedEffort)
+        : (mode === 'off' ? 'none' : requestedEffort);
 
     const normalized = {
         include_reasoning: mode !== 'off',
