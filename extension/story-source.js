@@ -1,5 +1,6 @@
 export const STORY_SOURCE_L1 = 'l1';
 export const STORY_SOURCE_RAW = 'raw';
+export const STORY_SOURCE_POLICY_VERSION = 2;
 
 export function resolveStorySourceMode(value) {
     return value === STORY_SOURCE_RAW ? STORY_SOURCE_RAW : STORY_SOURCE_L1;
@@ -10,7 +11,12 @@ export function storedStorySourceMode(story) {
 }
 
 export function storySourceModeLabel(mode) {
-    return resolveStorySourceMode(mode) === STORY_SOURCE_RAW ? 'raw chat' : 'L1 summaries plus uncovered raw tail';
+    return resolveStorySourceMode(mode) === STORY_SOURCE_RAW ? 'raw chat' : 'completed L1 summaries only';
+}
+
+export function storySourcePolicyIsCurrent(story, mode) {
+    return resolveStorySourceMode(mode) === STORY_SOURCE_RAW
+        || Number(story?.sourcePolicyVersion || 0) >= STORY_SOURCE_POLICY_VERSION;
 }
 
 export function formatL1StorySource(capsule) {
@@ -60,9 +66,7 @@ export function buildStorySourceUnits(rawMessages, capsules, chatKey, mode, requ
             l1Count++;
             continue;
         }
-        units.push({ ...message, sourceFrom: index, storySourceKind: STORY_SOURCE_RAW });
-        rawCount++;
-        cursor++;
+        break;
     }
     return { units, rawCount, l1Count, blockedFrom };
 }

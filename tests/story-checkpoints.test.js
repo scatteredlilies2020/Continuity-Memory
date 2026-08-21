@@ -12,6 +12,7 @@ function advance(previous, source, to) {
         from: 0,
         to,
         updatedAt: `time-${to}`,
+        sourcePolicyVersion: 2,
         rebuiltFromRawChat: true,
         rebuildIncomplete: false,
         rebuildRestartPending: false,
@@ -37,6 +38,7 @@ test('L1 Story source survives checkpoints and mutation recovery', () => {
     }, source, fingerprint, { interval: 1 });
     assert.equal(story.sourceMode, 'l1');
     assert.equal(story.checkpoints[0].sourceMode, 'l1');
+    assert.equal(story.checkpoints[0].sourcePolicyVersion, 0);
     const changed = messages(64);
     changed[40].text = 'changed';
     const recovery = planStoryMutationRecovery(story, fingerprinted(changed), { mutationObserved: true });

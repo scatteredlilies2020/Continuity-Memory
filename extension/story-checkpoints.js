@@ -34,6 +34,7 @@ function normalizedCheckpoints(checkpoints) {
             to: Number(item.to),
             updatedAt: String(item.updatedAt || ''),
             sourceMode: item.sourceMode === 'l1' ? 'l1' : 'raw',
+            sourcePolicyVersion: Math.max(0, Number(item.sourcePolicyVersion) || 0),
             rebuiltFromRawChat: Boolean(item.rebuiltFromRawChat),
         }))
         .sort((left, right) => left.to - right.to)
@@ -58,6 +59,7 @@ export function withStoryCheckpoint(previous, next, eligibleMessages, fingerprin
             to: through,
             updatedAt: String(next.updatedAt || ''),
             sourceMode: next.sourceMode === 'l1' ? 'l1' : 'raw',
+            sourcePolicyVersion: Math.max(0, Number(next.sourcePolicyVersion) || 0),
             rebuiltFromRawChat: Boolean(next.rebuiltFromRawChat),
         });
     }
@@ -132,6 +134,7 @@ export function planStoryMutationRecovery(story, messagesWithFingerprints, {
                 to: from - 1,
                 updatedAt,
                 sourceMode: story.sourceMode === 'l1' ? 'l1' : 'raw',
+                sourcePolicyVersion: Math.max(0, Number(story.sourcePolicyVersion) || 0),
                 rebuiltFromRawChat: story.sourceMode !== 'l1',
                 rebuildIncomplete: true,
                 rebuildRestartPending: true,
@@ -152,6 +155,7 @@ export function planStoryMutationRecovery(story, messagesWithFingerprints, {
             ...checkpoint,
             updatedAt,
             sourceMode: checkpoint.sourceMode === 'l1' ? 'l1' : (story.sourceMode === 'l1' ? 'l1' : 'raw'),
+            sourcePolicyVersion: Math.max(0, Number(checkpoint.sourcePolicyVersion || story.sourcePolicyVersion) || 0),
             rebuiltFromRawChat: (checkpoint.sourceMode || story.sourceMode) !== 'l1',
             rebuildIncomplete: incomplete,
             rebuildRestartPending: false,

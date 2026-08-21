@@ -94,7 +94,7 @@ function entry(category, item, index) {
             ? `${checkpoints.length}; newest through message ${newestCheckpoint}`
             : 'None yet; an affected legacy or early range rebuilds from the beginning');
         add(fields, 'Narrative', item.text);
-        add(fields, 'Source', item.sourceMode === 'l1' ? 'L1 summaries plus uncovered raw tail' : 'Raw chat');
+        add(fields, 'Source', item.sourceMode === 'l1' ? 'Completed L1 summaries only' : 'Raw chat');
         add(fields, 'Last updated', item.updatedAt);
     } else if (category === 'entities') {
         add(fields, 'Type', item.type);

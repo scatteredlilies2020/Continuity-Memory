@@ -146,7 +146,7 @@
                 <small>The stored narrative covers the story from the beginning to the processed boundary.</small>
                 <label class="continuity-field-row">Story source
                     <select id="continuity_story_source" class="text_pole">
-                        <option value="l1">L1 summaries + uncovered raw tail (default)</option>
+                        <option value="l1">Completed L1 summaries only (default)</option>
                         <option value="raw">Raw chat</option>
                     </select>
                 </label>
@@ -202,7 +202,7 @@
                 </label>
                 <label>Messages per Story update
                     <input id="continuity_story_batch" class="text_pole" type="number" min="2" max="50" step="1">
-                    <small>default 8; independent from Messages per L1. Story uses the same two-message stable boundary as L1. In the default source mode it reads L1 summaries and only the uncovered raw tail; it never reads L2 or L3.</small>
+                    <small>default 8; independent from Messages per L1. In the default source mode Story advances only through completed L1 summaries; newer chat remains raw in SillyTavern. Story never reads L2 or L3.</small>
                 </label>
                 <div class="continuity-button-row">
                     <button id="continuity_story_build" class="menu_button"><i class="fa-solid fa-hammer"></i> Build / Continue</button>
