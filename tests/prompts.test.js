@@ -156,17 +156,21 @@ test('rolling snapshot is bounded, chronological, and sourced only from prior sn
     assert.match(ROLLING_STORY_RULE, /majorDevelopments: only major completed turning points in strict causal chronology/i);
     assert.match(ROLLING_STORY_RULE, /boundaryState: only durable conditions established at the end/i);
     assert.match(ROLLING_STORY_RULE, /openMatters: only unresolved central conflicts/i);
-    assert.match(ROLLING_STORY_RULE, /never recency, position, message count, scene length, drama, prose intensity/i);
+    assert.match(ROLLING_STORY_RULE, /never recency, position, message count, scene length, drama, or prose intensity/i);
     assert.match(ROLLING_STORY_RULE, /newest excerpt has no reserved share/i);
-    assert.match(ROLLING_STORY_RULE, /completed scene gets at most one majorDevelopments entry/i);
+    assert.match(ROLLING_STORY_RULE, /ordinary completed scene normally needs one majorDevelopments entry/i);
     assert.match(ROLLING_STORY_RULE, /removing it would make a later identity/i);
     assert.match(ROLLING_STORY_RULE, /Generalize or omit exact counts, percentages, durations, colors/i);
     assert.match(ROLLING_STORY_RULE, /games, routine reassurance, temporary injuries or treatment/i);
     assert.match(ROLLING_STORY_RULE, /majorDevelopments spans the history rather than the newest scene/i);
+    assert.match(ROLLING_STORY_RULE, /never end, truncate, or replace text with an ellipsis/i);
+    assert.match(ROLLING_STORY_RULE, /overarching ambitions, hidden capabilities, identity secrets, asymmetric knowledge/i);
     assert.match(ROLLING_STORY_TASK_TEMPLATE, /silent causal and detail-necessity checks/i);
     assert.match(ROLLING_STORY_TASK_TEMPLATE, /\{\{allowance\}\}/);
+    assert.match(ROLLING_STORY_TASK_TEMPLATE, /\{\{target\}\}/);
     const storyTask = renderPromptTemplate(ROLLING_STORY_TASK_TEMPLATE, {
         allowance: 1280,
+        target: 1024,
         format: 'Return JSON.',
         prior: 'An older causal spine.',
         messages: '[0] A new event.',
