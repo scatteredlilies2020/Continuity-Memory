@@ -83,3 +83,17 @@ export function rollingStoryRebuildCheckpoint(plan, updatedAt = new Date().toISO
         rebuildTargetTo: Number(plan?.targetTo ?? from - 1),
     };
 }
+
+export function rollingStoryCoverage(story, eligibleMessages) {
+    const messages = Array.isArray(eligibleMessages) ? eligibleMessages : [];
+    const rawThrough = story?.to;
+    const through = rawThrough === undefined || rawThrough === null || rawThrough === '' ? Number.NaN : Number(rawThrough);
+    const pending = Number.isFinite(through)
+        ? messages.filter(message => Number(message?.index) > through).length
+        : messages.length;
+    return {
+        through: Number.isFinite(through) ? through : -1,
+        pending,
+        current: Boolean(story?.text) && !story?.rebuildIncomplete && !story?.rebuildRestartPending && pending === 0,
+    };
+}

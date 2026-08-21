@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { completeStoryMessages, DEFAULT_STORY_BATCH_MESSAGES, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, storyChunkMessageLimit } from '../extension/story-cadence.js';
+import { completeStoryMessages, DEFAULT_STORY_BATCH_MESSAGES, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryCoverage, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, storyChunkMessageLimit } from '../extension/story-cadence.js';
 
 test('story cadence defaults to eight messages and remains independently adjustable', () => {
     assert.equal(DEFAULT_STORY_BATCH_MESSAGES, 8);
@@ -74,4 +74,11 @@ test('Build restarts a rebuild whose first request failed before a new checkpoin
     assert.equal(plan.restarting, true);
     assert.equal(plan.story, '');
     assert.deepEqual(plan.messages, messages);
+});
+
+test('Story coverage distinguishes already current from eligible messages pending', () => {
+    const messages = Array.from({ length: 8 }, (_, index) => ({ index }));
+    assert.deepEqual(rollingStoryCoverage({ text: 'Current.', to: 7 }, messages), { through: 7, pending: 0, current: true });
+    assert.deepEqual(rollingStoryCoverage({ text: 'Behind.', to: 5 }, messages), { through: 5, pending: 2, current: false });
+    assert.equal(rollingStoryCoverage({ text: 'Interrupted.', to: 7, rebuildIncomplete: true }, messages).current, false);
 });
