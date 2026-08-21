@@ -74,15 +74,15 @@ test('merges durable records and updates matching facts instead of duplicating t
     assert.deepEqual(target.sources[meta.chatKey].processedMessages, [{ index: 0, fingerprint: 'first', version: EXTRACTION_VERSION }]);
 });
 
-test('rolling story advances independently per chat and ignores older backfill', () => {
+test('L1 extraction cannot overwrite the independently managed rolling story', () => {
     const target = world();
-    mergeExtraction(target, extraction({ storySoFar: 'Yui and Mio began practicing together.' }), { chatKey: 'chat', from: 0, to: 7, allowStateUpdates: true });
-    mergeExtraction(target, extraction({ storySoFar: 'Yui and Mio practiced, then arranged a weekend rehearsal.' }), { chatKey: 'chat', from: 8, to: 15, allowStateUpdates: true });
-    mergeExtraction(target, extraction({ storySoFar: 'Stale historical rewrite.' }), { chatKey: 'chat', from: 0, to: 3, allowStateUpdates: false });
-    mergeExtraction(target, extraction({ storySoFar: 'Another branch begins elsewhere.' }), { chatKey: 'other', from: 0, to: 7, allowStateUpdates: true });
+    target.storySoFar = {};
+    target.storySoFar.chat = { text: 'Authoritative independent story.', from: 0, to: 7 };
+    mergeExtraction(target, extraction({ storySoFar: 'Extractor must not replace this.' }), { chatKey: 'chat', from: 8, to: 15, allowStateUpdates: true });
+    mergeExtraction(target, extraction({ storySoFar: 'Extractor must not create this either.' }), { chatKey: 'other', from: 0, to: 7, allowStateUpdates: true });
 
-    assert.equal(target.storySoFar.chat.text, 'Yui and Mio practiced, then arranged a weekend rehearsal.');
-    assert.equal(target.storySoFar.other.text, 'Another branch begins elsewhere.');
+    assert.equal(target.storySoFar.chat.text, 'Authoritative independent story.');
+    assert.equal(target.storySoFar.other, undefined);
 });
 
 test('a sparse relationship update cannot erase the established role description', () => {

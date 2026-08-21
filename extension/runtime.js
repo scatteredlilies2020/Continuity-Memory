@@ -69,7 +69,8 @@ export function stopRuntime(reason = 'Processing stopped safely. Saved batches w
 }
 
 export function stopRuntimeTask(expectedStatus, reason = 'Current task stopped safely.') {
-    if (!runtime.processing || runtime.status !== expectedStatus) return false;
+    const expected = Array.isArray(expectedStatus) ? expectedStatus : [expectedStatus];
+    if (!runtime.processing || !expected.includes(runtime.status)) return false;
     runtime.generation++;
     updateRuntime({
         status: 'stopping',

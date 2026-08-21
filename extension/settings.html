@@ -123,7 +123,7 @@
                         </label>
                         <label>Extraction request template
                             <textarea id="continuity_extraction_template" class="text_pole continuity-prompt-editor" rows="7"></textarea>
-                            <small>Placeholders: <code>{{detail}}</code>, <code>{{schema}}</code>, <code>{{story_so_far}}</code>, <code>{{messages}}</code>. Required context is appended automatically if omitted.</small>
+                            <small>Placeholders: <code>{{detail}}</code>, <code>{{schema}}</code>, <code>{{messages}}</code>. Required context is appended automatically if omitted.</small>
                         </label>
                     </details>
                 </details>
@@ -150,12 +150,16 @@
                     <input id="continuity_story_so_far_tokens" class="text_pole" type="number" min="0" max="12000" step="32">
                     <small>0 = automatic 2% of model context, minimum 1,000 and maximum 6,000. A fixed override may range from 128 to 12,000, below or above the automatic bounds. Existing recall keeps its full allowance.</small>
                 </label>
+                <label>Messages per Story update
+                    <input id="continuity_story_batch" class="text_pole" type="number" min="2" max="50" step="1">
+                    <small>default 8; independent from Messages per L1. The first automatic Story is created after one complete Story batch, without L1’s stability buffer.</small>
+                </label>
                 <div class="continuity-button-row">
                     <button id="continuity_story_recalculate" class="menu_button"><i class="fa-solid fa-rotate"></i> Build / Rebuild story so far</button>
                     <button id="continuity_story_stop" class="menu_button redWarningBG"><i class="fa-solid fa-stop"></i> Stop</button>
                     <button id="continuity_story_delete" class="menu_button redWarningBG"><i class="fa-solid fa-trash"></i> Delete story so far</button>
                 </div>
-                <small>Story building uses context-sized raw-chat batches, not the Messages per L1 setting. Stop discards only the in-flight story batch and keeps every completed batch without clearing pending extraction work.</small>
+                <small>Story building uses its own message cadence plus a context-safe token ceiling. Stop discards only the in-flight story batch and keeps every completed batch without clearing pending extraction work.</small>
                 <small id="continuity_story_status">No rolling story is stored for this chat yet.</small>
                 <label class="continuity-ai-retrieval-setting">AI retrieval model
                     <select id="continuity_retrieval_profile" class="text_pole">

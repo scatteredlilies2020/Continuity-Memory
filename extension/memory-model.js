@@ -1406,16 +1406,6 @@ export function mergeExtraction(world, result, meta) {
         updatedAt: new Date().toISOString(),
     };
 
-    const rollingStory = clipped(result.storySoFar, 12000);
-    const previousStory = world.storySoFar[meta.chatKey];
-    if (rollingStory && (!previousStory || Number(meta.to) >= Number(previousStory.to ?? -1))) {
-        world.storySoFar[meta.chatKey] = {
-            text: rollingStory,
-            from: 0,
-            to: Number(meta.to),
-            updatedAt: new Date().toISOString(),
-        };
-    }
     const extractionIndex = world.extractions.findIndex(item => item.chatKey === meta.chatKey && Number(item.from) === Number(meta.from) && Number(item.to) === Number(meta.to));
     if (extractionIndex >= 0) {
         extractionRecord.createdAt = world.extractions[extractionIndex].createdAt || extractionRecord.updatedAt;

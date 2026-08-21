@@ -179,7 +179,7 @@ test('detached extraction jobs remain separate from roleplay generation and save
     assert.equal(job.messages, 1);
     const loaded = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: worldId } });
     assert.equal(loaded.payload.world.capsules.length, 1);
-    assert.equal(loaded.payload.world.storySoFar['character:chat'].text, extracted.storySoFar);
+    assert.deepEqual(loaded.payload.world.storySoFar, {});
     assert.equal(loaded.payload.world.facts.some(item => item.subject === 'Alice' && item.value === 'without sugar'), true);
     assert.equal(loaded.payload.world.sources['character:chat'].processedMessages.length, 1);
 });

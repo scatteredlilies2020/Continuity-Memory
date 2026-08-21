@@ -23,13 +23,13 @@ import {
 } from '../extension/prompts.js';
 
 test('JB prompt is appended to extraction instructions only when enabled', () => {
-    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', false, '<rules>custom</rules>'), `Base extraction instructions.\n\n${CHARACTER_PROFILE_RULE}\n\n${ROLLING_STORY_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', false, '<rules>custom</rules>'), `Base extraction instructions.\n\n${CHARACTER_PROFILE_RULE}`);
     assert.equal(
         buildExtractionSystemPrompt('Base extraction instructions.', true, '<rules>custom</rules>'),
-        `Base extraction instructions.\n\n<rules>custom</rules>\n\n${CHARACTER_PROFILE_RULE}\n\n${ROLLING_STORY_RULE}`,
+        `Base extraction instructions.\n\n<rules>custom</rules>\n\n${CHARACTER_PROFILE_RULE}`,
     );
-    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', true, '   '), `Base extraction instructions.\n\n${CHARACTER_PROFILE_RULE}\n\n${ROLLING_STORY_RULE}`);
-    assert.equal(buildExtractionSystemPrompt('', true, '<rules>custom</rules>'), `<rules>custom</rules>\n\n${CHARACTER_PROFILE_RULE}\n\n${ROLLING_STORY_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', true, '   '), `Base extraction instructions.\n\n${CHARACTER_PROFILE_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('', true, '<rules>custom</rules>'), `<rules>custom</rules>\n\n${CHARACTER_PROFILE_RULE}`);
     assert.match(DEFAULT_JB_PROMPT, /^<rules>[\s\S]*<\/rules>$/);
 });
 
@@ -148,7 +148,8 @@ test('rolling story is sourced only from its prior text and the new raw excerpt'
     assert.match(ROLLING_STORY_RULE, /Never call a condition current, present, latest, or ongoing/i);
     assert.match(ROLLING_STORY_RULE, /Do not predict or narrate future events/i);
     assert.match(ROLLING_STORY_RULE, /report only that it was expressed or left unresolved/i);
-    assert.match(DEFAULT_EXTRACTION_TASK_TEMPLATE, /\{\{story_so_far\}\}/);
+    assert.doesNotMatch(DEFAULT_EXTRACTION_TASK_TEMPLATE, /story_so_far/i);
+    assert.doesNotMatch(buildExtractionSystemPrompt(DEFAULT_EXTRACTION_SYSTEM_PROMPT), /storySoFar is a separate/i);
 });
 
 test('default structured task prompts avoid repeating full schemas', () => {

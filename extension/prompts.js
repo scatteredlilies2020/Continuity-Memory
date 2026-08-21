@@ -68,9 +68,6 @@ export const DEFAULT_INJECTION_INSTRUCTION = `Background continuity; never menti
 export const DEFAULT_EXTRACTION_TASK_TEMPLATE = `Extract continuity from this chronological excerpt. Empty arrays are valid. {{detail}}
 {{format}}
 
-PRIOR ROLLING STORY (this and the raw excerpt are the only sources for storySoFar):
-{{story_so_far}}
-
 {{messages}}
 
 {{active_states}}
@@ -123,12 +120,9 @@ export function buildExtractionSystemPrompt(basePrompt, jbEnabled = false, jbPro
     const base = String(basePrompt ?? DEFAULT_EXTRACTION_SYSTEM_PROMPT).trim();
     const extra = jbEnabled ? String(jbPrompt ?? DEFAULT_JB_PROMPT).trim() : '';
     const combined = extra ? (base ? `${base}\n\n${extra}` : extra) : base;
-    const withProfile = combined.includes(CHARACTER_PROFILE_RULE)
+    return combined.includes(CHARACTER_PROFILE_RULE)
         ? combined
         : (combined ? `${combined}\n\n${CHARACTER_PROFILE_RULE}` : CHARACTER_PROFILE_RULE);
-    return withProfile.includes(ROLLING_STORY_RULE)
-        ? withProfile
-        : `${withProfile}\n\n${ROLLING_STORY_RULE}`;
 }
 
 export function buildHierarchySystemPrompt(basePrompt) {

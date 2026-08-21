@@ -111,7 +111,6 @@ function assertNotTruncated(payload) {
 function validateResult(result, world, messages) {
     if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('Extractor returned no JSON object.');
     if (!Array.isArray(result.facts)) throw new Error('Extractor field "facts" is not an array.');
-    if (typeof result.storySoFar !== 'string') throw new Error('Extractor field "storySoFar" is not a string.');
     migrateLegacyBeliefs(result);
     if (!result.sceneCapsule || typeof result.sceneCapsule !== 'object' || !Array.isArray(result.sceneCapsule.beats)) {
         throw new Error('Extractor returned no valid chronological scene capsule.');

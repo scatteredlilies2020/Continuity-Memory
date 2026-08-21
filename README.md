@@ -67,7 +67,7 @@ Relevant existing mutable records are supplied to each extraction with stable ID
 
 Continuity offers three retrieval modes.
 
-Retrieval supplements the default story-so-far overview rather than replacing it. Story so far is a separate persisted rolling narrative, rewritten from its previous version plus each newly processed raw excerpt. It never reads or exposes L1, L2, L3, or retrieved records; those remain relevance-based recall. Its automatic additive allowance uses 2% of model context with a 1,000-token minimum and 6,000-token maximum, so enabling it does not reduce recall. Story so far can be built or recalculated independently from raw chat, or deleted without changing structured memory. Automatic recall uses 20% of model context; fixed overrides remain available for both lanes.
+Retrieval supplements the default story-so-far overview rather than replacing it. Story so far is a separate persisted rolling narrative, generated only by its selected model from its previous version plus new raw chat. It never reads or exposes L1, L2, L3, extraction output, or retrieved records; those remain relevance-based recall. Its first automatic build occurs after its own complete message batch (default 8, independently adjustable, with no L1 stability-buffer delay), and later updates use the same cadence. Its automatic additive allowance uses 2% of model context with a 1,000-token minimum and 6,000-token maximum, so enabling it does not reduce recall. Story so far can be built or recalculated independently from raw chat, stopped safely, or deleted without changing structured memory. Automatic recall uses 20% of model context; fixed overrides remain available for both lanes.
 
 ### Local matching
 
