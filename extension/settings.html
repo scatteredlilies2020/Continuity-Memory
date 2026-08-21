@@ -138,7 +138,7 @@
                 </label>
                 <small>AI-expanded uses a small cached LLM request and never silently substitutes local retrieval; a failed expansion stops roleplay generation. Embedding hybrid uses Continuity's own embedding provider configuration and local matching, without an LLM retrieval request.</small>
                 <label class="checkbox_label"><input id="continuity_story_so_far" type="checkbox"><span>Include compact story so far (default)</span></label>
-                <small>Always includes one compact rolling narrative from the beginning to now. It is updated only from its previous version and new raw chat; structured memory remains retrieval-only. Its allowance is additional and never reduces recall.</small>
+                <small>The stored narrative covers the story from the beginning to now. Normal updates use only its previous version and newly processed raw chat. Initial Build and intentional Rebuild reread raw chat from the beginning; structured memory remains retrieval-only.</small>
                 <label>Story-so-far model
                     <select id="continuity_story_profile" class="text_pole">
                         <option value="">Same as extraction model (default)</option>
@@ -152,8 +152,10 @@
                 </label>
                 <div class="continuity-button-row">
                     <button id="continuity_story_recalculate" class="menu_button"><i class="fa-solid fa-rotate"></i> Build / Rebuild story so far</button>
+                    <button id="continuity_story_stop" class="menu_button redWarningBG"><i class="fa-solid fa-stop"></i> Stop</button>
                     <button id="continuity_story_delete" class="menu_button redWarningBG"><i class="fa-solid fa-trash"></i> Delete story so far</button>
                 </div>
+                <small>Story building uses context-sized raw-chat batches, not the Messages per L1 setting. Stop discards only the in-flight story batch and keeps every completed batch without clearing pending extraction work.</small>
                 <small id="continuity_story_status">No rolling story is stored for this chat yet.</small>
                 <label class="continuity-ai-retrieval-setting">AI retrieval model
                     <select id="continuity_retrieval_profile" class="text_pole">

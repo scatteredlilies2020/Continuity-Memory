@@ -68,6 +68,19 @@ export function stopRuntime(reason = 'Processing stopped safely. Saved batches w
     updateRuntime({ paused: true, status: 'paused', progress: null, lastError: '', lastValidation: reason, retryStatus: reason });
 }
 
+export function stopRuntimeTask(expectedStatus, reason = 'Current task stopped safely.') {
+    if (!runtime.processing || runtime.status !== expectedStatus) return false;
+    runtime.generation++;
+    updateRuntime({
+        status: 'stopping',
+        progress: null,
+        lastError: '',
+        lastValidation: reason,
+        retryStatus: reason,
+    });
+    return true;
+}
+
 export function pauseRuntime() {
     const reason = 'Processing paused safely. Saved batches were kept; the unfinished batch remains pending.';
     cancelExtractionReview(reason);

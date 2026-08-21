@@ -10,3 +10,8 @@ export function resolveStoryBudget(configuredTokens, contextSize) {
     }
     return { tokens: dynamicStoryBudget(contextSize), mode: 'automatic', contextSize: Number(contextSize) || 50000 };
 }
+
+export function dynamicStorySourceChunk(contextSize) {
+    const size = Math.max(0, Number(contextSize) || 50000);
+    return Math.min(50000, Math.max(4000, Math.round(size * 0.20)));
+}

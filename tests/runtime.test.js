@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { invalidateRuntimeWork, isRuntimeCancellation, pauseRuntime, RUNTIME_CANCELLED_CODE, runtime, stopRuntime } from '../extension/runtime.js';
+import { invalidateRuntimeWork, isRuntimeCancellation, pauseRuntime, RUNTIME_CANCELLED_CODE, runtime, stopRuntime, stopRuntimeTask } from '../extension/runtime.js';
 
 test('a source mutation invalidates in-flight work and clears queued stale ranges', () => {
     const rejected = [];
@@ -52,6 +52,24 @@ test('discarding a review can stop generation with a specific visible reason', (
         assert.deepEqual(resolved, [{ cancelled: true, messages: 0, chunks: 0 }]);
     } finally {
         Object.assign(runtime, original);
+    }
+});
+
+test('a scoped task stop cancels only the matching active task without clearing the queue', () => {
+    const before = { ...runtime, queue: runtime.queue };
+    const queued = [{ id: 'pending-extraction' }];
+    Object.assign(runtime, { processing: true, status: 'rebuilding-story', generation: 20, queue: queued });
+    try {
+        assert.equal(stopRuntimeTask('processing', 'wrong task'), false);
+        assert.equal(runtime.generation, 20);
+        assert.equal(stopRuntimeTask('rebuilding-story', 'Story stopped.'), true);
+        assert.equal(runtime.generation, 21);
+        assert.equal(runtime.status, 'stopping');
+        assert.equal(runtime.retryStatus, 'Story stopped.');
+        assert.equal(runtime.queue, queued);
+        assert.equal(runtime.queue.length, 1);
+    } finally {
+        Object.assign(runtime, before);
     }
 });
 
