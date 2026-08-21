@@ -2,6 +2,7 @@ import { formatEntityProfile } from './entity-profile.js';
 
 export const MEMORY_VIEW_CATEGORIES = Object.freeze([
     { key: 'scene', label: 'Latest extracted checkpoint' },
+    { key: 'story', label: 'Story so far' },
     { key: 'entities', label: 'Entities' },
     { key: 'facts', label: 'Facts' },
     { key: 'states', label: 'States' },
@@ -51,9 +52,13 @@ function addTemporal(fields, item) {
     if (anchors.length > 1) add(fields, 'Anchor span', `${anchors[0]} … ${anchors.at(-1)}`);
 }
 
-function categoryItems(world, category) {
+function categoryItems(world, category, chatKey = '') {
     if (!world) return [];
     if (category === 'scene') return world.scene ? [world.scene] : [];
+    if (category === 'story') {
+        const story = world.storySoFar?.[chatKey];
+        return story?.text ? [story] : [];
+    }
     if (category === 'l1') return world.capsules || [];
     if (category === 'l2') return world.arcs || [];
     if (category === 'l3') return world.eras || [];
@@ -72,6 +77,15 @@ function entry(category, item, index) {
         add(fields, 'Activity / process', item.activity);
         add(fields, 'Tone / conditions', item.mood);
         addTemporal(fields, item);
+    } else if (category === 'story') {
+        const coveredRange = rangeLabel(item);
+        const through = Number(item.to);
+        title = `Story so far${Number.isFinite(through) ? ` (through message ${through})` : ''}`;
+        add(fields, 'Covered raw-chat range', coveredRange);
+        add(fields, 'Stored through', Number.isFinite(through) ? `Message ${through}` : '');
+        add(fields, 'Narrative', item.text);
+        add(fields, 'Construction', item.rebuiltFromRawChat ? 'Built from raw chat from the beginning' : 'Rolling update from raw chat');
+        add(fields, 'Last updated', item.updatedAt);
     } else if (category === 'entities') {
         add(fields, 'Type', item.type);
         add(fields, 'Aliases', item.aliases);
@@ -150,10 +164,10 @@ function entry(category, item, index) {
     };
 }
 
-export function memoryViewerPage(world, category = 'l1', query = '', page = 0, pageSize = 30) {
+export function memoryViewerPage(world, category = 'l1', query = '', page = 0, pageSize = 30, chatKey = '') {
     const known = MEMORY_VIEW_CATEGORIES.some(item => item.key === category) ? category : 'l1';
     const chronological = ['l1', 'l2', 'l3', 'events'].includes(known);
-    let entries = categoryItems(world, known).map((item, index) => entry(known, item, index));
+    let entries = categoryItems(world, known, chatKey).map((item, index) => entry(known, item, index));
     entries.sort((a, b) => chronological
         ? (Number.isFinite(a.from) ? a.from : Number.MAX_SAFE_INTEGER) - (Number.isFinite(b.from) ? b.from : Number.MAX_SAFE_INTEGER)
         : (b.importance || 0) - (a.importance || 0));

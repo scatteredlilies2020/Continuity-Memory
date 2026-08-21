@@ -4,10 +4,10 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, maybeAutoUpdateRollingStory, rebuildRollingStory, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.208';
+import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, maybeAutoUpdateRollingStory, rebuildRollingStory, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.209';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.208';
+import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.209';
 import { clearRetrievalExpansionCache } from './semantic-retrieval.js';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
@@ -15,20 +15,20 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.208';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.208';
-import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, stopRuntimeTask, updateRuntime } from './runtime.js?v=0.14.0-standalone.208';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.209';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.209';
+import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, stopRuntimeTask, updateRuntime } from './runtime.js?v=0.14.0-standalone.209';
 import { completeL1MessageCount, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.208';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.208';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.208';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.209';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.209';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.209';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.208';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.208';
-import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.208';
-import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.208';
-import { resolveStoryBatchMessages } from './story-cadence.js?v=0.14.0-standalone.208';
+import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.209';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.209';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.209';
+import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.209';
+import { resolveStoryBatchMessages } from './story-cadence.js?v=0.14.0-standalone.209';
 import { createRenderScheduler } from './render-scheduler.js';
 
 let worlds = [];
@@ -916,14 +916,23 @@ function renderMemoryViewer(force = false) {
     const signature = `${world?.id || ''}:${world?.revision ?? ''}:${viewerCategory}:${viewerSearch}:${viewerPage}:${coverage.latestIndex}:${coverage.pending}`;
     if (!force && signature === viewerSignature) return;
     viewerSignature = signature;
-    const result = memoryViewerPage(world, viewerCategory, viewerSearch, viewerPage, 30);
+    const result = memoryViewerPage(world, viewerCategory, viewerSearch, viewerPage, 30, getChatKey());
     viewerPage = result.page;
     $('#continuity_viewer_category').val(result.category);
     const checkpointStatus = result.category === 'scene' && coverage.pending
         ? ` · ${coverage.pending} newer or changed message(s) pending; this checkpoint is not injected as current state`
         : '';
+    const story = result.category === 'story' ? world?.storySoFar?.[getChatKey()] : null;
+    const storyEligible = story ? collectMemoryEligibleMessages(getContext().chat || []) : [];
+    const storyFrom = Number(story?.from);
+    const storyTo = Number(story?.to);
+    const storyCovered = storyEligible.filter(message => message.index >= storyFrom && message.index <= storyTo).length;
+    const storyPending = storyEligible.filter(message => message.index > storyTo).length;
+    const storyCoverageStatus = story
+        ? ` · ${storyCovered} eligible raw message(s) included${storyPending ? ` · ${storyPending} eligible message(s) pending` : ' · fully caught up to the eligible boundary'}`
+        : '';
     $('#continuity_viewer_status').text(world
-        ? `${result.total} ${MEMORY_VIEW_CATEGORIES.find(item => item.key === result.category)?.label || 'memory'} record(s)${viewerSearch ? ' matching search' : ''} · page ${result.page + 1}/${result.pages}${checkpointStatus}`
+        ? `${result.total} ${MEMORY_VIEW_CATEGORIES.find(item => item.key === result.category)?.label || 'memory'} record(s)${viewerSearch ? ' matching search' : ''} · page ${result.page + 1}/${result.pages}${checkpointStatus}${storyCoverageStatus}`
         : 'No memory loaded.');
     $('#continuity_viewer_previous').prop('disabled', !world || result.page <= 0);
     $('#continuity_viewer_next').prop('disabled', !world || result.page >= result.pages - 1);
