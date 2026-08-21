@@ -4,10 +4,10 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, buildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, rebuildRollingStory, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.223';
+import { buildNextArc, buildNextEra, buildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, rebuildRollingStory, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.224';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.223';
+import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.224';
 import { clearRetrievalExpansionCache } from './semantic-retrieval.js';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
@@ -15,23 +15,23 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.223';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.223';
-import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, STORY_RUNTIME_STATUSES, stopRuntime, stopRuntimeTask, updateRuntime } from './runtime.js?v=0.14.0-standalone.223';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.224';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.224';
+import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, STORY_RUNTIME_STATUSES, stopRuntime, stopRuntimeTask, updateRuntime } from './runtime.js?v=0.14.0-standalone.224';
 import { completeL1MessageCount, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.223';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.223';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.223';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.224';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.224';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.224';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.223';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.223';
-import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.223';
-import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.223';
-import { resolveStoryBatchMessages, rollingStoryCoverage } from './story-cadence.js?v=0.14.0-standalone.223';
+import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.224';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.224';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.224';
+import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.224';
+import { resolveStoryBatchMessages, rollingStoryCoverage } from './story-cadence.js?v=0.14.0-standalone.224';
 import { createRenderScheduler } from './render-scheduler.js';
-import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.14.0-standalone.223';
-import { connectionProfileHasModel } from './profile-request-policy.js?v=0.14.0-standalone.223';
+import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.14.0-standalone.224';
+import { connectionProfileHasModel } from './profile-request-policy.js?v=0.14.0-standalone.224';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -1039,25 +1039,25 @@ export function renderRuntime(refreshSettings = true) {
     const rollingStory = runtime.world?.storySoFar?.[getChatKey()];
     const resolvedStoryAllowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext);
     const storyCoverage = rollingStoryCoverage(rollingStory, collectMemoryEligibleMessages(getContext().chat || []));
-    const storyProcessing = runtime.processing && runtime.activeTask === 'story';
-    const storyProgress = storyProcessing ? runtime.progress : null;
+    const storyProcessing = runtime.storyProcessing;
+    const storyProgress = storyProcessing ? runtime.storyProgress : null;
     const storyFailure = runtime.storyFailure?.chatKey === getChatKey() ? runtime.storyFailure : null;
-    $('#continuity_story_build, #continuity_story_rebuild').prop('disabled', runtime.processing || !runtime.world);
-    $('#continuity_story_stop').prop('disabled', !storyProcessing || runtime.status === 'stopping');
-    $('#continuity_story_delete').prop('disabled', runtime.processing || !rollingStory);
+    $('#continuity_story_build, #continuity_story_rebuild').prop('disabled', storyProcessing || !runtime.world);
+    $('#continuity_story_stop').prop('disabled', !storyProcessing || !STORY_RUNTIME_STATUSES.includes(runtime.storyStatus));
+    $('#continuity_story_delete').prop('disabled', storyProcessing || !rollingStory);
     $('#continuity_story_progress')
         .toggleClass('continuity-error', Boolean(storyFailure && !storyProcessing))
         .text(!storyProcessing
         ? storyFailure
             ? `Story build failed: ${storyFailure.message} ${storyFailure.recovery}`
             : 'No Story build running.'
-        : String(runtime.status).startsWith('pending-story-')
-            ? runtime.retryStatus || 'Pending Story build: preparing raw history…'
-            : runtime.status === 'stopping'
-                ? runtime.retryStatus || 'Stopping Story build safely…'
+        : String(runtime.storyStatus).startsWith('pending-story-')
+            ? runtime.storyRetryStatus || 'Pending Story build: preparing raw history…'
+            : runtime.storyStatus === 'stopping'
+                ? runtime.storyRetryStatus || 'Stopping Story build safely…'
                 : storyProgress?.total
                     ? `Processing Story chunk ${storyProgress.current}/${storyProgress.total} · messages ${Number(storyProgress.from ?? 0) + 1}–${Number(storyProgress.to ?? 0) + 1} · ~${storyProgress.inputTokens || '?'} source tokens`
-                    : runtime.retryStatus || 'Story build is processing…');
+                    : runtime.storyRetryStatus || 'Story build is processing independently…');
     $('#continuity_story_progress_bar')
         .toggle(storyProcessing)
         .attr('max', Math.max(1, Number(storyProgress?.total) || 1));
@@ -1172,7 +1172,8 @@ export function renderRuntime(refreshSettings = true) {
     $('#continuity_detach').prop('hidden', !attached);
 
     const queueText = runtime.queue.length ? ` · ${runtime.queue.length} queued` : '';
-    $('#continuity_status').text(`${runtime.paused ? 'Paused' : runtime.status}${queueText}`);
+    const storyText = runtime.storyProcessing ? ` · Story ${runtime.storyStatus}` : '';
+    $('#continuity_status').text(`${runtime.paused ? 'Paused' : runtime.status}${queueText}${storyText}`);
     const progress = runtime.progress;
     $('#continuity_progress').text(progress?.phase === 'pending'
         ? `Pending: ${progress.label || 'preparing work'} · messages ${Number(progress.from ?? 0) + 1}–${Number(progress.to ?? 0) + 1}`
@@ -1225,6 +1226,10 @@ export function renderRuntime(refreshSettings = true) {
     }
     const diagnostic = {
         engine: runtime.status,
+        storyEngine: runtime.storyStatus,
+        storyProcessing: runtime.storyProcessing,
+        storyProgress: runtime.storyProgress,
+        storyLastError: runtime.storyLastError,
         paused: runtime.paused,
         queue: runtime.queue.length,
         activeApi: getContext().mainApi || null,
@@ -1328,7 +1333,7 @@ async function importWorld(file) {
 async function startContinuationArc(file) {
     const chatKey = getChatKey();
     if (!chatKey) throw new Error('Open the destination chat before starting a continuation arc.');
-    if (runtime.processing || runtime.queue.length) throw new Error('Stop or finish current memory processing first.');
+    if (runtime.processing || runtime.queue.length || runtime.storyProcessing) throw new Error('Stop or finish current memory and Story processing first.');
     const parsed = JSON.parse(await file.text());
     if (parsed?.source?.worldId && parsed.source.worldId === getBoundWorldId()) {
         throw new Error('This is still the source chat. Open or create the new destination chat, then select Start continuation arc there.');
@@ -1385,7 +1390,7 @@ async function detachToEmptyMemory({ confirm = true } = {}) {
     const world = runtime.world;
     const chatKey = getChatKey();
     if (!world || !chatKey) throw new Error('Open a chat with attached memory first.');
-    if (runtime.processing) throw new Error('Stop processing before detaching memory.');
+    if (runtime.processing || runtime.storyProcessing) throw new Error('Stop memory and Story processing before detaching memory.');
     const attachment = world.continuation;
     const sharedElsewhere = worldIsSharedElsewhere(world.id, chatKey);
     if (!attachment && !sharedElsewhere) throw new Error('This chat is not using attached or shared memory.');
@@ -1420,7 +1425,7 @@ async function detachToEmptyMemory({ confirm = true } = {}) {
 async function deleteScope() {
     const world = runtime.world;
     if (!world) throw new Error('Open a chat and prepare its memory first.');
-    if (runtime.processing) throw new Error('Stop processing before deleting memory.');
+    if (runtime.processing || runtime.storyProcessing) throw new Error('Stop memory and Story processing before deleting memory.');
     if (world.continuation || worldIsSharedElsewhere(world.id)) {
         const result = await detachToEmptyMemory();
         if (!result.cancelled) toast('success', 'Attached memory retained and detached. This chat now has verified-empty memory.');
@@ -1512,24 +1517,26 @@ async function buildMemory() {
     // contributions before the first replacement chunk is prompted, so old
     // future ranges cannot leak into earlier rebuilt ranges or donate stale IDs.
     await repairDivergedBranch();
+    const storyWork = startStoryAlongsideMemory(false);
     const l1 = await continueFailedL1();
     if (l1.cancelled) return l1;
     const built = await finishHierarchy(l1, false);
-    return buildStoryWithMemory(built, false);
+    return finishStoryAlongsideMemory(built, storyWork);
 }
 
-async function buildStoryWithMemory(result, rebuildFromBeginning) {
+function startStoryAlongsideMemory(rebuildFromBeginning) {
     const settings = getSettings();
-    if (result.cancelled || !settings.enabled || !settings.storySoFarEnabled) return result;
-    try {
-        const story = rebuildFromBeginning
-            ? await rebuildRollingStory()
-            : await buildRollingStory();
-        return { ...result, story };
-    } catch (error) {
-        if (isRuntimeCancellation(error)) return { ...result, cancelled: true, storyCancelled: true };
-        throw error;
-    }
+    if (!settings.enabled || !settings.storySoFarEnabled || runtime.storyProcessing) return null;
+    const request = rebuildFromBeginning ? rebuildRollingStory() : buildRollingStory();
+    return request.then(
+        story => ({ story }),
+        error => isRuntimeCancellation(error) ? { storyCancelled: true } : { storyError: error.message },
+    );
+}
+
+async function finishStoryAlongsideMemory(result, storyWork) {
+    if (result.cancelled || !storyWork) return result;
+    return { ...result, ...await storyWork };
 }
 
 async function repairRollback() {
@@ -1576,9 +1583,10 @@ async function restartBuild() {
         try { await purgeEmbeddingIndex(runtime.world?.id); }
         catch (error) { console.warn('[Continuity] Could not purge the old derived embedding index before Start Over.', error); }
     }
-    const l1 = await restartL1FromScratch();
+    let storyWork = null;
+    const l1 = await restartL1FromScratch(() => { storyWork = startStoryAlongsideMemory(true); });
     const built = await finishHierarchy(l1, true, true);
-    return buildStoryWithMemory(built, true);
+    return finishStoryAlongsideMemory(built, storyWork);
 }
 
 async function rebuildHierarchy() {
@@ -1841,12 +1849,17 @@ export function initUI() {
     $('#continuity_detach').on('click', () => detachToEmptyMemory()
         .then(result => !result.cancelled && toast('success', 'Attached memory retained unchanged and detached from this chat.'))
         .catch(error => toast('error', error.message)));
-    $('#continuity_stop').on('click', () => { stopRuntime(); toast('info', 'Processing stopped and the queue was cleared.'); });
+    $('#continuity_stop').on('click', () => {
+        const storyContinues = runtime.storyProcessing;
+        stopRuntime();
+        toast('info', storyContinues ? 'Memory processing stopped and its queue was cleared. Story continues independently.' : 'Memory processing stopped and its queue was cleared.');
+    });
     $('#continuity_build').on('click', () => buildMemory()
         .then(result => {
             if (result.cancelled) return;
             const changed = Boolean(result.continued || result.arcs || result.eras || result.story?.messages);
-            toast(changed ? 'success' : 'info', changed ? 'Memory and Story build completed.' : 'Memory and Story are already up to date.');
+            if (result.storyError) toast('warning', `Memory build completed; independent Story build needs attention: ${result.storyError}`);
+            else toast(changed ? 'success' : 'info', changed ? 'Memory and Story build completed.' : 'Memory and Story are already up to date.');
         })
         .catch(error => toast('error', error.message)));
     $('#continuity_undo_latest_l1').on('click', () => undoLatestL1Memory()
@@ -1856,7 +1869,9 @@ export function initUI() {
         .then(result => !result.cancelled && toast('success', `Rollback repaired: removed memory from ${result.removedMessages || 0} deleted message(s).`))
         .catch(error => toast('error', error.message)));
     $('#continuity_restart_build').on('click', () => restartBuild()
-        .then(result => !result.cancelled && toast('success', `Fresh build complete: ${result.messages || 0} structured-memory messages${result.arcs !== undefined ? `, ${result.arcs} L2 records` : ''}${result.story ? `, Story through ${result.story.messages} raw messages` : ''}.`))
+        .then(result => !result.cancelled && toast(result.storyError ? 'warning' : 'success', result.storyError
+            ? `Fresh memory build complete; independent Story rebuild needs attention: ${result.storyError}`
+            : `Fresh build complete: ${result.messages || 0} structured-memory messages${result.arcs !== undefined ? `, ${result.arcs} L2 records` : ''}${result.story ? `, Story through ${result.story.messages} raw messages` : ''}.`))
         .catch(error => toast('error', error.message)));
     $('#continuity_rebuild_hierarchy').on('click', () => rebuildHierarchy()
         .then(result => !result.cancelled && toast('success', `Hierarchy rebuilt: ${result.arcs || 0} L2 and ${result.eras || 0} L3 records.`))

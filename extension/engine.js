@@ -6,34 +6,34 @@ import { oai_settings, openai_setting_names, openai_settings, proxies } from '/s
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError, isTransientApiError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.223';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.224';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.223';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.224';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, compactDuplicateMemoryRecords, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens, storyResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.223';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.223';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.224';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.224';
 import { embedWorldInChat } from './portable.js';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.223';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.223';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.224';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.224';
 import { applySourceAttributionFailClosed, canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.223';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.223';
-import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.223';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.223';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.224';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.224';
+import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.224';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.224';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.14.0-standalone.223';
-import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.223';
-import { resolveProfileThinkingMode } from './story-thinking.js?v=0.14.0-standalone.223';
-import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.223';
-import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.223';
+import { dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.14.0-standalone.224';
+import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.224';
+import { resolveProfileThinkingMode } from './story-thinking.js?v=0.14.0-standalone.224';
+import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.224';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.224';
 
 const temporalRelationSchema = {
     type: 'object',
@@ -870,7 +870,7 @@ function storyRetryableError(error) {
         || /empty rolling story|invalid json|no json object|unexpected end|reached its output limit|finish_reason:\s*(?:length|max_tokens)|exceeded its \d+-token allowance/i.test(String(error?.message || ''));
 }
 
-async function regenerateRollingStory(priorStory, messages, expectedEpoch = runtime.generation) {
+async function regenerateRollingStory(priorStory, messages, expectedEpoch = runtime.storyGeneration) {
     const settings = getSettings();
     const allowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext).tokens;
     const { profileId, directKind } = resolveStoryRequestProfile(settings, DIRECT_PROFILE_ID);
@@ -891,7 +891,7 @@ async function regenerateRollingStory(priorStory, messages, expectedEpoch = runt
     }, ['prior', 'messages']);
     let lastError;
     for (let attempt = 1; attempt <= 3; attempt++) {
-        if (runtime.generation !== expectedEpoch) {
+        if (runtime.storyGeneration !== expectedEpoch) {
             const error = new Error('Rolling-story request was stopped before retrying.');
             error.code = RUNTIME_CANCELLED_CODE;
             throw error;
@@ -922,7 +922,7 @@ async function regenerateRollingStory(priorStory, messages, expectedEpoch = runt
             return story;
         } catch (error) {
             lastError = error;
-            if (runtime.generation !== expectedEpoch) {
+            if (runtime.storyGeneration !== expectedEpoch) {
                 const cancelled = new Error('Rolling-story request was stopped; no retry was started.');
                 cancelled.code = RUNTIME_CANCELLED_CODE;
                 throw cancelled;
@@ -931,7 +931,7 @@ async function regenerateRollingStory(priorStory, messages, expectedEpoch = runt
             const delay = 750 * (2 ** (attempt - 1));
             const outputLimit = /reached its output limit|finish_reason:\s*(?:length|max_tokens)/i.test(String(error?.message || ''));
             const oversizedStory = /exceeded its \d+-token allowance/i.test(String(error?.message || ''));
-            updateRuntime({ retryStatus: oversizedStory
+            updateRuntime({ storyRetryStatus: oversizedStory
                 ? `Story output exceeded its ${allowance}-token cap. Retrying compression in ${delay} ms without limiting the model's thinking budget.`
                 : outputLimit
                 ? `Story API attempt ${attempt}/3 exhausted the provider output limit. Retrying with stricter compression in ${delay} ms; the selected profile controls output capacity and the Story allowance is unchanged.`
@@ -1837,47 +1837,48 @@ async function persistRollingStory(worldId, chatKey, story) {
         else delete world.storySoFar[chatKey];
     };
     let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
-    apply(world);
-    try {
-        world = (await api.saveWorld(world)).world;
-    } catch (error) {
-        if (error.status !== 409) throw error;
-        world = (await api.getWorld(worldId)).world;
+    for (let attempt = 1; ; attempt++) {
         apply(world);
-        world = (await api.saveWorld(world)).world;
+        try {
+            world = (await api.saveWorld(world)).world;
+            break;
+        } catch (error) {
+            if (error.status !== 409 || attempt >= 6) throw error;
+            world = (await api.getWorld(worldId)).world;
+        }
     }
     updateRuntime({ world });
     return world;
 }
 
 export async function deleteRollingStory() {
-    if (runtime.processing) throw new Error('Wait for current processing to finish.');
+    if (runtime.storyProcessing) throw new Error('Wait for Story processing to finish.');
     const worldId = getBoundWorldId();
     const chatKey = getChatKey();
     if (!worldId || !chatKey) throw new Error('Open a chat with Continuity memory first.');
     await requireRetryStorage();
-    updateRuntime({ processing: true, status: 'deleting-story', lastError: '', storyFailure: null, retryStatus: 'Deleting this chat’s rolling story…' });
+    updateRuntime({ storyProcessing: true, storyStatus: 'deleting-story', storyLastError: '', storyFailure: null, storyRetryStatus: 'Deleting this chat’s rolling story…' });
     try {
         const world = await persistRollingStory(worldId, chatKey, null);
         await embedWorldInChat(world);
-        updateRuntime({ status: 'idle', retryStatus: 'This chat’s rolling story was deleted. Structured recall was unchanged.' });
+        updateRuntime({ storyStatus: 'idle', storyRetryStatus: 'This chat’s rolling story was deleted. Structured recall was unchanged.' });
         return { world, deleted: true };
     } catch (error) {
-        updateRuntime({ status: 'error', lastError: error.message, retryStatus: `Rolling-story deletion failed: ${error.message}` });
+        updateRuntime({ storyStatus: 'error', storyLastError: error.message, storyRetryStatus: `Rolling-story deletion failed: ${error.message}` });
         throw error;
     } finally {
-        updateRuntime({ processing: false });
+        updateRuntime({ storyProcessing: false });
     }
 }
 
 async function runManualRollingStory(rebuildFromBeginning) {
-    if (runtime.processing) throw new Error('Wait for current processing to finish.');
+    if (runtime.storyProcessing) throw new Error('A Story build is already running.');
     const worldId = getBoundWorldId();
     const chatKey = getChatKey();
     if (!worldId || !chatKey) throw new Error('Open a chat with Continuity memory first.');
     const allMessages = collectMemoryEligibleMessages(getContext().chat || []);
     if (!allMessages.length) throw new Error('This chat has no eligible raw messages to summarize.');
-    const epoch = runtime.generation;
+    const epoch = runtime.storyGeneration;
     let world = runtime.world?.id === worldId ? runtime.world : null;
     let savedWorld = world;
     let previous;
@@ -1886,30 +1887,27 @@ async function runManualRollingStory(rebuildFromBeginning) {
     let chunks = [];
     let action = rebuildFromBeginning ? 'Rebuilding' : 'Building';
     updateRuntime({
-        processing: true,
-        activeTask: 'story',
-        paused: false,
-        status: rebuildFromBeginning ? 'pending-story-rebuild' : 'pending-story-build',
-        lastStartedAt: new Date().toISOString(),
-        lastError: '',
+        storyProcessing: true,
+        storyStatus: rebuildFromBeginning ? 'pending-story-rebuild' : 'pending-story-build',
+        storyLastError: '',
         storyFailure: null,
-        progress: {
+        storyProgress: {
             phase: 'pending',
             label: rebuildFromBeginning ? 'preparing Story rebuild' : 'preparing Story build',
             from: allMessages[0]?.index,
             to: allMessages.at(-1)?.index,
         },
-        retryStatus: `Pending ${rebuildFromBeginning ? 'rebuild' : 'build'}: loading the Story checkpoint and preparing ${allMessages.length} eligible raw message(s)…`,
+        storyRetryStatus: `Pending ${rebuildFromBeginning ? 'rebuild' : 'build'}: loading the Story checkpoint and preparing ${allMessages.length} eligible raw message(s)…`,
     });
     try {
         await requireRetryStorage();
-        if (runtime.generation !== epoch) {
+        if (runtime.storyGeneration !== epoch) {
             const error = new Error('Story construction was stopped while preparing raw history.');
             error.code = RUNTIME_CANCELLED_CODE;
             throw error;
         }
         world = world || (await api.getWorld(worldId)).world;
-        if (runtime.generation !== epoch) {
+        if (runtime.storyGeneration !== epoch) {
             const error = new Error('Story construction was stopped while loading its checkpoint.');
             error.code = RUNTIME_CANCELLED_CODE;
             throw error;
@@ -1921,13 +1919,13 @@ async function runManualRollingStory(rebuildFromBeginning) {
             : rollingStoryBuildPlan(allMessages, previous);
         messages = plan.messages;
         if (!messages.length) {
-            updateRuntime({ status: 'idle', progress: null, lastError: '', storyFailure: null, retryStatus: 'Story so far is already caught up to the eligible raw-chat boundary.' });
+            updateRuntime({ storyStatus: 'idle', storyProgress: null, storyLastError: '', storyFailure: null, storyRetryStatus: 'Story so far is already caught up to the eligible raw-chat boundary.' });
             return { world, messages: 0, batches: 0, resumed: false, rebuilt: false, caughtUp: true };
         }
         action = rebuildFromBeginning || plan.restarting ? 'Rebuilding' : plan.resuming ? 'Continuing' : previous?.text ? 'Advancing' : 'Building';
         updateRuntime({
-            retryStatus: `Pending ${action.toLowerCase()}: packing ${messages.length} raw message(s) into context-safe chunks…`,
-            progress: { phase: 'pending', label: `${action.toLowerCase()} Story`, from: messages[0]?.index, to: messages.at(-1)?.index },
+            storyRetryStatus: `Pending ${action.toLowerCase()}: packing ${messages.length} raw message(s) into context-safe chunks…`,
+            storyProgress: { phase: 'pending', label: `${action.toLowerCase()} Story`, from: messages[0]?.index, to: messages.at(-1)?.index },
         });
         if (rebuildFromBeginning) {
             world = await persistRollingStory(worldId, chatKey, rollingStoryRebuildCheckpoint(plan));
@@ -1938,30 +1936,30 @@ async function runManualRollingStory(rebuildFromBeginning) {
         const rollingChunkLimit = dynamicStorySourceChunk(getContext().maxContext, allowance, true);
         const firstChunkLimit = dynamicStorySourceChunk(getContext().maxContext, allowance, Boolean(plan.story));
         chunks = await chunkMessages(messages, rollingChunkLimit, storyChunkMessageLimit(false, settings.storyBatchMessages), firstChunkLimit);
-        if (runtime.generation !== epoch) {
+        if (runtime.storyGeneration !== epoch) {
             const error = new Error('Story construction was stopped while preparing context-safe chunks.');
             error.code = RUNTIME_CANCELLED_CODE;
             throw error;
         }
         let story = plan.story;
         updateRuntime({
-            status: rebuildFromBeginning ? 'rebuilding-story' : 'updating-story',
-            progress: { phase: 'processing', current: 0, total: chunks.length, from: messages[0]?.index, to: messages.at(-1)?.index },
-            retryStatus: `${action} Story so far from ${messages.length} raw message(s)…`,
+            storyStatus: rebuildFromBeginning ? 'rebuilding-story' : 'updating-story',
+            storyProgress: { phase: 'processing', current: 0, total: chunks.length, from: messages[0]?.index, to: messages.at(-1)?.index },
+            storyRetryStatus: `${action} Story so far from ${messages.length} raw message(s)…`,
         });
         for (let index = 0; index < chunks.length; index++) {
-            if (runtime.generation !== epoch) {
+            if (runtime.storyGeneration !== epoch) {
                 const error = new Error('Story construction was stopped; completed batches remain saved.');
                 error.code = RUNTIME_CANCELLED_CODE;
                 throw error;
             }
             const chunk = chunks[index];
             updateRuntime({
-                progress: { phase: 'processing', current: index + 1, total: chunks.length, from: chunk.messages[0]?.index, to: chunk.messages.at(-1)?.index, inputTokens: chunk.tokens },
-                retryStatus: `${action} Story so far ${index + 1}/${chunks.length} from raw chat only…`,
+                storyProgress: { phase: 'processing', current: index + 1, total: chunks.length, from: chunk.messages[0]?.index, to: chunk.messages.at(-1)?.index, inputTokens: chunk.tokens },
+                storyRetryStatus: `${action} Story so far ${index + 1}/${chunks.length} from raw chat only…`,
             });
             story = await regenerateRollingStory(story, chunk.messages, epoch);
-            if (runtime.generation !== epoch) {
+            if (runtime.storyGeneration !== epoch) {
                 const error = new Error('Story construction was stopped; the unfinished batch was discarded.');
                 error.code = RUNTIME_CANCELLED_CODE;
                 throw error;
@@ -1979,28 +1977,28 @@ async function runManualRollingStory(rebuildFromBeginning) {
             });
         }
         await embedWorldInChat(savedWorld);
-        updateRuntime({ status: 'idle', lastCompletedAt: new Date().toISOString(), progress: null, storyFailure: null, retryStatus: rebuildFromBeginning
+        updateRuntime({ storyStatus: 'idle', storyProgress: null, storyFailure: null, storyRetryStatus: rebuildFromBeginning
             ? `Rebuild complete: Story so far recreated from ${messages.length} raw message(s) in ${chunks.length} batch(es). Structured recall was unchanged.`
             : `Story so far ${plan.resuming ? 'continued' : previous?.text ? 'advanced' : 'built'} from ${messages.length} raw message(s) in ${chunks.length} batch(es). Structured recall was unchanged.` });
         return { world: savedWorld, messages: messages.length, batches: chunks.length, resumed: plan.resuming, rebuilt: rebuildFromBeginning };
     } catch (error) {
-        if (isRuntimeCancellation(error)) updateRuntime({ status: 'idle', progress: null, lastError: '', storyFailure: null, retryStatus: error.message });
+        if (isRuntimeCancellation(error)) updateRuntime({ storyStatus: 'idle', storyProgress: null, storyLastError: '', storyFailure: null, storyRetryStatus: error.message });
         else {
             const checkpoint = savedWorld?.storySoFar?.[chatKey];
             const resume = checkpoint?.rebuildRestartPending
                 ? ' Build / Continue will retry from the first raw message.'
                 : checkpoint?.rebuildIncomplete ? ` Build / Continue will resume after message ${Number(checkpoint.to) + 1}.` : ' Build / Continue will retry the pending Story range.';
             updateRuntime({
-                status: 'error',
-                progress: null,
-                lastError: error.message,
+                storyStatus: 'error',
+                storyProgress: null,
+                storyLastError: error.message,
                 storyFailure: { chatKey, message: error.message, recovery: resume.trim(), at: new Date().toISOString() },
-                retryStatus: `Story construction failed safely: ${error.message}${resume}`,
+                storyRetryStatus: `Story construction failed safely: ${error.message}${resume}`,
             });
         }
         throw error;
     } finally {
-        updateRuntime({ processing: false, activeTask: null });
+        updateRuntime({ storyProcessing: false });
     }
 }
 
@@ -2014,7 +2012,7 @@ export async function rebuildRollingStory() {
 
 export async function maybeAutoUpdateRollingStory(sourceMessages = null) {
     const settings = getSettings();
-    if (!settings.enabled || !settings.storySoFarEnabled || runtime.paused || runtime.processing) return null;
+    if (!settings.enabled || !settings.storySoFarEnabled || runtime.storyProcessing) return null;
     const worldId = getBoundWorldId();
     const chatKey = getChatKey();
     if (!worldId || !chatKey) return null;
@@ -2033,39 +2031,45 @@ export async function maybeAutoUpdateRollingStory(sourceMessages = null) {
     const batchSize = resolveStoryBatchMessages(settings.storyBatchMessages);
     const ready = rebuilding ? pending : completeStoryMessages(pending, batchSize);
     if (!ready.length) return null;
-    await requireRetryStorage();
-    const allowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext).tokens;
-    const hasPriorStory = Boolean(previous?.text);
-    const rollingChunkLimit = dynamicStorySourceChunk(getContext().maxContext, allowance, true);
-    const firstChunkLimit = dynamicStorySourceChunk(getContext().maxContext, allowance, hasPriorStory);
-    const chunks = await chunkMessages(ready, rollingChunkLimit, rebuilding ? Infinity : storyChunkMessageLimit(hasPriorStory, batchSize), firstChunkLimit);
-    const epoch = runtime.generation;
+    if (runtime.storyProcessing) return null;
+    const epoch = runtime.storyGeneration;
     let story = String(previous?.text || '').trim();
     let savedWorld = world;
     const firstIndex = Number(previous?.from ?? messages[0]?.index ?? ready[0].index);
     updateRuntime({
-        processing: true,
-        paused: false,
-        status: 'updating-story',
-        lastError: '',
+        storyProcessing: true,
+        storyStatus: 'updating-story',
+        storyLastError: '',
         storyFailure: null,
-        progress: { current: 0, total: chunks.length },
-        retryStatus: `${rebuilding ? 'Resuming interrupted' : previous?.text ? 'Updating' : 'Building'} Story so far from ${ready.length} new raw message(s)…`,
+        storyProgress: { phase: 'pending', current: 0, total: 0, from: ready[0]?.index, to: ready.at(-1)?.index },
+        storyRetryStatus: `${rebuilding ? 'Resuming interrupted' : previous?.text ? 'Updating' : 'Building'} Story so far from ${ready.length} new raw message(s)…`,
     });
     try {
+        await requireRetryStorage();
+        const allowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext).tokens;
+        const hasPriorStory = Boolean(previous?.text);
+        const rollingChunkLimit = dynamicStorySourceChunk(getContext().maxContext, allowance, true);
+        const firstChunkLimit = dynamicStorySourceChunk(getContext().maxContext, allowance, hasPriorStory);
+        const chunks = await chunkMessages(ready, rollingChunkLimit, rebuilding ? Infinity : storyChunkMessageLimit(hasPriorStory, batchSize), firstChunkLimit);
+        if (runtime.storyGeneration !== epoch) {
+            const error = new Error('Automatic Story update was stopped while preparing its independent request.');
+            error.code = RUNTIME_CANCELLED_CODE;
+            throw error;
+        }
+        updateRuntime({ storyProgress: { phase: 'processing', current: 0, total: chunks.length, from: ready[0]?.index, to: ready.at(-1)?.index } });
         for (let index = 0; index < chunks.length; index++) {
-            if (runtime.generation !== epoch) {
+            if (runtime.storyGeneration !== epoch) {
                 const error = new Error('Automatic Story update was stopped; completed batches remain saved.');
                 error.code = RUNTIME_CANCELLED_CODE;
                 throw error;
             }
             const chunk = chunks[index];
             updateRuntime({
-                progress: { current: index + 1, total: chunks.length, from: chunk.messages[0]?.index, to: chunk.messages.at(-1)?.index },
-                retryStatus: `${rebuilding ? 'Resuming interrupted' : previous?.text ? 'Updating' : 'Building'} Story so far ${index + 1}/${chunks.length} with its selected model…`,
+                storyProgress: { phase: 'processing', current: index + 1, total: chunks.length, from: chunk.messages[0]?.index, to: chunk.messages.at(-1)?.index, inputTokens: chunk.tokens },
+                storyRetryStatus: `${rebuilding ? 'Resuming interrupted' : previous?.text ? 'Updating' : 'Building'} Story so far ${index + 1}/${chunks.length} with its selected model…`,
             });
             story = await regenerateRollingStory(story, chunk.messages, epoch);
-            if (runtime.generation !== epoch) {
+            if (runtime.storyGeneration !== epoch) {
                 const error = new Error('Automatic Story update was stopped; the in-flight batch was discarded.');
                 error.code = RUNTIME_CANCELLED_CODE;
                 throw error;
@@ -2081,32 +2085,31 @@ export async function maybeAutoUpdateRollingStory(sourceMessages = null) {
             });
         }
         await embedWorldInChat(savedWorld);
-        updateRuntime({ status: 'idle', progress: null, storyFailure: null, retryStatus: `Story so far advanced by ${ready.length} raw message(s).` });
+        updateRuntime({ storyStatus: 'idle', storyProgress: null, storyFailure: null, storyRetryStatus: `Story so far advanced by ${ready.length} raw message(s).` });
         return { world: savedWorld, messages: ready.length, batches: chunks.length, fresh: !previous?.text };
     } catch (error) {
-        if (isRuntimeCancellation(error)) updateRuntime({ status: 'idle', progress: null, lastError: '', storyFailure: null, retryStatus: error.message });
+        if (isRuntimeCancellation(error)) updateRuntime({ storyStatus: 'idle', storyProgress: null, storyLastError: '', storyFailure: null, storyRetryStatus: error.message });
         else {
             const checkpoint = savedWorld?.storySoFar?.[chatKey];
             const resume = checkpoint?.rebuildIncomplete
                 ? `Build / Continue will resume after message ${Number(checkpoint.to) + 1}.`
                 : 'Build / Continue will retry the pending eligible messages.';
             updateRuntime({
-                status: 'error',
-                progress: null,
-                lastError: error.message,
+                storyStatus: 'error',
+                storyProgress: null,
+                storyLastError: error.message,
                 storyFailure: { chatKey, message: error.message, recovery: resume, at: new Date().toISOString() },
-                retryStatus: `Automatic Story update failed safely: ${error.message} ${resume}`,
+                storyRetryStatus: `Automatic Story update failed safely: ${error.message} ${resume}`,
             });
         }
         throw error;
     } finally {
-        updateRuntime({ processing: false });
-        if (!runtime.paused) queueMicrotask(processQueue);
+        updateRuntime({ storyProcessing: false });
     }
 }
 
 export async function eraseAllMemory() {
-    if (runtime.processing) throw new Error('Wait for current processing to finish.');
+    if (runtime.processing || runtime.storyProcessing) throw new Error('Wait for current memory and Story processing to finish.');
     const worldId = getBoundWorldId();
     if (!worldId) throw new Error('Open a chat with Continuity memory first.');
     await requireRetryStorage();
@@ -2137,8 +2140,8 @@ export async function eraseAllMemory() {
     }
 }
 
-export async function restartL1FromScratch() {
-    if (runtime.processing) throw new Error('Wait for current processing to finish.');
+export async function restartL1FromScratch(afterReset = null) {
+    if (runtime.processing || runtime.storyProcessing) throw new Error('Wait for current memory and Story processing to finish.');
     const worldId = getBoundWorldId();
     const chatKey = getChatKey();
     const chat = getContext().chat || [];
@@ -2161,6 +2164,7 @@ export async function restartL1FromScratch() {
         const world = await persistVerifiedEmptyWorld(worldId);
         updateRuntime({ world, retryStatus: 'All old Continuity memory was erased and verified empty. Preparing the first fresh L1 chunks…' });
         await embedWorldInChat(world);
+        if (typeof afterReset === 'function') afterReset(world);
 
         const chunks = await chunkMessages(messages, resolveExtractionChunk(getSettings().extractionChunkTokens, getContext().maxContext), groupSize);
         for (let index = 0; index < chunks.length; index++) {

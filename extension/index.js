@@ -1,26 +1,26 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.14.0-standalone.223';
+import { api } from './api.js?v=0.14.0-standalone.224';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, maybeAutoUpdateRollingStory, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.223';
-import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.223';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.223';
-import { invalidateRuntimeWork, isRuntimeCancellation, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.223';
-import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.223';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.223';
+import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, maybeAutoUpdateRollingStory, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.224';
+import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.224';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.224';
+import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.224';
+import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.224';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.224';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.223';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.223';
-import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.223';
-import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.223';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.224';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.224';
+import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.224';
+import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.224';
 import { completeL1MessageCount, isL1StabilityProtectedMessage, resolveL1GroupSize } from './l1-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
-import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.14.0-standalone.223';
-import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.223';
-import { resolveStoryBatchMessages } from './story-cadence.js?v=0.14.0-standalone.223';
+import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.14.0-standalone.224';
+import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.224';
+import { resolveStoryBatchMessages } from './story-cadence.js?v=0.14.0-standalone.224';
 
 const PROMPT_KEY = 'continuity_memory_context';
 let lastObservedWorldId = null;
@@ -473,6 +473,7 @@ async function onChatChanged() {
     if (runtime.processing || runtime.queue.length) {
         invalidateRuntimeWork('Chat changed; discarded memory work belonging to the previous chat.');
     }
+    invalidateStoryWork('Chat changed; discarded Story work belonging to the previous chat.');
     const settings = getSettings();
     const placement = resolveInjectionPlacement(settings, extension_prompt_types, extension_prompt_roles);
     setExtensionPrompt(PROMPT_KEY, '', placement.position, placement.depth, false, placement.role);
@@ -500,6 +501,7 @@ async function onChatDeleted(chatId, ownerKind) {
     if (runtime.world?.id === worldId && (runtime.processing || runtime.queue.length)) {
         invalidateRuntimeWork('Chat was deleted; discarded its active and queued memory work.');
     }
+    if (runtime.world?.id === worldId) invalidateStoryWork('Chat was deleted; discarded its active Story work.');
     let attached = runtime.world?.id === worldId && Boolean(runtime.world?.continuation);
     if (!attached && !sharedElsewhere) {
         try { attached = Boolean((await api.getWorld(worldId)).world?.continuation); }
@@ -594,12 +596,12 @@ async function init() {
                 if (!getBoundWorldId() && processableMessages >= Math.min(settings.extractionBatchMessages, firstStoryBatch)) {
                     await ensureCurrentChatMemory(true);
                 }
-                try {
-                    await maybeAutoUpdateRollingStory();
-                } catch (error) {
-                    if (!isRuntimeCancellation(error)) updateRuntime({ lastError: `Automatic Story update failed: ${error.message}` });
-                }
-                await maybeAutoExtract(false);
+                const story = maybeAutoUpdateRollingStory().catch(error => {
+                    if (!isRuntimeCancellation(error)) updateRuntime({ storyLastError: `Automatic Story update failed: ${error.message}` });
+                    return null;
+                });
+                const extraction = maybeAutoExtract(false);
+                await Promise.all([story, extraction]);
             } catch (error) {
                 updateRuntime({ lastError: `Automatic extraction failed: ${error.message}` });
             }
@@ -618,15 +620,17 @@ async function init() {
             if ((runtime.processing || runtime.queue.length) && policy.invalidateActiveWork) {
                 invalidateRuntimeWork('A source message changed; discarded memory work based on its previous content.');
             }
+            invalidateStoryWork('A source message changed; discarded Story work based on its previous content.');
             scheduleInjectionRefresh();
             scheduleMutationSync(350, policy.repairSuffix);
         });
     }
     if (event_types.MESSAGE_DELETED) {
         eventSource.on(event_types.MESSAGE_DELETED, () => {
-            if (runtime.processing || runtime.queue.length) {
-                invalidateRuntimeWork('A source message was deleted; discarded memory work that could contain it.');
-            }
+        if (runtime.processing || runtime.queue.length) {
+            invalidateRuntimeWork('A source message was deleted; discarded memory work that could contain it.');
+        }
+        invalidateStoryWork('A source message was deleted; discarded Story work that could contain it.');
             scheduleInjectionRefresh();
             scheduleMutationSync(350, true);
         });
@@ -639,6 +643,7 @@ async function init() {
         if (runtime.processing || runtime.queue.length) {
             invalidateRuntimeWork('InlineSummary replaced source messages; discarded memory work based on the previous visible chat.');
         }
+        invalidateStoryWork('InlineSummary replaced source messages; discarded Story work based on the previous visible chat.');
         scheduleInjectionRefresh();
         scheduleMutationSync(350, true);
     });
@@ -646,6 +651,7 @@ async function init() {
         if (runtime.processing || runtime.queue.length) {
             invalidateRuntimeWork('InlineSummary is restoring source messages; discarded memory work based on the replacement summary.');
         }
+        invalidateStoryWork('InlineSummary is restoring source messages; discarded Story work based on the replacement summary.');
     });
     eventSource.on('ILS_RestoreOriginalsEnd', () => {
         scheduleInjectionRefresh();

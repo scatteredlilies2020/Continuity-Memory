@@ -1,6 +1,6 @@
 import { getContext } from '/scripts/st-context.js';
-import { getSettings } from './settings.js?v=0.14.0-standalone.223';
-import { createPortableSnapshot, PORTABLE_SCHEMA_VERSION, portableSnapshotMatches } from './portable-state.js';
+import { getSettings } from './settings.js?v=0.14.0-standalone.224';
+import { createPortableSnapshot, PORTABLE_SCHEMA_VERSION, portableSnapshotIsNewer, portableSnapshotMatches } from './portable-state.js?v=0.14.0-standalone.224';
 
 const METADATA_KEY = 'continuityMemory';
 
@@ -24,6 +24,7 @@ export async function embedWorldInChat(world, { force = false } = {}) {
     if (!context.chatId || !context.chatMetadata || !world?.id) return false;
     const current = context.chatMetadata[METADATA_KEY];
     if (!force && portableSnapshotMatches(current, world)) return false;
+    if (!force && portableSnapshotIsNewer(current, world)) return false;
     context.chatMetadata[METADATA_KEY] = createPortableSnapshot(world);
     await saveChatMetadata(context);
     return true;

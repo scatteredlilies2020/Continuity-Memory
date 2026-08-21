@@ -151,7 +151,7 @@
                         <option value="__direct_openrouter__">Direct OpenRouter</option>
                     </select>
                 </label>
-                <small>Used only to build and update the rolling story. Leave the default to share the extraction model, or configure an independent direct endpoint below. The selected connection profile controls generation output capacity; the Story allowance only targets the compact stored and injected digest.</small>
+                <small>Used only to build and update the rolling story in its independent processing lane, alongside L1/L2/L3 when both have work. Leave the default to share the extraction model, or configure an independent direct endpoint below. The selected connection profile controls generation output capacity; the Story allowance is only a ceiling for the compact stored and injected digest.</small>
                 <label>Story reasoning / thinking
                     <select id="continuity_story_thinking" class="text_pole">
                         <option value="auto">Auto (selected profile)</option>
@@ -491,7 +491,7 @@
                     <button id="continuity_stop" class="menu_button redWarningBG"><i class="fa-solid fa-stop"></i> Stop & clear queue</button>
                     <button id="continuity_undo_latest_l1" class="menu_button"><i class="fa-solid fa-rotate-left"></i> Undo latest L1</button>
                 </div>
-                <small>Build creates all missing structured memory and Story so far, and resumes interrupted work without redoing completed chunks.</small>
+                <small>Build creates all missing structured memory and Story so far side by side, and resumes interrupted work without redoing completed chunks.</small>
                 <div id="continuity_coverage" class="continuity-progress">Checking chat coverage…</div>
                 <div id="continuity_progress" class="continuity-progress"></div>
                 <div id="continuity_arc_status" class="continuity-progress"></div>

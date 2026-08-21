@@ -21,9 +21,14 @@ export const runtime = {
     paused: false,
     queue: [],
     processing: false,
-    activeTask: null,
     generation: 0,
     stopSequence: 0,
+    storyProcessing: false,
+    storyStatus: 'idle',
+    storyProgress: null,
+    storyRetryStatus: '',
+    storyLastError: '',
+    storyGeneration: 0,
     lastStartedAt: null,
     lastCompletedAt: null,
     lastError: '',
@@ -44,6 +49,12 @@ export const runtime = {
 };
 
 export function updateRuntime(patch) {
+    const incomingWorld = patch?.world;
+    if (incomingWorld?.id && runtime.world?.id === incomingWorld.id
+        && Number(runtime.world.revision) > Number(incomingWorld.revision)) {
+        patch = { ...patch };
+        delete patch.world;
+    }
     Object.assign(runtime, patch);
     for (const listener of listeners) {
         try { listener(runtime); } catch (error) { console.error('[Continuity] Runtime listener failed', error); }
@@ -78,6 +89,18 @@ export function stopRuntime(reason = 'Processing stopped safely. Saved batches w
 
 export function stopRuntimeTask(expectedStatus, reason = 'Current task stopped safely.') {
     const expected = Array.isArray(expectedStatus) ? expectedStatus : [expectedStatus];
+    const storyTask = expected.some(status => STORY_RUNTIME_STATUSES.includes(status));
+    if (storyTask) {
+        if (!runtime.storyProcessing || !expected.includes(runtime.storyStatus)) return false;
+        runtime.storyGeneration++;
+        updateRuntime({
+            storyStatus: 'stopping',
+            storyProgress: null,
+            storyLastError: '',
+            storyRetryStatus: reason,
+        });
+        return true;
+    }
     if (!runtime.processing || !expected.includes(runtime.status)) return false;
     runtime.generation++;
     updateRuntime({
@@ -88,6 +111,13 @@ export function stopRuntimeTask(expectedStatus, reason = 'Current task stopped s
         retryStatus: reason,
     });
     return true;
+}
+
+export function invalidateStoryWork(reason = 'Chat changed while Story processing was active.') {
+    if (!runtime.storyProcessing) return { invalidated: false };
+    runtime.storyGeneration++;
+    updateRuntime({ storyProgress: null, storyRetryStatus: reason });
+    return { invalidated: true };
 }
 
 export function pauseRuntime() {

@@ -159,6 +159,10 @@ test('rolling story is sourced only from its prior text and the new raw excerpt'
     assert.match(ROLLING_STORY_RULE, /New material earns space only when/i);
     assert.match(ROLLING_STORY_RULE, /A calm scene may matter/i);
     assert.match(ROLLING_STORY_RULE, /remove recent low-consequence material before older load-bearing continuity/i);
+    assert.match(ROLLING_STORY_RULE, /token allowance is a ceiling, never a target/i);
+    assert.match(ROLLING_STORY_RULE, /Begin with the earliest foundational premise/i);
+    assert.match(ROLLING_STORY_RULE, /Do not inventory supporting cast, equipment specifications, numeric strength/i);
+    assert.match(ROLLING_STORY_RULE, /action-by-action combat choreography/i);
     assert.doesNotMatch(DEFAULT_EXTRACTION_TASK_TEMPLATE, /story_so_far/i);
     assert.doesNotMatch(buildExtractionSystemPrompt(DEFAULT_EXTRACTION_SYSTEM_PROMPT), /storySoFar is a separate/i);
 });

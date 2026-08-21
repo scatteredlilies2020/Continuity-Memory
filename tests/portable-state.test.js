@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { clonePortableWorld, createPortableSnapshot, portableSnapshotMatches } from '../extension/portable-state.js';
+import { clonePortableWorld, createPortableSnapshot, portableSnapshotIsNewer, portableSnapshotMatches } from '../extension/portable-state.js';
 
 test('recognizes only the same portable world revision as current', () => {
     const world = { id: 'world-1', revision: 7 };
@@ -8,6 +8,9 @@ test('recognizes only the same portable world revision as current', () => {
     assert.equal(portableSnapshotMatches(snapshot, world), true);
     assert.equal(portableSnapshotMatches(snapshot, { ...world, revision: 8 }), false);
     assert.equal(portableSnapshotMatches(snapshot, { ...world, id: 'world-2' }), false);
+    assert.equal(portableSnapshotIsNewer(snapshot, { ...world, revision: 6 }), true);
+    assert.equal(portableSnapshotIsNewer(snapshot, { ...world, revision: 8 }), false);
+    assert.equal(portableSnapshotIsNewer(snapshot, { ...world, id: 'world-2', revision: 6 }), false);
 });
 
 test('portable snapshots own a detached copy of the world', () => {
