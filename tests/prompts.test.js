@@ -153,6 +153,12 @@ test('rolling story is sourced only from its prior text and the new raw excerpt'
     assert.match(ROLLING_STORY_RULE, /compress wording, never causal meaning/i);
     assert.match(ROLLING_STORY_RULE, /Attribute beliefs, reports, deception, and uncertainty/i);
     assert.match(ROLLING_STORY_RULE, /Omit headings, bullets, formatting/i);
+    assert.match(ROLLING_STORY_RULE, /globally re-rank both sources instead of appending/i);
+    assert.match(ROLLING_STORY_RULE, /never recency, position, length, drama, prose intensity/i);
+    assert.match(ROLLING_STORY_RULE, /Preserve older foundational premises/i);
+    assert.match(ROLLING_STORY_RULE, /New material earns space only when/i);
+    assert.match(ROLLING_STORY_RULE, /A calm scene may matter/i);
+    assert.match(ROLLING_STORY_RULE, /remove recent low-consequence material before older load-bearing continuity/i);
     assert.doesNotMatch(DEFAULT_EXTRACTION_TASK_TEMPLATE, /story_so_far/i);
     assert.doesNotMatch(buildExtractionSystemPrompt(DEFAULT_EXTRACTION_SYSTEM_PROMPT), /storySoFar is a separate/i);
 });
