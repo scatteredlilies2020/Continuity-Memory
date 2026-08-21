@@ -139,6 +139,13 @@
                 <small>AI-expanded uses a small cached LLM request and never silently substitutes local retrieval; a failed expansion stops roleplay generation. Embedding hybrid uses Continuity's own embedding provider configuration and local matching, without an LLM retrieval request.</small>
                 <label class="checkbox_label"><input id="continuity_story_so_far" type="checkbox"><span>Include compact story so far (default)</span></label>
                 <small>Always includes one compact rolling narrative from the beginning to now. It is updated only from its previous version and new raw chat; structured memory remains retrieval-only. Its allowance is additional and never reduces recall.</small>
+                <label>Story-so-far model
+                    <select id="continuity_story_profile" class="text_pole">
+                        <option value="">Same as extraction model (default)</option>
+                        <option value="__direct__">Direct OpenAI-compatible API</option>
+                    </select>
+                </label>
+                <small>Used only to build and update the rolling story. Leave the default to share the extraction model. Direct API uses the summarizer API configuration below.</small>
                 <label>Story-so-far allowance
                     <input id="continuity_story_so_far_tokens" class="text_pole" type="number" min="0" max="12000" step="32">
                     <small>0 = automatic 2% of model context, minimum 1,000 and maximum 6,000. A fixed override may range from 128 to 12,000, below or above the automatic bounds. Existing recall keeps its full allowance.</small>

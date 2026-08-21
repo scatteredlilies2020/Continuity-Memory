@@ -4,10 +4,10 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, rebuildRollingStory, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.202';
+import { buildNextArc, buildNextEra, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, rebuildRollingStory, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.203';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.202';
+import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.203';
 import { clearRetrievalExpansionCache } from './semantic-retrieval.js';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
@@ -15,19 +15,19 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.202';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.202';
-import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.202';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.203';
+import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.203';
+import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.203';
 import { completeL1MessageCount, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.202';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.202';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.202';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.203';
+import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.203';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.203';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.202';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.202';
-import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.202';
-import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.202';
+import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.203';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.203';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.203';
+import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.203';
 import { createRenderScheduler } from './render-scheduler.js';
 
 let worlds = [];
@@ -728,6 +728,9 @@ export function refreshModelProfiles() {
         .append($('<option>').val(DIRECT_PROFILE_ID).text('Direct OpenAI-compatible API'));
     const retrievalSelect = $('#continuity_retrieval_profile').empty()
         .append($('<option>').val('').text('Same as extraction model'));
+    const storySelect = $('#continuity_story_profile').empty()
+        .append($('<option>').val('').text('Same as extraction model (default)'))
+        .append($('<option>').val(DIRECT_PROFILE_ID).text('Direct OpenAI-compatible API'));
     const arcSelect = $('#continuity_arc_profile').empty()
         .append($('<option>').val('').text('Same as extraction model'))
         .append($('<option>').val(DIRECT_PROFILE_ID).text('Direct OpenAI-compatible API'));
@@ -736,6 +739,7 @@ export function refreshModelProfiles() {
             const model = profile.model ? ` — ${profile.model}` : '';
             $('<option>').val(profile.id).text(`${profile.name}${model}`).appendTo(extractionSelect);
             $('<option>').val(profile.id).text(`${profile.name}${model}`).appendTo(retrievalSelect);
+            $('<option>').val(profile.id).text(`${profile.name}${model}`).appendTo(storySelect);
             $('<option>').val(profile.id).text(`${profile.name}${model}`).appendTo(arcSelect);
         }
     } catch (error) {
@@ -751,6 +755,11 @@ export function refreshModelProfiles() {
         settings.retrievalProfileId = '';
         saveSettings();
     }
+    const storyExists = [...storySelect[0].options].some(option => option.value === settings.storyProfileId);
+    if (!storyExists && settings.storyProfileId) {
+        settings.storyProfileId = '';
+        saveSettings();
+    }
     const arcExists = [...arcSelect[0].options].some(option => option.value === settings.arcProfileId);
     if (!arcExists && settings.arcProfileId) {
         settings.arcProfileId = '';
@@ -758,6 +767,7 @@ export function refreshModelProfiles() {
     }
     extractionSelect.val(settings.memoryProfileId || '');
     retrievalSelect.val(settings.retrievalProfileId || '');
+    storySelect.val(settings.storyProfileId || '');
     arcSelect.val(settings.arcProfileId || '');
 }
 
@@ -1041,10 +1051,11 @@ export function renderRuntime(refreshSettings = true) {
         $('#continuity_thinking').val(settings.thinkingMode);
         $('#continuity_model_profile').val(settings.memoryProfileId || '');
         $('#continuity_retrieval_profile').val(settings.retrievalProfileId || '');
+        $('#continuity_story_profile').val(settings.storyProfileId || '');
         $('#continuity_arc_profile').val(settings.arcProfileId || '');
         $('.continuity-ai-retrieval-setting').toggle(settings.retrievalMode === 'ai-expanded');
         $('.continuity-extraction-direct-setting').toggle(settings.memoryProfileId === DIRECT_PROFILE_ID);
-        $('.continuity-summary-direct-setting').toggle(settings.arcProfileId === DIRECT_PROFILE_ID);
+        $('.continuity-summary-direct-setting').toggle(settings.arcProfileId === DIRECT_PROFILE_ID || settings.storyProfileId === DIRECT_PROFILE_ID);
         $('#continuity_extraction_direct_provider').val(extractionOpenRouter ? 'openrouter' : 'custom');
         $('#continuity_summary_direct_provider').val(summaryOpenRouter ? 'openrouter' : 'custom');
         $('#continuity_extraction_direct_url').val(extractionOpenRouter ? settings.extractionOpenRouterUrl : settings.extractionDirectUrl).attr('placeholder', extractionOpenRouter ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1');
@@ -1647,6 +1658,7 @@ export function initUI() {
     setSetting('#continuity_thinking', 'thinkingMode');
     setSetting('#continuity_model_profile', 'memoryProfileId');
     setSetting('#continuity_retrieval_profile', 'retrievalProfileId');
+    setSetting('#continuity_story_profile', 'storyProfileId');
     setSetting('#continuity_arc_profile', 'arcProfileId');
     setSetting('#continuity_extraction_direct_provider', 'extractionDirectProvider', value => value === 'openrouter' ? 'openrouter' : 'custom');
     setSetting('#continuity_summary_direct_provider', 'summaryDirectProvider', value => value === 'openrouter' ? 'openrouter' : 'custom');
