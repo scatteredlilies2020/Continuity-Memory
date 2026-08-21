@@ -1,4 +1,4 @@
-import { minimumReasoningEffort } from './model-compatibility.js?v=0.14.0-standalone.225';
+import { minimumReasoningEffort } from './model-compatibility.js?v=0.14.0-standalone.226';
 
 function normalizedMode(mode) {
     const value = String(mode || '').toLowerCase();
@@ -64,7 +64,14 @@ function customBody(adapter, mode, model, reasoningEffort = '') {
 export function buildThinkingRequest({ mode, source = '', model = '', url = '', profileName = '' } = {}) {
     mode = normalizedMode(mode);
     const gemini = identifyGemini({ source, model, url, profileName });
+    const nativeOpenRouter = String(source).toLowerCase() === 'openrouter';
     if (mode === 'default' || mode === 'auto') {
+        // SillyTavern's native OpenRouter route translates an omitted value to
+        // reasoning.exclude=true. Auto must state the safe provider default
+        // explicitly or reasoning-mandatory models such as Ox-alpha reject it.
+        if (nativeOpenRouter) {
+            return { adapter: 'openrouter-provider-default', payload: { include_reasoning: true }, controlled: false };
+        }
         return { adapter: gemini ? 'gemini-provider-default' : (source || 'provider-default'), payload: {}, controlled: false };
     }
     if (gemini && !gemini.knownThinkingModel) {
@@ -116,4 +123,32 @@ export function isThinkingControlError(error) {
     const rejection = '(?:unknown|unsupported|invalid|restricted|not permitted|not allowed|cannot|can not|must be|only support)';
     const control = '(?:thinking|reasoning|enable_thinking|reasoning_effort|chat_template_kwargs|\\bthink\\b)';
     return new RegExp(`${rejection}[^\\n]*${control}|${control}[^\\n]*${rejection}`).test(message);
+}
+
+export function isMandatoryThinkingError(error) {
+    const message = String(error?.cause?.message || error?.message || error).toLowerCase();
+    return /(?:thinking|reasoning)[^\n]*(?:mandatory|required|must be enabled|cannot be disabled|can not be disabled)|(?:mandatory|required)[^\n]*(?:thinking|reasoning)/i.test(message);
+}
+
+export function thinkingControlFallbackPayload(error, payload = {}) {
+    if (!isMandatoryThinkingError(error)) return {};
+    const fallback = { ...payload, include_reasoning: true };
+    if (!fallback.reasoning_effort || ['none', 'off', 'disabled'].includes(String(fallback.reasoning_effort).toLowerCase())) {
+        fallback.reasoning_effort = 'low';
+    }
+    if (fallback.custom_include_body) {
+        try {
+            const body = JSON.parse(fallback.custom_include_body);
+            if (body.reasoning && typeof body.reasoning === 'object') {
+                body.reasoning = { ...body.reasoning, effort: body.reasoning.effort === 'none' ? 'low' : (body.reasoning.effort || 'low'), exclude: false };
+            }
+            if (body.thinking && typeof body.thinking === 'object' && body.thinking.type === 'disabled') body.thinking.type = 'enabled';
+            if ('enable_thinking' in body) body.enable_thinking = true;
+            if ('think' in body && body.think === false) body.think = true;
+            fallback.custom_include_body = JSON.stringify(body);
+        } catch {
+            delete fallback.custom_include_body;
+        }
+    }
+    return fallback;
 }

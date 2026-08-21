@@ -142,36 +142,28 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.ok(DEFAULT_ERA_SYSTEM_PROMPT.length < 1950);
 });
 
-test('rolling story is sourced only from its prior text and the new raw excerpt', () => {
-    assert.match(ROLLING_STORY_RULE, /prior story plus the new raw excerpt only/i);
+test('rolling snapshot is bounded, chronological, and sourced only from prior snapshot plus raw chat', () => {
+    assert.match(ROLLING_STORY_RULE, /prior snapshot plus new raw excerpt only/i);
     assert.match(ROLLING_STORY_RULE, /Do not consult, copy, cite, or name L1, L2, L3/i);
-    assert.match(ROLLING_STORY_RULE, /only what has already occurred/i);
-    assert.match(ROLLING_STORY_RULE, /Never call a condition current, present, latest, or ongoing/i);
-    assert.match(ROLLING_STORY_RULE, /Do not predict or narrate future events/i);
-    assert.match(ROLLING_STORY_RULE, /only as expressed or unresolved, never as completed/i);
-    assert.match(ROLLING_STORY_RULE, /as short as possible without losing its load-bearing causal chain/i);
-    assert.match(ROLLING_STORY_RULE, /dense telegraphic prose/i);
+    assert.match(ROLLING_STORY_RULE, /Record only what has already occurred/i);
+    assert.match(ROLLING_STORY_RULE, /do not write current, currently, present, latest, ongoing, now, or at present/i);
+    assert.match(ROLLING_STORY_RULE, /plans and expectations belong only in openMatters and remain explicitly unresolved/i);
+    assert.match(ROLLING_STORY_RULE, /one dense telegraphic sentence or fragment per array entry/i);
     assert.match(ROLLING_STORY_RULE, /compress wording, never causal meaning/i);
     assert.match(ROLLING_STORY_RULE, /Attribute beliefs, reports, deception, and uncertainty/i);
-    assert.match(ROLLING_STORY_RULE, /Omit headings, bullets, formatting/i);
-    assert.match(ROLLING_STORY_RULE, /Re-rank the whole history on every call/i);
-    assert.match(ROLLING_STORY_RULE, /not recency, position, message count, scene length, drama, prose intensity/i);
-    assert.match(ROLLING_STORY_RULE, /Preserve origins, irreversible transformations/i);
+    assert.match(ROLLING_STORY_RULE, /Return exactly four arrays/i);
+    assert.match(ROLLING_STORY_RULE, /premise: the earliest initiating facts/i);
+    assert.match(ROLLING_STORY_RULE, /majorDevelopments: only major completed turning points in strict causal chronology/i);
+    assert.match(ROLLING_STORY_RULE, /boundaryState: only durable conditions established at the end/i);
+    assert.match(ROLLING_STORY_RULE, /openMatters: only unresolved central conflicts/i);
+    assert.match(ROLLING_STORY_RULE, /never recency, position, message count, scene length, drama, prose intensity/i);
     assert.match(ROLLING_STORY_RULE, /newest excerpt has no reserved share/i);
-    assert.match(ROLLING_STORY_RULE, /A calm discovery or decision may pass/i);
-    assert.match(ROLLING_STORY_RULE, /token allowance is a ceiling, never a target/i);
-    assert.match(ROLLING_STORY_RULE, /Open with the earliest premise, origin, or initiating cause/i);
-    assert.match(ROLLING_STORY_RULE, /supporting-cast rosters, vehicle or unit names, equipment specifications/i);
-    assert.match(ROLLING_STORY_RULE, /Do not retell how each move, conversation, journey, recovery, briefing/i);
-    assert.match(ROLLING_STORY_RULE, /Returning the prior story unchanged is preferred/i);
-    assert.match(ROLLING_STORY_RULE, /Silently map the history into causal phases/i);
-    assert.match(ROLLING_STORY_RULE, /no one completed scene or newest excerpt should occupy more than about one fifth/i);
-    assert.match(ROLLING_STORY_RULE, /completed scene normally receives one compact outcome-and-consequence clause/i);
+    assert.match(ROLLING_STORY_RULE, /completed scene gets at most one majorDevelopments entry/i);
     assert.match(ROLLING_STORY_RULE, /removing it would make a later identity/i);
-    assert.match(ROLLING_STORY_RULE, /Generalize exact counts, percentages, durations, colors/i);
-    assert.match(ROLLING_STORY_RULE, /games, ordinary reassurance, temporary injury or treatment/i);
-    assert.match(ROLLING_STORY_RULE, /newest scene has not displaced older causal coverage/i);
-    assert.match(ROLLING_STORY_TASK_TEMPLATE, /silent causal-phase and detail-necessity checks/i);
+    assert.match(ROLLING_STORY_RULE, /Generalize or omit exact counts, percentages, durations, colors/i);
+    assert.match(ROLLING_STORY_RULE, /games, routine reassurance, temporary injuries or treatment/i);
+    assert.match(ROLLING_STORY_RULE, /majorDevelopments spans the history rather than the newest scene/i);
+    assert.match(ROLLING_STORY_TASK_TEMPLATE, /silent causal and detail-necessity checks/i);
     assert.match(ROLLING_STORY_TASK_TEMPLATE, /\{\{allowance\}\}/);
     const storyTask = renderPromptTemplate(ROLLING_STORY_TASK_TEMPLATE, {
         allowance: 1280,

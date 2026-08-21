@@ -6,34 +6,35 @@ import { oai_settings, openai_setting_names, openai_settings, proxies } from '/s
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError, isTransientApiError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.225';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.226';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.225';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.226';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, compactDuplicateMemoryRecords, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens, storyResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.225';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.225';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.226';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.226';
 import { embedWorldInChat } from './portable.js';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.225';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.225';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.226';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.226';
 import { applySourceAttributionFailClosed, canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.225';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.225';
-import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.225';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.225';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.226';
+import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.14.0-standalone.226';
+import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.226';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.226';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.14.0-standalone.225';
-import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.225';
-import { resolveProfileThinkingMode } from './story-thinking.js?v=0.14.0-standalone.225';
-import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.225';
-import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.225';
+import { dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.14.0-standalone.226';
+import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.226';
+import { resolveProfileThinkingMode } from './story-thinking.js?v=0.14.0-standalone.226';
+import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.226';
+import { compileRollingStorySnapshot, ROLLING_STORY_SNAPSHOT_EXAMPLE, ROLLING_STORY_SNAPSHOT_SCHEMA } from './story-snapshot.js?v=0.14.0-standalone.226';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.226';
 
 const temporalRelationSchema = {
     type: 'object',
@@ -194,15 +195,10 @@ const extractionJsonSchema = Object.freeze({
 
 const rollingStoryJsonSchema = Object.freeze({
     name: 'continuity_rolling_story',
-    description: 'A standalone rolling narrative summary derived only from its prior text and new raw chat.',
+    description: 'A bounded world-state snapshot with foundational premises, chronological major developments, state at the covered boundary, and unresolved central matters.',
     strict: true,
     returnInvalid: true,
-    value: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['storySoFar'],
-        properties: { storySoFar: { type: 'string', maxLength: 100000 } },
-    },
+    value: ROLLING_STORY_SNAPSHOT_SCHEMA,
 });
 
 const arcSchema = {
@@ -327,9 +323,10 @@ export async function generateWithThinkingPolicy(options, thinkingMode = getSett
             return await generateRaw(options);
         } catch (error) {
             if (!isThinkingControlError(error) || activeExtractionThinkingMode === 'default') throw error;
-            console.warn('[Continuity] Endpoint rejected its detected thinking control; retrying without a control.', error);
-            updateRuntime({ thinkingControl: { mode: activeExtractionThinkingMode, adapter: 'provider-default', fallback: true } });
-            activeExtractionThinkingMode = 'default';
+            const mandatory = isMandatoryThinkingError(error);
+            console.warn(`[Continuity] Endpoint rejected its detected thinking control; retrying with ${mandatory ? 'mandatory reasoning enabled' : 'the provider default'}.`, error);
+            updateRuntime({ thinkingControl: { mode: activeExtractionThinkingMode, adapter: mandatory ? 'mandatory-reasoning' : 'provider-default', fallback: true } });
+            activeExtractionThinkingMode = mandatory ? 'minimum' : 'default';
             return await generateRaw(options);
         }
     } finally {
@@ -762,8 +759,9 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
             return await requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, directKind, true, directThinkingMode);
         } catch (error) {
             if (!['auto', 'default'].includes(directThinkingMode) && isThinkingControlError(error)) {
-                directThinkingMode = 'default';
-                updateRuntime({ thinkingControl: { mode: thinkingMode, adapter: 'provider-default', fallback: true } });
+                const mandatory = isMandatoryThinkingError(error);
+                directThinkingMode = mandatory ? 'minimum' : 'default';
+                updateRuntime({ thinkingControl: { mode: thinkingMode, adapter: mandatory ? 'mandatory-reasoning' : 'provider-default', fallback: true } });
                 try {
                     return await requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, directKind, true, directThinkingMode);
                 } catch (retryError) {
@@ -818,7 +816,7 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
             );
         } catch (error) {
             if (!thinking.controlled || !isThinkingControlError(error)) throw error;
-            thinkingPayload = {};
+            thinkingPayload = thinkingControlFallbackPayload(error, thinkingPayload);
             updateRuntime({ thinkingControl: { mode: thinkingMode, adapter: thinking.adapter, fallback: true } });
             response = await ConnectionManagerRequestService.sendRequest(
                 profileId, messagesFor(fallbackPrompt), profileResponseLength, options, compatibilityPayload(),
@@ -833,7 +831,7 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
     } catch (error) {
         if (thinking.controlled && isThinkingControlError(error)) {
             console.warn(`[Continuity] ${thinking.adapter} rejected its thinking control; retrying without it.`, error);
-            thinkingPayload = {};
+            thinkingPayload = thinkingControlFallbackPayload(error, thinkingPayload);
             updateRuntime({ thinkingControl: { mode: thinkingMode, adapter: thinking.adapter, fallback: true } });
             try {
                 response = await ConnectionManagerRequestService.sendRequest(
@@ -855,7 +853,7 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
             );
         } catch (plainError) {
             if (!Object.keys(thinkingPayload).length || !isThinkingControlError(plainError)) throw plainError;
-            thinkingPayload = {};
+            thinkingPayload = thinkingControlFallbackPayload(plainError, thinkingPayload);
             updateRuntime({ thinkingControl: { mode: thinkingMode, adapter: thinking.adapter, fallback: true } });
             response = await ConnectionManagerRequestService.sendRequest(
                 profileId, messagesFor(fallbackPrompt), profileResponseLength, options, compatibilityPayload(),
@@ -882,12 +880,12 @@ async function regenerateRollingStory(priorStory, messages, expectedEpoch = runt
         messages: formatExtractionMessages(messages),
         format: usesStructuredSchema
             ? 'Return one schema-valid JSON object.'
-            : 'Return one JSON object with this exact shape: {"storySoFar":""}',
+            : `Return one JSON object with this exact shape: ${ROLLING_STORY_SNAPSHOT_EXAMPLE}`,
     };
     const prompt = renderPromptTemplate(ROLLING_STORY_TASK_TEMPLATE, values, ['prior', 'messages']);
     const fallbackPrompt = renderPromptTemplate(ROLLING_STORY_TASK_TEMPLATE, {
         ...values,
-        format: 'Return one JSON object with this exact shape: {"storySoFar":""}',
+        format: `Return one JSON object with this exact shape: ${ROLLING_STORY_SNAPSHOT_EXAMPLE}`,
     }, ['prior', 'messages']);
     let lastError;
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -913,7 +911,7 @@ async function regenerateRollingStory(priorStory, messages, expectedEpoch = runt
                 thinkingMode,
             );
             const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
-            const story = String(parsed?.storySoFar || '').replace(/\s+/gu, ' ').trim().slice(0, 100000);
+            const story = compileRollingStorySnapshot(parsed?.storySoFar ?? parsed);
             if (!story) throw new Error('The summarizer returned an empty rolling story.');
             const measuredTokens = Math.max(1, Number(await getTokenCountAsync(story)) || Math.ceil([...story].length / 4));
             if (!storyWithinAllowance(measuredTokens, allowance)) {

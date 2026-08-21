@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from '../extension/thinking-policy.js';
+import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, shouldSendStructuredSchema, thinkingControlFallbackPayload } from '../extension/thinking-policy.js';
 
 test('translates thinking off for recognized custom endpoints', () => {
     const deepseek = buildThinkingRequest({ mode: 'off', source: 'custom', model: 'deepseek-v4-flash' });
@@ -127,4 +127,29 @@ test('recognizes endpoint rejections of optional thinking controls', () => {
     assert.equal(isThinkingControlError(new Error('Unknown field enable_thinking')), true);
     assert.equal(isThinkingControlError(new Error('The value of enable_thinking is restricted to True')), true);
     assert.equal(isThinkingControlError(new Error('401 Unauthorized')), false);
+});
+
+test('native OpenRouter Auto explicitly keeps reasoning enabled', () => {
+    for (const mode of ['auto', 'default']) {
+        const result = buildThinkingRequest({ mode, source: 'openrouter', model: 'stealth/ox-alpha' });
+        assert.equal(result.adapter, 'openrouter-provider-default');
+        assert.deepEqual(result.payload, { include_reasoning: true });
+        assert.equal(result.controlled, false);
+    }
+});
+
+test('mandatory reasoning errors recover by enabling instead of stripping controls', () => {
+    const error = new Error('Reasoning is mandatory for this endpoint and cannot be disabled.');
+    assert.equal(isThinkingControlError(error), true);
+    assert.equal(isMandatoryThinkingError(error), true);
+    assert.deepEqual(thinkingControlFallbackPayload(error, {
+        include_reasoning: false,
+        reasoning_effort: 'none',
+        custom_include_body: JSON.stringify({ reasoning: { effort: 'none', exclude: true } }),
+    }), {
+        include_reasoning: true,
+        reasoning_effort: 'low',
+        custom_include_body: JSON.stringify({ reasoning: { effort: 'low', exclude: false } }),
+    });
+    assert.deepEqual(thinkingControlFallbackPayload(new Error('Unknown field reasoning_effort'), { include_reasoning: false }), {});
 });
