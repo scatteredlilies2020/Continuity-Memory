@@ -6,33 +6,33 @@ import { proxies } from '/scripts/openai.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError, isTransientApiError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.218';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.219';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.218';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.219';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, compactDuplicateMemoryRecords, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
-import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.218';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.218';
+import { memoryResponseTokens, resolveMemoryResponseTokens, storyResponseTokens } from './memory-response-policy.js';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.219';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.219';
 import { embedWorldInChat } from './portable.js';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.218';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.218';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.219';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.219';
 import { applySourceAttributionFailClosed, canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.218';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.218';
-import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.218';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.218';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.219';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.219';
+import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.219';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.219';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { dynamicStorySourceChunk, resolveStoryBudget, storyGenerationResponseTokens } from './story-budget.js?v=0.14.0-standalone.218';
-import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.218';
-import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.218';
-import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.218';
+import { dynamicStorySourceChunk, resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.219';
+import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.219';
+import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.219';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.219';
 
 const temporalRelationSchema = {
     type: 'object',
@@ -869,14 +869,17 @@ async function regenerateRollingStory(priorStory, messages, expectedEpoch = runt
             throw error;
         }
         try {
+            const retryRequirement = attempt > 1
+                ? `\n\nRETRY REQUIREMENT: The provider ended the previous response before valid completion. Return complete valid JSON and compress storySoFar to clearly below ${allowance} tokens.`
+                : '';
             const raw = await requestStructured(
-                prompt,
+                `${prompt}${retryRequirement}`,
                 ROLLING_STORY_RULE,
                 rollingStoryJsonSchema,
-                storyGenerationResponseTokens(allowance, attempt),
+                storyResponseTokens(),
                 profileId,
                 directKind,
-                fallbackPrompt,
+                `${fallbackPrompt}${retryRequirement}`,
             );
             const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
             const story = String(parsed?.storySoFar || '').replace(/\s+/gu, ' ').trim().slice(0, 12000);
@@ -893,7 +896,7 @@ async function regenerateRollingStory(priorStory, messages, expectedEpoch = runt
             const delay = 750 * (2 ** (attempt - 1));
             const outputLimit = /reached its output limit|finish_reason:\s*(?:length|max_tokens)/i.test(String(error?.message || ''));
             updateRuntime({ retryStatus: outputLimit
-                ? `Story API attempt ${attempt}/3 exhausted its output limit. Retrying with more generation headroom in ${delay} ms; the Story allowance and last checkpoint are unchanged.`
+                ? `Story API attempt ${attempt}/3 exhausted the provider output limit. Retrying with stricter compression in ${delay} ms; the selected profile controls output capacity and the Story allowance is unchanged.`
                 : `Story API attempt ${attempt}/3 failed temporarily. Retrying in ${delay} ms; the last completed checkpoint is safe.` });
             await new Promise(resolve => setTimeout(resolve, delay));
         }

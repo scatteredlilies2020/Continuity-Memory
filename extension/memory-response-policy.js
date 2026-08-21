@@ -8,6 +8,10 @@ export function memoryResponseTokens(layer) {
     return PROVIDER_MANAGED_MEMORY_RESPONSE_TOKENS;
 }
 
+export function storyResponseTokens() {
+    return PROVIDER_MANAGED_MEMORY_RESPONSE_TOKENS;
+}
+
 export function resolveMemoryResponseTokens(responseLength, adapter = '') {
     if (responseLength !== null && responseLength !== undefined) return responseLength;
     return String(adapter).startsWith('gemini')
