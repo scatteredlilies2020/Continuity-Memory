@@ -6,32 +6,32 @@ import { proxies } from '/scripts/openai.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.207';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.208';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.207';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.208';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, compactDuplicateMemoryRecords, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.207';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.207';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.208';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.208';
 import { embedWorldInChat } from './portable.js';
-import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.207';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.207';
+import { isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.208';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_RULE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.208';
 import { applySourceAttributionFailClosed, canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.207';
-import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.207';
-import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.207';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.207';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.208';
+import { buildThinkingRequest, isThinkingControlError, shouldSendStructuredSchema } from './thinking-policy.js?v=0.14.0-standalone.208';
+import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.208';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.208';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { dynamicStorySourceChunk, resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.207';
-import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.207';
-import { completeStoryMessages, resolveStoryBatchMessages, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.207';
+import { dynamicStorySourceChunk, resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.208';
+import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.208';
+import { completeStoryMessages, resolveStoryBatchMessages, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.208';
 
 const temporalRelationSchema = {
     type: 'object',
@@ -358,7 +358,7 @@ function collectMessages(from, to) {
     return messages;
 }
 
-async function chunkMessages(messages, tokenLimit, maxMessages = Infinity) {
+async function chunkMessages(messages, tokenLimit, maxMessages = Infinity, firstTokenLimit = tokenLimit) {
     const chunks = [];
     let chunk = [];
     let tokens = 0;
@@ -366,7 +366,8 @@ async function chunkMessages(messages, tokenLimit, maxMessages = Infinity) {
         const discontinuous = chunk.length && message.index > chunk.at(-1).index + 1;
         const candidate = discontinuous ? [message] : [...chunk, message];
         const candidateTokens = await getTokenCountAsync(formatMessages(candidate));
-        if (chunk.length && (candidateTokens > tokenLimit || candidate.length > maxMessages || discontinuous)) {
+        const activeTokenLimit = chunks.length ? tokenLimit : firstTokenLimit;
+        if (chunk.length && (candidateTokens > activeTokenLimit || candidate.length > maxMessages || discontinuous)) {
             chunks.push({ messages: chunk, tokens });
             chunk = [];
             tokens = 0;
@@ -1795,8 +1796,11 @@ export async function rebuildRollingStory() {
     const messages = collectMemoryEligibleMessages(getContext().chat || []);
     if (!messages.length) throw new Error('This chat has no eligible raw messages to summarize.');
     await requireRetryStorage();
-    const chunkLimit = dynamicStorySourceChunk(getContext().maxContext);
-    const chunks = await chunkMessages(messages, chunkLimit, storyChunkMessageLimit(false, getSettings().storyBatchMessages));
+    const settings = getSettings();
+    const allowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext).tokens;
+    const rollingChunkLimit = dynamicStorySourceChunk(getContext().maxContext, allowance, true);
+    const firstChunkLimit = dynamicStorySourceChunk(getContext().maxContext, allowance, false);
+    const chunks = await chunkMessages(messages, rollingChunkLimit, storyChunkMessageLimit(false, settings.storyBatchMessages), firstChunkLimit);
     const epoch = runtime.generation;
     let story = '';
     let savedWorld = runtime.world;
@@ -1857,7 +1861,11 @@ export async function maybeAutoUpdateRollingStory(sourceMessages = null) {
     const ready = completeStoryMessages(pending, batchSize);
     if (!ready.length) return null;
     await requireRetryStorage();
-    const chunks = await chunkMessages(ready, dynamicStorySourceChunk(getContext().maxContext), storyChunkMessageLimit(Boolean(previous?.text), batchSize));
+    const allowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext).tokens;
+    const hasPriorStory = Boolean(previous?.text);
+    const rollingChunkLimit = dynamicStorySourceChunk(getContext().maxContext, allowance, true);
+    const firstChunkLimit = dynamicStorySourceChunk(getContext().maxContext, allowance, hasPriorStory);
+    const chunks = await chunkMessages(ready, rollingChunkLimit, storyChunkMessageLimit(hasPriorStory, batchSize), firstChunkLimit);
     const epoch = runtime.generation;
     let story = String(previous?.text || '').trim();
     let savedWorld = world;

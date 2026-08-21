@@ -11,7 +11,10 @@ export function resolveStoryBudget(configuredTokens, contextSize) {
     return { tokens: dynamicStoryBudget(contextSize), mode: 'automatic', contextSize: Number(contextSize) || 50000 };
 }
 
-export function dynamicStorySourceChunk(contextSize) {
+export function dynamicStorySourceChunk(contextSize, outputAllowance = null, includesPriorStory = true) {
     const size = Math.max(0, Number(contextSize) || 50000);
-    return Math.min(50000, Math.max(4000, Math.round(size * 0.20)));
+    const output = Math.max(128, Number(outputAllowance) || dynamicStoryBudget(size));
+    const prior = includesPriorStory ? output : 0;
+    const promptReserve = 2048;
+    return Math.max(128, Math.floor(size - output - prior - promptReserve));
 }
