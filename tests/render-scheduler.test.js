@@ -30,3 +30,23 @@ test('a completed render allows the next runtime frame to be scheduled', () => {
     frames.shift()();
     assert.equal(renders, 2);
 });
+
+test('render throttling keeps bursts bounded while retaining the latest state', () => {
+    const frames = [];
+    const delays = [];
+    const rendered = [];
+    let clock = 0;
+    const schedule = createRenderScheduler(value => rendered.push(value), callback => frames.push(callback), {
+        minInterval: 100,
+        now: () => clock,
+        scheduleDelay: (callback, delay) => delays.push({ callback, delay }),
+    });
+    schedule('first');
+    frames.shift()();
+    schedule('latest');
+    assert.equal(frames.length, 0);
+    assert.deepEqual(delays.map(item => item.delay), [100]);
+    clock = 100;
+    delays.shift().callback();
+    assert.deepEqual(rendered, ['first', 'latest']);
+});

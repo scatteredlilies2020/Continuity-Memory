@@ -1,35 +1,55 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.14.0-standalone.248';
+import { api } from './api.js?v=0.14.0-standalone.249';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, maybeAutoUpdateRollingStory, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.248';
-import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.248';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.248';
-import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.248';
-import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.248';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.248';
+import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, maybeAutoUpdateRollingStory, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.249';
+import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.249';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.249';
+import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.249';
+import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.249';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.249';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.248';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.248';
-import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.248';
-import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.248';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.249';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.249';
+import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.249';
+import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.249';
 import { completeL1MessageCount, isL1StabilityProtectedMessage, resolveL1GroupSize } from './l1-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
-import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.14.0-standalone.248';
-import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.248';
-import { resolveStoryBatchMessages } from './story-cadence.js?v=0.14.0-standalone.248';
+import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.14.0-standalone.249';
+import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.249';
+import { resolveStoryBatchMessages } from './story-cadence.js?v=0.14.0-standalone.249';
+import { createBackgroundScheduler } from './background-scheduler.js';
 
 const PROMPT_KEY = 'continuity_memory_context';
 let lastObservedWorldId = null;
 let lastObservedWorldRevision = null;
 let injectionRefresh = null;
+let injectionRefreshRunning = false;
+let injectionRefreshPending = false;
 let mutationSync = null;
 let divergenceRepairRequested = false;
 let activeGenerationReadiness = null;
 let pendingEmbeddingSyncWorld = null;
+
+const backgroundMemoryWork = createBackgroundScheduler(async () => {
+    try {
+        const settings = getSettings();
+        const processableMessages = collectMemoryEligibleMessages(getContext().chat || []).length;
+        const firstStoryBatch = settings.storySoFarEnabled ? resolveStoryBatchMessages(settings.storyBatchMessages) : Number.POSITIVE_INFINITY;
+        if (!getBoundWorldId() && processableMessages >= Math.min(settings.extractionBatchMessages, firstStoryBatch)) {
+            await ensureCurrentChatMemory(true);
+        }
+        // Keep one model/storage lane active at a time. Story uses completed
+        // L1 by default, so extraction must settle before Story advances.
+        await maybeAutoExtract(false);
+        await maybeAutoUpdateRollingStory();
+    } catch (error) {
+        if (!isRuntimeCancellation(error)) updateRuntime({ lastError: `Automatic memory update failed: ${error.message}` });
+    }
+});
 
 function showGenerationNotification(type, message, options = undefined) {
     if (!getSettings().showNotifications || !window.toastr?.[type]) return false;
@@ -424,9 +444,24 @@ async function refreshInjection(useRetrievalAssist = false, strictEmbedding = fa
 
 function scheduleInjectionRefresh() {
     if (injectionRefresh) clearTimeout(injectionRefresh);
-    injectionRefresh = setTimeout(() => {
+    if (injectionRefreshRunning) {
+        injectionRefreshPending = true;
+        return;
+    }
+    injectionRefresh = setTimeout(async () => {
         injectionRefresh = null;
-        refreshInjection().catch(error => updateRuntime({ lastError: `Injection failed: ${error.message}` }));
+        injectionRefreshRunning = true;
+        try {
+            await refreshInjection();
+        } catch (error) {
+            updateRuntime({ lastError: `Injection failed: ${error.message}` });
+        } finally {
+            injectionRefreshRunning = false;
+            if (injectionRefreshPending) {
+                injectionRefreshPending = false;
+                scheduleInjectionRefresh();
+            }
+        }
     }, 100);
 }
 
@@ -594,24 +629,7 @@ async function init() {
     });
     eventSource.on(event_types.MESSAGE_RECEIVED, () => {
         scheduleInjectionRefresh();
-        setTimeout(async () => {
-            try {
-                const settings = getSettings();
-                const processableMessages = collectMemoryEligibleMessages(getContext().chat || []).length;
-                const firstStoryBatch = settings.storySoFarEnabled ? resolveStoryBatchMessages(settings.storyBatchMessages) : Number.POSITIVE_INFINITY;
-                if (!getBoundWorldId() && processableMessages >= Math.min(settings.extractionBatchMessages, firstStoryBatch)) {
-                    await ensureCurrentChatMemory(true);
-                }
-                const story = maybeAutoUpdateRollingStory().catch(error => {
-                    if (!isRuntimeCancellation(error)) updateRuntime({ storyLastError: `Automatic Story update failed: ${error.message}` });
-                    return null;
-                });
-                const extraction = maybeAutoExtract(false);
-                await Promise.all([story, extraction]);
-            } catch (error) {
-                updateRuntime({ lastError: `Automatic extraction failed: ${error.message}` });
-            }
-        }, 250);
+        backgroundMemoryWork.schedule();
     });
     eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY, eventData => {
         if (!shouldCapturePromptMeasurement(eventData)) return;
