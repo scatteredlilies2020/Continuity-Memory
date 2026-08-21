@@ -139,9 +139,16 @@ test('native OpenRouter Auto explicitly keeps reasoning enabled', () => {
 });
 
 test('mandatory reasoning errors recover by enabling instead of stripping controls', () => {
-    const error = new Error('Reasoning is mandatory for this endpoint and cannot be disabled.');
-    assert.equal(isThinkingControlError(error), true);
-    assert.equal(isMandatoryThinkingError(error), true);
+    const errors = [
+        new Error('Reasoning is mandatory for this endpoint and cannot be disabled.'),
+        new Error('Thinking must be enabled for this model.'),
+        new Error('This endpoint requires reasoning.'),
+    ];
+    for (const error of errors) {
+        assert.equal(isThinkingControlError(error), true);
+        assert.equal(isMandatoryThinkingError(error), true);
+    }
+    const error = errors[0];
     assert.deepEqual(thinkingControlFallbackPayload(error, {
         include_reasoning: false,
         reasoning_effort: 'none',

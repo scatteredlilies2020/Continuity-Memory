@@ -1,4 +1,4 @@
-import { minimumReasoningEffort } from './model-compatibility.js?v=0.14.0-standalone.226';
+import { minimumReasoningEffort } from './model-compatibility.js?v=0.14.0-standalone.227';
 
 function normalizedMode(mode) {
     const value = String(mode || '').toLowerCase();
@@ -119,6 +119,7 @@ export function shouldSendStructuredSchema(adapter = '', jsonSchema = null) {
 }
 
 export function isThinkingControlError(error) {
+    if (isMandatoryThinkingError(error)) return true;
     const message = String(error?.cause?.message || error?.message || error).toLowerCase();
     const rejection = '(?:unknown|unsupported|invalid|restricted|not permitted|not allowed|cannot|can not|must be|only support)';
     const control = '(?:thinking|reasoning|enable_thinking|reasoning_effort|chat_template_kwargs|\\bthink\\b)';
@@ -127,7 +128,7 @@ export function isThinkingControlError(error) {
 
 export function isMandatoryThinkingError(error) {
     const message = String(error?.cause?.message || error?.message || error).toLowerCase();
-    return /(?:thinking|reasoning)[^\n]*(?:mandatory|required|must be enabled|cannot be disabled|can not be disabled)|(?:mandatory|required)[^\n]*(?:thinking|reasoning)/i.test(message);
+    return /(?:thinking|reasoning)[^\n]*(?:mandatory|required|requires?|must be enabled|cannot be disabled|can not be disabled)|(?:mandatory|required|requires?)[^\n]*(?:thinking|reasoning)/i.test(message);
 }
 
 export function thinkingControlFallbackPayload(error, payload = {}) {

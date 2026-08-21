@@ -6,35 +6,35 @@ import { oai_settings, openai_setting_names, openai_settings, proxies } from '/s
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError, isTransientApiError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.226';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.227';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.226';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.227';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, compactDuplicateMemoryRecords, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens, storyResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.226';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.226';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.227';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.227';
 import { embedWorldInChat } from './portable.js';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.226';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.226';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.227';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.227';
 import { applySourceAttributionFailClosed, canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.226';
-import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.14.0-standalone.226';
-import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.226';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.226';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.227';
+import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.14.0-standalone.227';
+import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.227';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.227';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.14.0-standalone.226';
-import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.226';
-import { resolveProfileThinkingMode } from './story-thinking.js?v=0.14.0-standalone.226';
-import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.226';
-import { compileRollingStorySnapshot, ROLLING_STORY_SNAPSHOT_EXAMPLE, ROLLING_STORY_SNAPSHOT_SCHEMA } from './story-snapshot.js?v=0.14.0-standalone.226';
-import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.226';
+import { dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.14.0-standalone.227';
+import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.227';
+import { resolveProfileThinkingMode } from './story-thinking.js?v=0.14.0-standalone.227';
+import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.227';
+import { compileRollingStorySnapshot, ROLLING_STORY_SNAPSHOT_EXAMPLE, ROLLING_STORY_SNAPSHOT_SCHEMA } from './story-snapshot.js?v=0.14.0-standalone.227';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.227';
 
 const temporalRelationSchema = {
     type: 'object',
@@ -322,8 +322,8 @@ export async function generateWithThinkingPolicy(options, thinkingMode = getSett
         try {
             return await generateRaw(options);
         } catch (error) {
-            if (!isThinkingControlError(error) || activeExtractionThinkingMode === 'default') throw error;
             const mandatory = isMandatoryThinkingError(error);
+            if (!isThinkingControlError(error) || (activeExtractionThinkingMode === 'default' && !mandatory)) throw error;
             console.warn(`[Continuity] Endpoint rejected its detected thinking control; retrying with ${mandatory ? 'mandatory reasoning enabled' : 'the provider default'}.`, error);
             updateRuntime({ thinkingControl: { mode: activeExtractionThinkingMode, adapter: mandatory ? 'mandatory-reasoning' : 'provider-default', fallback: true } });
             activeExtractionThinkingMode = mandatory ? 'minimum' : 'default';
@@ -758,8 +758,8 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
         try {
             return await requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, directKind, true, directThinkingMode);
         } catch (error) {
-            if (!['auto', 'default'].includes(directThinkingMode) && isThinkingControlError(error)) {
-                const mandatory = isMandatoryThinkingError(error);
+            const mandatory = isMandatoryThinkingError(error);
+            if (isThinkingControlError(error) && (mandatory || !['auto', 'default'].includes(directThinkingMode))) {
                 directThinkingMode = mandatory ? 'minimum' : 'default';
                 updateRuntime({ thinkingControl: { mode: thinkingMode, adapter: mandatory ? 'mandatory-reasoning' : 'provider-default', fallback: true } });
                 try {
@@ -815,7 +815,7 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
                 profileId, messagesFor(fallbackPrompt), profileResponseLength, options, compatibilityPayload(),
             );
         } catch (error) {
-            if (!thinking.controlled || !isThinkingControlError(error)) throw error;
+            if (!isThinkingControlError(error) || (!thinking.controlled && !isMandatoryThinkingError(error))) throw error;
             thinkingPayload = thinkingControlFallbackPayload(error, thinkingPayload);
             updateRuntime({ thinkingControl: { mode: thinkingMode, adapter: thinking.adapter, fallback: true } });
             response = await ConnectionManagerRequestService.sendRequest(
@@ -829,8 +829,8 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
             profileId, messages, profileResponseLength, options, { ...compatibilityPayload(), json_schema: jsonSchema },
         );
     } catch (error) {
-        if (thinking.controlled && isThinkingControlError(error)) {
-            console.warn(`[Continuity] ${thinking.adapter} rejected its thinking control; retrying without it.`, error);
+        if (isThinkingControlError(error) && (thinking.controlled || isMandatoryThinkingError(error))) {
+            console.warn(`[Continuity] ${thinking.adapter} rejected its thinking policy; retrying with a compatible policy.`, error);
             thinkingPayload = thinkingControlFallbackPayload(error, thinkingPayload);
             updateRuntime({ thinkingControl: { mode: thinkingMode, adapter: thinking.adapter, fallback: true } });
             try {
@@ -852,7 +852,7 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
                 profileId, messagesFor(fallbackPrompt), profileResponseLength, options, compatibilityPayload(),
             );
         } catch (plainError) {
-            if (!Object.keys(thinkingPayload).length || !isThinkingControlError(plainError)) throw plainError;
+            if (!isThinkingControlError(plainError) || (!Object.keys(thinkingPayload).length && !isMandatoryThinkingError(plainError))) throw plainError;
             thinkingPayload = thinkingControlFallbackPayload(plainError, thinkingPayload);
             updateRuntime({ thinkingControl: { mode: thinkingMode, adapter: thinking.adapter, fallback: true } });
             response = await ConnectionManagerRequestService.sendRequest(
