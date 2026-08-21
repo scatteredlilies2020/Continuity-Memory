@@ -1,26 +1,26 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.14.0-standalone.251';
+import { api } from './api.js?v=0.14.0-standalone.252';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, maybeAutoUpdateRollingStory, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.251';
-import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.251';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.251';
-import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.251';
-import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.251';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.251';
+import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, maybeAutoUpdateRollingStory, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.252';
+import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.252';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.252';
+import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.252';
+import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.252';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.252';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.251';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.251';
-import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.251';
-import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.251';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.252';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.252';
+import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.252';
+import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.252';
 import { completeL1MessageCount, isL1StabilityProtectedMessage, resolveL1GroupSize } from './l1-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
-import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.14.0-standalone.251';
-import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.251';
-import { resolveStoryBatchMessages } from './story-cadence.js?v=0.14.0-standalone.251';
+import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.14.0-standalone.252';
+import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.252';
+import { resolveStoryBatchMessages } from './story-cadence.js?v=0.14.0-standalone.252';
 import { createBackgroundScheduler } from './background-scheduler.js';
 
 const PROMPT_KEY = 'continuity_memory_context';
@@ -224,8 +224,12 @@ async function prepareRoleplayGeneration(type) {
     const groupSize = resolveL1GroupSize(getSettings().extractionBatchMessages);
     const waitingBacklog = roleplayBacklogPolicy(waitingCoverage.extractable, groupSize, waitingCoverage.required);
     const activeWorkAtStart = runtime.processing || runtime.queue.length > 0;
-    const waitingNotification = activeWorkAtStart || waitingBacklog.shouldCatchUp
-        ? roleplayWaitNotification(runtime, waitingBacklog.shouldCatchUp ? waitingBacklog.blocking : 0)
+    // Ordinary pending backlog is safe to leave in the raw chat. Only an
+    // explicitly required rebuild (for example, after an intentional undo)
+    // is allowed to block a fresh roleplay reply.
+    const blocksRoleplay = waitingBacklog.required > 0;
+    const waitingNotification = blocksRoleplay
+        ? roleplayWaitNotification(runtime, waitingBacklog.required)
         : '';
     const stopSequence = runtime.stopSequence;
     if (waitingNotification) {
@@ -234,7 +238,7 @@ async function prepareRoleplayGeneration(type) {
     }
     const revisionBeforeWaiting = Number(runtime.world?.revision ?? -1);
     let backgroundError = '';
-    if (activeWorkAtStart || waitingBacklog.shouldCatchUp) {
+    if (blocksRoleplay) {
         try {
             // Let an in-flight request settle before roleplay uses the same
             // SillyTavern connection. A merely paused soft backlog remains raw
@@ -262,7 +266,7 @@ async function prepareRoleplayGeneration(type) {
     let hierarchy = { arcs: 0, eras: 0 };
     let vectors = null;
     let caughtUp = false;
-    if (initialBacklog.shouldCatchUp) {
+    if (initialBacklog.required > 0) {
         if (!runtime.roleplayGate) {
             updateRuntime({
                 roleplayGate: {
@@ -282,10 +286,8 @@ async function prepareRoleplayGeneration(type) {
     assertRoleplayPreparationNotStopped(stopSequence);
     const coverage = getProcessingCoverage(runtime.world, sourceMessages);
     const remainingBacklog = roleplayBacklogPolicy(coverage.extractable, groupSize, coverage.required);
-    if (remainingBacklog.shouldCatchUp) {
-        throw new Error(remainingBacklog.required
-            ? `${remainingBacklog.required} deliberately undone memory message(s) remain incomplete. Roleplay was blocked.`
-            : `${remainingBacklog.eligible} L1 message(s) remain beyond the safe background limit.`);
+    if (remainingBacklog.required > 0) {
+        throw new Error(`${remainingBacklog.required} deliberately undone memory message(s) remain incomplete. Roleplay was blocked.`);
     }
     const processedMessages = Math.max(0, initialCoverage.pending - coverage.pending);
     if (processedMessages) updates.push(`processed ${processedMessages} message(s) into L1`);
