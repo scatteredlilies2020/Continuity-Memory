@@ -36,6 +36,7 @@ import { connectionProfileHasModel } from './profile-request-policy.js?v=0.14.0-
 
 let worlds = [];
 let creatingChatMemory = null;
+let refreshingWorlds = null;
 let pendingCorrection = null;
 let viewerCategory = 'l1';
 let viewerSearch = '';
@@ -590,7 +591,7 @@ function continuityPanelIsOpen() {
     return !content || getComputedStyle(content).display !== 'none';
 }
 
-export async function refreshWorlds() {
+async function refreshWorldsOnce() {
     const response = await api.listWorlds();
     worlds = response.worlds || [];
     let selected = getBoundWorldId();
@@ -645,6 +646,15 @@ export async function refreshWorlds() {
     renderRuntime();
     return world;
 }
+export function refreshWorlds() {
+    if (refreshingWorlds) return refreshingWorlds;
+    refreshingWorlds = refreshWorldsOnce().finally(() => {
+        refreshingWorlds = null;
+    });
+    return refreshingWorlds;
+}
+
+
 
 async function reconcileBoundWorldSource(world) {
     const chatKey = getChatKey();
