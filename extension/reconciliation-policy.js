@@ -208,28 +208,31 @@ export function recoverExplicitAddressFacts(result, world, messages) {
                 if (normalized(speaker.name) === normalized(addressee.name)) continue;
                 for (const speakerName of speakerNames) {
                     for (const addresseeName of addresseeNames) {
-                    const pattern = new RegExp(`\\b${escaped(speakerName)}\\b[^\\n\\r]{0,80}\\b(?:calls?|called|nicknames?|nicknamed|dubs?|dubbed|addresses?|addressed|dismisses?|dismissed)\\s+\\b${escaped(addresseeName)}\\b\\s+(?:as\\s+)?[“\"']([^”\"'\\n\\r]{1,80})[”\"']`, 'iu');
-                    const form = String(text.match(pattern)?.[1] || '').replace(/\s+/g, ' ').trim();
-                    if (!form || !ADDRESS_MEANINGFUL.test(form) || ADDRESS_BRACKET.test(form) || !evidenceFor(form)) continue;
-                    const candidate = { subject: speaker.name, predicate: `calls ${addressee.name}`, category: 'form of address' };
-                    const identity = addressFactIdentity(candidate, evidenceWorld);
-                    const existing = result.facts.find(item => addressFactIdentity(item, evidenceWorld) === identity);
-                    if (existing) {
-                        existing.value = mergeAddressValues(existing.value, form);
-                    } else {
-                        const stored = (world?.facts || []).find(item => addressFactIdentity(item, evidenceWorld) === identity);
-                        result.facts.push({
-                            targetId: stored?.id || '',
-                            subject: speaker.name,
-                            predicate: `calls ${addressee.name}`,
-                            value: form,
-                            category: 'form of address',
-                            importance: 2,
-                            persistence: 'recurring',
-                        });
-                        recovered++;
+                        const pattern = new RegExp(`\\b${escaped(speakerName)}\\b[^\\n\\r]{0,80}\\b(?:calls?|called|nicknames?|nicknamed|dubs?|dubbed|addresses?|addressed|dismisses?|dismissed)\\s+\\b${escaped(addresseeName)}\\b\\s+(?:as\\s+)?[“\"']([^”\"'\\n\\r]{1,80})[”\"']`, 'iu');
+                        const form = String(text.match(pattern)?.[1] || '').replace(/\s+/g, ' ').trim();
+                        if (!form || !ADDRESS_MEANINGFUL.test(form) || ADDRESS_BRACKET.test(form) || !evidenceFor(form)) continue;
+                        const candidate = { subject: speaker.name, predicate: `calls ${addressee.name}`, category: 'form of address' };
+                        const identity = addressFactIdentity(candidate, evidenceWorld);
+                        const existing = result.facts.find(item => addressFactIdentity(item, evidenceWorld) === identity);
+                        if (existing) {
+                            existing.value = mergeAddressValues(existing.value, form);
+                        } else {
+                            const stored = (world?.facts || []).find(item => addressFactIdentity(item, evidenceWorld) === identity);
+                            result.facts.push({
+                                targetId: stored?.id || '',
+                                subject: speaker.name,
+                                predicate: `calls ${addressee.name}`,
+                                value: form,
+                                category: 'form of address',
+                                importance: 2,
+                                persistence: 'recurring',
+                            });
+                            recovered++;
+                        }
                     }
                 }
+            }
+        }
             }
         }
         }
