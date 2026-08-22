@@ -1,8 +1,5 @@
 // Keep this module filename neutral: privacy filter lists commonly block
 // scripts named "fingerprint.js", even when they only hash local message text.
-const fingerprintCache = new WeakMap();
-const sourceMessageCache = new WeakMap();
-
 function fastHash(value) {
     const source = String(value ?? '');
     let first = 0x811c9dc5;
@@ -17,35 +14,22 @@ function fastHash(value) {
     return `${(first >>> 0).toString(16).padStart(8, '0')}${(second >>> 0).toString(16).padStart(8, '0')}`;
 }
 
-export function fingerprintMessage(message) {
-    if (message && typeof message === 'object' && fingerprintCache.has(message)) return fingerprintCache.get(message);
-    const fingerprint = fastHash(`${Number(message?.index)}\u0000${String(message?.name || '')}\u0000${String(message?.text || '')}`);
-    if (message && typeof message === 'object') fingerprintCache.set(message, fingerprint);
-    return fingerprint;
+export function fingerprintMessage({ index, name, text }) {
+    return fastHash(`${Number(index)}\u0000${String(name || '')}\u0000${String(text || '')}`);
 }
 
 export function collectFingerprintMessages(chat = []) {
     const messages = [];
     for (let index = 0; index < chat.length; index++) {
         const message = chat[index];
-        const rawText = message?.mes;
-        const body = String(rawText || '').trim();
+        const body = String(message?.mes || '').trim();
         if (!message || message.is_system || !body) continue;
-        const name = message.name || (message.is_user ? 'User' : 'Character');
-        const isUser = Boolean(message.is_user);
-        const cached = sourceMessageCache.get(message);
-        if (cached?.index === index && cached.rawText === rawText && cached.name === name && cached.isUser === isUser) {
-            messages.push(cached.normalized);
-            continue;
-        }
-        const normalized = {
+        messages.push({
             index,
-            name,
+            name: message.name || (message.is_user ? 'User' : 'Character'),
             text: body,
-            isUser,
-        };
-        sourceMessageCache.set(message, { index, rawText, name, isUser, normalized });
-        messages.push(normalized);
+            isUser: Boolean(message.is_user),
+        });
     }
     return messages;
 }
