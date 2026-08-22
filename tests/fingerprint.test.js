@@ -48,6 +48,21 @@ test('collects the same processable message shape used by extraction', () => {
         { index: 3, name: 'Character', text: 'cake', isUser: false },
     ]);
 });
+test('reuses normalized messages and fingerprints until their source changes', () => {
+    const chat = [{ mes: 'A long-lived message', name: 'User', is_user: true }];
+    const first = collectFingerprintMessages(chat)[0];
+    const firstFingerprint = fingerprintMessage(first);
+    const second = collectFingerprintMessages(chat)[0];
+    assert.equal(second, first);
+    assert.equal(fingerprintMessage(second), firstFingerprint);
+
+    chat[0].mes = 'An edited message';
+    const edited = collectFingerprintMessages(chat)[0];
+    assert.notEqual(edited, first);
+    assert.equal(edited.text, 'An edited message');
+    assert.notEqual(fingerprintMessage(edited), firstFingerprint);
+});
+
 
 test('CM eligibility excludes only the provisional newest AI output', () => {
     const user = { mes: 'First prompt', name: 'User', is_user: true };
