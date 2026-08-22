@@ -1225,7 +1225,9 @@ export function renderRuntime(refreshSettings = true) {
     setElementHtml('#continuity_counts', runtime.world
         ? Object.entries(counts).map(([name, count]) => `<span class="continuity-count">${name}: ${count}</span>`).join('')
         : 'No chat memory loaded.');
-    renderMemoryViewer();
+    // A large world can contain thousands of records. Build the viewer only
+    // when the user explicitly opens it, not when settings itself opens.
+    if ($('#continuity_memory_viewer_details').prop('open')) renderMemoryViewer();
     setElementText('#continuity_preview', runtime.lastInjection || runtime.injectionStatus || 'Checking memory injection…');
     setElementText(
         '#continuity_last_generation',
@@ -1675,6 +1677,9 @@ export function initUI() {
     installReviewRecoveryListeners();
     initSectionToggle();
     document.getElementById('continuity_settings')?.addEventListener('inline-drawer-toggle', () => renderRuntime(true));
+    document.getElementById('continuity_memory_viewer_details')?.addEventListener('toggle', event => {
+        if (event.currentTarget.open) renderMemoryViewer(true);
+    });
     $('#continuity_reset_defaults').on('click', async () => {
         if (!window.confirm('Reset all Continuity settings and prompts to their built-in defaults? Stored memory and chat bindings will not be changed.')) return;
         resetConfigurationSettings();
