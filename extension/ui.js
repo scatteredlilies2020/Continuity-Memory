@@ -1679,7 +1679,7 @@ export function initUI() {
     document.getElementById('continuity_settings')?.addEventListener('inline-drawer-toggle', () => {
         // SillyTavern emits the toggle before the drawer becomes visible.
         // Refresh on the next frame so the real enabled state is displayed.
-        requestAnimationFrame(() => setTimeout(() => renderRuntime(true), 0));
+        requestAnimationFrame(() => setTimeout(() => renderRuntime(true), 50));
     });
     document.getElementById('continuity_memory_viewer_details')?.addEventListener('toggle', event => {
         if (event.currentTarget.open) renderMemoryViewer(true);
