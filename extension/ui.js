@@ -1238,7 +1238,7 @@ export function renderRuntime(refreshSettings = true) {
     setElementHtml('#continuity_counts', runtime.world
         ? Object.entries(counts).map(([name, count]) => `<span class="continuity-count">${name}: ${count}</span>`).join('')
         : 'No chat memory loaded.');
-    if ($('#continuity_memory_viewer_details').prop('open')) renderMemoryViewer();
+    renderMemoryViewer();
     setElementText('#continuity_preview', runtime.lastInjection || runtime.injectionStatus || 'Checking memory injection…');
     setElementText(
         '#continuity_last_generation',
@@ -1687,14 +1687,7 @@ export function initUI() {
     installNativeChatExportBridge();
     installReviewRecoveryListeners();
     initSectionToggle();
-    document.getElementById('continuity_settings')?.addEventListener('inline-drawer-toggle', () => {
-        const content = document.querySelector('#continuity_settings > .inline-drawer > .inline-drawer-content');
-        if (!content || getComputedStyle(content).display !== 'none') return;
-        requestAnimationFrame(() => setTimeout(() => renderRuntime(true), 0));
-    });
-    document.getElementById('continuity_memory_viewer_details')?.addEventListener('toggle', event => {
-        if (event.currentTarget.open) renderMemoryViewer(true);
-    });
+    document.getElementById('continuity_settings')?.addEventListener('inline-drawer-toggle', () => renderRuntime(true));
     const hostDrawer = document.getElementById('continuity_settings')?.closest('.drawer-content');
     if (hostDrawer) {
         new MutationObserver(() => {
