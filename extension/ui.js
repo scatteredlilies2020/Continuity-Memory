@@ -1024,18 +1024,6 @@ function renderMemoryViewer(force = false) {
     }
     for (const item of result.items) {
         const card = $('<article>').addClass('continuity-viewer-item').appendTo(container);
-        $('<h5>').text(item.title || 'Untitled memory').appendTo(card);
-        for (const field of item.fields) {
-            const row = $('<div>').addClass('continuity-viewer-field').appendTo(card);
-            $('<b>').text(`${field.label}: `).appendTo(row);
-            $('<span>').text(field.value).appendTo(row);
-        }
-        const meta = $('<div>').addClass('continuity-viewer-meta').appendTo(card);
-        if (item.importance !== null) $('<span>').text(`Importance ${item.importance}/5`).appendTo(meta);
-        for (const source of item.sources) $('<span>').text(source).appendTo(meta);
-        if (!meta.children().length) meta.remove();
-    }
-}
 function renderRuntimeSummary() {
     const settings = getSettings();
     $('#continuity_enabled').prop('checked', settings.enabled);
@@ -1048,6 +1036,18 @@ function renderRuntimeSummary() {
         : 'No chat memory loaded.');
 }
 
+        $('<h5>').text(item.title || 'Untitled memory').appendTo(card);
+        for (const field of item.fields) {
+            const row = $('<div>').addClass('continuity-viewer-field').appendTo(card);
+            $('<b>').text(`${field.label}: `).appendTo(row);
+            $('<span>').text(field.value).appendTo(row);
+        }
+        const meta = $('<div>').addClass('continuity-viewer-meta').appendTo(card);
+        if (item.importance !== null) $('<span>').text(`Importance ${item.importance}/5`).appendTo(meta);
+        for (const source of item.sources) $('<span>').text(source).appendTo(meta);
+        if (!meta.children().length) meta.remove();
+    }
+}
 
 export function renderRuntime(refreshSettings = true) {
     const settings = getSettings();
