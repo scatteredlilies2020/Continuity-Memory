@@ -20,5 +20,5 @@ export function isTransientApiError(error) {
     const message = errorChainText(error);
     if (isRateLimitError(error)) return true;
     if (/\b(?:408|425|500|502|503|504|520|521|522|523|524)\b/.test(message)) return true;
-    return /aborted|connection (?:closed|reset)|econnreset|econnrefused|enotfound|fetch failed|failed to fetch|network error|socket hang up|temporarily unavailable|timed? ?out|timeout/i.test(message);
+    return /bad gateway|gateway timeout|aborted|connection (?:closed|reset)|econnreset|econnrefused|enotfound|fetch failed|failed to fetch|network error|socket hang up|temporarily unavailable|timed? ?out|timeout/i.test(message);
 }
