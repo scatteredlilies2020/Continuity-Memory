@@ -16,7 +16,7 @@ import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
 import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.258';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.258';
+import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.273';
 import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, STORY_RUNTIME_STATUSES, stopRuntime, stopRuntimeTask, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
 import { completeL1MessageCount, latestCompleteL1MessageIndex, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
@@ -636,11 +636,52 @@ export async function refreshWorlds() {
         }
     }
     let world = selected ? await loadBoundWorld() : null;
+    world = await recoverSuperiorSyncedWorld(world);
     world = await reconcileBoundWorldSource(world);
     if (getSettings().embedMemoryInChat && world) await embedWorldInChat(world);
     else if (!getSettings().embedMemoryInChat) await clearPortableSnapshot();
     renderRuntime();
     return world;
+}
+
+async function recoverSuperiorSyncedWorld(world) {
+    const context = getContext();
+    const chatKey = getChatKey();
+    if (!world || !chatKey) return world;
+    const candidates = rankSuperiorSyncedWorlds(worlds, world, {
+        characterName: context.name2,
+        chatId: context.chatId,
+    });
+    if (!candidates.length) return world;
+
+    const messages = collectFingerprintMessages(context.chat || []);
+    const currentAlignment = alignWorldToChat(world, messages, chatKey);
+    if (!currentAlignment.ok) return world;
+    let best = null;
+    for (const summary of candidates) {
+        try {
+            const stored = (await api.getWorld(summary.id)).world;
+            const alignment = alignWorldToChat(stored, messages, chatKey);
+            if (!alignment.ok || alignment.matched <= currentAlignment.matched) continue;
+            if (!best || alignment.matched > best.alignment.matched) best = { stored, alignment };
+        } catch (error) {
+            console.warn('[Continuity] Could not inspect a synced memory recovery candidate.', error);
+        }
+    }
+    if (!best) return world;
+
+    const boundElsewhere = Object.entries(getSettings().chatWorlds || {})
+        .some(([boundChatKey, worldId]) => boundChatKey !== chatKey && worldId === best.stored.id);
+    const saved = boundElsewhere
+        ? (await api.importWorld(best.alignment.world)).world
+        : best.alignment.changed
+            ? (await api.saveWorld(best.alignment.world)).world
+            : best.stored;
+    bindCurrentChat(saved.id);
+    updateRuntime({ world: saved, lastError: '' });
+    await embedWorldInChat(saved, { force: true });
+    toast('info', `Recovered ${best.alignment.matched} verified processed message(s) from the most complete synced memory copy; unnecessary L1 rescanning was avoided.`);
+    return saved;
 }
 
 async function reconcileBoundWorldSource(world) {

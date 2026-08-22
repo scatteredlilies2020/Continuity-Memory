@@ -8,15 +8,15 @@ import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.14
 import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.258';
 import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
 import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.258';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.272';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.273';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
 import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.258';
 import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.258';
 import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.258';
-import { isTransientApiError } from './errors.js?v=0.14.0-standalone.272';
-import { asRoleplayBlockingError, isRoleplayBlockingError, roleplayBacklogPolicy, roleplaySourceMessages, roleplayStoryBacklogPolicy, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.272';
+import { isTransientApiError } from './errors.js?v=0.14.0-standalone.273';
+import { asRoleplayBlockingError, isRoleplayBlockingError, roleplayBacklogPolicy, roleplaySourceMessages, roleplayStoryBacklogPolicy, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.273';
 import { completeL1MessageCount, isL1StabilityProtectedMessage, latestCompleteL1MessageIndex, resolveL1GroupSize } from './l1-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
 import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.14.0-standalone.258';
@@ -854,7 +854,7 @@ async function onChatRenamed(eventData) {
 }
 
 async function init() {
-    const templateResponse = await fetch(new URL('./settings.html?v=0.14.0-standalone.272', import.meta.url));
+    const templateResponse = await fetch(new URL('./settings.html?v=0.14.0-standalone.273', import.meta.url));
     if (!templateResponse.ok) throw new Error(`Could not load settings template: ${templateResponse.status} ${templateResponse.statusText}`);
     const html = $(await templateResponse.text());
     const container = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
