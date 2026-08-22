@@ -1024,18 +1024,6 @@ function renderMemoryViewer(force = false) {
     }
     for (const item of result.items) {
         const card = $('<article>').addClass('continuity-viewer-item').appendTo(container);
-function renderRuntimeSummary() {
-    const settings = getSettings();
-    $('#continuity_enabled').prop('checked', settings.enabled);
-    $('#continuity_notifications').prop('checked', settings.showNotifications);
-    $('#continuity_status').text(runtime.paused ? 'Paused' : runtime.status);
-    $('#continuity_memory_name').text(runtime.world?.name || (getChatKey() ? 'No stored memory yet.' : 'Open a chat to begin.'));
-    const counts = worldCounts(runtime.world);
-    setElementHtml('#continuity_counts', runtime.world
-        ? Object.entries(counts).map(([name, count]) => `<span class="continuity-count">${name}: ${count}</span>`).join('')
-        : 'No chat memory loaded.');
-}
-
         $('<h5>').text(item.title || 'Untitled memory').appendTo(card);
         for (const field of item.fields) {
             const row = $('<div>').addClass('continuity-viewer-field').appendTo(card);
@@ -1326,7 +1314,7 @@ export function renderRuntime(refreshSettings = true) {
 
 // Runtime status can update many times per second during extraction/indexing.
 // Rendering at most four times per second keeps the settings panel responsive.
-const scheduleRuntimeRender = createRenderScheduler(renderRuntimeSummary, undefined, { minInterval: 250 });
+const scheduleRuntimeRender = createRenderScheduler(() => renderRuntime(false), undefined, { minInterval: 250 });
 
 async function exportWorld() {
     if (!runtime.world) throw new Error('Open a chat and prepare its memory first.');
@@ -1699,30 +1687,18 @@ export function initUI() {
     installNativeChatExportBridge();
     installReviewRecoveryListeners();
     initSectionToggle();
-    const panel = document.getElementById('continuity_settings');
-    const panelDrawer = panel?.querySelector(':scope > .inline-drawer');
-    const panelToggle = panelDrawer?.querySelector(':scope > .inline-drawer-toggle');
-    const panelContent = panelDrawer?.querySelector(':scope > .inline-drawer-content');
-    const panelIcon = panelToggle?.querySelector('.inline-drawer-icon');
-    panelToggle?.addEventListener('click', event => {
-        event.preventDefault();
-        event.stopPropagation();
-        const opening = getComputedStyle(panelContent).display === 'none';
-        panelContent.style.display = opening ? 'block' : 'none';
-        panelIcon?.classList.toggle('down', !opening);
-        panelIcon?.classList.toggle('up', opening);
-        panelIcon?.classList.toggle('fa-circle-chevron-down', !opening);
-        panelIcon?.classList.toggle('fa-circle-chevron-up', opening);
-        if (opening) requestAnimationFrame(renderRuntimeSummary);
+    document.getElementById('continuity_settings')?.addEventListener('inline-drawer-toggle', () => {
+        const content = document.querySelector('#continuity_settings > .inline-drawer > .inline-drawer-content');
+        if (!content || getComputedStyle(content).display !== 'none') return;
+        requestAnimationFrame(() => setTimeout(() => renderRuntime(true), 0));
     });
-    $('#continuity_refresh_panel').on('click', () => renderRuntime(true));
     document.getElementById('continuity_memory_viewer_details')?.addEventListener('toggle', event => {
         if (event.currentTarget.open) renderMemoryViewer(true);
     });
     const hostDrawer = document.getElementById('continuity_settings')?.closest('.drawer-content');
     if (hostDrawer) {
         new MutationObserver(() => {
-            if (continuityPanelIsOpen()) renderRuntimeSummary();
+            if (continuityPanelIsOpen()) renderRuntime(true);
         }).observe(hostDrawer, { attributes: true, attributeFilter: ['class'] });
     }
     $('#continuity_reset_defaults').on('click', async () => {
