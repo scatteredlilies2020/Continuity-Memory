@@ -314,6 +314,74 @@ function retrievalRecords(world) {
         .filter(Boolean);
 }
 
+const RETRIEVAL_CORPUS_CACHE = new WeakMap();
+
+function retrievalCorpusRevision(world) {
+    return Number(world?.revision ?? -1);
+}
+
+function createRetrievalCorpus(world) {
+    return {
+        revision: retrievalCorpusRevision(world),
+        records: retrievalRecords(world),
+        recordStats: new Map(),
+        documentFrequency: new Map(),
+        identityVocabulary: new Set(),
+        totalFieldLengths: Object.fromEntries(Object.keys(RETRIEVAL_FIELDS).map(field => [field, 0])),
+        averageFieldLengths: null,
+        passageStats: new Map(),
+    };
+}
+
+function addRetrievalCorpusRecord(corpus, item) {
+    const stats = retrievalFieldStats(item);
+    corpus.recordStats.set(item, stats);
+    for (const term of stats.fields.identity.unique) corpus.identityVocabulary.add(term);
+    for (const term of stats.fields.anchor.unique) corpus.identityVocabulary.add(term);
+    for (const field of Object.keys(RETRIEVAL_FIELDS)) corpus.totalFieldLengths[field] += stats.fields[field].tokens.length;
+    for (const term of stats.all) corpus.documentFrequency.set(term, (corpus.documentFrequency.get(term) || 0) + 1);
+}
+
+function finalizeRetrievalCorpus(world, corpus) {
+    const documentCount = Math.max(1, corpus.records.length);
+    corpus.averageFieldLengths = Object.fromEntries(Object.keys(RETRIEVAL_FIELDS)
+        .map(field => [field, Math.max(1, corpus.totalFieldLengths[field] / documentCount)]));
+    RETRIEVAL_CORPUS_CACHE.set(world, corpus);
+    return corpus;
+}
+
+function cachedRetrievalCorpus(world) {
+    const cached = RETRIEVAL_CORPUS_CACHE.get(world);
+    return cached?.revision === retrievalCorpusRevision(world) ? cached : null;
+}
+
+function retrievalCorpus(world) {
+    const cached = cachedRetrievalCorpus(world);
+    if (cached) return cached;
+    const corpus = createRetrievalCorpus(world);
+    for (const item of corpus.records) addRetrievalCorpusRecord(corpus, item);
+    return finalizeRetrievalCorpus(world, corpus);
+}
+
+export async function prepareRetrievalCorpus(world, yieldControl = null, isCurrent = () => true) {
+    migrateLegacyBeliefs(world);
+    if (!world || cachedRetrievalCorpus(world)) return Boolean(world);
+    const corpus = createRetrievalCorpus(world);
+    for (let index = 0; index < corpus.records.length; index++) {
+        if (!isCurrent()) return false;
+        addRetrievalCorpusRecord(corpus, corpus.records[index]);
+        if (yieldControl && index > 0 && index % 24 === 0) await yieldControl();
+    }
+    for (let index = 0; index < (world.capsules || []).length; index++) {
+        if (!isCurrent()) return false;
+        capsulePassageStats(world.capsules[index], corpus);
+        if (yieldControl && index > 0 && index % 4 === 0) await yieldControl();
+    }
+    if (!isCurrent()) return false;
+    finalizeRetrievalCorpus(world, corpus);
+    return true;
+}
+
 function retrievalProfile(world, recentMessages, expandedTerms) {
     const recent = recentMessages || [];
     const latestUser = recent.slice().reverse().find(message => message?.is_user === true)
@@ -330,27 +398,15 @@ function retrievalProfile(world, recentMessages, expandedTerms) {
         .filter(message => message !== latestUser)
         .map(retrievalMessageText)
         .join(' '));
-    const records = retrievalRecords(world);
-    const recordStats = new Map();
-    const documentFrequency = new Map();
-    const identityVocabulary = new Set();
-    const totalFieldLengths = Object.fromEntries(Object.keys(RETRIEVAL_FIELDS).map(field => [field, 0]));
-    for (const item of records) {
-        const stats = retrievalFieldStats(item);
-        recordStats.set(item, stats);
-        for (const term of stats.fields.identity.unique) identityVocabulary.add(term);
-        for (const term of stats.fields.anchor.unique) identityVocabulary.add(term);
-        for (const field of Object.keys(RETRIEVAL_FIELDS)) totalFieldLengths[field] += stats.fields[field].tokens.length;
-        for (const term of stats.all) documentFrequency.set(term, (documentFrequency.get(term) || 0) + 1);
-    }
+    const corpus = retrievalCorpus(world);
+    const { recordStats, documentFrequency, identityVocabulary } = corpus;
     const identityFocus = new Set([...direct, ...resolvedIdentityTerms(world, [latestUser?.name, directText])]);
     for (const term of speaker) {
         if (queryTermVariants(term, true).some(variant => identityVocabulary.has(variant))) identityFocus.add(term);
     }
     const focus = new Set([...direct, ...expanded]);
-    const documentCount = Math.max(1, records.length);
-    const averageFieldLengths = Object.fromEntries(Object.keys(RETRIEVAL_FIELDS)
-        .map(field => [field, Math.max(1, totalFieldLengths[field] / documentCount)]));
+    const documentCount = Math.max(1, corpus.records.length);
+    const averageFieldLengths = corpus.averageFieldLengths;
     return {
         direct,
         expanded,
@@ -362,7 +418,7 @@ function retrievalProfile(world, recentMessages, expandedTerms) {
         documentFrequency,
         averageFieldLengths,
         recordStats,
-        passageStats: new Map(),
+        passageStats: corpus.passageStats,
         identityVocabulary,
     };
 }
@@ -1711,7 +1767,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.253';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.257';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';

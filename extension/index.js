@@ -1,38 +1,80 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.14.0-standalone.253';
+import { api } from './api.js?v=0.14.0-standalone.257';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, maybeAutoUpdateRollingStory, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.253';
-import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.253';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.254';
-import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.253';
-import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.253';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.253';
+import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, maybeAutoUpdateRollingStory, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.257';
+import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.14.0-standalone.257';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.257';
+import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.257';
+import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.257';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.257';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.253';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.253';
-import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.253';
-import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.253';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.257';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.257';
+import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.257';
+import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.257';
 import { completeL1MessageCount, isL1StabilityProtectedMessage, resolveL1GroupSize } from './l1-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
-import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.14.0-standalone.253';
-import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.253';
-import { resolveStoryBatchMessages } from './story-cadence.js?v=0.14.0-standalone.253';
+import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.14.0-standalone.257';
+import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.257';
+import { resolveStoryBatchMessages } from './story-cadence.js?v=0.14.0-standalone.257';
 import { createBackgroundScheduler } from './background-scheduler.js';
 
 const PROMPT_KEY = 'continuity_memory_context';
 let lastObservedWorldId = null;
 let lastObservedWorldRevision = null;
-let injectionRefresh = null;
 let injectionRefreshRunning = false;
 let injectionRefreshPending = false;
 let mutationSync = null;
 let divergenceRepairRequested = false;
 let activeGenerationReadiness = null;
 let pendingEmbeddingSyncWorld = null;
+let injectionRefreshCancel = null;
+let injectionRefreshRevision = 0;
+let generationInjectionRunning = false;
+
+function yieldToBrowser(maxWait = 100) {
+    return new Promise(resolve => {
+        let settled = false;
+        const finish = () => {
+            if (settled) return;
+            settled = true;
+            resolve();
+        };
+        // requestAnimationFrame may stop entirely in a background tab. Keep a
+        // short timer fallback so a hidden SillyTavern tab cannot strand an
+        // injection refresh forever.
+        globalThis.setTimeout(finish, maxWait);
+        if (typeof globalThis.requestAnimationFrame === 'function') {
+            globalThis.requestAnimationFrame(() => globalThis.setTimeout(finish, 0));
+        } else {
+            globalThis.setTimeout(finish, 0);
+        }
+    });
+}
+
+function scheduleIdle(callback, timeout = 1500) {
+    if (typeof globalThis.requestIdleCallback === 'function') {
+        const id = globalThis.requestIdleCallback(callback, { timeout });
+        return () => globalThis.cancelIdleCallback?.(id);
+    }
+    const id = globalThis.setTimeout(callback, Math.min(timeout, 250));
+    return () => globalThis.clearTimeout(id);
+}
+
+function invalidateInjectionRefresh() {
+    injectionRefreshRevision++;
+    injectionRefreshCancel?.();
+    injectionRefreshCancel = null;
+    injectionRefreshPending = false;
+}
+
+function injectionRefreshIsCurrent(revision) {
+    return revision === injectionRefreshRevision;
+}
 
 const backgroundMemoryWork = createBackgroundScheduler(async () => {
     try {
@@ -312,11 +354,13 @@ async function prepareRoleplayGeneration(type) {
     return { sourceMessages, recentMessages: activeChat.slice(-recentLimit), notification, strictEmbedding: caughtUp };
 }
 
-async function refreshInjection(useRetrievalAssist = false, strictEmbedding = false, coverageMessages = null, recentMessages = null, promptOptions = {}) {
+async function performInjectionRefresh(useRetrievalAssist, strictEmbedding, coverageMessages, recentMessages, promptOptions, refreshRevision) {
     const settings = getSettings();
     const phase = useRetrievalAssist ? 'generation' : 'preview';
     const placement = resolveInjectionPlacement(settings, extension_prompt_types, extension_prompt_roles);
+    const refreshIsCurrent = () => injectionRefreshIsCurrent(refreshRevision);
     if (!settings.enabled || !getBoundWorldId()) {
+        if (!refreshIsCurrent()) return;
         setExtensionPrompt(PROMPT_KEY, '', placement.position, placement.depth, false, placement.role);
         const injectionStatus = !settings.enabled
             ? 'Continuity Memory is disabled.'
@@ -331,11 +375,17 @@ async function refreshInjection(useRetrievalAssist = false, strictEmbedding = fa
         } catch (error) {
             if (error.status !== 404) throw error;
             const message = 'The memory bound to this chat is not available yet. A restore or import may still be in progress.';
+            if (!refreshIsCurrent()) return;
             setExtensionPrompt(PROMPT_KEY, '', placement.position, placement.depth, false, placement.role);
             updateRuntime({ world: null, lastInjection: '', lastInjectionTokens: 0, injectionStatus: message, lastError: message });
             return;
         }
     }
+    // Preview refreshes can scan a multi-megabyte world and compile a large
+    // prompt. Give SillyTavern one paint before doing that synchronous work;
+    // generation refreshes still run immediately after their readiness checks.
+    if (!useRetrievalAssist) await yieldToBrowser();
+    if (!refreshIsCurrent()) return;
     const availableRecent = Array.isArray(recentMessages)
         ? recentMessages
         : (getContext().chat || []).filter(message => !message?.is_system).slice(-Math.max(
@@ -349,9 +399,10 @@ async function refreshInjection(useRetrievalAssist = false, strictEmbedding = fa
     let expandedTerms = [];
     let semanticRanks = new Map();
     let retrievalAssist = { mode: settings.retrievalMode, phase, executed: false, terms: [], fallback: false };
-    if (settings.retrievalMode === 'ai-expanded') {
+    if (settings.retrievalMode === 'ai-expanded' && useRetrievalAssist) {
         try {
             expandedTerms = await expandRetrievalTerms(recent);
+            if (!refreshIsCurrent()) return;
             retrievalAssist = {
                 mode: 'ai-expanded',
                 phase,
@@ -362,6 +413,7 @@ async function refreshInjection(useRetrievalAssist = false, strictEmbedding = fa
             };
             updateRuntime({ retrievalAssist });
         } catch (error) {
+            if (!refreshIsCurrent()) return;
             const message = `AI-expanded retrieval is selected but failed: ${error.message}`;
             console.error('[Continuity] AI retrieval expansion failed; local matching was not substituted.', error);
             setExtensionPrompt(PROMPT_KEY, '', placement.position, placement.depth, false, placement.role);
@@ -383,12 +435,20 @@ async function refreshInjection(useRetrievalAssist = false, strictEmbedding = fa
             if (useRetrievalAssist) throw new Error(message, { cause: error });
             return;
         }
+    } else if (settings.retrievalMode === 'ai-expanded') {
+        // Opening or changing a chat should never spend an AI request merely
+        // to populate the settings preview. Actual roleplay generation runs
+        // the authoritative AI-expanded retrieval immediately above.
+        retrievalAssist = { mode: 'ai-expanded', phase, executed: false, terms: [], fallback: false };
+        updateRuntime({ retrievalAssist });
     } else if (useRetrievalAssist && settings.retrievalMode === 'embedding-hybrid') {
         try {
             semanticRanks = await queryEmbeddingMemory(world, recent);
+            if (!refreshIsCurrent()) return;
             retrievalAssist = { mode: 'embedding-hybrid', phase, executed: true, hits: semanticRanks.size, fallback: false };
             updateRuntime({ retrievalAssist });
         } catch (error) {
+            if (!refreshIsCurrent()) return;
             if (strictEmbedding) throw new Error(`Selected vector retrieval is not ready: ${error.message}`, { cause: error });
             console.warn('[Continuity] Embedding retrieval failed; using local matching.', error);
             retrievalAssist = { mode: 'local', phase, executed: true, terms: [], fallback: true, error: error.message };
@@ -408,6 +468,10 @@ async function refreshInjection(useRetrievalAssist = false, strictEmbedding = fa
         : collectMemoryEligibleMessages(getContext().chat || []);
     const coverage = getProcessingCoverage(world, sourceMessages);
     const invalidSourceRanges = findInvalidExtractionRanges(world, sourceMessages, getChatKey());
+    await yieldToBrowser();
+    if (!refreshIsCurrent()) return;
+    await prepareRetrievalCorpus(world, yieldToBrowser, refreshIsCurrent);
+    if (!refreshIsCurrent()) return;
     const { prompt, estimatedTokens, retrievalDiagnostics } = buildMemoryPrompt(
         world,
         recent,
@@ -418,6 +482,7 @@ async function refreshInjection(useRetrievalAssist = false, strictEmbedding = fa
         semanticRanks,
         { ...promptOptions, invalidSourceRanges, includeSceneCheckpoint: coverage.pending === 0, includeStorySoFar: settings.storySoFarEnabled, storySoFarTokens: storyBudget.tokens },
     );
+    if (!refreshIsCurrent()) return;
     const managerApplied = useRetrievalAssist && getContext().mainApi === 'openai'
         && configurePromptManagerInjection(promptManager, settings, prompt);
     setExtensionPrompt(
@@ -451,14 +516,54 @@ async function refreshInjection(useRetrievalAssist = false, strictEmbedding = fa
     });
 }
 
+async function refreshInjection(useRetrievalAssist = false, strictEmbedding = false, coverageMessages = null, recentMessages = null, promptOptions = {}) {
+    if (!useRetrievalAssist && generationInjectionRunning) {
+        // The generation refresh owns the prompt until SillyTavern has built
+        // the outgoing request. A preview will be requested again when the
+        // generated message arrives.
+        injectionRefreshPending = true;
+        return false;
+    }
+    if (useRetrievalAssist) {
+        generationInjectionRunning = true;
+        invalidateInjectionRefresh();
+    } else {
+        injectionRefreshCancel?.();
+        injectionRefreshCancel = null;
+    }
+    const refreshRevision = ++injectionRefreshRevision;
+    try {
+        await performInjectionRefresh(
+            useRetrievalAssist,
+            strictEmbedding,
+            coverageMessages,
+            recentMessages,
+            promptOptions,
+            refreshRevision,
+        );
+        return injectionRefreshIsCurrent(refreshRevision);
+    } finally {
+        if (useRetrievalAssist) {
+            generationInjectionRunning = false;
+            injectionRefreshPending = false;
+        }
+    }
+}
+
 function scheduleInjectionRefresh() {
-    if (injectionRefresh) clearTimeout(injectionRefresh);
+    if (generationInjectionRunning) {
+        injectionRefreshPending = true;
+        return;
+    }
+    injectionRefreshRevision++;
+    injectionRefreshCancel?.();
+    injectionRefreshCancel = null;
     if (injectionRefreshRunning) {
         injectionRefreshPending = true;
         return;
     }
-    injectionRefresh = setTimeout(async () => {
-        injectionRefresh = null;
+    const run = async () => {
+        injectionRefreshCancel = null;
         injectionRefreshRunning = true;
         try {
             await refreshInjection();
@@ -471,7 +576,8 @@ function scheduleInjectionRefresh() {
                 scheduleInjectionRefresh();
             }
         }
-    }, 100);
+    };
+    injectionRefreshCancel = scheduleIdle(run);
 }
 
 function mutationTouchesProtectedTail(messageIndex) {
@@ -520,6 +626,7 @@ function scheduleMutationSync(delay = 350, requireDivergenceRepair = false) {
 }
 
 async function onChatChanged() {
+    invalidateInjectionRefresh();
     if (runtime.processing || runtime.queue.length) {
         invalidateRuntimeWork('Chat changed; discarded memory work belonging to the previous chat.');
     }
@@ -536,7 +643,7 @@ async function onChatChanged() {
         nextRetrievalPreview: null,
     });
     await refreshWorlds();
-    await refreshInjection();
+    scheduleInjectionRefresh();
     scheduleMutationSync();
 }
 
@@ -721,7 +828,7 @@ async function init() {
         }
     });
 
-    await refreshInjection();
+    scheduleInjectionRefresh();
     scheduleMutationSync();
     renderRuntime();
     console.log('[Continuity] Extension loaded');
