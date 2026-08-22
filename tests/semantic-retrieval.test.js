@@ -8,6 +8,11 @@ test('parses and deduplicates concise AI-expanded retrieval terms', () => {
     assert.deepEqual(terms, ['doctor', 'physician', 'medical professional']);
 });
 
+test('recovers complete AI-expanded terms when the final JSON string is truncated', () => {
+    const terms = parseExpandedTerms('{"terms":["Anakin and Obi-Wan rivalry","Dooku duel outcome","unfinished');
+    assert.deepEqual(terms, ['Anakin and Obi-Wan rivalry', 'Dooku duel outcome']);
+});
+
 test('AI retrieval keeps the selected number of complete messages', () => {
     const longReply = `opening-${'country-state '.repeat(3000)}-statbox-ending`;
     const messages = Array.from({ length: 8 }, (_, index) => ({ name: index % 2 ? 'AI' : 'User', mes: `message-${index}` }));
