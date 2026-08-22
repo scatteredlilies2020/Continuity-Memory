@@ -233,9 +233,6 @@ export function recoverExplicitAddressFacts(result, world, messages) {
                 }
             }
         }
-            }
-        }
-        }
     }
     return recovered;
 }
