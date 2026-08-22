@@ -8,19 +8,20 @@ import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.14
 import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.258';
 import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
 import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.258';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.270';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.271';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
 import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.258';
 import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.258';
 import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.258';
-import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.258';
-import { completeL1MessageCount, isL1StabilityProtectedMessage, resolveL1GroupSize } from './l1-policy.js';
+import { asRoleplayBlockingError, isRoleplayBlockingError, roleplayBacklogPolicy, roleplaySourceMessages, roleplayStoryBacklogPolicy, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.271';
+import { completeL1MessageCount, isL1StabilityProtectedMessage, latestCompleteL1MessageIndex, resolveL1GroupSize } from './l1-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
 import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.14.0-standalone.258';
 import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.258';
-import { resolveStoryBatchMessages } from './story-cadence.js?v=0.14.0-standalone.258';
+import { resolveStoryBatchMessages, rollingStoryCoverage, stableStoryMessages } from './story-cadence.js?v=0.14.0-standalone.258';
+import { resolveStorySourceMode, storedStorySourceMode, STORY_SOURCE_L1, storySourcePolicyIsCurrent } from './story-source.js?v=0.14.0-standalone.258';
 import { createBackgroundScheduler } from './background-scheduler.js';
 
 const PROMPT_KEY = 'continuity_memory_context';
@@ -124,6 +125,13 @@ globalThis.continuityMemoryGenerateInterceptor = async (coreChat, contextSize, a
         });
         if (readiness.notification) showGenerationNotification('success', readiness.notification);
     } catch (error) {
+        if (isRoleplayBlockingError(error)) {
+            const message = `Continuity cancelled the pending reply safely: ${error.message}`;
+            updateRuntime({ status: 'error', lastError: error.message, injectionStatus: message, retryStatus: message, roleplayGate: null });
+            console.error('[Continuity] Pending roleplay could not reach its safe memory boundary.', error);
+            showGenerationNotification('error', message, { timeOut: 0, extendedTimeOut: 0 });
+            throw error;
+        }
         // Memory is an enhancement, not a hard dependency for roleplay. A
         // storage/model failure must not cancel the user's generation; fall
         // back to SillyTavern's normal context reduction and raw chat.
@@ -257,6 +265,66 @@ async function completeVectorsForGeneration(stopSequence) {
     }
 }
 
+function storyGenerationPolicy(sourceMessages) {
+    const settings = getSettings();
+    if (!settings.storySoFarEnabled) return null;
+    const stableMessages = stableStoryMessages(sourceMessages);
+    const sourceMode = resolveStorySourceMode(settings.storySourceMode);
+    const eligibleMessages = sourceMode === STORY_SOURCE_L1
+        ? stableMessages.filter(message => Number(message.index) <= latestCompleteL1MessageIndex(stableMessages, settings.extractionBatchMessages))
+        : stableMessages;
+    const story = runtime.world?.storySoFar?.[getChatKey()];
+    const coverage = rollingStoryCoverage(story, eligibleMessages);
+    const sourceInvalid = Boolean(story?.text)
+        && (storedStorySourceMode(story) !== sourceMode || !storySourcePolicyIsCurrent(story, sourceMode));
+    const repairRequired = sourceInvalid || Boolean(story?.rebuildIncomplete || story?.rebuildRestartPending);
+    return {
+        coverage,
+        sourceInvalid,
+        policy: roleplayStoryBacklogPolicy(coverage.pending, resolveStoryBatchMessages(settings.storyBatchMessages), repairRequired),
+    };
+}
+
+async function waitForActiveStoryWork(storyGeneration) {
+    if (!runtime.storyProcessing) return;
+    await new Promise((resolve, reject) => {
+        let unsubscribe = () => {};
+        const inspect = state => {
+            if (state.storyGeneration !== storyGeneration) {
+                unsubscribe();
+                reject(new Error('Story processing was stopped. Saved progress was kept.'));
+                return;
+            }
+            if (state.storyProcessing) return;
+            unsubscribe();
+            const failure = state.storyFailure?.chatKey === getChatKey() ? state.storyFailure : null;
+            if (failure) reject(new Error(failure.message || 'Existing Story processing failed.'));
+            else resolve();
+        };
+        unsubscribe = onRuntimeChange(inspect);
+        inspect(runtime);
+    });
+}
+
+async function completeStoryForGeneration(sourceMessages) {
+    const storyGeneration = runtime.storyGeneration;
+    await waitForActiveStoryWork(storyGeneration);
+    let processed = 0;
+    while (true) {
+        if (runtime.storyGeneration !== storyGeneration) throw new Error('Story catch-up was stopped. Saved progress was kept.');
+        const before = storyGenerationPolicy(sourceMessages);
+        if (!before?.policy.shouldCatchUp) return { processed, coverage: before?.coverage || null };
+        if (before.sourceInvalid) throw new Error('Story So Far uses an outdated source policy. Rebuild it before generating another reply.');
+        updateRuntime({ storyRetryStatus: `Reply pending while Story So Far catches up ${before.policy.blocking} eligible message(s)…` });
+        const result = await maybeAutoUpdateRollingStory(sourceMessages);
+        const after = storyGenerationPolicy(sourceMessages);
+        const advanced = Math.max(0, before.coverage.pending - Number(after?.coverage.pending || 0));
+        processed += advanced;
+        if (!after?.policy.shouldCatchUp) return { processed, coverage: after?.coverage || null };
+        if (!result || !advanced) throw new Error(`Story So Far made no progress; ${after.policy.pending} eligible message(s) remain pending.`);
+    }
+}
+
 async function prepareRoleplayGeneration(type) {
     const updates = [];
     await ensureCurrentChatMemory(true);
@@ -266,12 +334,10 @@ async function prepareRoleplayGeneration(type) {
     const groupSize = resolveL1GroupSize(getSettings().extractionBatchMessages);
     const waitingBacklog = roleplayBacklogPolicy(waitingCoverage.extractable, groupSize, waitingCoverage.required);
     const activeWorkAtStart = runtime.processing || runtime.queue.length > 0;
-    // Ordinary pending backlog is safe to leave in the raw chat. Only an
-    // explicitly required rebuild (for example, after an intentional undo)
-    // is allowed to block a fresh roleplay reply.
-    const blocksRoleplay = waitingBacklog.required > 0;
+    // At two full pending L1 batches, keep this reply pending until memory catches up.
+    const blocksRoleplay = waitingBacklog.shouldCatchUp;
     const waitingNotification = blocksRoleplay
-        ? roleplayWaitNotification(runtime, waitingBacklog.required)
+        ? roleplayWaitNotification(runtime, waitingBacklog.blocking)
         : '';
     const stopSequence = runtime.stopSequence;
     if (waitingNotification) {
@@ -279,18 +345,11 @@ async function prepareRoleplayGeneration(type) {
         showGenerationNotification('info', waitingNotification, { timeOut: 12000, extendedTimeOut: 4000 });
     }
     const revisionBeforeWaiting = Number(runtime.world?.revision ?? -1);
-    let backgroundError = '';
     if (blocksRoleplay) {
         try {
-            // Let an in-flight request settle before roleplay uses the same
-            // SillyTavern connection. A merely paused soft backlog remains raw
-            // and does not stop roleplay until it reaches the hard limit.
             await waitForActiveMemoryWork(stopSequence);
         } catch (error) {
-            assertRoleplayPreparationNotStopped(stopSequence);
-            if (waitingBacklog.shouldCatchUp) throw error;
-            backgroundError = error.message || String(error);
-            updates.push('left failed background memory work safely in raw chat');
+            throw asRoleplayBlockingError(error, 'Memory catch-up failed;');
         }
     }
     const activeChat = roleplaySourceMessages(getContext().chat || [], type).filter(message => !message?.is_system);
@@ -298,7 +357,13 @@ async function prepareRoleplayGeneration(type) {
     // This repair must precede every injection and every catch-up attempt.
     // It removes stale saved contributions after edits, swipes, and deletes;
     // refreshInjection also excludes any still-invalid source ranges fail-closed.
-    const repair = await repairDivergedBranch({ sourceMessages });
+    let repair;
+    try {
+        repair = await repairDivergedBranch({ sourceMessages });
+    } catch (error) {
+        if (waitingBacklog.shouldCatchUp) throw asRoleplayBlockingError(error, 'The pending reply could not validate changed memory;');
+        throw error;
+    }
     if (repair.repaired) {
         if (repair.divergenceDetected) updates.push(`repaired changed memory from message ${repair.repairFrom} onward`);
         if (repair.stabilityRewound) updates.push('restored the two-message extraction buffer');
@@ -308,31 +373,65 @@ async function prepareRoleplayGeneration(type) {
     let hierarchy = { arcs: 0, eras: 0 };
     let vectors = null;
     let caughtUp = false;
-    if (initialBacklog.required > 0) {
+    if (initialBacklog.shouldCatchUp) {
         if (!runtime.roleplayGate) {
             updateRuntime({
                 roleplayGate: {
                     active: true,
-                    message: `Roleplay is waiting while Continuity processes ${initialBacklog.blocking} memory message(s)…`,
+                    message: `Reply pending while Continuity processes ${initialBacklog.blocking} memory message(s)…`,
                     stopping: false,
                     startedAt: Date.now(),
                 },
             });
         }
-        if (initialCoverage.required) await completeRequiredL1ForGeneration(sourceMessages, stopSequence);
-        await completeL1ForGeneration(sourceMessages, stopSequence);
-        hierarchy = await completeHierarchyForGeneration(stopSequence);
-        vectors = await completeVectorsForGeneration(stopSequence);
-        caughtUp = true;
+        try {
+            if (initialCoverage.required) await completeRequiredL1ForGeneration(sourceMessages, stopSequence);
+            await completeL1ForGeneration(sourceMessages, stopSequence);
+            hierarchy = await completeHierarchyForGeneration(stopSequence);
+            vectors = await completeVectorsForGeneration(stopSequence);
+            caughtUp = true;
+        } catch (error) {
+            throw asRoleplayBlockingError(error, 'The pending reply could not finish memory catch-up;');
+        }
     }
     assertRoleplayPreparationNotStopped(stopSequence);
     const coverage = getProcessingCoverage(runtime.world, sourceMessages);
     const remainingBacklog = roleplayBacklogPolicy(coverage.extractable, groupSize, coverage.required);
-    if (remainingBacklog.required > 0) {
-        throw new Error(`${remainingBacklog.required} deliberately undone memory message(s) remain incomplete. Roleplay was blocked.`);
+    if (remainingBacklog.shouldCatchUp) {
+        throw asRoleplayBlockingError(
+            new Error(`${remainingBacklog.blocking} memory message(s) remain beyond the safe pending boundary.`),
+            'The pending reply was cancelled safely;',
+        );
+    }
+    let storyUpdate = null;
+    const initialStory = storyGenerationPolicy(sourceMessages);
+    if (initialStory?.policy.shouldCatchUp) {
+        if (!runtime.roleplayGate) {
+            updateRuntime({
+                roleplayGate: {
+                    active: true,
+                    message: `Reply pending while Story So Far catches up ${initialStory.policy.blocking} eligible message(s)…`,
+                    stopping: false,
+                    startedAt: Date.now(),
+                },
+            });
+        }
+        try {
+            await waitForActiveStoryWork(runtime.storyGeneration);
+            if (!caughtUp) {
+                await waitForActiveMemoryWork(stopSequence);
+                hierarchy = await completeHierarchyForGeneration(stopSequence);
+                vectors = await completeVectorsForGeneration(stopSequence);
+            }
+            storyUpdate = await completeStoryForGeneration(sourceMessages);
+            caughtUp = true;
+        } catch (error) {
+            throw asRoleplayBlockingError(error, 'The pending reply could not finish Story So Far catch-up;');
+        }
     }
     const processedMessages = Math.max(0, initialCoverage.pending - coverage.pending);
     if (processedMessages) updates.push(`processed ${processedMessages} message(s) into L1`);
+    if (storyUpdate?.processed) updates.push(`advanced Story So Far through ${storyUpdate.processed} message(s)`);
     if (hierarchy.arcs) updates.push(`created ${hierarchy.arcs} L2 record(s)`);
     if (hierarchy.eras) updates.push(`created ${hierarchy.eras} L3 record(s)`);
     const vectorAdded = Math.max(0, Number(vectors?.added) || 0);
@@ -341,7 +440,7 @@ async function prepareRoleplayGeneration(type) {
     if (activeWorkAtStart && Number(runtime.world?.revision ?? -1) !== revisionBeforeWaiting && !updates.length) {
         updates.push('completed pending memory work');
     }
-    const retainedError = backgroundError || (runtime.paused ? runtime.lastError : '');
+    const retainedError = runtime.paused ? runtime.lastError : '';
     const retryStatus = coverage.pending
         ? `Continuity is ready with ${coverage.pending} recent message(s) raw (${coverage.buffered} protected by the stability buffer); background L1 may trail safely up to ${remainingBacklog.hardLimit - 1} additional stable messages.`
         : 'Continuity is fully ready. Starting roleplay generation…';
@@ -711,7 +810,7 @@ async function onChatRenamed(eventData) {
 }
 
 async function init() {
-    const templateResponse = await fetch(new URL('./settings.html?v=0.14.0-standalone.270', import.meta.url));
+    const templateResponse = await fetch(new URL('./settings.html?v=0.14.0-standalone.271', import.meta.url));
     if (!templateResponse.ok) throw new Error(`Could not load settings template: ${templateResponse.status} ${templateResponse.statusText}`);
     const html = $(await templateResponse.text());
     const container = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');

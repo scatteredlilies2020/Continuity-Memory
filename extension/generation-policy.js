@@ -1,5 +1,7 @@
 import { completeL1MessageCount, resolveL1GroupSize } from './l1-policy.js';
 
+export const ROLEPLAY_BLOCKED_CODE = 'CONTINUITY_ROLEPLAY_BLOCKED';
+
 export function shouldGateRoleplayGeneration(settings, coreChat, type) {
     if (!settings?.enabled || !Array.isArray(coreChat) || type === 'quiet' || type === 'impersonate') return false;
     return coreChat.length > 0 || type === 'swipe' || type === 'regenerate';
@@ -20,6 +22,35 @@ export function roleplayBacklogPolicy(pendingMessages, groupSize, requiredMessag
         hardLimit,
         shouldCatchUp: required > 0 || pending >= hardLimit,
     };
+}
+
+export function roleplayStoryBacklogPolicy(pendingMessages, batchSize, repairRequired = false) {
+    const size = Math.max(2, Math.round(Number(batchSize) || 8));
+    const pending = Math.max(0, Math.round(Number(pendingMessages) || 0));
+    const eligible = Math.floor(pending / size) * size;
+    const hardLimit = size * 2;
+    return {
+        pending,
+        eligible,
+        repairRequired: Boolean(repairRequired),
+        blocking: repairRequired ? Math.max(1, pending) : eligible,
+        backgroundThreshold: size,
+        hardLimit,
+        shouldCatchUp: Boolean(repairRequired) || pending >= hardLimit,
+    };
+}
+
+export function asRoleplayBlockingError(error, prefix = '') {
+    const source = error instanceof Error ? error : new Error(String(error || 'Continuity safety preparation failed.'));
+    if (source.code === ROLEPLAY_BLOCKED_CODE && !prefix) return source;
+    const message = [prefix, source.message].filter(Boolean).join(' ');
+    const blocked = new Error(message, { cause: source });
+    blocked.code = ROLEPLAY_BLOCKED_CODE;
+    return blocked;
+}
+
+export function isRoleplayBlockingError(error) {
+    return error?.code === ROLEPLAY_BLOCKED_CODE;
 }
 
 export function roleplaySourceMessages(messages, type) {
