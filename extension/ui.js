@@ -583,8 +583,11 @@ function initSectionToggle() {
 function continuityPanelIsOpen() {
     const panel = document.getElementById('continuity_settings');
     if (!panel) return true;
+    if (document.visibilityState === 'hidden') return false;
+    const hostDrawer = panel.closest('.drawer-content');
+    if (hostDrawer && !hostDrawer.classList.contains('openDrawer')) return false;
     const content = panel.querySelector(':scope > .inline-drawer > .inline-drawer-content');
-    return !content || content.style.display === 'block' || getComputedStyle(content).display !== 'none';
+    return !content || getComputedStyle(content).display !== 'none';
 }
 
 export async function refreshWorlds() {
@@ -1675,6 +1678,12 @@ export function initUI() {
     installReviewRecoveryListeners();
     initSectionToggle();
     document.getElementById('continuity_settings')?.addEventListener('inline-drawer-toggle', () => renderRuntime(true));
+    const hostDrawer = document.getElementById('continuity_settings')?.closest('.drawer-content');
+    if (hostDrawer) {
+        new MutationObserver(() => {
+            if (continuityPanelIsOpen()) renderRuntime(true);
+        }).observe(hostDrawer, { attributes: true, attributeFilter: ['class'] });
+    }
     $('#continuity_reset_defaults').on('click', async () => {
         if (!window.confirm('Reset all Continuity settings and prompts to their built-in defaults? Stored memory and chat bindings will not be changed.')) return;
         resetConfigurationSettings();

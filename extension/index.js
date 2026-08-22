@@ -4,11 +4,11 @@ import { promptManager } from '/scripts/openai.js';
 import { api } from './api.js?v=0.14.0-standalone.258';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
 import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, maybeAutoUpdateRollingStory, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.258';
-import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.14.0-standalone.258';
+import { buildMemoryPromptResponsive } from './retrieval-worker-client.js?v=0.14.0-standalone.259';
 import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.258';
 import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
 import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.258';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.258';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.260';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
@@ -470,9 +470,7 @@ async function performInjectionRefresh(useRetrievalAssist, strictEmbedding, cove
     const invalidSourceRanges = findInvalidExtractionRanges(world, sourceMessages, getChatKey());
     await yieldToBrowser();
     if (!refreshIsCurrent()) return;
-    await prepareRetrievalCorpus(world, yieldToBrowser, refreshIsCurrent);
-    if (!refreshIsCurrent()) return;
-    const { prompt, estimatedTokens, retrievalDiagnostics } = buildMemoryPrompt(
+    const { prompt, estimatedTokens, retrievalDiagnostics } = await buildMemoryPromptResponsive(
         world,
         recent,
         budget.tokens,
