@@ -1676,7 +1676,11 @@ export function initUI() {
     installNativeChatExportBridge();
     installReviewRecoveryListeners();
     initSectionToggle();
-    document.getElementById('continuity_settings')?.addEventListener('inline-drawer-toggle', () => renderRuntime(true));
+    document.getElementById('continuity_settings')?.addEventListener('inline-drawer-toggle', () => {
+        // SillyTavern emits the toggle before the drawer becomes visible.
+        // Refresh on the next frame so the real enabled state is displayed.
+        requestAnimationFrame(() => setTimeout(() => renderRuntime(true), 0));
+    });
     document.getElementById('continuity_memory_viewer_details')?.addEventListener('toggle', event => {
         if (event.currentTarget.open) renderMemoryViewer(true);
     });
