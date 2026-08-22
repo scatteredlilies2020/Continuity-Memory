@@ -5,7 +5,7 @@ import { api } from './api.js?v=0.14.0-standalone.253';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
 import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, maybeAutoUpdateRollingStory, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.253';
 import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.253';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.253';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.254';
 import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.253';
 import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.253';
 import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.253';
