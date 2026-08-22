@@ -371,28 +371,6 @@ function counts(world) {
     };
     return result;
 }
-function shardCount(manifest, category) {
-    return (manifest.shards?.[category] || []).reduce((total, entry) => total + Math.max(0, Number(entry.count) || 0), 0);
-}
-
-function manifestCounts(manifest) {
-    return {
-        entities: shardCount(manifest, 'entities'),
-        facts: shardCount(manifest, 'facts'),
-        states: shardCount(manifest, 'states'),
-        relationships: shardCount(manifest, 'relationships'),
-        events: shardCount(manifest, 'events'),
-        narrativeCapsules: shardCount(manifest, 'capsules'),
-        l2Arcs: shardCount(manifest, 'arcs'),
-        l3Eras: shardCount(manifest, 'eras'),
-        retryableL1: shardCount(manifest, 'extractions'),
-        threads: shardCount(manifest, 'threads'),
-        backgrounds: shardCount(manifest, 'backgrounds'),
-        corrections: shardCount(manifest, 'corrections'),
-        chats: shardCount(manifest, 'sources'),
-    };
-}
-
 
 function sendError(res, error) {
     const status = Number(error.status) || (error.code === 'ENOENT' ? 404 : 500);
@@ -423,11 +401,8 @@ export async function init(router, { syncExtension = true, fetchImpl = fetch } =
             for (const file of files) {
                 try {
                     const id = file.slice(0, -5);
-                    const stored = await optionalStoredWorld(dirs, id);
-                    if (!stored) continue;
-                    if (stored?.shardedStorage && !isShardManifest(stored)) throw new Error(`Unsupported memory storage version: ${stored.shardedStorage.version ?? 'unknown'}`);
-                    const worldCounts = isShardManifest(stored) ? manifestCounts(stored) : counts(stored);
-                    worlds.push({ id: stored.id, name: stored.name, updatedAt: stored.updatedAt, revision: stored.revision || 0, counts: worldCounts });
+                    const world = await optionalWorld(dirs, id);
+                    worlds.push({ id: world.id, name: world.name, updatedAt: world.updatedAt, revision: world.revision || 0, counts: counts(world) });
                 } catch (error) {
                     worlds.push({ id: file.slice(0, -5), name: file, corrupt: true, error: error.message });
                 }

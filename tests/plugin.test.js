@@ -59,17 +59,6 @@ test('server plugin creates, saves, and explicitly deletes worlds', async t => {
     assert.equal(saved.payload.world.arcs[0].title, 'First arc');
     assert.equal(saved.payload.world.eras[0].title, 'First era');
     assert.equal(saved.payload.world.continuation.originWorldId, 'origin-world');
-    const savedManifest = JSON.parse(await fs.readFile(path.join(root, 'continuity-memory', 'worlds', `${world.id}.json`), 'utf8'));
-    const factShardPath = path.join(root, 'continuity-memory', 'worlds', `${world.id}.shards`, savedManifest.shards.facts[0].file);
-    const factShard = await fs.readFile(factShardPath);
-    await fs.unlink(factShardPath);
-    const listed = await call(router.routes.get('GET /worlds'), root);
-    assert.equal(listed.status, 200);
-    assert.equal(listed.payload.worlds[0].corrupt, undefined);
-    assert.equal(listed.payload.worlds[0].counts.facts, 2);
-    await fs.writeFile(factShardPath, factShard);
-
-
 
     const loaded = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: world.id } });
     assert.equal(loaded.payload.world.shardedStorage, undefined);
