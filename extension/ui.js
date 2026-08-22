@@ -1024,18 +1024,6 @@ function renderMemoryViewer(force = false) {
     }
     for (const item of result.items) {
         const card = $('<article>').addClass('continuity-viewer-item').appendTo(container);
-function renderRuntimeSummary() {
-    const settings = getSettings();
-    $('#continuity_enabled').prop('checked', settings.enabled);
-    $('#continuity_notifications').prop('checked', settings.showNotifications);
-    $('#continuity_status').text(runtime.paused ? 'Paused' : runtime.status);
-    $('#continuity_memory_name').text(runtime.world?.name || (getChatKey() ? 'No stored memory yet.' : 'Open a chat to begin.'));
-    const counts = worldCounts(runtime.world);
-    setElementHtml('#continuity_counts', runtime.world
-        ? Object.entries(counts).map(([name, count]) => `<span class="continuity-count">${name}: ${count}</span>`).join('')
-        : 'No chat memory loaded.');
-}
-
         $('<h5>').text(item.title || 'Untitled memory').appendTo(card);
         for (const field of item.fields) {
             const row = $('<div>').addClass('continuity-viewer-field').appendTo(card);
@@ -1048,6 +1036,18 @@ function renderRuntimeSummary() {
         if (!meta.children().length) meta.remove();
     }
 }
+function renderRuntimeSummary() {
+    const settings = getSettings();
+    $('#continuity_enabled').prop('checked', settings.enabled);
+    $('#continuity_notifications').prop('checked', settings.showNotifications);
+    $('#continuity_status').text(runtime.paused ? 'Paused' : runtime.status);
+    $('#continuity_memory_name').text(runtime.world?.name || (getChatKey() ? 'No stored memory yet.' : 'Open a chat to begin.'));
+    const counts = worldCounts(runtime.world);
+    setElementHtml('#continuity_counts', runtime.world
+        ? Object.entries(counts).map(([name, count]) => `<span class="continuity-count">${name}: ${count}</span>`).join('')
+        : 'No chat memory loaded.');
+}
+
 
 export function renderRuntime(refreshSettings = true) {
     const settings = getSettings();
