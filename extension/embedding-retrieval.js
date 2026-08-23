@@ -253,7 +253,11 @@ export function scheduleEmbeddingIndexSync(world, delay = 300, allowAutomaticBui
         syncTimers.delete(world.id);
         const settings = getSettings();
         if (settings.retrievalMode !== 'embedding-hybrid') return;
-        const task = allowAutomaticBuild && settings.embeddingAutoSync ? ensureEmbeddingIndex(world) : inspectEmbeddingIndex(world);
+        // A changed memory is a new indexing request, not a continuation of
+        // the operation the user previously paused or stopped. Resume from the
+        // stored hashes so completed batches are retained and only changed
+        // records are embedded.
+        const task = allowAutomaticBuild && settings.embeddingAutoSync ? resumeEmbeddingIndexing(world) : inspectEmbeddingIndex(world);
         task.catch(error => console.warn('[Continuity] Embedding index check or synchronization failed; local retrieval remains available.', error));
     }, Math.max(0, delay)));
 }
