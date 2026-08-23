@@ -269,19 +269,24 @@ export async function queryEmbeddingMemory(world, messages, options = {}) {
     let index = syncedIndexes.get(world.id) === signature
         ? { status: 'ready' }
         : await inspectEmbeddingIndex(world);
-    if (index.status !== 'ready' && options.waitForActiveSync) {
-        // A generation-triggered background sync may have started while the
-        // stored index was being inspected. Give that real in-flight work the
-        // caller's bounded grace period instead of falling back immediately.
-        const activeSync = activeWorldSyncs.get(world.id);
-        if (activeSync) index = await activeSync;
+    const indexed = Number(index.indexed ?? index.existing ?? 0);
+    const total = Number(index.total ?? 0);
+    const hasUsablePartialIndex = total > 0 && indexed / total >= 0.9;
+    // Never wait for the background indexer here. A near-complete stored index
+    // remains useful immediately, while the indexer finishes missing records.
+    // This also prevents a hung embedding proxy from delaying roleplay.
+    if (index.status !== 'ready' && !hasUsablePartialIndex) {
+        throw new Error(`Embedding index is ${index.status}; local retrieval will be used until it resumes.`);
     }
-    if (index.status !== 'ready') throw new Error(`Embedding index is ${index.status}; local retrieval will be used until it resumes.`);
+    const readyIndexed = indexed;
     const query = buildEmbeddingQuery(messages, settings.embeddingQueryMessages, 6000);
     if (!query) return new Map();
     const topK = Math.min(200, Math.max(10, Number(settings.embeddingTopK) || 100));
     const threshold = Math.min(1, Math.max(0, Number(settings.embeddingThreshold) || 0));
-    const cacheKey = `${world.id}|${world.revision ?? 0}|${provider.fingerprint}|${topK}|${threshold}|${query}`;
+    // Include partial-index coverage so newly completed batches cannot reuse a
+    // result cached against an older, smaller set of stored vectors.
+    const indexCoverage = index.status === 'ready' ? 'ready' : readyIndexed;
+    const cacheKey = `${world.id}|${world.revision ?? 0}|${provider.fingerprint}|${indexCoverage}|${topK}|${threshold}|${query}`;
     if (queryCache.has(cacheKey)) return new Map(queryCache.get(cacheKey));
     const documents = buildEmbeddingDocuments(world);
     const response = await vectorRequest('query', {
