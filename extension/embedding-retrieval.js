@@ -262,13 +262,20 @@ export function scheduleEmbeddingIndexSync(world, delay = 300, allowAutomaticBui
     }, Math.max(0, delay)));
 }
 
-export async function queryEmbeddingMemory(world, messages) {
+export async function queryEmbeddingMemory(world, messages, options = {}) {
     const settings = getSettings();
     const provider = providerRequest();
     const signature = indexSignature(world, provider);
-    const index = syncedIndexes.get(world.id) === signature
+    let index = syncedIndexes.get(world.id) === signature
         ? { status: 'ready' }
         : await inspectEmbeddingIndex(world);
+    if (index.status !== 'ready' && options.waitForActiveSync) {
+        // A generation-triggered background sync may have started while the
+        // stored index was being inspected. Give that real in-flight work the
+        // caller's bounded grace period instead of falling back immediately.
+        const activeSync = activeWorldSyncs.get(world.id);
+        if (activeSync) index = await activeSync;
+    }
     if (index.status !== 'ready') throw new Error(`Embedding index is ${index.status}; local retrieval will be used until it resumes.`);
     const query = buildEmbeddingQuery(messages, settings.embeddingQueryMessages, 6000);
     if (!query) return new Map();

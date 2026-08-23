@@ -3,20 +3,20 @@ import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
 import { api } from './api.js?v=0.14.0-standalone.258';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.279';
+import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.280';
 import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.14.0-standalone.258';
 import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.274';
 import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
 import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.274';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.279';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.280';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
 import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.258';
 import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.258';
-import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.275';
+import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.280';
 import { isTransientApiError } from './errors.js?v=0.14.0-standalone.273';
-import { asRoleplayBlockingError, isRoleplayBlockingError, roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.279';
+import { asRoleplayBlockingError, isRoleplayBlockingError, roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.280';
 import { completeL1MessageCount, isL1StabilityProtectedMessage, latestCompleteL1MessageIndex, resolveL1GroupSize } from './l1-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
 import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.14.0-standalone.258';
@@ -101,6 +101,16 @@ function waitForBackgroundRetry(delay, stopSequence) {
     });
 }
 
+function resolveWithin(value, timeout = 1500) {
+    let timer = null;
+    const deadline = new Promise((_, reject) => {
+        timer = globalThis.setTimeout(() => reject(new Error('Vector retrieval timed out; local retrieval remains available.')), timeout);
+    });
+    return Promise.race([value, deadline]).finally(() => {
+        if (timer !== null) globalThis.clearTimeout(timer);
+    });
+}
+
 const backgroundMemoryWork = createBackgroundScheduler(async () => {
     const stopSequence = runtime.stopSequence;
     backgroundCancelled = false;
@@ -175,7 +185,7 @@ globalThis.continuityMemoryGenerateInterceptor = async (coreChat, contextSize, a
         }
         const readiness = await activeGenerationReadiness;
         const reduction = await reduceChatContext(coreChat, contextSize, abort, type);
-        await refreshInjection(true, readiness.strictEmbedding, readiness.sourceMessages, readiness.recentMessages, {
+        await refreshInjection(true, readiness.sourceMessages, readiness.recentMessages, {
             rawTailRange: reduction?.rawTailRange || null,
         });
         if (readiness.notification) showGenerationNotification('success', readiness.notification);
@@ -390,7 +400,6 @@ async function prepareRoleplayGeneration(type) {
     const initialCoverage = getProcessingCoverage(runtime.world, sourceMessages);
     const initialBacklog = roleplayBacklogPolicy(initialCoverage.extractable, groupSize, initialCoverage.required);
     let hierarchy = { arcs: 0, eras: 0 };
-    let caughtUp = false;
     if (initialBacklog.shouldCatchUp) {
         if (!runtime.roleplayGate) {
             updateRuntime({
@@ -408,7 +417,6 @@ async function prepareRoleplayGeneration(type) {
                 await completeL1ForGeneration(sourceMessages, stopSequence);
                 hierarchy = await completeHierarchyForGeneration(stopSequence);
             });
-            caughtUp = true;
         } catch (error) {
             throw asRoleplayBlockingError(error, 'The pending reply could not finish memory catch-up;');
         }
@@ -442,10 +450,10 @@ async function prepareRoleplayGeneration(type) {
     const settings = getSettings();
     const recentLimit = Math.max(Number(settings.retrievalQueryMessages) || 6, Number(settings.embeddingQueryMessages) || 4);
     const notification = updates.length ? `Continuity updated before roleplay: ${updates.join('; ')}.` : '';
-    return { sourceMessages, recentMessages: activeChat.slice(-recentLimit), notification, strictEmbedding: caughtUp };
+    return { sourceMessages, recentMessages: activeChat.slice(-recentLimit), notification };
 }
 
-async function performInjectionRefresh(useRetrievalAssist, strictEmbedding, coverageMessages, recentMessages, promptOptions, refreshRevision) {
+async function performInjectionRefresh(useRetrievalAssist, coverageMessages, recentMessages, promptOptions, refreshRevision) {
     const settings = getSettings();
     const phase = useRetrievalAssist ? 'generation' : 'preview';
     const placement = resolveInjectionPlacement(settings, extension_prompt_types, extension_prompt_roles);
@@ -534,14 +542,20 @@ async function performInjectionRefresh(useRetrievalAssist, strictEmbedding, cove
         updateRuntime({ retrievalAssist });
     } else if (useRetrievalAssist && settings.retrievalMode === 'embedding-hybrid') {
         try {
-            semanticRanks = await queryEmbeddingMemory(world, recent);
+            // Vector indexing is maintained in the background. A reply may
+            // wait briefly for index inspection or an in-flight sync, but a
+            // slow vector service must not strand SillyTavern generation.
+            semanticRanks = await resolveWithin(queryEmbeddingMemory(world, recent, { waitForActiveSync: true }));
             if (!refreshIsCurrent()) return;
             retrievalAssist = { mode: 'embedding-hybrid', phase, executed: true, hits: semanticRanks.size, fallback: false };
             updateRuntime({ retrievalAssist });
         } catch (error) {
             if (!refreshIsCurrent()) return;
-            if (strictEmbedding) throw new Error(`Selected vector retrieval is not ready: ${error.message}`, { cause: error });
             console.warn('[Continuity] Embedding retrieval failed; using local matching.', error);
+            showGenerationNotification(
+                'warning',
+                'Embedding retrieval was unavailable or slow, so this reply is using local memory matching. Vector work will continue in the background.',
+            );
             retrievalAssist = { mode: 'local', phase, executed: true, terms: [], fallback: true, error: error.message };
             updateRuntime({ retrievalAssist });
         }
@@ -607,7 +621,7 @@ async function performInjectionRefresh(useRetrievalAssist, strictEmbedding, cove
     });
 }
 
-async function refreshInjection(useRetrievalAssist = false, strictEmbedding = false, coverageMessages = null, recentMessages = null, promptOptions = {}) {
+async function refreshInjection(useRetrievalAssist = false, coverageMessages = null, recentMessages = null, promptOptions = {}) {
     if (!useRetrievalAssist && generationInjectionRunning) {
         // The generation refresh owns the prompt until SillyTavern has built
         // the outgoing request. A preview will be requested again when the
@@ -626,7 +640,6 @@ async function refreshInjection(useRetrievalAssist = false, strictEmbedding = fa
     try {
         await performInjectionRefresh(
             useRetrievalAssist,
-            strictEmbedding,
             coverageMessages,
             recentMessages,
             promptOptions,
@@ -796,7 +809,7 @@ async function onChatRenamed(eventData) {
 }
 
 async function init() {
-    const templateResponse = await fetch(new URL('./settings.html?v=0.14.0-standalone.279', import.meta.url));
+    const templateResponse = await fetch(new URL('./settings.html?v=0.14.0-standalone.280', import.meta.url));
     if (!templateResponse.ok) throw new Error(`Could not load settings template: ${templateResponse.status} ${templateResponse.statusText}`);
     const html = $(await templateResponse.text());
     const container = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
