@@ -8,13 +8,13 @@ import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.14
 import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.274';
 import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
 import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.274';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.282';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.283';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
 import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.258';
 import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.258';
-import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.282';
+import { ensureEmbeddingCoverage, purgeEmbeddingIndex, queryEmbeddingMemory, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.283';
 import { isTransientApiError } from './errors.js?v=0.14.0-standalone.273';
 import { asRoleplayBlockingError, isRoleplayBlockingError, roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.282';
 import { completeL1MessageCount, isL1StabilityProtectedMessage, latestCompleteL1MessageIndex, resolveL1GroupSize } from './l1-policy.js';
@@ -422,7 +422,23 @@ async function prepareRoleplayGeneration(type) {
         }
     }
     if (getSettings().retrievalMode === 'embedding-hybrid' && runtime.world?.id) {
-        scheduleEmbeddingIndexSync(runtime.world, 0, true);
+        const message = 'Reply pending while Continuity prepares at least 80% of the selected embedding index…';
+        if (!runtime.roleplayGate) {
+            updateRuntime({
+                status: 'preparing-roleplay',
+                retryStatus: message,
+                roleplayGate: { active: true, message, stopping: false, startedAt: Date.now() },
+            });
+        }
+        try {
+            await retryTransientPendingReply(
+                'embedding coverage',
+                stopSequence,
+                () => ensureEmbeddingCoverage(runtime.world, undefined, stopSequence),
+            );
+        } catch (error) {
+            throw asRoleplayBlockingError(error, 'The pending reply could not reach the required 80% embedding coverage;');
+        }
     }
     assertRoleplayPreparationNotStopped(stopSequence);
     const coverage = getProcessingCoverage(runtime.world, sourceMessages);

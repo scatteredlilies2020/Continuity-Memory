@@ -1,8 +1,9 @@
 import { getRequestHeaders } from '/script.js';
 import { buildEmbeddingDocuments, buildEmbeddingQuery, semanticRanksFromResponse } from './embedding-index.js';
+import { embeddingCoverage, embeddingCoverageReady, MINIMUM_EMBEDDING_COVERAGE } from './embedding-policy.js?v=0.14.0-standalone.283';
 import { resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.258';
 import { getSettings } from './settings.js?v=0.14.0-standalone.258';
-import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
+import { onRuntimeChange, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
 
 const syncedIndexes = new Map();
 const activeSyncs = new Map();
@@ -71,6 +72,50 @@ export async function resumeEmbeddingIndexing(world) {
     indexingControl = 'running';
     setIndexStatus({ status: 'syncing', phase: 'Resuming from stored vector hashes', error: '', worldId: world.id });
     return ensureEmbeddingIndex(world);
+}
+
+export async function ensureEmbeddingCoverage(world, minimum = MINIMUM_EMBEDDING_COVERAGE, stopSequence = null) {
+    if (!world?.id) throw new Error('Open a chat with Continuity memory first.');
+    let settled = false;
+    let unsubscribe = () => {};
+
+    return new Promise((resolve, reject) => {
+        const finish = (error = null, index = null) => {
+            if (settled) return;
+            settled = true;
+            unsubscribe();
+            if (error) reject(error);
+            else resolve(index);
+        };
+        const inspect = state => {
+            if (stopSequence !== null && state.stopSequence !== stopSequence) {
+                finish(new Error('Continuity vector preparation was stopped.'));
+                return;
+            }
+            const index = state.embeddingIndex;
+            if (!index || index.worldId !== world.id) return;
+            const indexed = Number(index.indexed ?? index.existing ?? 0);
+            const total = Number(index.total ?? 0);
+            if (index.status === 'ready' || embeddingCoverageReady(indexed, total, minimum)) {
+                finish(null, { ...index, coverage: embeddingCoverage(indexed, total), minimum });
+                return;
+            }
+            if (['error', 'paused', 'stopped'].includes(index.status)) {
+                const percent = Math.round(Math.min(1, Math.max(0, Number(minimum) || 0)) * 100);
+                finish(new Error(`Embedding index ${index.status} before reaching the required ${percent}% coverage${index.error ? `: ${index.error}` : '.'}`));
+            }
+        };
+        unsubscribe = onRuntimeChange(inspect);
+        const task = resumeEmbeddingIndexing(world);
+        task.then(result => {
+            if (settled) return;
+            inspect(runtime);
+            if (settled) return;
+            if (result?.status === 'ready') finish(null, result);
+            else finish(new Error(`Embedding index is ${result?.status || 'not ready'}.`));
+        }, error => finish(error));
+        inspect(runtime);
+    });
 }
 
 export function embeddingProviderDescription() {
@@ -271,10 +316,9 @@ export async function queryEmbeddingMemory(world, messages, options = {}) {
         : await inspectEmbeddingIndex(world);
     const indexed = Number(index.indexed ?? index.existing ?? 0);
     const total = Number(index.total ?? 0);
-    const hasUsablePartialIndex = total > 0 && indexed / total >= 0.9;
-    // Never wait for the background indexer here. A near-complete stored index
-    // remains useful immediately, while the indexer finishes missing records.
-    // This also prevents a hung embedding proxy from delaying roleplay.
+    const hasUsablePartialIndex = embeddingCoverageReady(indexed, total);
+    // Once generation readiness has enforced the minimum coverage, the stored
+    // partial index remains useful while the indexer finishes missing records.
     if (index.status !== 'ready' && !hasUsablePartialIndex) {
         throw new Error(`Embedding index is ${index.status}; local retrieval will be used until it resumes.`);
     }
