@@ -580,13 +580,6 @@ function initSectionToggle() {
     render();
 }
 
-function continuityPanelIsOpen() {
-    const panel = document.getElementById('continuity_settings');
-    if (!panel) return true;
-    const content = panel.querySelector(':scope > .inline-drawer > .inline-drawer-content');
-    return !content || content.style.display === 'block' || getComputedStyle(content).display !== 'none';
-}
-
 export async function refreshWorlds() {
     const response = await api.listWorlds();
     worlds = response.worlds || [];
@@ -1067,13 +1060,6 @@ function renderMemoryViewer(force = false) {
 
 export function renderRuntime(refreshSettings = true) {
     const settings = getSettings();
-    // Runtime updates continue while the settings drawer is closed. Keep the
-    // review popup recoverable, but defer all coverage scans and DOM work until
-    // the user opens the panel.
-    if (!continuityPanelIsOpen()) {
-        syncExtractionReviewPopup(runtime.pendingExtractionReview);
-        return;
-    }
     if (refreshSettings) {
         $('#continuity_enabled').prop('checked', settings.enabled);
         $('#continuity_notifications').prop('checked', settings.showNotifications);
