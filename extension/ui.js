@@ -4,7 +4,7 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, buildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, rebuildRollingStory, refineRollingStory, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.258';
+import { buildNextArc, buildNextEra, buildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, rebuildRollingStory, refineRollingStory, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.274';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
 import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.258';
@@ -16,11 +16,11 @@ import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
 import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.258';
-import { resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.258';
+import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.273';
 import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, STORY_RUNTIME_STATUSES, stopRuntime, stopRuntimeTask, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
 import { completeL1MessageCount, latestCompleteL1MessageIndex, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.258';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.274';
 import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.258';
 import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.258';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
@@ -636,11 +636,52 @@ export async function refreshWorlds() {
         }
     }
     let world = selected ? await loadBoundWorld() : null;
+    world = await recoverSuperiorSyncedWorld(world);
     world = await reconcileBoundWorldSource(world);
     if (getSettings().embedMemoryInChat && world) await embedWorldInChat(world);
     else if (!getSettings().embedMemoryInChat) await clearPortableSnapshot();
     renderRuntime();
     return world;
+}
+
+async function recoverSuperiorSyncedWorld(world) {
+    const context = getContext();
+    const chatKey = getChatKey();
+    if (!world || !chatKey) return world;
+    const candidates = rankSuperiorSyncedWorlds(worlds, world, {
+        characterName: context.name2,
+        chatId: context.chatId,
+    });
+    if (!candidates.length) return world;
+
+    const messages = collectFingerprintMessages(context.chat || []);
+    const currentAlignment = alignWorldToChat(world, messages, chatKey);
+    if (!currentAlignment.ok) return world;
+    let best = null;
+    for (const summary of candidates) {
+        try {
+            const stored = (await api.getWorld(summary.id)).world;
+            const alignment = alignWorldToChat(stored, messages, chatKey);
+            if (!alignment.ok || alignment.matched <= currentAlignment.matched) continue;
+            if (!best || alignment.matched > best.alignment.matched) best = { stored, alignment };
+        } catch (error) {
+            console.warn('[Continuity] Could not inspect a synced memory recovery candidate.', error);
+        }
+    }
+    if (!best) return world;
+
+    const boundElsewhere = Object.entries(getSettings().chatWorlds || {})
+        .some(([boundChatKey, worldId]) => boundChatKey !== chatKey && worldId === best.stored.id);
+    const saved = boundElsewhere
+        ? (await api.importWorld(best.alignment.world)).world
+        : best.alignment.changed
+            ? (await api.saveWorld(best.alignment.world)).world
+            : best.stored;
+    bindCurrentChat(saved.id);
+    updateRuntime({ world: saved, lastError: '' });
+    await embedWorldInChat(saved, { force: true });
+    toast('info', `Recovered ${best.alignment.matched} verified processed message(s) from the most complete synced memory copy; unnecessary L1 rescanning was avoided.`);
+    return saved;
 }
 
 async function reconcileBoundWorldSource(world) {
@@ -1043,6 +1084,7 @@ export function renderRuntime(refreshSettings = true) {
         $('#continuity_story_batch').val(resolveStoryBatchMessages(settings.storyBatchMessages));
         $('#continuity_story_thinking').val(settings.storyThinkingMode);
         $('#continuity_retrieval_thinking').val(settings.retrievalThinkingMode);
+        $('#continuity_summary_thinking').val(settings.summaryThinkingMode);
         $('.continuity-ai-retrieval-setting').toggle(settings.retrievalMode === 'ai-expanded');
         $('.continuity-text-retrieval-setting').toggle(settings.retrievalMode !== 'embedding-hybrid');
         $('.continuity-embedding-setting').toggle(settings.retrievalMode === 'embedding-hybrid');
@@ -1225,7 +1267,9 @@ export function renderRuntime(refreshSettings = true) {
     setElementHtml('#continuity_counts', runtime.world
         ? Object.entries(counts).map(([name, count]) => `<span class="continuity-count">${name}: ${count}</span>`).join('')
         : 'No chat memory loaded.');
-    renderMemoryViewer();
+    // A large world can contain thousands of records. Build the viewer only
+    // when the user explicitly opens it, not when settings itself opens.
+    if ($('#continuity_memory_viewer_details').prop('open')) renderMemoryViewer();
     setElementText('#continuity_preview', runtime.lastInjection || runtime.injectionStatus || 'Checking memory injection…');
     setElementText(
         '#continuity_last_generation',
@@ -1547,9 +1591,11 @@ async function buildMemory() {
     // contributions before the first replacement chunk is prompted, so old
     // future ranges cannot leak into earlier rebuilt ranges or donate stale IDs.
     await repairDivergedBranch();
-    const storyWork = startStoryAlongsideMemory(false);
+    const storyUsesL1 = resolveStorySourceMode(getSettings().storySourceMode) === STORY_SOURCE_L1;
+    let storyWork = storyUsesL1 ? null : startStoryAlongsideMemory(false);
     const l1 = await continueFailedL1();
     if (l1.cancelled) return l1;
+    if (storyUsesL1) storyWork = startStoryAlongsideMemory(false);
     const built = await finishHierarchy(l1, false);
     return finishStoryAlongsideMemory(built, storyWork);
 }
@@ -1614,7 +1660,9 @@ async function restartBuild() {
         catch (error) { console.warn('[Continuity] Could not purge the old derived embedding index before Start Over.', error); }
     }
     let storyWork = null;
-    const l1 = await restartL1FromScratch(() => { storyWork = startStoryAlongsideMemory(true); });
+    const storyUsesL1 = resolveStorySourceMode(getSettings().storySourceMode) === STORY_SOURCE_L1;
+    const l1 = await restartL1FromScratch(storyUsesL1 ? null : () => { storyWork = startStoryAlongsideMemory(true); });
+    if (storyUsesL1) storyWork = startStoryAlongsideMemory(true);
     const built = await finishHierarchy(l1, true, true);
     return finishStoryAlongsideMemory(built, storyWork);
 }
@@ -1674,7 +1722,14 @@ export function initUI() {
     installNativeChatExportBridge();
     installReviewRecoveryListeners();
     initSectionToggle();
-    document.getElementById('continuity_settings')?.addEventListener('inline-drawer-toggle', () => renderRuntime(true));
+    document.getElementById('continuity_settings')?.addEventListener('inline-drawer-toggle', () => {
+        // SillyTavern emits the toggle before the drawer becomes visible.
+        // Refresh on the next frame so the real enabled state is displayed.
+        requestAnimationFrame(() => setTimeout(() => renderRuntime(true), 50));
+    });
+    document.getElementById('continuity_memory_viewer_details')?.addEventListener('toggle', event => {
+        if (event.currentTarget.open) renderMemoryViewer(true);
+    });
     $('#continuity_reset_defaults').on('click', async () => {
         if (!window.confirm('Reset all Continuity settings and prompts to their built-in defaults? Stored memory and chat bindings will not be changed.')) return;
         resetConfigurationSettings();
@@ -1693,6 +1748,7 @@ export function initUI() {
     setSetting('#continuity_story_batch', 'storyBatchMessages', resolveStoryBatchMessages);
     setSetting('#continuity_story_thinking', 'storyThinkingMode');
     setSetting('#continuity_retrieval_thinking', 'retrievalThinkingMode');
+    setSetting('#continuity_summary_thinking', 'summaryThinkingMode');
     $('#continuity_story_build').on('click', async () => {
         const stored = runtime.world?.storySoFar?.[getChatKey()];
         const eligibleMessages = stableStoryMessages(collectMemoryEligibleMessages(getContext().chat || []));

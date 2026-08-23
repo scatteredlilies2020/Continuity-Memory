@@ -131,8 +131,7 @@ export function isMandatoryThinkingError(error) {
     return /(?:thinking|reasoning)[^\n]*(?:mandatory|required|requires?|must be enabled|cannot be disabled|can not be disabled)|(?:mandatory|required|requires?)[^\n]*(?:thinking|reasoning)/i.test(message);
 }
 
-export function thinkingControlFallbackPayload(error, payload = {}) {
-    if (!isMandatoryThinkingError(error)) return {};
+export function mandatoryThinkingPayload(payload = {}) {
     const fallback = { ...payload, include_reasoning: true };
     if (!fallback.reasoning_effort || ['none', 'off', 'disabled'].includes(String(fallback.reasoning_effort).toLowerCase())) {
         fallback.reasoning_effort = 'low';
@@ -152,4 +151,9 @@ export function thinkingControlFallbackPayload(error, payload = {}) {
         }
     }
     return fallback;
+}
+
+export function thinkingControlFallbackPayload(error, payload = {}) {
+    if (!isMandatoryThinkingError(error)) return {};
+    return mandatoryThinkingPayload(payload);
 }

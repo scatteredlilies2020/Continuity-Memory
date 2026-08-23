@@ -11,6 +11,7 @@ test('detects nested endpoint rate limits without confusing other API failures',
 
 test('retries transient transport and server failures but not configuration errors', () => {
     assert.equal(isTransientApiError(new Error('503 Service Unavailable')), true);
+    assert.equal(isTransientApiError(new Error('Detached API request failed: Bad Gateway')), true);
     assert.equal(isTransientApiError(new Error('TypeError: fetch failed because ECONNRESET')), true);
     assert.equal(isTransientApiError(new Error('408 request timeout')), true);
     assert.equal(isTransientApiError(new Error('401 Unauthorized')), false);

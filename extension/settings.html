@@ -407,6 +407,18 @@
                     </select>
                 </label>
                 <small>Creates the higher-level L2 and L3 summaries. Leave unchanged to share the extraction model. Connection profiles supply only the endpoint, model, and authentication; their presets, instruct templates, and custom prompt processing are excluded.</small>
+                <label>Summarization reasoning / thinking
+                    <select id="continuity_summary_thinking" class="text_pole">
+                        <option value="auto">Auto (selected profile)</option>
+                        <option value="off">Off</option>
+                        <option value="minimum">Minimum</option>
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                        <option value="max">Maximum</option>
+                    </select>
+                </label>
+                <small>Applies to L2/L3 summarization. Auto inherits the selected summarizer profile's reasoning effort, then SillyTavern's active setting. Forced-reasoning models are enabled automatically when required.</small>
                 <div class="continuity-summary-direct-setting continuity-card-inset">
                     <b>Direct L2/L3 summarizer API</b>
                     <label>Provider
@@ -529,7 +541,7 @@
             <div class="continuity-card">
                 <h4>Memory overview</h4>
                 <div id="continuity_counts" class="continuity-counts">No chat memory loaded.</div>
-                <details open>
+                <details id="continuity_memory_viewer_details">
                     <summary>Browse stored memory</summary>
                     <div class="continuity-viewer-controls">
                         <select id="continuity_viewer_category" class="text_pole">

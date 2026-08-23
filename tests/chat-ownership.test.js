@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveDeletedChatBinding, resolveMissingWorldBinding, resolveRenamedChatBinding } from '../extension/chat-ownership.js';
+import { rankSuperiorSyncedWorlds, resolveDeletedChatBinding, resolveMissingWorldBinding, resolveRenamedChatBinding } from '../extension/chat-ownership.js';
 
 test('resolves one isolated character or group chat memory for deletion', () => {
     const bindings = {
@@ -67,4 +67,19 @@ test('does not guess when restored world recovery is ambiguous', () => {
     });
     assert.equal(result.world, null);
     assert.equal(result.ambiguous, true);
+});
+
+test('ranks only same-chat Syncthing copies with greater L1 coverage', () => {
+    const current = { id: 'old-copy', extractions: [{}, {}] };
+    const worlds = [
+        { id: 'old-copy', name: 'Toska · RP', counts: { retryableL1: 2 }, revision: 9 },
+        { id: 'partial-copy', name: 'Toska · RP', counts: { retryableL1: 21 }, revision: 515 },
+        { id: 'complete-copy', name: 'Toska · RP', counts: { retryableL1: 53 }, revision: 255 },
+        { id: 'other-chat', name: 'Toska · Different RP', counts: { retryableL1: 80 }, revision: 900 },
+    ];
+    assert.deepEqual(rankSuperiorSyncedWorlds(worlds, current, { characterName: 'Toska', chatId: 'RP' }).map(item => item.id), [
+        'complete-copy',
+        'partial-copy',
+    ]);
+    assert.deepEqual(rankSuperiorSyncedWorlds(worlds, { id: 'complete-copy', extractions: Array(53) }, { characterName: 'Toska', chatId: 'RP' }), []);
 });

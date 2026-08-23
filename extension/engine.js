@@ -23,9 +23,9 @@ import { embedWorldInChat } from './portable.js';
 import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.258';
 import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_QUALITY_RULE, ROLLING_STORY_QUALITY_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, ROLLING_STORY_VERIFY_RULE, ROLLING_STORY_VERIFY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.258';
 import { applySourceAttributionFailClosed, canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.258';
-import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.14.0-standalone.258';
-import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.274';
+import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.14.0-standalone.274';
+import { isRuntimeCancellation, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
 import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.258';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
@@ -1103,9 +1103,10 @@ function detachedRequestBodies({ prompt, fallbackPrompt, systemPrompt, usesStruc
     layer = 'l1',
     profileId = getSettings().memoryProfileId,
     directKind = 'extraction',
+    thinkingMode: configuredThinkingMode = null,
 } = {}) {
     const settings = getSettings();
-    const thinkingMode = resolveThinkingModeForProfile(settings.thinkingMode, profileId);
+    const thinkingMode = resolveThinkingModeForProfile(configuredThinkingMode ?? (directKind === 'summary' ? settings.summaryThinkingMode : settings.thinkingMode), profileId);
     const messagesFor = userPrompt => [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -1166,21 +1167,27 @@ function detachedRequestBodies({ prompt, fallbackPrompt, systemPrompt, usesStruc
         ...outputTokenPayload(model, layerTokens),
         ...thinking.payload,
     });
+    const mandatoryCompatible = isolatedProfilePayload({
+        ...outputTokenPayload(model, layerTokens),
+        ...mandatoryThinkingPayload(thinking.payload),
+    });
     const thinkingKeys = new Set(['include_reasoning', 'reasoning_effort', 'reasoning_budget', 'thinking_budget', 'thinking_level', 'thinking', 'reasoning', 'think', 'enable_thinking', 'chat_template_kwargs', 'custom_include_body']);
     const uncontrolled = Object.fromEntries(Object.entries(compatible).filter(([key]) => !thinkingKeys.has(key)));
-    const requestFor = (userPrompt, withSchema, withThinking = true) => ({
+    const requestFor = (userPrompt, withSchema, policy = compatible) => ({
         ...base,
         stream: false,
         use_sysprompt: true,
         messages: messagesFor(userPrompt),
         max_tokens: responseLength,
-        ...(withThinking ? compatible : uncontrolled),
+        ...policy,
         ...(withSchema && usesStructuredSchema ? { json_schema: jsonSchema } : {}),
     });
     return {
         request: requestFor(prompt, true),
         fallbackRequest: usesStructuredSchema ? requestFor(fallbackPrompt, false) : null,
-        uncontrolledRequest: thinking.controlled ? requestFor(fallbackPrompt, false, false) : null,
+        mandatoryRequest: requestFor(prompt, true, mandatoryCompatible),
+        mandatoryFallbackRequest: usesStructuredSchema ? requestFor(fallbackPrompt, false, mandatoryCompatible) : null,
+        uncontrolledRequest: thinking.controlled ? requestFor(fallbackPrompt, false, uncontrolled) : null,
     };
 }
 
@@ -1220,7 +1227,8 @@ function prepareDetachedHierarchyLayer(layer) {
     const profileId = settings.arcProfileId || settings.memoryProfileId;
     const directKind = settings.arcProfileId === DIRECT_PROFILE_ID ? 'summary' : 'extraction';
     const jsonSchema = l2 ? arcJsonSchema : eraJsonSchema;
-    const usesStructuredSchema = requestSupportsStructuredSchema(jsonSchema, profileId, directKind);
+    const thinkingMode = settings.summaryThinkingMode;
+    const usesStructuredSchema = requestSupportsStructuredSchema(jsonSchema, profileId, directKind, thinkingMode);
     const placeholder = '__CONTINUITY_DETACHED_HIERARCHY_PROMPT__';
     const requests = detachedRequestBodies({
         prompt: placeholder,
@@ -1229,7 +1237,7 @@ function prepareDetachedHierarchyLayer(layer) {
             ? settings.arcSystemPrompt ?? DEFAULT_ARC_SYSTEM_PROMPT
             : settings.eraSystemPrompt ?? DEFAULT_ERA_SYSTEM_PROMPT),
         usesStructuredSchema,
-    }, { jsonSchema, layer, profileId, directKind });
+    }, { jsonSchema, layer, profileId, directKind, thinkingMode });
     if (!requests) return null;
     return {
         ...requests,
@@ -1677,7 +1685,8 @@ async function generateArc(capsules) {
     const settings = getSettings();
     const profileId = settings.arcProfileId || settings.memoryProfileId;
     const directKind = settings.arcProfileId === DIRECT_PROFILE_ID ? 'summary' : 'extraction';
-    const usesStructuredSchema = requestSupportsStructuredSchema(arcJsonSchema, profileId, directKind);
+    const thinkingMode = settings.summaryThinkingMode;
+    const usesStructuredSchema = requestSupportsStructuredSchema(arcJsonSchema, profileId, directKind, thinkingMode);
     const taskTemplate = settings.arcTaskTemplate ?? DEFAULT_ARC_TASK_TEMPLATE;
     const taskValues = {
         capsules: formatCapsules(capsules),
@@ -1686,7 +1695,7 @@ async function generateArc(capsules) {
     const fallbackPrompt = usesStructuredSchema
         ? renderStructuredTaskPrompt(taskTemplate, DEFAULT_ARC_TASK_TEMPLATE, taskValues, ARC_JSON_SHAPE_EXAMPLE, false, ['capsules'])
         : prompt;
-    const raw = await requestStructured(prompt, buildHierarchySystemPrompt(settings.arcSystemPrompt ?? DEFAULT_ARC_SYSTEM_PROMPT), arcJsonSchema, memoryResponseTokens('l2'), profileId, directKind, fallbackPrompt);
+    const raw = await requestStructured(prompt, buildHierarchySystemPrompt(settings.arcSystemPrompt ?? DEFAULT_ARC_SYSTEM_PROMPT), arcJsonSchema, memoryResponseTokens('l2'), profileId, directKind, fallbackPrompt, thinkingMode);
     updateRuntime({ lastArcResponse: String(raw).slice(0, 20000) });
     return validateArcResult(typeof raw === 'string' ? parseJsonResponse(raw) : raw, 'L2');
 }
@@ -1893,7 +1902,8 @@ async function generateEra(arcs) {
     const settings = getSettings();
     const profileId = settings.arcProfileId || settings.memoryProfileId;
     const directKind = settings.arcProfileId === DIRECT_PROFILE_ID ? 'summary' : 'extraction';
-    const usesStructuredSchema = requestSupportsStructuredSchema(eraJsonSchema, profileId, directKind);
+    const thinkingMode = settings.summaryThinkingMode;
+    const usesStructuredSchema = requestSupportsStructuredSchema(eraJsonSchema, profileId, directKind, thinkingMode);
     const taskTemplate = settings.eraTaskTemplate ?? DEFAULT_ERA_TASK_TEMPLATE;
     const taskValues = {
         arcs: formatArcs(arcs),
@@ -1902,7 +1912,7 @@ async function generateEra(arcs) {
     const fallbackPrompt = usesStructuredSchema
         ? renderStructuredTaskPrompt(taskTemplate, DEFAULT_ERA_TASK_TEMPLATE, taskValues, ARC_JSON_SHAPE_EXAMPLE, false, ['arcs'])
         : prompt;
-    const raw = await requestStructured(prompt, buildHierarchySystemPrompt(settings.eraSystemPrompt ?? DEFAULT_ERA_SYSTEM_PROMPT), eraJsonSchema, memoryResponseTokens('l3'), profileId, directKind, fallbackPrompt);
+    const raw = await requestStructured(prompt, buildHierarchySystemPrompt(settings.eraSystemPrompt ?? DEFAULT_ERA_SYSTEM_PROMPT), eraJsonSchema, memoryResponseTokens('l3'), profileId, directKind, fallbackPrompt, thinkingMode);
     updateRuntime({ lastEraResponse: String(raw).slice(0, 20000) });
     return validateArcResult(typeof raw === 'string' ? parseJsonResponse(raw) : raw, 'L3');
 }
@@ -2202,6 +2212,33 @@ async function runManualRollingStory(rebuildFromBeginning) {
         previous = world.storySoFar?.[chatKey];
         const settings = getSettings();
         const sourceMode = resolveStorySourceMode(settings.storySourceMode);
+        if (sourceMode === STORY_SOURCE_L1) {
+            if (!settings.enabled) throw new Error('Continuity is disabled. Enable it before building an L1-sourced Story.');
+            if (runtime.processing || runtime.queue.length) throw new Error('Wait for current memory processing to finish before building Story so far.');
+            if (runtime.paused) resumeRuntime();
+            let completedL1Messages = 0;
+            while (true) {
+                const coverage = getProcessingCoverage(runtime.world || world, allMessages);
+                const eligible = completeL1Messages(coverage.extractableMessages, settings.extractionBatchMessages).length;
+                if (!eligible) break;
+                updateRuntime({
+                    storyRetryStatus: `Preparing L1-sourced Story: completing ${eligible} eligible message(s) into L1 first…`,
+                    storyProgress: { phase: 'pending', label: 'completing required L1 summaries', from: coverage.extractableMessages[0]?.index, to: coverage.extractableMessages[eligible - 1]?.index },
+                });
+                const before = coverage.extractable;
+                const result = await maybeAutoExtract(true, allMessages);
+                if (!result || result.cancelled) throw new Error('The required L1 extraction stopped before Story so far could be built.');
+                const after = getProcessingCoverage(runtime.world, allMessages);
+                const advanced = Math.max(0, before - after.extractable);
+                if (!advanced) throw new Error(`L1 extraction made no progress; ${after.extractable} eligible message(s) remain pending.`);
+                completedL1Messages += advanced;
+                world = runtime.world || world;
+                savedWorld = world;
+            }
+            if (completedL1Messages) {
+                updateRuntime({ storyRetryStatus: `Completed ${completedL1Messages} message(s) into L1; preparing Story so far…` });
+            }
+        }
         const requiredL1Through = sourceMode === STORY_SOURCE_L1
             ? latestCompleteL1MessageIndex(allMessages, settings.extractionBatchMessages)
             : -1;

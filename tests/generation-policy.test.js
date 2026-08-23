@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { collectMemoryEligibleMessages } from '../extension/message-digest.js';
-import { roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from '../extension/generation-policy.js';
+import { asRoleplayBlockingError, isRoleplayBlockingError, roleplayBacklogPolicy, roleplaySourceMessages, roleplayStoryBacklogPolicy, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from '../extension/generation-policy.js';
 
 const chat = [{ index: 0, mes: 'Hello' }];
 
@@ -85,6 +85,21 @@ test('deliberately undone memory blocks roleplay below the normal backlog limit'
     assert.equal(result.required, 2);
     assert.equal(result.blocking, 2);
     assert.equal(result.shouldCatchUp, true);
+});
+
+test('uses the same two-batch pending threshold for Story So Far', () => {
+    assert.equal(roleplayStoryBacklogPolicy(15, 8).shouldCatchUp, false);
+    assert.equal(roleplayStoryBacklogPolicy(16, 8).shouldCatchUp, true);
+    assert.equal(roleplayStoryBacklogPolicy(16, 8).eligible, 16);
+    assert.equal(roleplayStoryBacklogPolicy(1, 8, true).shouldCatchUp, true);
+});
+
+test('marks failed safety catch-up so generation cannot fall open', () => {
+    const blocked = asRoleplayBlockingError(new Error('Story remains stale.'), 'The pending reply was cancelled safely.');
+    assert.equal(isRoleplayBlockingError(blocked), true);
+    assert.match(blocked.message, /cancelled safely/);
+    assert.match(blocked.message, /Story remains stale/);
+    assert.equal(isRoleplayBlockingError(new Error('ordinary retrieval failure')), false);
 });
 
 test('describes memory work that delays roleplay generation', () => {
