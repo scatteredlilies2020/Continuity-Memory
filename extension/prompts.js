@@ -132,7 +132,11 @@ export const DEFAULT_EXTRACTION_TASK_TEMPLATE = `Extract continuity from this ch
 
 {{active_states}}
 
-{{temporal_context}}`;
+{{temporal_context}}
+
+{{story_so_far}}
+
+Update storySoFar as a complete four-section narrative snapshot, not as a separate recap. Preserve strict chronology, causal consequences, emotional commitments, relationship meaning, concealed information, who knows what, and explicit uncertainty. Never turn a character's suspicion into fact or imply disclosure that did not occur.`;
 
 export const DEFAULT_RETRIEVAL_QUERY_TEMPLATE = `Current conversation:
 {{conversation}}`;

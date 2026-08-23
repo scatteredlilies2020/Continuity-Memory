@@ -11,7 +11,11 @@ test('manual L1-sourced Story builds complete eligible L1 before selecting Story
     assert.match(engine.slice(completion, sourceSelection), /await maybeAutoExtract\(true, allMessages\)/);
 });
 
-test('combined memory build delays an L1-sourced Story until L1 processing finishes', () => {
+test('combined memory build receives Story from L1 without launching a separate Story request', () => {
     const ui = readFileSync(new URL('../extension/ui.js', import.meta.url), 'utf8');
-    assert.match(ui, /let storyWork = storyUsesL1 \? null : startStoryAlongsideMemory\(false\);[\s\S]*await continueFailedL1\(\);[\s\S]*if \(storyUsesL1\) storyWork = startStoryAlongsideMemory\(false\);/);
+    const buildStart = ui.indexOf('async function buildMemory()');
+    const buildEnd = ui.indexOf('async function repairRollback()', buildStart);
+    const build = ui.slice(buildStart, buildEnd);
+    assert.match(build, /await continueFailedL1\(\)/);
+    assert.doesNotMatch(build, /buildRollingStory|rebuildRollingStory|startStoryAlongsideMemory/);
 });

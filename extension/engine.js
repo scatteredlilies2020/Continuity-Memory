@@ -37,7 +37,7 @@ import { resolveProfileThinkingMode } from './story-thinking.js?v=0.14.0-standal
 import { alignStoryRebuildTarget, completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, stableStoryMessages, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.277';
 import { compileRollingStorySnapshot, ROLLING_STORY_SNAPSHOT_EXAMPLE, ROLLING_STORY_SNAPSHOT_SCHEMA } from './story-snapshot.js?v=0.14.0-standalone.258';
 import { planStoryMutationRecovery, withStoryCheckpoint } from './story-checkpoints.js?v=0.14.0-standalone.258';
-import { buildStorySourceUnits, resolveStorySourceMode, storedStorySourceMode, storySourceModeLabel, storySourcePolicyIsCurrent, STORY_SOURCE_L1, STORY_SOURCE_POLICY_VERSION } from './story-source.js?v=0.14.0-standalone.258';
+import { buildStorySourceUnits, isCurrentStorySnapshot, resolveStorySourceMode, storedStorySourceMode, storySourceModeLabel, storySourcePolicyIsCurrent, STORY_FORMAT_MANUAL, STORY_SOURCE_L1, STORY_SOURCE_POLICY_VERSION } from './story-source.js?v=0.14.0-standalone.258';
 import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.258';
 
 const temporalRelationSchema = {
@@ -55,7 +55,7 @@ const temporalRelationSchema = {
 const extractionSchema = {
     type: 'object',
     additionalProperties: false,
-    required: ['scene', 'sceneCapsule', 'entities', 'identityResolutions', 'recordMerges', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds'],
+    required: ['scene', 'sceneCapsule', 'entities', 'identityResolutions', 'recordMerges', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds', 'storySoFar'],
     properties: {
         scene: {
             type: 'object', additionalProperties: false,
@@ -186,6 +186,7 @@ const extractionSchema = {
                 },
             },
         },
+        storySoFar: ROLLING_STORY_SNAPSHOT_SCHEMA,
     },
 };
 
@@ -311,6 +312,7 @@ const JSON_SHAPE_EXAMPLE = JSON.stringify({
     events: [{ title: '', summary: '', participants: [], location: '', storyTime: '', consequences: '', importance: 3, temporal: { frame: 'main narrative', relation: 'same-period', elapsed: '', certainty: 'implicit' } }],
     threads: [{ targetId: '', title: '', detail: '', status: 'open', participants: [], importance: 3 }],
     backgrounds: [{ targetId: '', topic: '', summary: '', status: 'active', certainty: 'reported', participants: [], importance: 2 }],
+    storySoFar: { premise: [], majorDevelopments: [], boundaryState: [], openMatters: [] },
 });
 
 let activeExtractionThinkingMode = null;
@@ -408,6 +410,12 @@ function validateResult(result, world, messages) {
     }
     for (const key of ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds']) {
         if (!Array.isArray(result[key])) throw new Error(`Extractor field "${key}" is not an array.`);
+    }
+    if (!result.storySoFar || typeof result.storySoFar !== 'object' || Array.isArray(result.storySoFar)) {
+        throw new Error('Extractor field "storySoFar" is not a valid four-section snapshot.');
+    }
+    for (const key of ['premise', 'majorDevelopments', 'boundaryState', 'openMatters']) {
+        if (!Array.isArray(result.storySoFar[key])) throw new Error(`Extractor Story field "${key}" is not an array.`);
     }
     const validation = sanitizeReconciliationMetadata(result, world, messages);
     return { result, validation };
@@ -573,13 +581,13 @@ function prepareExtractionPrompts(messages, world = runtime.world) {
     const taskValues = {
         detail: detailInstruction,
         messages: formatExtractionMessages(messages, attributionContext),
-        story_so_far: '',
+        story_so_far: `PRIOR ROLLING STORY SNAPSHOT (rewrite this complete snapshot with the new excerpt; preserve load-bearing causal, emotional, relational, and knowledge-boundary meaning):\n${isCurrentStorySnapshot(world?.storySoFar?.[getChatKey()]) ? String(world.storySoFar[getChatKey()].text).trim() : '(No prior Story snapshot.)'}`,
         active_states: extractionStateContext(world, messages),
         temporal_context: extractionTemporalContext(world),
     };
-    const prompt = renderStructuredTaskPrompt(taskTemplate, DEFAULT_EXTRACTION_TASK_TEMPLATE, taskValues, JSON_SHAPE_EXAMPLE, usesStructuredSchema, ['messages', 'active_states', 'temporal_context']);
+    const prompt = renderStructuredTaskPrompt(taskTemplate, DEFAULT_EXTRACTION_TASK_TEMPLATE, taskValues, JSON_SHAPE_EXAMPLE, usesStructuredSchema, ['messages', 'active_states', 'temporal_context', 'story_so_far']);
     const fallbackPrompt = usesStructuredSchema
-        ? renderStructuredTaskPrompt(taskTemplate, DEFAULT_EXTRACTION_TASK_TEMPLATE, taskValues, JSON_SHAPE_EXAMPLE, false, ['messages', 'active_states', 'temporal_context'])
+        ? renderStructuredTaskPrompt(taskTemplate, DEFAULT_EXTRACTION_TASK_TEMPLATE, taskValues, JSON_SHAPE_EXAMPLE, false, ['messages', 'active_states', 'temporal_context', 'story_so_far'])
         : prompt;
     return {
         prompt,
@@ -1477,11 +1485,6 @@ export async function reviewMemoryCorrection(instruction) {
     } finally {
         updateRuntime({ processing: false });
         if (!runtime.paused) queueMicrotask(processQueue);
-        if (!runtime.paused && !runtime.queue.length && resolveStorySourceMode(getSettings().storySourceMode) === STORY_SOURCE_L1) {
-            queueMicrotask(() => maybeAutoUpdateRollingStory().catch(error => {
-                if (!isRuntimeCancellation(error)) updateRuntime({ storyLastError: `Automatic Story update after L1 failed: ${error.message}` });
-            }));
-        }
     }
 }
 
@@ -2265,7 +2268,7 @@ async function runManualRollingStory(rebuildFromBeginning) {
             storyProgress: { phase: 'pending', label: `${action.toLowerCase()} Story`, from: messages[0]?.index, to: messages.at(-1)?.index },
         });
         if (rebuildFromBeginning || sourceChanged) {
-            world = await persistRollingStory(worldId, chatKey, { ...rollingStoryRebuildCheckpoint(plan), sourceMode, sourcePolicyVersion: STORY_SOURCE_POLICY_VERSION });
+            world = await persistRollingStory(worldId, chatKey, { ...rollingStoryRebuildCheckpoint(plan), sourceMode, sourcePolicyVersion: STORY_SOURCE_POLICY_VERSION, storyFormat: STORY_FORMAT_MANUAL });
             savedWorld = world;
         }
         sourceBreakdown = buildStorySourceUnits(messages, world.capsules, chatKey, sourceMode, requiredL1Through);
@@ -2315,6 +2318,7 @@ async function runManualRollingStory(rebuildFromBeginning) {
                 updatedAt: new Date().toISOString(),
                 sourceMode,
                 sourcePolicyVersion: STORY_SOURCE_POLICY_VERSION,
+                storyFormat: STORY_FORMAT_MANUAL,
                 rebuiltFromRawChat: sourceMode !== STORY_SOURCE_L1,
                 rebuildIncomplete: incomplete,
                 rebuildRestartPending: false,
@@ -2452,6 +2456,7 @@ export async function maybeAutoUpdateRollingStory(sourceMessages = null) {
                 updatedAt: new Date().toISOString(),
                 sourceMode,
                 sourcePolicyVersion: STORY_SOURCE_POLICY_VERSION,
+                storyFormat: STORY_FORMAT_MANUAL,
                 rebuiltFromRawChat: sourceMode !== STORY_SOURCE_L1,
                 rebuildIncomplete: rebuilding && (index < chunks.length - 1 || sourceBreakdown.blockedFrom !== null),
                 ...(rebuilding ? { rebuildTargetTo } : {}),

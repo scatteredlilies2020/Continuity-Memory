@@ -142,6 +142,86 @@
                     </select>
                 </label>
                 <small>AI-expanded uses a small cached LLM request and never silently substitutes local retrieval; a failed expansion stops roleplay generation. Embedding hybrid uses Continuity's own embedding provider configuration and local matching, without an LLM retrieval request.</small>
+                <div class="continuity-embedding-setting continuity-card-inset">
+                    <b>Embedding hybrid index</b>
+                    <label>Embedding provider
+                        <select id="continuity_embedding_provider_choice" class="text_pole">
+                            <option value="proxy">Custom / OpenAI-compatible proxy</option>
+                            <option value="openrouter">OpenRouter</option>
+                        </select>
+                    </label>
+                    <div class="continuity-embedding-proxy-setting">
+                        <label>Embedding endpoint base URL
+                            <input id="continuity_embedding_proxy_url" class="text_pole" type="text" autocomplete="off" spellcheck="false" placeholder="https://api.openai.com (default)">
+                        </label>
+                        <small>Leave blank for <code>https://api.openai.com</code>, or enter a proxy base URL. SillyTavern adds <code>/v1/embeddings</code>.</small>
+                    </div>
+                    <div class="continuity-embedding-openrouter-setting">
+                        <label>OpenRouter endpoint base URL
+                            <input id="continuity_embedding_openrouter_url" class="text_pole" type="text" autocomplete="off" spellcheck="false" placeholder="https://openrouter.ai/api/v1 (default)">
+                        </label>
+                        <small>Leave blank for <code>https://openrouter.ai/api/v1</code>, or enter another OpenAI-compatible base URL.</small>
+                    </div>
+                    <label><span id="continuity_embedding_key_label">Proxy password / embedding API key</span>
+                        <input id="continuity_embedding_api_key" class="text_pole" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved password">
+                    </label>
+                    <div id="continuity_embedding_key_status" class="continuity-progress">Password status not checked.</div>
+                    <div class="continuity-embedding-proxy-setting">
+                        <label>Proxy embedding model
+                            <select id="continuity_embedding_proxy_model" class="text_pole">
+                                <option value="text-embedding-3-small">text-embedding-3-small</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="continuity-embedding-openrouter-setting">
+                        <label>OpenRouter embedding model
+                            <select id="continuity_embedding_openrouter_model" class="text_pole">
+                                <option value="openai/text-embedding-3-large">openai/text-embedding-3-large</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="continuity-button-row">
+                        <button id="continuity_embedding_save_key" class="menu_button"><i class="fa-solid fa-key"></i> Save password securely</button>
+                        <button id="continuity_embedding_fetch_models" class="menu_button"><i class="fa-solid fa-arrows-rotate"></i> Fetch models</button>
+                    </div>
+                    <div id="continuity_embedding_models_status" class="continuity-progress">Model list not fetched yet. The known working model is preselected.</div>
+                    <small>The password is sent as the provider's Bearer API credential and stored by SillyTavern's core secrets service. Continuity never writes it to extension settings or chat files.</small>
+                    <div id="continuity_embedding_provider" class="continuity-progress">Vector provider not checked yet.</div>
+                    <div id="continuity_embedding_status" class="continuity-progress">The optional index has not been built.</div>
+                    <progress id="continuity_embedding_progress" max="1" value="0" style="width: 100%; display: none;"></progress>
+                    <details>
+                        <summary>Advanced embedding tuning</summary>
+                        <div class="continuity-grid">
+                            <label>Query history
+                                <input id="continuity_embedding_messages" class="text_pole" type="number" min="1" max="12" step="1">
+                                <small>recent non-system messages; default 4</small>
+                            </label>
+                            <label>Vector candidates
+                                <input id="continuity_embedding_top_k" class="text_pole" type="number" min="10" max="200" step="10">
+                                <small>before hybrid ranking; default 100</small>
+                            </label>
+                            <label>Similarity threshold
+                                <input id="continuity_embedding_threshold" class="text_pole" type="number" min="0" max="1" step="0.01">
+                                <small>provider-dependent; default 0.20</small>
+                            </label>
+                        </div>
+                    </details>
+                    <div class="continuity-button-row">
+                        <button id="continuity_embedding_build" class="menu_button"><i class="fa-solid fa-hammer"></i> Build index</button>
+                        <button id="continuity_embedding_pause" class="menu_button" style="display: none;"><i class="fa-solid fa-pause"></i> Pause index</button>
+                        <button id="continuity_embedding_stop" class="menu_button redWarningBG" style="display: none;"><i class="fa-solid fa-stop"></i> Stop index</button>
+                    </div>
+                    <details>
+                        <summary>Index maintenance</summary>
+                        <label class="checkbox_label"><input id="continuity_embedding_auto_sync" type="checkbox"><span>Update vectors automatically when memory changes</span></label>
+                        <small>On by default. Startup and opening or switching chats only inspect local index metadata; they never start embedding requests.</small>
+                        <div class="continuity-button-row">
+                            <button id="continuity_embedding_rebuild" class="menu_button redWarningBG"><i class="fa-solid fa-rotate"></i> Rebuild from scratch</button>
+                            <button id="continuity_embedding_delete" class="menu_button"><i class="fa-solid fa-trash"></i> Delete index</button>
+                        </div>
+                    </details>
+                    <small>Vectors are derived from the current structured memory and stored separately. They are never added to exports or portable chat memory. Continuity owns this configuration and does not read another extension's settings.</small>
+                </div>
                 <label class="checkbox_label"><input id="continuity_story_so_far" type="checkbox"><span>Include compact story so far (default)</span></label>
                 <small>The stored narrative covers the story from the beginning to the processed boundary.</small>
                 <label class="continuity-field-row">Story source
@@ -267,86 +347,6 @@
                         <small>complete messages; default 6. Local matching processes them on-device. AI-expanded sends them to its retrieval model. Long messages are not truncated.</small>
                     </label>
                 </details>
-                <div class="continuity-embedding-setting continuity-card-inset">
-                    <b>Embedding hybrid index</b>
-                    <label>Embedding provider
-                        <select id="continuity_embedding_provider_choice" class="text_pole">
-                            <option value="proxy">Custom / OpenAI-compatible proxy</option>
-                            <option value="openrouter">OpenRouter</option>
-                        </select>
-                    </label>
-                    <div class="continuity-embedding-proxy-setting">
-                        <label>Embedding endpoint base URL
-                            <input id="continuity_embedding_proxy_url" class="text_pole" type="text" autocomplete="off" spellcheck="false" placeholder="https://api.openai.com (default)">
-                        </label>
-                        <small>Leave blank for <code>https://api.openai.com</code>, or enter a proxy base URL. SillyTavern adds <code>/v1/embeddings</code>.</small>
-                    </div>
-                    <div class="continuity-embedding-openrouter-setting">
-                        <label>OpenRouter endpoint base URL
-                            <input id="continuity_embedding_openrouter_url" class="text_pole" type="text" autocomplete="off" spellcheck="false" placeholder="https://openrouter.ai/api/v1 (default)">
-                        </label>
-                        <small>Leave blank for <code>https://openrouter.ai/api/v1</code>, or enter another OpenAI-compatible base URL.</small>
-                    </div>
-                    <label><span id="continuity_embedding_key_label">Proxy password / embedding API key</span>
-                        <input id="continuity_embedding_api_key" class="text_pole" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved password">
-                    </label>
-                    <div id="continuity_embedding_key_status" class="continuity-progress">Password status not checked.</div>
-                    <div class="continuity-embedding-proxy-setting">
-                        <label>Proxy embedding model
-                            <select id="continuity_embedding_proxy_model" class="text_pole">
-                                <option value="text-embedding-3-small">text-embedding-3-small</option>
-                            </select>
-                        </label>
-                    </div>
-                    <div class="continuity-embedding-openrouter-setting">
-                        <label>OpenRouter embedding model
-                            <select id="continuity_embedding_openrouter_model" class="text_pole">
-                                <option value="openai/text-embedding-3-large">openai/text-embedding-3-large</option>
-                            </select>
-                        </label>
-                    </div>
-                    <div class="continuity-button-row">
-                        <button id="continuity_embedding_save_key" class="menu_button"><i class="fa-solid fa-key"></i> Save password securely</button>
-                        <button id="continuity_embedding_fetch_models" class="menu_button"><i class="fa-solid fa-arrows-rotate"></i> Fetch models</button>
-                    </div>
-                    <div id="continuity_embedding_models_status" class="continuity-progress">Model list not fetched yet. The known working model is preselected.</div>
-                    <small>The password is sent as the provider's Bearer API credential and stored by SillyTavern's core secrets service. Continuity never writes it to extension settings or chat files.</small>
-                    <div id="continuity_embedding_provider" class="continuity-progress">Vector provider not checked yet.</div>
-                    <div id="continuity_embedding_status" class="continuity-progress">The optional index has not been built.</div>
-                    <progress id="continuity_embedding_progress" max="1" value="0" style="width: 100%; display: none;"></progress>
-                    <details>
-                        <summary>Advanced embedding tuning</summary>
-                        <div class="continuity-grid">
-                            <label>Query history
-                                <input id="continuity_embedding_messages" class="text_pole" type="number" min="1" max="12" step="1">
-                                <small>recent non-system messages; default 4</small>
-                            </label>
-                            <label>Vector candidates
-                                <input id="continuity_embedding_top_k" class="text_pole" type="number" min="10" max="200" step="10">
-                                <small>before hybrid ranking; default 100</small>
-                            </label>
-                            <label>Similarity threshold
-                                <input id="continuity_embedding_threshold" class="text_pole" type="number" min="0" max="1" step="0.01">
-                                <small>provider-dependent; default 0.20</small>
-                            </label>
-                        </div>
-                    </details>
-                    <div class="continuity-button-row">
-                        <button id="continuity_embedding_build" class="menu_button"><i class="fa-solid fa-hammer"></i> Build index</button>
-                        <button id="continuity_embedding_pause" class="menu_button" style="display: none;"><i class="fa-solid fa-pause"></i> Pause index</button>
-                        <button id="continuity_embedding_stop" class="menu_button redWarningBG" style="display: none;"><i class="fa-solid fa-stop"></i> Stop index</button>
-                    </div>
-                    <details>
-                        <summary>Index maintenance</summary>
-                        <label class="checkbox_label"><input id="continuity_embedding_auto_sync" type="checkbox"><span>Update vectors automatically when memory changes</span></label>
-                        <small>On by default. Startup and opening or switching chats only inspect local index metadata; they never start embedding requests.</small>
-                        <div class="continuity-button-row">
-                            <button id="continuity_embedding_rebuild" class="menu_button redWarningBG"><i class="fa-solid fa-rotate"></i> Rebuild from scratch</button>
-                            <button id="continuity_embedding_delete" class="menu_button"><i class="fa-solid fa-trash"></i> Delete index</button>
-                        </div>
-                    </details>
-                    <small>Vectors are derived from the current structured memory and stored separately. They are never added to exports or portable chat memory. Continuity owns this configuration and does not read another extension's settings.</small>
-                </div>
                 <details>
                     <summary>Advanced memory injection</summary>
                     <div class="continuity-grid">

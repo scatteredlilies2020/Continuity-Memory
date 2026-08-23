@@ -1,4 +1,5 @@
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
+import { discardLegacyStorySnapshots } from './story-source.js';
 
 const SCHEMA_VERSION = 11;
 const STORAGE_VERSION = 2;
@@ -92,6 +93,7 @@ function normalizeWorld(input, expectedId) {
     base.sources = input.sources && typeof input.sources === 'object' && !Array.isArray(input.sources) ? input.sources : {};
     base.continuation = input.continuation && typeof input.continuation === 'object' && !Array.isArray(input.continuation) ? input.continuation : null;
     base.storySoFar = input.storySoFar && typeof input.storySoFar === 'object' && !Array.isArray(input.storySoFar) ? input.storySoFar : {};
+    discardLegacyStorySnapshots(base);
     base.createdAt = input.createdAt || base.createdAt;
     base.updatedAt = now();
     base.revision = Math.max(0, Number(input.revision) || 0) + 1;
@@ -291,6 +293,7 @@ export function createFileStorageApi({ fetchFn = globalThis.fetch, requestHeader
         }
         if (!isShardManifest(stored)) {
             migrateLegacyBeliefs(stored);
+            discardLegacyStorySnapshots(stored);
             return stored;
         }
         if (stored.id !== expectedId) throw storageError(`Stored memory ID does not match its manifest (${expectedId})`);
@@ -318,6 +321,7 @@ export function createFileStorageApi({ fetchFn = globalThis.fetch, requestHeader
             else world[category] = parts.length ? parts[0] : (['sources', 'storySoFar'].includes(category) ? {} : null);
         }
         migrateLegacyBeliefs(world);
+        discardLegacyStorySnapshots(world);
         return world;
     }
 
@@ -329,7 +333,10 @@ export function createFileStorageApi({ fetchFn = globalThis.fetch, requestHeader
     async function readStoredWorld(id, optional = false) {
         const stored = await readJsonFile(worldFilename(id), optional);
         if (!stored) return { world: null, manifest: null };
-        return { world: await materializeStoredWorld(stored, id), manifest: isShardManifest(stored) ? stored : null };
+        const world = await materializeStoredWorld(stored, id);
+        const legacyStoryCount = Number(world.__legacyStorySnapshotsRemoved || 0);
+        delete world.__legacyStorySnapshotsRemoved;
+        return { world, manifest: isShardManifest(stored) ? stored : null, legacyStoryCount };
     }
 
     async function deleteFilesWithFailures(filenames) {
@@ -414,9 +421,10 @@ export function createFileStorageApi({ fetchFn = globalThis.fetch, requestHeader
             const worlds = Object.values(index.worlds).sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
             return { ok: true, worlds };
         }),
-        getWorld: id => afterMutations(async () => {
-            const world = await readWorld(assertWorldId(id), true);
+        getWorld: id => exclusive(async () => {
+            const { world, manifest, legacyStoryCount } = await readStoredWorld(assertWorldId(id), true);
             if (!world) throw storageError('World not found', 404);
+            if (legacyStoryCount) await writeShardedWorld(world, manifest);
             return { ok: true, world, counts: counts(world) };
         }),
         createWorld: name => exclusive(async () => {

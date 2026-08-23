@@ -206,7 +206,8 @@ test('rolling snapshot is bounded, chronological, and sourced only from supplied
     assert.match(storyTask, /870–1024 tokens/i);
     assert.match(storyTask, /3840 characters/i);
     assert.doesNotMatch(storyTask, /\{\{/);
-    assert.doesNotMatch(DEFAULT_EXTRACTION_TASK_TEMPLATE, /story_so_far/i);
+    assert.match(DEFAULT_EXTRACTION_TASK_TEMPLATE, /story_so_far/i);
+    assert.match(DEFAULT_EXTRACTION_TASK_TEMPLATE, /concealed information|who knows what/i);
     assert.doesNotMatch(buildExtractionSystemPrompt(DEFAULT_EXTRACTION_SYSTEM_PROMPT), /storySoFar is a separate/i);
 });
 

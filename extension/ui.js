@@ -1577,28 +1577,9 @@ async function buildMemory() {
     // contributions before the first replacement chunk is prompted, so old
     // future ranges cannot leak into earlier rebuilt ranges or donate stale IDs.
     await repairDivergedBranch();
-    const storyUsesL1 = resolveStorySourceMode(getSettings().storySourceMode) === STORY_SOURCE_L1;
-    let storyWork = storyUsesL1 ? null : startStoryAlongsideMemory(false);
     const l1 = await continueFailedL1();
     if (l1.cancelled) return l1;
-    if (storyUsesL1) storyWork = startStoryAlongsideMemory(false);
-    const built = await finishHierarchy(l1, false);
-    return finishStoryAlongsideMemory(built, storyWork);
-}
-
-function startStoryAlongsideMemory(rebuildFromBeginning) {
-    const settings = getSettings();
-    if (!settings.enabled || !settings.storySoFarEnabled || runtime.storyProcessing) return null;
-    const request = rebuildFromBeginning ? rebuildRollingStory() : buildRollingStory();
-    return request.then(
-        story => ({ story }),
-        error => isRuntimeCancellation(error) ? { storyCancelled: true } : { storyError: error.message },
-    );
-}
-
-async function finishStoryAlongsideMemory(result, storyWork) {
-    if (result.cancelled || !storyWork) return result;
-    return { ...result, ...await storyWork };
+    return finishHierarchy(l1, false);
 }
 
 async function repairRollback() {
@@ -1645,12 +1626,8 @@ async function restartBuild() {
         try { await purgeEmbeddingIndex(runtime.world?.id); }
         catch (error) { console.warn('[Continuity] Could not purge the old derived embedding index before Start Over.', error); }
     }
-    let storyWork = null;
-    const storyUsesL1 = resolveStorySourceMode(getSettings().storySourceMode) === STORY_SOURCE_L1;
-    const l1 = await restartL1FromScratch(storyUsesL1 ? null : () => { storyWork = startStoryAlongsideMemory(true); });
-    if (storyUsesL1) storyWork = startStoryAlongsideMemory(true);
-    const built = await finishHierarchy(l1, true, true);
-    return finishStoryAlongsideMemory(built, storyWork);
+    const l1 = await restartL1FromScratch();
+    return finishHierarchy(l1, true, true);
 }
 
 async function rebuildHierarchy() {
@@ -1949,13 +1926,12 @@ export function initUI() {
         stopRuntime();
         toast('info', storyContinues ? 'Memory processing stopped and its queue was cleared. Story continues independently.' : 'Memory processing stopped and its queue was cleared.');
     });
-    $('#continuity_build').on('click', () => buildMemory()
-        .then(result => {
-            if (result.cancelled) return;
-            const changed = Boolean(result.continued || result.arcs || result.eras || result.story?.messages);
-            if (result.storyError) toast('warning', `Memory build completed; independent Story build needs attention: ${result.storyError}`);
-            else toast(changed ? 'success' : 'info', changed ? 'Memory and Story build completed.' : 'Memory and Story are already up to date.');
-        })
+        $('#continuity_build').on('click', () => buildMemory()
+            .then(result => {
+                if (result.cancelled) return;
+                const changed = Boolean(result.continued || result.arcs || result.eras);
+                toast(changed ? 'success' : 'info', changed ? 'Memory build completed; L1 also updated Story so far.' : 'Memory and Story are already up to date.');
+            })
         .catch(error => toast('error', error.message)));
     $('#continuity_undo_latest_l1').on('click', () => undoLatestL1Memory()
         .then(result => !result.cancelled && toast('success', `Undid L1 messages ${result.from}–${result.to}${result.removedL2 || result.removedL3 ? `; removed ${result.removedL2} L2 and ${result.removedL3} L3` : ''}. The range will rebuild before the next reply.`))
@@ -1963,11 +1939,9 @@ export function initUI() {
     $('#continuity_repair_rollback').on('click', () => repairRollback()
         .then(result => !result.cancelled && toast('success', `Rollback repaired: removed memory from ${result.removedMessages || 0} deleted message(s).`))
         .catch(error => toast('error', error.message)));
-    $('#continuity_restart_build').on('click', () => restartBuild()
-        .then(result => !result.cancelled && toast(result.storyError ? 'warning' : 'success', result.storyError
-            ? `Fresh memory build complete; independent Story rebuild needs attention: ${result.storyError}`
-            : `Fresh build complete: ${result.messages || 0} structured-memory messages${result.arcs !== undefined ? `, ${result.arcs} L2 records` : ''}${result.story ? `, Story through ${result.story.messages} raw messages` : ''}.`))
-        .catch(error => toast('error', error.message)));
+        $('#continuity_restart_build').on('click', () => restartBuild()
+            .then(result => !result.cancelled && toast('success', `Fresh build complete: ${result.messages || 0} structured-memory messages${result.arcs !== undefined ? `, ${result.arcs} L2 records` : ''}; Story so far was updated by L1.`))
+            .catch(error => toast('error', error.message)));
     $('#continuity_rebuild_hierarchy').on('click', () => rebuildHierarchy()
         .then(result => !result.cancelled && toast('success', `Hierarchy rebuilt: ${result.arcs || 0} L2 and ${result.eras || 0} L3 records.`))
         .catch(error => toast('error', error.message)));

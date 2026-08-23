@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrateLegacyBeliefs } from '../extension/attributed-beliefs.js';
+import { discardLegacyStorySnapshots } from '../extension/story-source.js';
 import { cancelDetachedJob, createDetachedJob, getDetachedJob, listDetachedJobs } from './detached-jobs.js';
 
 const PLUGIN = 'continuity-memory';
@@ -213,6 +214,7 @@ function normalizeWorld(input, expectedId) {
     base.storySoFar = input.storySoFar && typeof input.storySoFar === 'object' && !Array.isArray(input.storySoFar)
         ? input.storySoFar
         : {};
+    discardLegacyStorySnapshots(base);
     base.createdAt = input.createdAt || base.createdAt;
     base.updatedAt = now();
     base.revision = Math.max(0, Number(input.revision) || 0) + 1;
@@ -245,6 +247,7 @@ async function materializeStoredWorld(dirs, id, stored) {
     }
     if (!isShardManifest(stored)) {
         migrateLegacyBeliefs(stored);
+        discardLegacyStorySnapshots(stored);
         return stored;
     }
     if (stored.id !== id) throw new Error(`Stored memory ID does not match its manifest (${id})`);
@@ -270,15 +273,20 @@ async function materializeStoredWorld(dirs, id, stored) {
         else world[category] = parts.length ? parts[0] : (['sources', 'storySoFar'].includes(category) ? {} : null);
     }
     migrateLegacyBeliefs(world);
+    discardLegacyStorySnapshots(world);
     return world;
 }
 
 async function optionalWorldRecord(dirs, id) {
     const stored = await optionalStoredWorld(dirs, id);
     if (!stored) return { world: null, manifest: null };
+    const world = await materializeStoredWorld(dirs, id, stored);
+    const legacyStoryCount = Number(world.__legacyStorySnapshotsRemoved || 0);
+    delete world.__legacyStorySnapshotsRemoved;
     return {
-        world: await materializeStoredWorld(dirs, id, stored),
+        world,
         manifest: isShardManifest(stored) ? stored : null,
+        legacyStoryCount,
     };
 }
 
@@ -430,8 +438,10 @@ export async function init(router, { syncExtension = true, fetchImpl = fetch } =
     router.get('/worlds/:id', async (req, res) => {
         try {
             const dirs = await ensureStorage(req);
-            const world = await optionalWorld(dirs, assertWorldId(req.params.id));
+            const id = assertWorldId(req.params.id);
+            const { world, manifest, legacyStoryCount } = await optionalWorldRecord(dirs, id);
             if (!world) throw Object.assign(new Error('World not found'), { status: 404 });
+            if (legacyStoryCount) await writeShardedWorld(dirs, world, manifest);
             res.json({ ok: true, world, counts: counts(world) });
         } catch (error) {
             sendError(res, error);

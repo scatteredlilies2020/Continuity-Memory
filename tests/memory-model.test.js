@@ -74,15 +74,16 @@ test('merges durable records and updates matching facts instead of duplicating t
     assert.deepEqual(target.sources[meta.chatKey].processedMessages, [{ index: 0, fingerprint: 'first', version: EXTRACTION_VERSION }]);
 });
 
-test('L1 extraction cannot overwrite the independently managed rolling story', () => {
+test('L1 extraction updates only the matching chat rolling story snapshot', () => {
     const target = world();
     target.storySoFar = {};
     target.storySoFar.chat = { text: 'Authoritative independent story.', from: 0, to: 7 };
-    mergeExtraction(target, extraction({ storySoFar: 'Extractor must not replace this.' }), { chatKey: 'chat', from: 8, to: 15, allowStateUpdates: true });
-    mergeExtraction(target, extraction({ storySoFar: 'Extractor must not create this either.' }), { chatKey: 'other', from: 0, to: 7, allowStateUpdates: true });
+    mergeExtraction(target, extraction({ storySoFar: { premise: ['The original premise remains true.'], majorDevelopments: ['A new development occurred.'], boundaryState: ['The characters remain uncertain.'], openMatters: ['The threat is unresolved.'] } }), { chatKey: 'chat', from: 8, to: 15, allowStateUpdates: true });
+    mergeExtraction(target, extraction({ storySoFar: { premise: ['A separate chat premise.'], majorDevelopments: [], boundaryState: [], openMatters: [] } }), { chatKey: 'other', from: 0, to: 7, allowStateUpdates: true });
 
-    assert.equal(target.storySoFar.chat.text, 'Authoritative independent story.');
-    assert.equal(target.storySoFar.other, undefined);
+    assert.match(target.storySoFar.chat.text, /The original premise remains true/);
+    assert.equal(target.storySoFar.chat.to, 15);
+    assert.match(target.storySoFar.other.text, /A separate chat premise/);
 });
 
 test('a sparse relationship update cannot erase the established role description', () => {

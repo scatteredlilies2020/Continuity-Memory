@@ -7,6 +7,8 @@ import { randomUuid } from './uuid.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { formatEntityProfile, mergeEntityProfiles } from './entity-profile.js';
 import { thirdPersonOnlyProse } from './canonical-prose.js';
+import { compileRollingStorySnapshot } from './story-snapshot.js';
+import { isMergedL1StorySnapshot, STORY_FORMAT_MERGED_L1, STORY_SOURCE_L1, STORY_SOURCE_POLICY_VERSION } from './story-source.js';
 
 function text(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -1434,6 +1436,26 @@ export function mergeExtraction(world, result, meta) {
     };
 
     compactDuplicateMemoryRecords(world);
+
+    // L1 extraction and the rolling narrative snapshot are one model response.
+    // Keep the newest complete snapshot available for prompt injection; replay
+    // can restore it in chronological order without a second Story request.
+    const storyText = compileRollingStorySnapshot(result.storySoFar);
+    if (storyText && meta.chatKey) {
+        const previous = world.storySoFar[meta.chatKey];
+        if (!previous || Number(meta.to) >= Number(previous.to ?? -1)) {
+            world.storySoFar[meta.chatKey] = {
+                text: storyText,
+                from: isMergedL1StorySnapshot(previous) ? Number(previous.from ?? meta.from) : Number(meta.from),
+                to: Number(meta.to),
+                updatedAt: new Date().toISOString(),
+                sourceMode: STORY_SOURCE_L1,
+                sourcePolicyVersion: STORY_SOURCE_POLICY_VERSION,
+                storyFormat: STORY_FORMAT_MERGED_L1,
+                rebuiltFromRawChat: false,
+            };
+        }
+    }
 
     return world;
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildStorySourceUnits, formatL1StorySource, resolveStorySourceMode, storedStorySourceMode, storySourceModeLabel, storySourcePolicyIsCurrent, STORY_SOURCE_L1, STORY_SOURCE_POLICY_VERSION, STORY_SOURCE_RAW } from '../extension/story-source.js';
+import { buildStorySourceUnits, discardLegacyStorySnapshots, formatL1StorySource, resolveStorySourceMode, storedStorySourceMode, storySourceModeLabel, storySourcePolicyIsCurrent, STORY_FORMAT_MANUAL, STORY_FORMAT_MERGED_L1, STORY_SOURCE_L1, STORY_SOURCE_POLICY_VERSION, STORY_SOURCE_RAW } from '../extension/story-source.js';
 
 const messages = count => Array.from({ length: count }, (_, index) => ({ index, name: index % 2 ? 'B' : 'A', text: `raw-${index}` }));
 const capsule = (from, to) => ({ chatKey: 'chat', from, to, title: `Scene ${from}-${to}`, storyTime: 'Day one', location: 'Hall', participants: ['A', 'B'], opening: `Open ${from}`, beats: [`Beat ${from}`], emotionalArc: 'Trust changes.', closing: `Close ${to}` });
@@ -42,4 +42,22 @@ test('raw Story source preserves every raw message', () => {
     const raw = messages(4);
     assert.deepEqual(buildStorySourceUnits(raw, [capsule(0, 3)], 'chat', STORY_SOURCE_RAW, 3).units, raw);
     assert.match(formatL1StorySource(capsule(0, 3)), /Development: Beat 0/);
+});
+
+test('legacy Story snapshots are deleted without touching structured layers', () => {
+    const world = {
+        storySoFar: {
+            chat: { text: 'Old independently-built Story', sourceMode: STORY_SOURCE_L1, sourcePolicyVersion: 2 },
+            current: { text: 'Merged Story', sourceMode: STORY_SOURCE_L1, sourcePolicyVersion: STORY_SOURCE_POLICY_VERSION, storyFormat: STORY_FORMAT_MERGED_L1 },
+            manual: { text: 'Manual Story', sourceMode: STORY_SOURCE_RAW, sourcePolicyVersion: STORY_SOURCE_POLICY_VERSION, storyFormat: STORY_FORMAT_MANUAL },
+        },
+        capsules: [{ id: 'l1' }],
+        arcs: [{ id: 'l2' }],
+        eras: [{ id: 'l3' }],
+    };
+    assert.equal(discardLegacyStorySnapshots(world), 1);
+    assert.equal(world.storySoFar.chat, undefined);
+    assert.equal(world.storySoFar.current.text, 'Merged Story');
+    assert.equal(world.storySoFar.manual.text, 'Manual Story');
+    assert.deepEqual(world.capsules, [{ id: 'l1' }]);
 });

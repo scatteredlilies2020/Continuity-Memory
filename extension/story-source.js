@@ -1,6 +1,8 @@
 export const STORY_SOURCE_L1 = 'l1';
 export const STORY_SOURCE_RAW = 'raw';
-export const STORY_SOURCE_POLICY_VERSION = 2;
+export const STORY_SOURCE_POLICY_VERSION = 3;
+export const STORY_FORMAT_MERGED_L1 = 'merged-l1';
+export const STORY_FORMAT_MANUAL = 'manual-rolling';
 
 export function resolveStorySourceMode(value) {
     return value === STORY_SOURCE_RAW ? STORY_SOURCE_RAW : STORY_SOURCE_L1;
@@ -17,6 +19,38 @@ export function storySourceModeLabel(mode) {
 export function storySourcePolicyIsCurrent(story, mode) {
     return resolveStorySourceMode(mode) === STORY_SOURCE_RAW
         || Number(story?.sourcePolicyVersion || 0) >= STORY_SOURCE_POLICY_VERSION;
+}
+
+export function isCurrentStorySnapshot(story) {
+    if (!story || typeof story !== 'object') return false;
+    const format = story.storyFormat;
+    if (format !== STORY_FORMAT_MERGED_L1 && format !== STORY_FORMAT_MANUAL) return false;
+    return Number(story.sourcePolicyVersion || 0) >= STORY_SOURCE_POLICY_VERSION;
+}
+
+export function isMergedL1StorySnapshot(story) {
+    return isCurrentStorySnapshot(story) && story.storyFormat === STORY_FORMAT_MERGED_L1
+        && story.sourceMode === STORY_SOURCE_L1;
+}
+
+// Obsolete independently-built Story snapshots must not survive the merged L1 migration.
+export function discardLegacyStorySnapshots(world) {
+    if (!world || typeof world !== 'object') return 0;
+    world.storySoFar ||= {};
+    let removed = 0;
+    for (const [chatKey, story] of Object.entries(world.storySoFar)) {
+        if (!isCurrentStorySnapshot(story)) {
+            delete world.storySoFar[chatKey];
+            removed++;
+        }
+    }
+    if (removed) Object.defineProperty(world, '__legacyStorySnapshotsRemoved', {
+        value: removed,
+        enumerable: false,
+        configurable: true,
+        writable: true,
+    });
+    return removed;
 }
 
 export function formatL1StorySource(capsule) {

@@ -77,6 +77,28 @@ test('server plugin creates, saves, and explicitly deletes worlds', async t => {
     assert.equal(router.routes.has('GET /backups'), false);
 });
 
+test('server load permanently discards obsolete Story snapshots but preserves L1/L2/L3', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-story-migration-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const router = mockRouter();
+    await init(router, { syncExtension: false });
+    const created = await call(router.routes.get('POST /worlds'), root, { body: { name: 'Story migration' } });
+    const world = created.payload.world;
+    world.storySoFar.chat = { text: 'Obsolete Story', sourceMode: 'l1', sourcePolicyVersion: 2 };
+    world.capsules.push({ id: 'l1', chatKey: 'chat', from: 0, to: 1 });
+    world.arcs.push({ id: 'l2', capsuleIds: ['l1'] });
+    world.eras.push({ id: 'l3', arcIds: ['l2'] });
+    const saved = await call(router.routes.get('PUT /worlds/:id'), root, { params: { id: world.id }, body: world });
+    assert.equal(saved.payload.world.storySoFar.chat, undefined);
+    const loaded = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: world.id } });
+    assert.deepEqual(loaded.payload.world.storySoFar, {});
+    assert.equal(loaded.payload.world.capsules.length, 1);
+    assert.equal(loaded.payload.world.arcs.length, 1);
+    assert.equal(loaded.payload.world.eras.length, 1);
+    const files = await fs.readdir(path.join(root, 'continuity-memory', 'worlds', `${world.id}.shards`));
+    assert.equal(files.some(file => file.startsWith('storySoFar-')), false);
+});
+
 test('server plugin migrates a monolithic world on its next save', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-plugin-migration-'));
     t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -179,7 +201,8 @@ test('detached extraction jobs remain separate from roleplay generation and save
     assert.equal(job.messages, 1);
     const loaded = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: worldId } });
     assert.equal(loaded.payload.world.capsules.length, 1);
-    assert.deepEqual(loaded.payload.world.storySoFar, {});
+    assert.match(loaded.payload.world.storySoFar['character:chat'].text, /Alice begins the morning/);
+    assert.equal(loaded.payload.world.storySoFar['character:chat'].to, 0);
     assert.equal(loaded.payload.world.facts.some(item => item.subject === 'Alice' && item.value === 'without sugar'), true);
     assert.equal(loaded.payload.world.sources['character:chat'].processedMessages.length, 1);
 });

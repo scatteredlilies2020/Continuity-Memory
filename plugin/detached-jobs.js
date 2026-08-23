@@ -4,6 +4,7 @@ import { isRateLimitError } from '../extension/errors.js';
 import { isRecoverableExtractionOutputError } from '../extension/extraction-recovery.js';
 import { fingerprintMessage } from '../extension/message-digest.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction } from '../extension/memory-model.js';
+import { isCurrentStorySnapshot } from '../extension/story-source.js';
 import { migrateLegacyBeliefs } from '../extension/attributed-beliefs.js';
 import { nextArcCapsules } from '../extension/hierarchy-policy.js';
 import { normalizeHierarchyResult } from '../extension/hierarchy-result.js';
@@ -315,7 +316,10 @@ function shouldRetryWithoutSchema(error) {
 }
 
 async function extractTask(job, task, world) {
-    const priorStory = String(world?.storySoFar?.[job.chatKey]?.text || '').trim() || '(No prior story yet.)';
+    const storedStory = world?.storySoFar?.[job.chatKey];
+    const priorStory = isCurrentStorySnapshot(storedStory) && String(storedStory.text || '').trim()
+        ? String(storedStory.text).trim()
+        : '(No prior story yet.)';
     const request = task.storySoFarPlaceholder ? requestFromTemplate(task.request, task.storySoFarPlaceholder, priorStory) : task.request;
     const fallbackRequest = task.storySoFarPlaceholder ? requestFromTemplate(task.fallbackRequest, task.storySoFarPlaceholder, priorStory) : task.fallbackRequest;
     const mandatoryRequest = task.storySoFarPlaceholder ? requestFromTemplate(task.mandatoryRequest, task.storySoFarPlaceholder, priorStory) : task.mandatoryRequest;
