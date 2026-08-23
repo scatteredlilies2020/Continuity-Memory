@@ -4,7 +4,7 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, buildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, rebuildRollingStory, refineRollingStory, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.258';
+import { buildNextArc, buildNextEra, buildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, rebuildRollingStory, refineRollingStory, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.274';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
 import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.258';
@@ -20,7 +20,7 @@ import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-own
 import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, STORY_RUNTIME_STATUSES, stopRuntime, stopRuntimeTask, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
 import { completeL1MessageCount, latestCompleteL1MessageIndex, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.258';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.274';
 import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.258';
 import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.258';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
@@ -1084,6 +1084,7 @@ export function renderRuntime(refreshSettings = true) {
         $('#continuity_story_batch').val(resolveStoryBatchMessages(settings.storyBatchMessages));
         $('#continuity_story_thinking').val(settings.storyThinkingMode);
         $('#continuity_retrieval_thinking').val(settings.retrievalThinkingMode);
+        $('#continuity_summary_thinking').val(settings.summaryThinkingMode);
         $('.continuity-ai-retrieval-setting').toggle(settings.retrievalMode === 'ai-expanded');
         $('.continuity-text-retrieval-setting').toggle(settings.retrievalMode !== 'embedding-hybrid');
         $('.continuity-embedding-setting').toggle(settings.retrievalMode === 'embedding-hybrid');
@@ -1743,6 +1744,7 @@ export function initUI() {
     setSetting('#continuity_story_batch', 'storyBatchMessages', resolveStoryBatchMessages);
     setSetting('#continuity_story_thinking', 'storyThinkingMode');
     setSetting('#continuity_retrieval_thinking', 'retrievalThinkingMode');
+    setSetting('#continuity_summary_thinking', 'summaryThinkingMode');
     $('#continuity_story_build').on('click', async () => {
         const stored = runtime.world?.storySoFar?.[getChatKey()];
         const eligibleMessages = stableStoryMessages(collectMemoryEligibleMessages(getContext().chat || []));

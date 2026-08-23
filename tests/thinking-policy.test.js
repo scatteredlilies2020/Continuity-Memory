@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, shouldSendStructuredSchema, thinkingControlFallbackPayload } from '../extension/thinking-policy.js';
+import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from '../extension/thinking-policy.js';
 
 test('translates thinking off for recognized custom endpoints', () => {
     const deepseek = buildThinkingRequest({ mode: 'off', source: 'custom', model: 'deepseek-v4-flash' });
@@ -159,4 +159,20 @@ test('mandatory reasoning errors recover by enabling instead of stripping contro
         custom_include_body: JSON.stringify({ reasoning: { effort: 'low', exclude: false } }),
     });
     assert.deepEqual(thinkingControlFallbackPayload(new Error('Unknown field reasoning_effort'), { include_reasoning: false }), {});
+});
+
+test('detached requests can prebuild a mandatory-reasoning retry for OpenRouter', () => {
+    assert.deepEqual(mandatoryThinkingPayload({ include_reasoning: false, reasoning_effort: 'none' }), {
+        include_reasoning: true,
+        reasoning_effort: 'low',
+    });
+    assert.deepEqual(mandatoryThinkingPayload({
+        include_reasoning: false,
+        reasoning_effort: 'none',
+        custom_include_body: JSON.stringify({ reasoning: { effort: 'none', exclude: true } }),
+    }), {
+        include_reasoning: true,
+        reasoning_effort: 'low',
+        custom_include_body: JSON.stringify({ reasoning: { effort: 'low', exclude: false } }),
+    });
 });

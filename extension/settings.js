@@ -19,6 +19,7 @@ const DEFAULTS = Object.freeze({
     storyBatchMessages: 8,
     storyThinkingMode: 'auto',
     retrievalThinkingMode: 'auto',
+    summaryThinkingMode: 'auto',
     retrievalQueryMessages: 6,
     embeddingQueryMessages: 4,
     embeddingTopK: 100,
@@ -591,6 +592,7 @@ export function getSettings() {
     }
     if (Number(settings.thinkingEffortOptionsVersion || 0) < 1) {
         if (settings.thinkingMode === 'default') settings.thinkingMode = 'auto';
+        if (settings.summaryThinkingMode === 'default') settings.summaryThinkingMode = 'auto';
         settings.thinkingEffortOptionsVersion = 1;
         saveSettingsDebounced();
     }

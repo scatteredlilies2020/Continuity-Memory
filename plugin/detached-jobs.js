@@ -8,7 +8,7 @@ import { migrateLegacyBeliefs } from '../extension/attributed-beliefs.js';
 import { nextArcCapsules } from '../extension/hierarchy-policy.js';
 import { renderPromptTemplate } from '../extension/prompts.js';
 import { sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
-import { isThinkingControlError } from '../extension/thinking-policy.js';
+import { isMandatoryThinkingError, isThinkingControlError } from '../extension/thinking-policy.js';
 
 const jobs = new Map();
 const activeByWorld = new Map();
@@ -222,17 +222,21 @@ async function requestHierarchy(job, layer, records, label) {
     const fallbackPrompt = layer.usesStructuredSchema ? hierarchyPrompt(layer, records, false) : prompt;
     const primary = requestFromTemplate(layer.request, layer.placeholder, prompt);
     const fallback = requestFromTemplate(layer.fallbackRequest, layer.placeholder, fallbackPrompt);
+    const mandatory = requestFromTemplate(layer.mandatoryRequest, layer.placeholder, prompt);
+    const mandatoryFallback = requestFromTemplate(layer.mandatoryFallbackRequest, layer.placeholder, fallbackPrompt);
     const uncontrolled = requestFromTemplate(layer.uncontrolledRequest, layer.placeholder, fallbackPrompt);
     let raw;
     try {
         raw = await backendRequest(job, primary);
     } catch (error) {
-        if (uncontrolled && isThinkingControlError(error)) raw = await backendRequest(job, uncontrolled);
+        if (mandatory && isMandatoryThinkingError(error)) raw = await backendRequest(job, mandatory);
+        else if (uncontrolled && isThinkingControlError(error)) raw = await backendRequest(job, uncontrolled);
         else if (fallback && shouldRetryWithoutSchema(error)) {
             try { raw = await backendRequest(job, fallback); }
             catch (fallbackError) {
-                if (!uncontrolled || !isThinkingControlError(fallbackError)) throw fallbackError;
-                raw = await backendRequest(job, uncontrolled);
+                if (mandatoryFallback && isMandatoryThinkingError(fallbackError)) raw = await backendRequest(job, mandatoryFallback);
+                else if (uncontrolled && isThinkingControlError(fallbackError)) raw = await backendRequest(job, uncontrolled);
+                else throw fallbackError;
             }
         } else throw error;
     }
@@ -318,6 +322,8 @@ async function extractTask(job, task, world) {
     const priorStory = String(world?.storySoFar?.[job.chatKey]?.text || '').trim() || '(No prior story yet.)';
     const request = task.storySoFarPlaceholder ? requestFromTemplate(task.request, task.storySoFarPlaceholder, priorStory) : task.request;
     const fallbackRequest = task.storySoFarPlaceholder ? requestFromTemplate(task.fallbackRequest, task.storySoFarPlaceholder, priorStory) : task.fallbackRequest;
+    const mandatoryRequest = task.storySoFarPlaceholder ? requestFromTemplate(task.mandatoryRequest, task.storySoFarPlaceholder, priorStory) : task.mandatoryRequest;
+    const mandatoryFallbackRequest = task.storySoFarPlaceholder ? requestFromTemplate(task.mandatoryFallbackRequest, task.storySoFarPlaceholder, priorStory) : task.mandatoryFallbackRequest;
     const uncontrolledRequest = task.storySoFarPlaceholder ? requestFromTemplate(task.uncontrolledRequest, task.storySoFarPlaceholder, priorStory) : task.uncontrolledRequest;
     let lastError;
     for (let attempt = 1; attempt <= 2; attempt++) {
@@ -326,14 +332,21 @@ async function extractTask(job, task, world) {
             try {
                 raw = await backendRequest(job, request);
             } catch (error) {
-                if (uncontrolledRequest && isThinkingControlError(error)) {
+                if (mandatoryRequest && isMandatoryThinkingError(error)) {
+                    raw = await backendRequest(job, mandatoryRequest);
+                } else if (uncontrolledRequest && isThinkingControlError(error)) {
                     raw = await backendRequest(job, uncontrolledRequest);
                 } else if (fallbackRequest && shouldRetryWithoutSchema(error)) {
                     try {
                         raw = await backendRequest(job, fallbackRequest);
                     } catch (fallbackError) {
-                        if (!uncontrolledRequest || !isThinkingControlError(fallbackError)) throw fallbackError;
-                        raw = await backendRequest(job, uncontrolledRequest);
+                        if (mandatoryFallbackRequest && isMandatoryThinkingError(fallbackError)) {
+                            raw = await backendRequest(job, mandatoryFallbackRequest);
+                        } else if (uncontrolledRequest && isThinkingControlError(fallbackError)) {
+                            raw = await backendRequest(job, uncontrolledRequest);
+                        } else {
+                            throw fallbackError;
+                        }
                     }
                 } else {
                     throw error;
