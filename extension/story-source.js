@@ -5,7 +5,9 @@ export const STORY_FORMAT_MERGED_L1 = 'merged-l1';
 export const STORY_FORMAT_MANUAL = 'manual-rolling';
 
 export function resolveStorySourceMode(value) {
-    return value === STORY_SOURCE_RAW ? STORY_SOURCE_RAW : STORY_SOURCE_L1;
+    // Story is now derived from completed L1 extraction. Keep this resolver
+    // for legacy callers, but do not allow hidden settings to restore raw-chat mode.
+    return STORY_SOURCE_L1;
 }
 
 export function storedStorySourceMode(story) {

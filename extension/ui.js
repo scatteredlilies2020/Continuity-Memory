@@ -4,7 +4,7 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, buildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, rebuildRollingStory, refineRollingStory, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.277';
+import { buildNextArc, buildNextEra, buildRollingStory, rebuildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.277';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
 import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.258';
@@ -17,7 +17,7 @@ import { createContinuationPackage, prepareContinuationWorld } from './continuat
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
 import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.258';
 import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.273';
-import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, STORY_RUNTIME_STATUSES, stopRuntime, stopRuntimeTask, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
+import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
 import { completeL1MessageCount, latestCompleteL1MessageIndex, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
 import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.274';
@@ -28,8 +28,7 @@ import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.258';
 import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.258';
 import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.258';
 import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.258';
-import { resolveStoryBatchMessages, rollingStoryCoverage, stableStoryMessages } from './story-cadence.js?v=0.14.0-standalone.277';
-import { resolveStorySourceMode, storedStorySourceMode, storySourceModeLabel, storySourcePolicyIsCurrent, STORY_SOURCE_L1 } from './story-source.js?v=0.14.0-standalone.258';
+import { stableStoryMessages } from './story-cadence.js?v=0.14.0-standalone.277';
 import { createRenderScheduler } from './render-scheduler.js';
 import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.14.0-standalone.258';
 import { connectionProfileHasModel } from './profile-request-policy.js?v=0.14.0-standalone.258';
@@ -1065,10 +1064,7 @@ export function renderRuntime(refreshSettings = true) {
         $('#continuity_notifications').prop('checked', settings.showNotifications);
         $('#continuity_retrieval_mode').val(settings.retrievalMode);
         $('#continuity_story_so_far').prop('checked', settings.storySoFarEnabled);
-        $('#continuity_story_source').val(resolveStorySourceMode(settings.storySourceMode));
         $('#continuity_story_so_far_tokens').val(settings.storySoFarTokens);
-        $('#continuity_story_batch').val(resolveStoryBatchMessages(settings.storyBatchMessages));
-        $('#continuity_story_thinking').val(settings.storyThinkingMode);
         $('#continuity_retrieval_thinking').val(settings.retrievalThinkingMode);
         $('#continuity_summary_thinking').val(settings.summaryThinkingMode);
         $('.continuity-ai-retrieval-setting').toggle(settings.retrievalMode === 'ai-expanded');
@@ -1083,49 +1079,15 @@ export function renderRuntime(refreshSettings = true) {
     }
     const rollingStory = runtime.world?.storySoFar?.[getChatKey()];
     const resolvedStoryAllowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext);
-    const storySourceMode = resolveStorySourceMode(settings.storySourceMode);
     const stableMessages = stableStoryMessages(collectMemoryEligibleMessages(getContext().chat || []));
-    const storyEligibleMessages = storySourceMode === STORY_SOURCE_L1
-        ? stableMessages.filter(message => Number(message.index) <= latestCompleteL1MessageIndex(stableMessages, settings.extractionBatchMessages))
-        : stableMessages;
-    const storyCoverage = rollingStoryCoverage(rollingStory, storyEligibleMessages);
-    const storySourceChanged = Boolean(rollingStory?.text)
-        && (storedStorySourceMode(rollingStory) !== storySourceMode || !storySourcePolicyIsCurrent(rollingStory, storySourceMode));
-    const storyProcessing = runtime.storyProcessing;
-    const storyProgress = storyProcessing ? runtime.storyProgress : null;
-    const storyFailure = runtime.storyFailure?.chatKey === getChatKey() ? runtime.storyFailure : null;
-    $('#continuity_story_build, #continuity_story_rebuild').prop('disabled', storyProcessing || !runtime.world);
-    $('#continuity_story_refine').prop('disabled', storyProcessing || !rollingStory?.text || rollingStory.rebuildIncomplete || rollingStory.rebuildRestartPending || storySourceChanged);
-    $('#continuity_story_stop').prop('disabled', !storyProcessing || !STORY_RUNTIME_STATUSES.includes(runtime.storyStatus));
-    $('#continuity_story_delete').prop('disabled', storyProcessing || !rollingStory);
-    $('#continuity_story_progress')
-        .toggleClass('continuity-error', Boolean(storyFailure && !storyProcessing))
-        .text(!storyProcessing
-        ? storyFailure
-            ? `Story operation failed: ${storyFailure.message} ${storyFailure.recovery}`
-            : 'No Story build running.'
-        : String(runtime.storyStatus).startsWith('pending-story-')
-            ? runtime.storyRetryStatus || 'Pending Story build: preparing raw history…'
-            : runtime.storyStatus === 'stopping'
-                ? runtime.storyRetryStatus || 'Stopping Story build safely…'
-                : storyProgress?.total
-                    ? `Processing Story chunk ${storyProgress.current}/${storyProgress.total} · messages ${Number(storyProgress.from ?? 0) + 1}–${Number(storyProgress.to ?? 0) + 1} · ~${storyProgress.inputTokens || '?'} source tokens`
-                    : runtime.storyRetryStatus || 'Story build is processing independently…');
-    $('#continuity_story_progress_bar')
-        .toggle(storyProcessing)
-        .attr('max', Math.max(1, Number(storyProgress?.total) || 1));
-    if (storyProcessing && storyProgress?.total) $('#continuity_story_progress_bar').attr('value', Math.max(0, Number(storyProgress.current) || 0));
-    else if (storyProcessing) $('#continuity_story_progress_bar').removeAttr('value');
-    else $('#continuity_story_progress_bar').attr('value', 0);
-    $('#continuity_story_status').text(storySourceChanged
-        ? `Stored Story uses ${storySourceModeLabel(storedStorySourceMode(rollingStory))}; selected source is ${storySourceModeLabel(storySourceMode)}. Build / Continue or Rebuild will recreate it safely.`
-        : rollingStory?.rebuildRestartPending
-        ? `Rebuild is pending from the first eligible raw message; Build / Continue will retry it. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`
-        : rollingStory?.rebuildIncomplete
-            ? `Rebuild incomplete; saved through message ${Number(rollingStory.to ?? -1) + 1}. Build / Continue will resume after that checkpoint. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`
-        : rollingStory?.text
-            ? `${storyCoverage.current ? `Story so far is already current through message ${storyCoverage.through + 1}` : `Stored through message ${storyCoverage.through + 1}; ${storyCoverage.pending} eligible message(s) pending`}; approximately ${Math.ceil(String(rollingStory.text).length / 4)} tokens before injection clipping. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`
-            : `No rolling story is stored for this chat yet. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`);
+    const storyTo = Number(rollingStory?.to ?? -1);
+    const storyPending = rollingStory?.text ? stableMessages.filter(message => Number(message.index) > storyTo).length : stableMessages.length;
+    $('#continuity_story_build, #continuity_story_rebuild, #continuity_story_delete').prop('disabled', Boolean(runtime.storyProcessing));
+    $('#continuity_story_delete').prop('disabled', Boolean(runtime.storyProcessing) || !rollingStory);
+    $('#continuity_story_progress').removeClass('continuity-error').text('Story So Far is updated together with L1 extraction. Manual actions are for recovery or a full rebuild.');
+    $('#continuity_story_status').text(rollingStory?.text
+        ? `Stored through message ${storyTo + 1}; ${storyPending} eligible message(s) pending L1 extraction. Approximately ${Math.ceil(String(rollingStory.text).length / 4)} tokens before injection clipping. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`
+        : `No Story So Far is stored for this chat yet. Build memory to create it with L1. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`);
     const embedding = runtime.embeddingIndex;
     const embeddingTotal = Math.max(0, Number(embedding?.total) || 0);
     const embeddingIndexed = Math.min(embeddingTotal, Math.max(0, Number(embedding?.indexed) || 0));
@@ -1706,36 +1668,20 @@ export function initUI() {
     setSetting('#continuity_notifications', 'showNotifications', Boolean);
     setSetting('#continuity_retrieval_mode', 'retrievalMode');
     setSetting('#continuity_story_so_far', 'storySoFarEnabled', Boolean);
-    setSetting('#continuity_story_source', 'storySourceMode', resolveStorySourceMode);
     setSetting('#continuity_story_so_far_tokens', 'storySoFarTokens', value => Math.min(12000, Math.max(0, Number(value) || 0)));
-    setSetting('#continuity_story_batch', 'storyBatchMessages', resolveStoryBatchMessages);
-    setSetting('#continuity_story_thinking', 'storyThinkingMode');
     setSetting('#continuity_retrieval_thinking', 'retrievalThinkingMode');
     setSetting('#continuity_summary_thinking', 'summaryThinkingMode');
     $('#continuity_story_build').on('click', async () => {
-        const stored = runtime.world?.storySoFar?.[getChatKey()];
-        const eligibleMessages = stableStoryMessages(collectMemoryEligibleMessages(getContext().chat || []));
-        const messageCount = eligibleMessages.length;
-        if (!messageCount) return toast('error', 'This chat has no eligible raw messages to summarize.');
-        const targetTo = Number(stored?.rebuildTargetTo);
-        const savedTo = Number(stored?.to ?? -1);
-        const pending = stored?.rebuildRestartPending
-            ? eligibleMessages.filter(message => !Number.isFinite(targetTo) || Number(message.index) <= targetTo).length
-            : stored?.rebuildIncomplete
-                ? eligibleMessages.filter(message => Number(message.index) > savedTo && (!Number.isFinite(targetTo) || Number(message.index) <= targetTo)).length
-                : stored?.text ? eligibleMessages.filter(message => Number(message.index) > savedTo).length : messageCount;
-        const sourceMode = resolveStorySourceMode(getSettings().storySourceMode);
-        const sourceChanged = Boolean(stored?.text) && storedStorySourceMode(stored) !== sourceMode;
-        if (!pending && !sourceChanged) return toast('info', 'Story so far is already current through its eligible source boundary.');
-        const action = sourceChanged ? 'Rebuild with the selected source' : stored?.rebuildRestartPending || stored?.rebuildIncomplete ? 'Continue' : stored?.text ? 'Advance' : 'Build';
-        if (!window.confirm(`${action} using ${storySourceModeLabel(sourceMode)} through ${pending || messageCount} eligible message(s)? Completed compatible checkpoints will be kept. Structured memory will not be changed.`)) return;
+        const action = runtime.world?.storySoFar?.[getChatKey()]?.text ? 'Continue' : 'Build';
+        if (!window.confirm(`${action} Story So Far from the completed L1 summaries? This may make explicit Story requests; structured memory is unchanged.`)) return;
         try {
             const result = await buildRollingStory();
+            const verb = action === 'Continue' ? 'continued' : 'built';
             toast(result.caughtUp ? 'info' : 'success', result.caughtUp
-                ? 'Story so far is already current through its eligible source boundary.'
+                ? 'Story so far is already current through the completed L1 summaries.'
                 : result.waitingL1 && !result.messages
                     ? 'Story is waiting for the required L1 extraction.'
-                    : `Story so far ${result.resumed ? 'continued' : 'built or advanced'} through ${result.messages} eligible message(s).`);
+                    : `Story so far ${verb} through ${result.messages} eligible message(s).`);
         } catch (error) {
             if (!isRuntimeCancellation(error)) toast('error', error.message);
         }
@@ -1743,8 +1689,7 @@ export function initUI() {
     $('#continuity_story_rebuild').on('click', async () => {
         const messageCount = stableStoryMessages(collectMemoryEligibleMessages(getContext().chat || [])).length;
         if (!messageCount) return toast('error', 'This chat has no eligible raw messages to summarize.');
-        const sourceMode = resolveStorySourceMode(getSettings().storySourceMode);
-        if (!window.confirm(`Delete the current Story so far, then rebuild it from ${storySourceModeLabel(sourceMode)} through all ${messageCount} eligible messages? The deletion is immediate. If rebuilding stops or fails, Build / Continue retries from the last new checkpoint. Structured memory is unchanged.`)) return;
+        if (!window.confirm(`Delete the current Story so far, then rebuild it from the completed L1 summaries across ${messageCount} eligible messages? Structured memory is unchanged.`)) return;
         try {
             const result = await rebuildRollingStory();
             toast(result.waitingL1 ? 'info' : 'success', result.waitingL1
@@ -1753,23 +1698,6 @@ export function initUI() {
         } catch (error) {
             if (!isRuntimeCancellation(error)) toast('error', error.message);
         }
-    });
-    $('#continuity_story_refine').on('click', async () => {
-        const stored = runtime.world?.storySoFar?.[getChatKey()];
-        if (!stored?.text) return toast('error', 'Build Story so far before refining it.');
-        if (!window.confirm('Refine the stored Story now? This performs the slower factual review against its covered source and repairs only material issues it finds. Structured memory is unchanged.')) return;
-        try {
-            const result = await refineRollingStory();
-            toast(result.changed ? 'success' : 'info', result.changed
-                ? `Story refined from ${result.issues} detected issue(s).`
-                : 'Refine found no material correction to make.');
-        } catch (error) {
-            if (!isRuntimeCancellation(error)) toast('error', error.message);
-        }
-    });
-    $('#continuity_story_stop').on('click', () => {
-        const stopped = stopRuntimeTask(STORY_RUNTIME_STATUSES, 'Stopping Story so far; completed batches remain saved and the in-flight batch will be discarded.');
-        if (stopped) toast('info', 'Stopping Story so far. The last completed batch was kept.');
     });
     $('#continuity_story_delete').on('click', async () => {
         if (!window.confirm('Delete only this chat’s Story so far? Structured recall, L1/L2/L3, facts, state, and chat messages will remain unchanged.')) return;

@@ -15,15 +15,17 @@ test('ordinary connection profiles remain unchanged', () => {
     assert.equal(directProfileChoice('profile-7', 'openrouter'), 'profile-7');
 });
 
-test('every model-driven Continuity category exposes independent direct controls', () => {
+test('model-driven Continuity categories expose independent direct controls', () => {
     const html = readFileSync(new URL('../extension/settings.html', import.meta.url), 'utf8');
-    for (const kind of ['extraction', 'retrieval', 'story', 'correction', 'summary']) {
+    for (const kind of ['extraction', 'retrieval', 'correction', 'summary']) {
         for (const suffix of ['provider', 'url', 'key', 'save_key', 'fetch_models', 'key_status', 'model_select', 'models_status', 'model']) {
             assert.match(html, new RegExp(`id="continuity_${kind}_direct_${suffix}"`));
         }
     }
-    assert.equal((html.match(/value="__direct_custom__"/g) || []).length, 5);
-    assert.equal((html.match(/value="__direct_openrouter__"/g) || []).length, 5);
+    assert.equal((html.match(/value="__direct_custom__"/g) || []).length, 4);
+    assert.equal((html.match(/value="__direct_openrouter__"/g) || []).length, 4);
+    assert.doesNotMatch(html, /continuity_story_profile/);
+    assert.doesNotMatch(html, /continuity_story_direct_/);
 });
 
 test('AI retrieval has an independent reasoning control that defaults to Auto', () => {
