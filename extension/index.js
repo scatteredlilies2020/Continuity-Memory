@@ -6,7 +6,7 @@ import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceCha
 import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.277';
 import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.14.0-standalone.258';
 import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.274';
-import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
+import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
 import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.274';
 import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.277';
 import { resolveInjectionPlacement } from './injection-placement.js';
@@ -76,17 +76,77 @@ function injectionRefreshIsCurrent(revision) {
     return revision === injectionRefreshRevision;
 }
 
+let backgroundRetryTimer = null;
+let backgroundCancelled = false;
+
+function waitForBackgroundRetry(delay, stopSequence) {
+    return new Promise((resolve, reject) => {
+        let unsubscribe = () => {};
+        backgroundRetryTimer = globalThis.setTimeout(() => {
+            backgroundRetryTimer = null;
+            unsubscribe();
+            resolve();
+        }, delay);
+        const inspect = state => {
+            if (state.stopSequence === stopSequence) return;
+            if (backgroundRetryTimer !== null) globalThis.clearTimeout(backgroundRetryTimer);
+            backgroundRetryTimer = null;
+            unsubscribe();
+            const error = new Error('Automatic memory work was stopped safely.');
+            error.code = 'CONTINUITY_BACKGROUND_CANCELLED';
+            reject(error);
+        };
+        unsubscribe = onRuntimeChange(inspect);
+        inspect(runtime);
+    });
+}
+
 const backgroundMemoryWork = createBackgroundScheduler(async () => {
-    try {
-        const settings = getSettings();
-        const processableMessages = collectMemoryEligibleMessages(getContext().chat || []).length;
-        if (!getBoundWorldId() && processableMessages >= settings.extractionBatchMessages) {
-            await ensureCurrentChatMemory(true);
+    const stopSequence = runtime.stopSequence;
+    backgroundCancelled = false;
+    let failures = 0;
+    while (true) {
+        if (backgroundCancelled || runtime.stopSequence !== stopSequence || runtime.paused && !failures) return;
+        try {
+            const settings = getSettings();
+            const processableMessages = collectMemoryEligibleMessages(getContext().chat || []).length;
+            if (!getBoundWorldId() && processableMessages >= settings.extractionBatchMessages) {
+                await ensureCurrentChatMemory(true);
+            }
+            // Drain stable, complete L1 groups. The stability buffer remains
+            // protected by maybeAutoExtract/selectAutomaticL1Messages.
+            const result = await maybeAutoExtract(false);
+            if (runtime.stopSequence !== stopSequence || runtime.paused) return;
+            failures = 0;
+            if (!result) return;
+        } catch (error) {
+            if (backgroundCancelled || isRuntimeCancellation(error) || error?.code === 'CONTINUITY_BACKGROUND_CANCELLED' || runtime.stopSequence !== stopSequence) return;
+            if (!isTransientApiError(error) || failures >= 4) {
+                updateRuntime({ lastError: `Automatic memory update failed: ${error.message}` });
+                return;
+            }
+            failures++;
+            if (runtime.paused) resumeRuntime();
+            const delay = Math.min(20000, 2000 * (2 ** (failures - 1)));
+            updateRuntime({
+                lastError: '',
+                retryStatus: `Automatic memory update hit a temporary error; retrying in ${Math.round(delay / 1000)}s (attempt ${failures + 1})…`,
+            });
+            try {
+                await waitForBackgroundRetry(delay, stopSequence);
+            } catch (retryError) {
+                if (retryError?.code === 'CONTINUITY_BACKGROUND_CANCELLED' || runtime.stopSequence !== stopSequence) return;
+                throw retryError;
+            }
         }
-        await maybeAutoExtract(false);
-    } catch (error) {
-        if (!isRuntimeCancellation(error)) updateRuntime({ lastError: `Automatic memory update failed: ${error.message}` });
     }
+});
+
+onRuntimeStop(() => {
+    backgroundCancelled = true;
+    backgroundMemoryWork.cancel();
+    if (backgroundRetryTimer !== null) globalThis.clearTimeout(backgroundRetryTimer);
+    backgroundRetryTimer = null;
 });
 
 function showGenerationNotification(type, message, options = undefined) {
@@ -791,6 +851,9 @@ async function init() {
         eventSource.on(event_types.CHAT_RENAMED, eventData => onChatRenamed(eventData).catch(error => updateRuntime({ lastError: `Chat memory rename failed: ${error.message}` })));
     }
     eventSource.on(event_types.GENERATION_STARTED, async (type, _params, dryRun) => {
+        // Start safe background catch-up as soon as the user asks for a
+        // message. It runs independently while the model generates.
+        if (!dryRun) backgroundMemoryWork.schedule(0);
         // Ordinary roleplay generations are refreshed later by the interceptor
         // with the complete user turn. Do not issue an early request against
         // stale chat text or overwrite its authoritative retrieval diagnostics.
