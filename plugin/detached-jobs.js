@@ -6,6 +6,7 @@ import { fingerprintMessage } from '../extension/message-digest.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction } from '../extension/memory-model.js';
 import { migrateLegacyBeliefs } from '../extension/attributed-beliefs.js';
 import { nextArcCapsules } from '../extension/hierarchy-policy.js';
+import { normalizeHierarchyResult } from '../extension/hierarchy-result.js';
 import { renderPromptTemplate } from '../extension/prompts.js';
 import { sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
 import { isMandatoryThinkingError, isThinkingControlError } from '../extension/thinking-policy.js';
@@ -186,12 +187,7 @@ function nextEraArcs(world, settings = {}) {
 }
 
 function validateHierarchyResult(result, label) {
-    if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error(`${label} summarizer returned no JSON object.`);
-    for (const key of ['participants', 'turningPoints', 'openThreads']) {
-        if (!Array.isArray(result[key])) throw new Error(`${label} field "${key}" is not an array.`);
-    }
-    if (!String(result.summary || '').trim()) throw new Error(`${label} summarizer returned no summary.`);
-    return result;
+    return normalizeHierarchyResult(result, label);
 }
 
 function hierarchyPrompt(layer, records, withSchema) {
@@ -244,7 +240,7 @@ async function requestHierarchy(job, layer, records, label) {
 }
 
 async function saveHierarchyResult(job, result, sourceRecords, layer) {
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 4; attempt++) {
         const world = await job.loadWorld();
         const collection = layer === 'l2' ? world.capsules || [] : world.arcs || [];
         const current = sourceRecords.map(source => collection.find(item => item.id === source.id)).filter(Boolean);
@@ -258,7 +254,7 @@ async function saveHierarchyResult(job, result, sourceRecords, layer) {
             await job.saveWorld(world);
             return true;
         } catch (error) {
-            if (error.status !== 409 || attempt > 0) throw error;
+            if (error.status !== 409 || attempt === 3) throw error;
         }
     }
     return false;

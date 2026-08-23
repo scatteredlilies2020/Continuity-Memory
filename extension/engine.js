@@ -9,6 +9,7 @@ import { isRateLimitError, isTransientApiError } from './errors.js';
 import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.258';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
+import { normalizeHierarchyResult } from './hierarchy-result.js';
 import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
@@ -1673,12 +1674,7 @@ function nextEraArcs(world, settings = getSettings()) {
 }
 
 function validateArcResult(result, layer = 'L2') {
-    if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error(`${layer} summarizer returned no JSON object.`);
-    for (const key of ['participants', 'turningPoints', 'openThreads']) {
-        if (!Array.isArray(result[key])) throw new Error(`${layer} field "${key}" is not an array.`);
-    }
-    if (!String(result.summary || '').trim()) throw new Error(`${layer} summarizer returned no summary.`);
-    return result;
+    return normalizeHierarchyResult(result, layer);
 }
 
 async function generateArc(capsules) {
@@ -1701,16 +1697,18 @@ async function generateArc(capsules) {
 }
 
 async function saveDerivedArc(world, result, capsules) {
-    addDerivedArc(world, result, capsules);
-    try {
-        world = (await api.saveWorld(world)).world;
-    } catch (error) {
-        if (error.status !== 409) throw error;
-        world = (await api.getWorld(world.id)).world;
+    const worldId = world.id;
+    for (let attempt = 0; attempt < 4; attempt++) {
+        if (attempt) world = (await api.getWorld(worldId)).world;
         const currentCapsules = capsules.map(source => (world.capsules || []).find(item => item.id === source.id)).filter(Boolean);
         if (currentCapsules.length !== capsules.length) throw new Error('L1 records changed while L2 was being built; retry later.');
         addDerivedArc(world, result, currentCapsules);
-        world = (await api.saveWorld(world)).world;
+        try {
+            world = (await api.saveWorld(world)).world;
+            break;
+        } catch (error) {
+            if (error.status !== 409 || attempt === 3) throw error;
+        }
     }
     updateRuntime({ world, arcStatus: `Created L2 “${world.arcs.at(-1)?.title || 'Untitled'}”.`, arcError: '' });
     await embedWorldInChat(world);
@@ -1737,16 +1735,18 @@ export async function buildNextArc(worldId = getBoundWorldId(), expectedEpoch = 
 }
 
 async function saveDerivedEra(world, result, arcs) {
-    addDerivedEra(world, result, arcs);
-    try {
-        world = (await api.saveWorld(world)).world;
-    } catch (error) {
-        if (error.status !== 409) throw error;
-        world = (await api.getWorld(world.id)).world;
+    const worldId = world.id;
+    for (let attempt = 0; attempt < 4; attempt++) {
+        if (attempt) world = (await api.getWorld(worldId)).world;
         const currentArcs = arcs.map(source => (world.arcs || []).find(item => item.id === source.id)).filter(Boolean);
         if (currentArcs.length !== arcs.length) throw new Error('L2 records changed while L3 was being built; retry later.');
         addDerivedEra(world, result, currentArcs);
-        world = (await api.saveWorld(world)).world;
+        try {
+            world = (await api.saveWorld(world)).world;
+            break;
+        } catch (error) {
+            if (error.status !== 409 || attempt === 3) throw error;
+        }
     }
     updateRuntime({ world, arcStatus: `Created L3 “${world.eras.at(-1)?.title || 'Untitled'}”.`, arcError: '' });
     await embedWorldInChat(world);
@@ -2623,14 +2623,15 @@ export async function restartHierarchyFromL1() {
 
 async function saveExtraction(worldId, result, meta) {
     let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
-    mergeExtraction(world, result, meta);
-    try {
-        world = (await api.saveWorld(world)).world;
-    } catch (error) {
-        if (error.status !== 409) throw error;
-        world = (await api.getWorld(worldId)).world;
+    for (let attempt = 0; attempt < 4; attempt++) {
+        if (attempt) world = (await api.getWorld(worldId)).world;
         mergeExtraction(world, result, meta);
-        world = (await api.saveWorld(world)).world;
+        try {
+            world = (await api.saveWorld(world)).world;
+            break;
+        } catch (error) {
+            if (error.status !== 409 || attempt === 3) throw error;
+        }
     }
     updateRuntime({ world });
     await embedWorldInChat(world);
