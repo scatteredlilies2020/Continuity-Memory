@@ -25,7 +25,7 @@ import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SY
 import { applySourceAttributionFailClosed, canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
 import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.274';
 import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.14.0-standalone.274';
-import { isRuntimeCancellation, onRuntimeStop, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
+import { isRuntimeCancellation, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
 import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.258';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
@@ -2212,6 +2212,33 @@ async function runManualRollingStory(rebuildFromBeginning) {
         previous = world.storySoFar?.[chatKey];
         const settings = getSettings();
         const sourceMode = resolveStorySourceMode(settings.storySourceMode);
+        if (sourceMode === STORY_SOURCE_L1) {
+            if (!settings.enabled) throw new Error('Continuity is disabled. Enable it before building an L1-sourced Story.');
+            if (runtime.processing || runtime.queue.length) throw new Error('Wait for current memory processing to finish before building Story so far.');
+            if (runtime.paused) resumeRuntime();
+            let completedL1Messages = 0;
+            while (true) {
+                const coverage = getProcessingCoverage(runtime.world || world, allMessages);
+                const eligible = completeL1Messages(coverage.extractableMessages, settings.extractionBatchMessages).length;
+                if (!eligible) break;
+                updateRuntime({
+                    storyRetryStatus: `Preparing L1-sourced Story: completing ${eligible} eligible message(s) into L1 first…`,
+                    storyProgress: { phase: 'pending', label: 'completing required L1 summaries', from: coverage.extractableMessages[0]?.index, to: coverage.extractableMessages[eligible - 1]?.index },
+                });
+                const before = coverage.extractable;
+                const result = await maybeAutoExtract(true, allMessages);
+                if (!result || result.cancelled) throw new Error('The required L1 extraction stopped before Story so far could be built.');
+                const after = getProcessingCoverage(runtime.world, allMessages);
+                const advanced = Math.max(0, before - after.extractable);
+                if (!advanced) throw new Error(`L1 extraction made no progress; ${after.extractable} eligible message(s) remain pending.`);
+                completedL1Messages += advanced;
+                world = runtime.world || world;
+                savedWorld = world;
+            }
+            if (completedL1Messages) {
+                updateRuntime({ storyRetryStatus: `Completed ${completedL1Messages} message(s) into L1; preparing Story so far…` });
+            }
+        }
         const requiredL1Through = sourceMode === STORY_SOURCE_L1
             ? latestCompleteL1MessageIndex(allMessages, settings.extractionBatchMessages)
             : -1;

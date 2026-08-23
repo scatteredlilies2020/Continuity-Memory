@@ -1591,9 +1591,11 @@ async function buildMemory() {
     // contributions before the first replacement chunk is prompted, so old
     // future ranges cannot leak into earlier rebuilt ranges or donate stale IDs.
     await repairDivergedBranch();
-    const storyWork = startStoryAlongsideMemory(false);
+    const storyUsesL1 = resolveStorySourceMode(getSettings().storySourceMode) === STORY_SOURCE_L1;
+    let storyWork = storyUsesL1 ? null : startStoryAlongsideMemory(false);
     const l1 = await continueFailedL1();
     if (l1.cancelled) return l1;
+    if (storyUsesL1) storyWork = startStoryAlongsideMemory(false);
     const built = await finishHierarchy(l1, false);
     return finishStoryAlongsideMemory(built, storyWork);
 }
@@ -1658,7 +1660,9 @@ async function restartBuild() {
         catch (error) { console.warn('[Continuity] Could not purge the old derived embedding index before Start Over.', error); }
     }
     let storyWork = null;
-    const l1 = await restartL1FromScratch(() => { storyWork = startStoryAlongsideMemory(true); });
+    const storyUsesL1 = resolveStorySourceMode(getSettings().storySourceMode) === STORY_SOURCE_L1;
+    const l1 = await restartL1FromScratch(storyUsesL1 ? null : () => { storyWork = startStoryAlongsideMemory(true); });
+    if (storyUsesL1) storyWork = startStoryAlongsideMemory(true);
     const built = await finishHierarchy(l1, true, true);
     return finishStoryAlongsideMemory(built, storyWork);
 }
