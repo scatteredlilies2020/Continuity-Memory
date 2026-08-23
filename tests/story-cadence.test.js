@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { completeStoryMessages, DEFAULT_STORY_BATCH_MESSAGES, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryCoverage, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, stableStoryMessages, storyChunkMessageLimit } from '../extension/story-cadence.js';
+import { alignStoryRebuildTarget, completeStoryMessages, DEFAULT_STORY_BATCH_MESSAGES, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryCoverage, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, stableStoryMessages, storyChunkMessageLimit } from '../extension/story-cadence.js';
 
 test('story cadence defaults to eight messages and remains independently adjustable', () => {
     assert.equal(DEFAULT_STORY_BATCH_MESSAGES, 8);
@@ -86,4 +86,10 @@ test('Story coverage distinguishes already current from eligible messages pendin
     assert.deepEqual(rollingStoryCoverage({ text: 'Current.', to: 7 }, messages), { through: 7, pending: 0, current: true });
     assert.deepEqual(rollingStoryCoverage({ text: 'Behind.', to: 5 }, messages), { through: 5, pending: 2, current: false });
     assert.equal(rollingStoryCoverage({ text: 'Interrupted.', to: 7, rebuildIncomplete: true }, messages).current, false);
+});
+
+test('an interrupted L1 Story target expands to the repaired complete L1 boundary', () => {
+    assert.equal(alignStoryRebuildTarget({ rebuildTargetTo: 197 }, 'l1', 199), 199);
+    assert.equal(alignStoryRebuildTarget({ rebuildTargetTo: 201 }, 'l1', 199), 201);
+    assert.equal(alignStoryRebuildTarget({ rebuildTargetTo: 197 }, 'raw', 199), 197);
 });

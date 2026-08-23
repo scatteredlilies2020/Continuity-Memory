@@ -33,7 +33,7 @@ import { dynamicStoryRefineSourceChunk, dynamicStorySourceChunk, resolveStoryBud
 import { storyCompressionTarget, storyGenerationTargets } from './story-output-policy.js?v=0.14.0-standalone.258';
 import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.258';
 import { resolveProfileThinkingMode } from './story-thinking.js?v=0.14.0-standalone.258';
-import { completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, stableStoryMessages, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.258';
+import { alignStoryRebuildTarget, completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, stableStoryMessages, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.277';
 import { compileRollingStorySnapshot, ROLLING_STORY_SNAPSHOT_EXAMPLE, ROLLING_STORY_SNAPSHOT_SCHEMA } from './story-snapshot.js?v=0.14.0-standalone.258';
 import { planStoryMutationRecovery, withStoryCheckpoint } from './story-checkpoints.js?v=0.14.0-standalone.258';
 import { buildStorySourceUnits, resolveStorySourceMode, storedStorySourceMode, storySourceModeLabel, storySourcePolicyIsCurrent, STORY_SOURCE_L1, STORY_SOURCE_POLICY_VERSION } from './story-source.js?v=0.14.0-standalone.258';
@@ -2389,7 +2389,7 @@ export async function maybeAutoUpdateRollingStory(sourceMessages = null) {
         : messages;
     if (!availableMessages.length) return null;
     const rebuilding = Boolean(previous?.rebuildIncomplete && previous?.text && Number.isFinite(Number(previous?.rebuildTargetTo)));
-    const rebuildTargetTo = Number(previous?.rebuildTargetTo);
+    const rebuildTargetTo = alignStoryRebuildTarget(previous, sourceMode, requiredL1Through);
     const pending = availableMessages.filter(message => Number(message.index) > Number(previous?.to ?? -1)
         && (!rebuilding || Number(message.index) <= rebuildTargetTo));
     const batchSize = resolveStoryBatchMessages(settings.storyBatchMessages);

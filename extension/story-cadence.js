@@ -64,6 +64,15 @@ export function rollingStoryBuildPlan(messages, previous) {
     };
 }
 
+export function alignStoryRebuildTarget(previous, sourceMode, availableThrough) {
+    const stored = Number(previous?.rebuildTargetTo);
+    if (!Number.isFinite(stored) || sourceMode !== 'l1') return stored;
+    const completed = Number(availableThrough);
+    // L1 summaries are atomic. A mutation can regroup the repaired tail so an
+    // old raw-message target lands inside a new L1 capsule; never cut it off.
+    return Number.isFinite(completed) ? Math.max(stored, completed) : stored;
+}
+
 export function rollingStoryRebuildPlan(messages) {
     const source = Array.isArray(messages) ? messages : [];
     return {
