@@ -10,7 +10,7 @@ test('roleplay readiness failures are configured to fall back instead of abortin
 test('selected embedding retrieval is scheduled without blocking roleplay generation', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
     assert.match(source, /scheduleEmbeddingIndexSync\(runtime\.world, 0, true\)/u);
-    assert.match(source, /function resolveWithin\(value, timeout = 1500\)/u);
+    assert.match(source, /function resolveWithin\(value, timeout = 3000\)/u);
     assert.match(source, /queryEmbeddingMemory\(world, recent, \{ waitForActiveSync: true \}\)/u);
     assert.match(source, /this reply is using local memory matching/iu);
     assert.doesNotMatch(source, /completeVectorsForGeneration/u);
