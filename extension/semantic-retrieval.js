@@ -1,7 +1,7 @@
 import { extractMessageFromData } from '/script.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { isThinkingControlError, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.14.0-standalone.274';
-import { generateWithThinkingPolicy, requestDirectText, resolveThinkingModeForProfile } from './engine.js?v=0.14.0-standalone.278';
+import { generateWithThinkingPolicy, requestDirectText, resolveThinkingModeForProfile } from './engine.js?v=0.14.0-standalone.279';
 import { parseExpandedTerms } from './semantic-terms.js?v=0.14.0-standalone.258';
 import { recentRetrievalQuery } from './retrieval-query.js';
 import { getSettings } from './settings.js?v=0.14.0-standalone.274';

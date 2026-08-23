@@ -3,12 +3,12 @@ import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
 import { api } from './api.js?v=0.14.0-standalone.258';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.278';
+import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.279';
 import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.14.0-standalone.258';
 import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.274';
 import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
 import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.274';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.278';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.279';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
@@ -16,7 +16,7 @@ import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-own
 import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.258';
 import { purgeEmbeddingIndex, queryEmbeddingMemory, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.275';
 import { isTransientApiError } from './errors.js?v=0.14.0-standalone.273';
-import { asRoleplayBlockingError, isRoleplayBlockingError, roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.278';
+import { asRoleplayBlockingError, isRoleplayBlockingError, roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.279';
 import { completeL1MessageCount, isL1StabilityProtectedMessage, latestCompleteL1MessageIndex, resolveL1GroupSize } from './l1-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
 import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.14.0-standalone.258';
@@ -344,19 +344,6 @@ async function completeHierarchyForGeneration(stopSequence) {
     }
 }
 
-async function completeVectorsForGeneration(stopSequence) {
-    if (getSettings().retrievalMode !== 'embedding-hybrid') return null;
-    if (!runtime.world?.id) throw new Error('The selected memory is unavailable for vector indexing.');
-    updateRuntime({ status: 'preparing-roleplay', retryStatus: 'Memory is ready. Completing the selected vector index before roleplay…' });
-    while (true) {
-        assertRoleplayPreparationNotStopped(stopSequence);
-        const result = await resumeEmbeddingIndexing(runtime.world);
-        assertRoleplayPreparationNotStopped(stopSequence);
-        if (result?.status === 'ready') return result;
-        if (!['paused', 'stopped'].includes(result?.status)) throw new Error(`Vector index is ${result?.status || 'not ready'}.`);
-    }
-}
-
 async function prepareRoleplayGeneration(type) {
     const updates = [];
     await ensureCurrentChatMemory(true);
@@ -403,7 +390,6 @@ async function prepareRoleplayGeneration(type) {
     const initialCoverage = getProcessingCoverage(runtime.world, sourceMessages);
     const initialBacklog = roleplayBacklogPolicy(initialCoverage.extractable, groupSize, initialCoverage.required);
     let hierarchy = { arcs: 0, eras: 0 };
-    let vectors = null;
     let caughtUp = false;
     if (initialBacklog.shouldCatchUp) {
         if (!runtime.roleplayGate) {
@@ -421,12 +407,14 @@ async function prepareRoleplayGeneration(type) {
                 if (initialCoverage.required) await completeRequiredL1ForGeneration(sourceMessages, stopSequence);
                 await completeL1ForGeneration(sourceMessages, stopSequence);
                 hierarchy = await completeHierarchyForGeneration(stopSequence);
-                vectors = await completeVectorsForGeneration(stopSequence);
             });
             caughtUp = true;
         } catch (error) {
             throw asRoleplayBlockingError(error, 'The pending reply could not finish memory catch-up;');
         }
+    }
+    if (getSettings().retrievalMode === 'embedding-hybrid' && runtime.world?.id) {
+        scheduleEmbeddingIndexSync(runtime.world, 0, true);
     }
     assertRoleplayPreparationNotStopped(stopSequence);
     const coverage = getProcessingCoverage(runtime.world, sourceMessages);
@@ -437,28 +425,10 @@ async function prepareRoleplayGeneration(type) {
             'The pending reply was cancelled safely;',
         );
     }
-    if (!vectors && getSettings().retrievalMode === 'embedding-hybrid') {
-        if (!runtime.roleplayGate) {
-            const message = 'Reply pending while Continuity completes the selected vector index…';
-            updateRuntime({ roleplayGate: { active: true, message, stopping: false, startedAt: Date.now() } });
-        }
-        try {
-            vectors = await retryTransientPendingReply('vector indexing', stopSequence, () => completeVectorsForGeneration(stopSequence));
-            caughtUp = true;
-        } catch (error) {
-            // Embeddings remain optional. Invalid provider configuration and
-            // other permanent failures fall through to local retrieval; only
-            // transient failures keep the reply pending for retry.
-            console.warn('[Continuity] Could not complete vectors before roleplay; local retrieval remains available.', error);
-        }
-    }
     const processedMessages = Math.max(0, initialCoverage.pending - coverage.pending);
     if (processedMessages) updates.push(`processed ${processedMessages} message(s) into L1`);
     if (hierarchy.arcs) updates.push(`created ${hierarchy.arcs} L2 record(s)`);
     if (hierarchy.eras) updates.push(`created ${hierarchy.eras} L3 record(s)`);
-    const vectorAdded = Math.max(0, Number(vectors?.added) || 0);
-    const vectorRemoved = Math.max(0, Number(vectors?.removed) || 0);
-    if (vectorAdded || vectorRemoved) updates.push(`updated vectors (+${vectorAdded}, -${vectorRemoved})`);
     if (activeWorkAtStart && Number(runtime.world?.revision ?? -1) !== revisionBeforeWaiting && !updates.length) {
         updates.push('completed pending memory work');
     }
@@ -826,7 +796,7 @@ async function onChatRenamed(eventData) {
 }
 
 async function init() {
-    const templateResponse = await fetch(new URL('./settings.html?v=0.14.0-standalone.278', import.meta.url));
+    const templateResponse = await fetch(new URL('./settings.html?v=0.14.0-standalone.279', import.meta.url));
     if (!templateResponse.ok) throw new Error(`Could not load settings template: ${templateResponse.status} ${templateResponse.statusText}`);
     const html = $(await templateResponse.text());
     const container = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
