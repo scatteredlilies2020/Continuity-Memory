@@ -79,12 +79,12 @@ test('scales the protected background headroom with the configured L1 group size
     assert.equal(roleplayBacklogPolicy(24, 12).shouldCatchUp, true);
 });
 
-test('deliberately undone memory blocks roleplay below the normal backlog limit', () => {
+test('deliberately undone memory is visible without blocking below the normal backlog limit', () => {
     const result = roleplayBacklogPolicy(2, 10, 2);
     assert.equal(result.eligible, 0);
     assert.equal(result.required, 2);
-    assert.equal(result.blocking, 2);
-    assert.equal(result.shouldCatchUp, true);
+    assert.equal(result.blocking, 0);
+    assert.equal(result.shouldCatchUp, false);
 });
 
 test('uses the same two-batch pending threshold for Story So Far', () => {

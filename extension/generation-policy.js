@@ -17,10 +17,14 @@ export function roleplayBacklogPolicy(pendingMessages, groupSize, requiredMessag
         pending,
         eligible,
         required,
-        blocking: required || eligible,
+        // Required indexes are repaired by the same background L1 queue. They
+        // must remain visible in diagnostics, but do not delay a reply by
+        // themselves; the raw chat and protected tail remain available while
+        // the repair runs. Only an oversized stable backlog gates generation.
+        blocking: eligible,
         backgroundThreshold: size,
         hardLimit,
-        shouldCatchUp: required > 0 || pending >= hardLimit,
+        shouldCatchUp: pending >= hardLimit,
     };
 }
 

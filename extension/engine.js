@@ -34,7 +34,7 @@ import { dynamicStoryRefineSourceChunk, dynamicStorySourceChunk, resolveStoryBud
 import { storyCompressionTarget, storyGenerationTargets } from './story-output-policy.js?v=0.14.0-standalone.258';
 import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.258';
 import { resolveProfileThinkingMode } from './story-thinking.js?v=0.14.0-standalone.258';
-import { alignStoryRebuildTarget, completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, stableStoryMessages, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.277';
+import { alignStoryRebuildTarget, completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, stableStoryMessages, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.278';
 import { compileRollingStorySnapshot, ROLLING_STORY_SNAPSHOT_EXAMPLE, ROLLING_STORY_SNAPSHOT_SCHEMA } from './story-snapshot.js?v=0.14.0-standalone.258';
 import { planStoryMutationRecovery, withStoryCheckpoint } from './story-checkpoints.js?v=0.14.0-standalone.258';
 import { buildStorySourceUnits, isCurrentStorySnapshot, resolveStorySourceMode, storedStorySourceMode, storySourceModeLabel, storySourcePolicyIsCurrent, STORY_FORMAT_MANUAL, STORY_SOURCE_L1, STORY_SOURCE_POLICY_VERSION } from './story-source.js?v=0.14.0-standalone.258';
@@ -3065,7 +3065,12 @@ export async function maybeAutoExtract(force = false, sourceMessages = null, { r
             // Automatic work includes genuinely new tail messages and edits to
             // messages already seen. Old never-processed history remains an
             // explicit user choice via Process all pending or Backfill.
-            pending = pending.filter(message => processedIndexes.has(message.index) || message.index > lastProcessedIndex);
+            const requiredIndexes = new Set((source.requiredMemoryIndexes || [])
+                .map(Number)
+                .filter(Number.isFinite));
+            pending = pending.filter(message => requiredIndexes.has(Number(message.index))
+                || processedIndexes.has(message.index)
+                || message.index > lastProcessedIndex);
         }
         // The shared eligible-message view already omits the provisional
         // newest AI reply from every automatic and forced CM path.

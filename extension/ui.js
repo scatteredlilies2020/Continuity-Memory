@@ -4,7 +4,7 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, buildRollingStory, rebuildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.277';
+import { buildNextArc, buildNextEra, buildRollingStory, rebuildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.278';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
 import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.258';
@@ -28,7 +28,7 @@ import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.258';
 import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.258';
 import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.258';
 import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.258';
-import { stableStoryMessages } from './story-cadence.js?v=0.14.0-standalone.277';
+import { stableStoryMessages } from './story-cadence.js?v=0.14.0-standalone.278';
 import { createRenderScheduler } from './render-scheduler.js';
 import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.14.0-standalone.258';
 import { connectionProfileHasModel } from './profile-request-policy.js?v=0.14.0-standalone.258';
@@ -1936,7 +1936,10 @@ export function initUI() {
     onRuntimeChange(scheduleRuntimeRender);
     refreshModelProfiles();
     renderRuntime();
-    void refreshWorlds().catch(error => { updateRuntime({ lastError: `Storage unavailable: ${error.message}` }); });
+    void refreshWorlds().catch(error => {
+        updateRuntime({ status: 'waiting', lastError: `Storage unavailable: ${error.message}` });
+        renderRuntime(false);
+    });
     return {};
 }
 
