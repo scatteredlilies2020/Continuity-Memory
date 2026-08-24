@@ -2853,7 +2853,7 @@ test('explicit OOC canon and matching stored canon are not source-attribution co
     assert.equal(knownValidation.sourceAttributionConflicts.length, 0);
 });
 
-test('source-supported role omissions become durable identity facts', () => {
+test('a non-meta character role assertion is not promoted into a durable identity fact', () => {
     const result = extraction();
     result.entities.push({ name: 'Alice', type: 'person', aliases: [] });
     result.sceneCapsule = { beats: ['Alice served as captain of the northern guard.'] };
@@ -2861,6 +2861,20 @@ test('source-supported role omissions become durable identity facts', () => {
     const validation = sanitizeReconciliationMetadata(result, {
         entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
     }, [{ name: 'Alice', text: 'I served as captain of the northern guard.' }]);
+
+    assert.equal(validation.recoveredCoverage, 0);
+    assert.deepEqual(validation.warnings, ['Potential durable detail remains only in L1: Alice served as captain of the northern guard.']);
+    assert.deepEqual(result.facts, []);
+});
+
+test('an explicit user meta role assertion is promoted into a durable identity fact', () => {
+    const result = extraction();
+    result.entities.push({ name: 'Alice', type: 'person', aliases: [] });
+    result.sceneCapsule = { beats: ['Alice served as captain of the northern guard.'] };
+
+    const validation = sanitizeReconciliationMetadata(result, {
+        entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+    }, [{ name: 'Alice', isUser: true, text: 'Meta: Alice served as captain of the northern guard.' }]);
 
     assert.equal(validation.recoveredCoverage, 1);
     assert.deepEqual(validation.warnings, []);
@@ -3812,7 +3826,7 @@ test('authoritative OOC concealed identity becomes holder boundaries and removes
 
     const validation = sanitizeReconciliationMetadata(result, {
         entities: result.entities, facts: [], states: [], relationships: [], threads: [], backgrounds: [],
-    }, [{ name: 'Lucas', text: 'Lucas Alcazar. OOC: No one knows I am Lucas. That is not my Sith name.' }]);
+    }, [{ name: 'Lucas', isUser: true, text: 'Lucas Alcazar. OOC: No one knows I am Lucas. That is not my Sith name.' }]);
 
     assert.equal(validation.recoveredOocIdentityBoundaries, 4);
     for (const holder of ['Toska', 'Loyalist Pilot']) {
@@ -3904,7 +3918,7 @@ test('an unrelated unknown detail cannot preserve false current-identity recogni
 
     sanitizeReconciliationMetadata(result, {
         entities: result.entities, facts: [], states: [], relationships: [], threads: [], backgrounds: [],
-    }, [{ name: 'Lucas', text: 'Lucas Alcazar. OOC: No one knows I am Lucas. That is not my Sith name.' }]);
+    }, [{ name: 'Lucas', isUser: true, text: 'Lucas Alcazar. OOC: No one knows I am Lucas. That is not my Sith name.' }]);
 
     const toskaIdentityFacts = result.facts.filter(item => item.subject === 'Toska'
         && item.predicate === 'knowledge of Lucas Alcazar’s identity');

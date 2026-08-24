@@ -82,6 +82,9 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /reports, logs, turns, status updates, or simulation results/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /out-of-character or meta assertions about scenario continuity are authoritative canon/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Every durable assertion under such a label must appear in structured records/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Only an explicit user OOC\/meta assertion may authorize treating an assertion's embedded proposition as hard objective truth/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /establishes only that the source said, reported, remembered, inferred, or believed it/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /leave the embedded proposition unconfirmed/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /epistemic state; do not promote its embedded proposition/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /State is a replaceable condition/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /durable, tense-neutral identity summaries/);
@@ -152,7 +155,7 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /consequential knowledge gaps as open threads/);
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /Most items are 2 or 3/);
     assert.match(DEFAULT_ERA_SYSTEM_PROMPT, /Most items are 2 or 3/);
-    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 11800);
+    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 12600);
     assert.ok(DEFAULT_ARC_SYSTEM_PROMPT.length < 1950);
     assert.ok(DEFAULT_ERA_SYSTEM_PROMPT.length < 1950);
 });
