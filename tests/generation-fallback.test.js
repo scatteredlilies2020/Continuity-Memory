@@ -11,7 +11,7 @@ test('selected embedding retrieval hard-stops generation below minimum coverage'
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
     assert.match(source, /retryPendingReply\(\s*'embedding coverage'/u);
     assert.match(source, /ensureEmbeddingCoverage\(runtime\.world, undefined, stopSequence\)/u);
-    assert.match(source, /required 80% embedding coverage/iu);
+    assert.match(source, /required 99% embedding coverage/iu);
     assert.match(source, /function resolveWithin\(value, timeout = 3000\)/u);
     assert.match(source, /queryEmbeddingMemory\(world, recent\)/u);
     assert.match(source, /this reply is using local memory matching/iu);
@@ -36,6 +36,15 @@ test('generation queries an index that has reached minimum coverage without wait
     assert.match(source, /const indexCoverage = index\.status === 'ready'/u);
     assert.doesNotMatch(source, /if \(index\.status !== 'ready' && options\.waitForActiveSync\)/u);
     assert.doesNotMatch(source, /await activeSync/u);
+});
+
+test('releasing a reply at safe coverage keeps restarting embeddings to full coverage', async () => {
+    const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
+    assert.match(source, /function continueEmbeddingAfterReplyRelease/u);
+    assert.match(source, /ensureEmbeddingCoverage\(world, 1, stopSequence\)/u);
+    assert.match(source, /continueEmbeddingAfterReplyRelease\(runtime\.world, stopSequence\)/u);
+    assert.match(source, /Reply released at safe embedding coverage; full indexing failed/u);
+    assert.match(source, /!activeGenerationReadiness && !generationEmbeddingCompletion/u);
 });
 
 test('embedding replacement keeps the previous usable index until new vectors are stored', async () => {

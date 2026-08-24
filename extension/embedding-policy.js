@@ -1,4 +1,4 @@
-export const MINIMUM_EMBEDDING_COVERAGE = 0.8;
+export const MINIMUM_EMBEDDING_COVERAGE = 0.99;
 
 export function embeddingCoverage(indexed, total) {
     const available = Math.max(0, Number(indexed) || 0);

@@ -8,13 +8,13 @@ import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.14
 import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.274';
 import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
 import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.274';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.286';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.287';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
 import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.258';
 import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.258';
-import { ensureEmbeddingCoverage, purgeEmbeddingIndex, queryEmbeddingMemory, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.286';
+import { ensureEmbeddingCoverage, purgeEmbeddingIndex, queryEmbeddingMemory, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.287';
 import { isTransientApiError } from './errors.js?v=0.14.0-standalone.273';
 import { asRoleplayBlockingError, isRoleplayBlockingError, roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.282';
 import { completeL1MessageCount, isL1StabilityProtectedMessage, latestCompleteL1MessageIndex, resolveL1GroupSize } from './l1-policy.js';
@@ -31,6 +31,7 @@ let injectionRefreshPending = false;
 let mutationSync = null;
 let divergenceRepairRequested = false;
 let activeGenerationReadiness = null;
+let generationEmbeddingCompletion = null;
 let pendingEmbeddingSyncWorld = null;
 let injectionRefreshCancel = null;
 let injectionRefreshRevision = 0;
@@ -248,6 +249,38 @@ async function retryPendingReply(label, stopSequence, work) {
     }
 }
 
+function continueEmbeddingAfterReplyRelease(world, stopSequence) {
+    if (!world?.id) return;
+    if (generationEmbeddingCompletion?.worldId === world.id) return;
+    const completion = (async () => {
+        let failures = 0;
+        while (runtime.stopSequence === stopSequence) {
+            try {
+                const result = await ensureEmbeddingCoverage(world, 1, stopSequence);
+                if (result?.status === 'ready' || Number(result?.coverage) >= 1) return;
+                throw new Error(`Embedding index is ${result?.status || 'not ready'}.`);
+            } catch (error) {
+                if (runtime.stopSequence !== stopSequence) return;
+                failures++;
+                const delay = Math.min(20000, 2000 * (2 ** Math.min(4, failures - 1)));
+                updateRuntime({
+                    lastError: '',
+                    retryStatus: `Reply released at safe embedding coverage; full indexing failed (${error.message}). Restarting in ${Math.round(delay / 1000)}s (attempt ${failures + 1})…`,
+                });
+                try {
+                    await waitForPendingRetry(delay, stopSequence);
+                } catch {
+                    return;
+                }
+            }
+        }
+    })();
+    generationEmbeddingCompletion = { worldId: world.id, completion };
+    completion.finally(() => {
+        if (generationEmbeddingCompletion?.completion === completion) generationEmbeddingCompletion = null;
+    });
+}
+
 function assertRoleplayPreparationNotStopped(stopSequence) {
     if (stopSequence !== null && runtime.stopSequence !== stopSequence) {
         throw new Error('Continuity preparation was stopped. Memory remains pending, so the reply was not generated.');
@@ -421,7 +454,7 @@ async function prepareRoleplayGeneration(type) {
         }
     }
     if (getSettings().retrievalMode === 'embedding-hybrid' && runtime.world?.id) {
-        const message = 'Reply pending while Continuity prepares at least 80% of the selected embedding index…';
+        const message = 'Reply pending while Continuity prepares at least 99% of the selected embedding index…';
         if (!runtime.roleplayGate) {
             updateRuntime({
                 status: 'preparing-roleplay',
@@ -435,8 +468,13 @@ async function prepareRoleplayGeneration(type) {
                 stopSequence,
                 () => ensureEmbeddingCoverage(runtime.world, undefined, stopSequence),
             );
+            // Reaching the safe generation threshold releases the reply, but
+            // the selected index must keep building to 100%. If a later batch
+            // fails, restart it in the background until the user explicitly
+            // stops generation or presses Continuity's Stop processing.
+            continueEmbeddingAfterReplyRelease(runtime.world, stopSequence);
         } catch (error) {
-            throw asRoleplayBlockingError(error, 'The pending reply could not reach the required 80% embedding coverage;');
+            throw asRoleplayBlockingError(error, 'The pending reply could not reach the required 99% embedding coverage;');
         }
     }
     assertRoleplayPreparationNotStopped(stopSequence);
@@ -861,7 +899,7 @@ async function init() {
     });
     if (event_types.GENERATION_STOPPED) {
         eventSource.on(event_types.GENERATION_STOPPED, () => {
-            if (!activeGenerationReadiness) return;
+            if (!activeGenerationReadiness && !generationEmbeddingCompletion) return;
             stopEmbeddingIndexing();
             stopRuntime('Pending reply stopped by the user. Saved memory and completed vectors were kept.');
         });
