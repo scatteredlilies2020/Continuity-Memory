@@ -21,7 +21,7 @@ import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRun
 import { completeL1MessageCount, latestCompleteL1MessageIndex, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
 import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.274';
-import { embeddingProviderDescription, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.283';
+import { embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.284';
 import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.258';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
 import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.258';
@@ -43,6 +43,11 @@ let viewerSignature = '';
 let extractionReviewSession = null;
 let reviewRecoveryListenersInstalled = false;
 let nativeChatExportBridgeInstalled = false;
+let liveUiRecoveryListenersInstalled = false;
+let liveUiRecoveryNeeded = false;
+let liveUiRecoveryPromise = null;
+let lastLiveUiRecoveryAt = Date.now();
+const LIVE_UI_RECOVERY_INTERVAL = 30000;
 const DIRECT_KINDS = Object.freeze(['extraction', 'retrieval', 'story', 'correction', 'summary']);
 const DIRECT_PROFILE_SETTINGS = Object.freeze({
     extraction: 'memoryProfileId',
@@ -456,6 +461,60 @@ function installReviewRecoveryListeners() {
     });
     window.addEventListener('pageshow', restore);
     window.addEventListener('focus', restore);
+}
+
+function repaintLiveSettings() {
+    renderRuntime(true);
+    requestAnimationFrame(() => setTimeout(() => renderRuntime(true), 50));
+}
+
+function recoverLiveUiAfterResume(forceReload = false) {
+    if (document.hidden) {
+        liveUiRecoveryNeeded = true;
+        return;
+    }
+    // Repaint synchronously even when storage is already current. Android can
+    // restore the extension drawer before its form controls have been painted.
+    repaintLiveSettings();
+    const stale = Date.now() - lastLiveUiRecoveryAt >= LIVE_UI_RECOVERY_INTERVAL;
+    if (!forceReload && !liveUiRecoveryNeeded && !stale) return;
+    liveUiRecoveryNeeded = false;
+    if (liveUiRecoveryPromise) return;
+    liveUiRecoveryPromise = (async () => {
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        const world = await refreshWorlds();
+        if (world && getSettings().retrievalMode === 'embedding-hybrid') {
+            // Restore persisted coverage without automatically embedding. A
+            // user action or generation gate may resume an incomplete build.
+            await inspectEmbeddingIndex(world);
+        }
+        lastLiveUiRecoveryAt = Date.now();
+        repaintLiveSettings();
+    })().catch(error => {
+        updateRuntime({ lastError: `Could not restore Continuity after browser resume: ${error.message}` });
+        repaintLiveSettings();
+    }).finally(() => {
+        liveUiRecoveryPromise = null;
+    });
+}
+
+function installLiveUiRecoveryListeners() {
+    if (liveUiRecoveryListenersInstalled) return;
+    liveUiRecoveryListenersInstalled = true;
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            liveUiRecoveryNeeded = true;
+            return;
+        }
+        recoverLiveUiAfterResume(true);
+    });
+    window.addEventListener('pagehide', () => {
+        liveUiRecoveryNeeded = true;
+    });
+    window.addEventListener('pageshow', event => {
+        recoverLiveUiAfterResume(Boolean(event.persisted) || liveUiRecoveryNeeded);
+    });
+    window.addEventListener('focus', () => recoverLiveUiAfterResume(false));
 }
 
 function settingWarning(message) {
@@ -1648,6 +1707,7 @@ export function initUI() {
     const settings = getSettings();
     installNativeChatExportBridge();
     installReviewRecoveryListeners();
+    installLiveUiRecoveryListeners();
     initSectionToggle();
     document.getElementById('continuity_settings')?.addEventListener('inline-drawer-toggle', () => {
         // SillyTavern emits the toggle before the drawer becomes visible.
@@ -1938,7 +1998,9 @@ export function initUI() {
     onRuntimeChange(scheduleRuntimeRender);
     refreshModelProfiles();
     renderRuntime();
-    void refreshWorlds().catch(error => {
+    void refreshWorlds().then(() => {
+        lastLiveUiRecoveryAt = Date.now();
+    }).catch(error => {
         updateRuntime({ status: 'waiting', lastError: `Storage unavailable: ${error.message}` });
         renderRuntime(false);
     });

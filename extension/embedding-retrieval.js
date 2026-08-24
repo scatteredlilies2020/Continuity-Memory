@@ -166,8 +166,12 @@ export async function inspectEmbeddingIndex(world) {
     return result;
 }
 
-export async function ensureEmbeddingIndex(world, force = false) {
+export async function ensureEmbeddingIndex(world, force = false, lockHeld = false) {
     if (!world?.id) throw new Error('No Continuity memory is open for embedding indexing.');
+    if (!lockHeld && globalThis.navigator?.locks?.request) {
+        const lockName = `continuity-embedding-index:${world.id}`;
+        return globalThis.navigator.locks.request(lockName, () => ensureEmbeddingIndex(world, force, true));
+    }
     const provider = providerRequest();
     if (indexingControl !== 'running') return interruptedResult(world, provider);
     const signature = indexSignature(world, provider);
@@ -176,7 +180,7 @@ export async function ensureEmbeddingIndex(world, force = false) {
     const currentWorldSync = activeWorldSyncs.get(world.id);
     if (currentWorldSync) {
         await currentWorldSync.catch(() => {});
-        return ensureEmbeddingIndex(world, force);
+        return ensureEmbeddingIndex(world, force, lockHeld);
     }
 
     const controller = new AbortController();
@@ -207,7 +211,7 @@ export async function ensureEmbeddingIndex(world, force = false) {
         const batches = Math.ceil(missing.length / batchSize);
         setIndexStatus({
             status: 'syncing',
-            phase: stale.length ? 'Removing stale vector records' : missing.length ? 'Preparing embedding batches' : 'Verifying completed index',
+            phase: missing.length ? 'Preparing embedding batches' : stale.length ? 'Preparing stale vector cleanup' : 'Verifying completed index',
             provider: provider.label,
             total: documents.length,
             indexed: retained,
@@ -219,24 +223,6 @@ export async function ensureEmbeddingIndex(world, force = false) {
             batches,
             worldId: world.id,
         });
-        if (stale.length) {
-            await vectorRequest('delete', { ...base, hashes: stale }, controller.signal);
-            if (indexingControl !== 'running') return interruptedResult(world, provider);
-            setIndexStatus({
-                status: 'syncing',
-                phase: missing.length ? 'Preparing embedding batches' : 'Stale vectors removed',
-                provider: provider.label,
-                total: documents.length,
-                indexed: retained,
-                existing: retained,
-                missing: missing.length,
-                added: 0,
-                removed: stale.length,
-                batch: 0,
-                batches,
-                worldId: world.id,
-            });
-        }
         for (let index = 0; index < missing.length; index += batchSize) {
             const items = missing.slice(index, index + batchSize).map(({ hash, text, index: itemIndex }) => ({ hash, text, index: itemIndex }));
             const batch = Math.floor(index / batchSize) + 1;
@@ -249,7 +235,7 @@ export async function ensureEmbeddingIndex(world, force = false) {
                 existing: retained,
                 missing: missing.length,
                 added: index,
-                removed: stale.length,
+                removed: 0,
                 batch,
                 batches,
                 worldId: world.id,
@@ -264,15 +250,36 @@ export async function ensureEmbeddingIndex(world, force = false) {
                 existing: retained,
                 missing: missing.length,
                 added: Math.min(missing.length, index + items.length),
-                removed: stale.length,
+                removed: 0,
                 batch,
                 batches,
                 worldId: world.id,
             });
             if (indexingControl !== 'running') return interruptedResult(world, provider);
         }
-        syncedIndexes.set(world.id, signature);
+        // Keep obsolete vectors until every replacement has been stored. If a
+        // mobile browser suspends or closes mid-build, the last usable index
+        // remains intact and completed replacement batches are preserved.
+        if (stale.length) {
+            setIndexStatus({
+                status: 'syncing',
+                phase: 'Cleaning up replaced vector records',
+                provider: provider.label,
+                total: documents.length,
+                indexed: documents.length,
+                existing: retained,
+                missing: 0,
+                added: missing.length,
+                removed: 0,
+                batch: batches,
+                batches,
+                worldId: world.id,
+            });
+            await vectorRequest('delete', { ...base, hashes: stale }, controller.signal);
+            if (indexingControl !== 'running') return interruptedResult(world, provider);
         for (const key of queryCache.keys()) if (key.startsWith(`${world.id}|`)) queryCache.delete(key);
+        }
+        syncedIndexes.set(world.id, signature);
         const result = { status: 'ready', phase: 'Complete', provider: provider.label, total: documents.length, indexed: documents.length, existing: retained, missing: 0, added: missing.length, removed: stale.length, batch: batches, batches, worldId: world.id };
         setIndexStatus(result);
         return result;

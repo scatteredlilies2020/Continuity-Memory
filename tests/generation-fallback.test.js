@@ -27,6 +27,21 @@ test('generation queries an index that has reached minimum coverage without wait
     assert.doesNotMatch(source, /await activeSync/u);
 });
 
+test('embedding replacement keeps the previous usable index until new vectors are stored', async () => {
+    const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/embedding-retrieval.js', import.meta.url), 'utf8'));
+    const insert = source.indexOf("await vectorRequest('insert'");
+    const cleanup = source.indexOf("await vectorRequest('delete'");
+    assert.ok(insert >= 0);
+    assert.ok(cleanup > insert);
+    assert.match(source, /Keep obsolete vectors until every replacement has been stored/u);
+});
+
+test('embedding builds are serialized across restored browser page instances', async () => {
+    const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/embedding-retrieval.js', import.meta.url), 'utf8'));
+    assert.match(source, /globalThis\.navigator\?\.locks\?\.request/u);
+    assert.match(source, /continuity-embedding-index:/u);
+});
+
 test('automatic memory-change sync resumes a previously paused or stopped vector index', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/embedding-retrieval.js', import.meta.url), 'utf8'));
     assert.match(source, /settings\.embeddingAutoSync \? resumeEmbeddingIndexing\(world\) : inspectEmbeddingIndex\(world\)/u);

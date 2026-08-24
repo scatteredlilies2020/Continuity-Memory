@@ -10,6 +10,17 @@ test('runtime settings remain live regardless of drawer visibility', async () =>
     assert.match(source, /continuity_memory_viewer_details'\)\.prop\('open'\)/u);
 });
 
+test('browser resume repaints settings and restores persisted world and vector coverage', async () => {
+    const source = await readFile(new URL('../extension/ui.js', import.meta.url), 'utf8');
+    assert.match(source, /function recoverLiveUiAfterResume/u);
+    assert.match(source, /repaintLiveSettings\(\)/u);
+    assert.match(source, /const world = await refreshWorlds\(\)/u);
+    assert.match(source, /await inspectEmbeddingIndex\(world\)/u);
+    assert.match(source, /document\.addEventListener\('visibilitychange'/u);
+    assert.match(source, /window\.addEventListener\('pageshow'/u);
+    assert.match(source, /window\.addEventListener\('focus'/u);
+});
+
 test('embedding settings appear directly after retrieval mode and before Story so far', async () => {
     const source = await readFile(new URL('../extension/settings.html', import.meta.url), 'utf8');
     const retrievalMode = source.indexOf('id="continuity_retrieval_mode"');
