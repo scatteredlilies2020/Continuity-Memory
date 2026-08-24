@@ -4,7 +4,7 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, buildRollingStory, rebuildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.282';
+import { buildNextArc, buildNextEra, buildRollingStory, rebuildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.285';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
 import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.258';
@@ -35,6 +35,7 @@ import { connectionProfileHasModel } from './profile-request-policy.js?v=0.14.0-
 
 let worlds = [];
 let creatingChatMemory = null;
+let loadingBoundWorld = null;
 let pendingCorrection = null;
 let viewerCategory = 'l1';
 let viewerSearch = '';
@@ -637,6 +638,27 @@ function initSectionToggle() {
     for (const section of sections) section.addEventListener('toggle', render);
     render();
 }
+async function loadBoundWorldOnce(expectedWorldId = getBoundWorldId()) {
+    if (!expectedWorldId) return null;
+    if (runtime.world?.id === expectedWorldId) return runtime.world;
+    if (loadingBoundWorld?.id === expectedWorldId) return await loadingBoundWorld.promise;
+    if (loadingBoundWorld) {
+        await loadingBoundWorld.promise.catch(() => {});
+        if (runtime.world?.id === expectedWorldId) return runtime.world;
+    }
+    const entry = { id: expectedWorldId, promise: null };
+    entry.promise = loadBoundWorld().then(world => {
+        if (getBoundWorldId() === expectedWorldId && world?.id !== expectedWorldId) {
+            throw new Error('The loaded Continuity memory did not match this chat binding.');
+        }
+        return world;
+    }).finally(() => {
+        if (loadingBoundWorld === entry) loadingBoundWorld = null;
+    });
+    loadingBoundWorld = entry;
+    return await entry.promise;
+}
+
 
 export async function refreshWorlds() {
     const response = await api.listWorlds();
@@ -686,7 +708,7 @@ export async function refreshWorlds() {
             if (recovery.world) selected = recovery.world.id;
         }
     }
-    let world = selected ? await loadBoundWorld() : null;
+    let world = selected ? await loadBoundWorldOnce(selected) : null;
     world = await recoverSuperiorSyncedWorld(world);
     world = await reconcileBoundWorldSource(world);
     if (getSettings().embedMemoryInChat && world) await embedWorldInChat(world);
@@ -793,7 +815,14 @@ async function recoverStoredWorldForCurrentChat(missingBoundWorldId) {
 }
 
 export async function ensureCurrentChatMemory(createIfMissing = false, recoverStaleBinding = false) {
-    if (getBoundWorldId() && !recoverStaleBinding) return runtime.world;
+    const boundWorldId = getBoundWorldId();
+    if (boundWorldId && !recoverStaleBinding) {
+        // A saved binding does not mean its world has finished loading. Wait
+        // for the shared load instead of treating every chat message as new.
+        return runtime.world?.id === boundWorldId
+            ? runtime.world
+            : await loadBoundWorldOnce(boundWorldId);
+    }
     if (!getChatKey()) return null;
     if (creatingChatMemory) {
         const pending = creatingChatMemory;

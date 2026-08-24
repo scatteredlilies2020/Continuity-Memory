@@ -21,6 +21,25 @@ test('browser resume repaints settings and restores persisted world and vector c
     assert.match(source, /window\.addEventListener\('focus'/u);
 });
 
+test('generation waits for an existing bound world instead of treating its chat as unprocessed', async () => {
+    const source = await readFile(new URL('../extension/ui.js', import.meta.url), 'utf8');
+    assert.match(source, /async function loadBoundWorldOnce/u);
+    assert.match(source, /loadingBoundWorld\?\.id === expectedWorldId/u);
+    assert.match(source, /await loadBoundWorldOnce\(boundWorldId\)/u);
+    assert.doesNotMatch(source, /getBoundWorldId\(\) && !recoverStaleBinding\) return runtime\.world/u);
+});
+
+test('loading a bound world does not run blocking whole-world maintenance', async () => {
+    const source = await readFile(new URL('../extension/engine.js', import.meta.url), 'utf8');
+    const start = source.indexOf('export async function loadBoundWorld()');
+    const end = source.indexOf('export function continueQueue()', start);
+    const loader = source.slice(start, end);
+    assert.ok(start >= 0 && end > start);
+    assert.doesNotMatch(loader, /compactDuplicateMemoryRecords/u);
+    assert.doesNotMatch(loader, /removeInvalidStoredAddressFacts/u);
+    assert.match(loader, /promoteStoredTailSnapshot/u);
+});
+
 test('embedding settings appear directly after retrieval mode and before Story so far', async () => {
     const source = await readFile(new URL('../extension/settings.html', import.meta.url), 'utf8');
     const retrievalMode = source.indexOf('id="continuity_retrieval_mode"');

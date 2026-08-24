@@ -16,14 +16,14 @@ import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.258';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
-import { addDerivedArc, addDerivedEra, compactDuplicateMemoryRecords, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
+import { addDerivedArc, addDerivedEra, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens, storyResponseTokens } from './memory-response-policy.js';
 import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.258';
 import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.258';
 import { embedWorldInChat } from './portable.js';
 import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.258';
 import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_QUALITY_RULE, ROLLING_STORY_QUALITY_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, ROLLING_STORY_VERIFY_RULE, ROLLING_STORY_VERIFY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.258';
-import { applySourceAttributionFailClosed, canonicalFactReference, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
+import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js';
 import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.274';
 import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.14.0-standalone.274';
 import { isRuntimeCancellation, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
@@ -3097,13 +3097,13 @@ export async function loadBoundWorld() {
         return null;
     }
     let world = (await api.getWorld(worldId)).world;
+    // Loading must remain fast. Canonical compaction already runs when L1 is
+    // merged; repeating whole-world maintenance here blocked mobile startup.
     const messages = collectMemoryEligibleMessages(getContext().chat || []);
     const stability = partitionL1StabilityBuffer(messages);
     const latestCompleteIndex = latestCompleteL1MessageIndex(stability.extractable, getSettings().extractionBatchMessages);
-    const removedInvalidFacts = removeInvalidStoredAddressFacts(world, messages) > 0;
-    const compactedDuplicateRecords = compactDuplicateMemoryRecords(world, messages) > 0;
     const promotedSnapshot = promoteStoredTailSnapshot(world, getChatKey(), latestCompleteIndex);
-    if (removedInvalidFacts || compactedDuplicateRecords || promotedSnapshot) world = (await api.saveWorld(world)).world;
+    if (promotedSnapshot) world = (await api.saveWorld(world)).world;
     updateRuntime({ world });
     await embedWorldInChat(world);
     void reconnectDetachedExtraction(worldId, getChatKey());
