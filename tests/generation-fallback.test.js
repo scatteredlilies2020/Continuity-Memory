@@ -49,6 +49,16 @@ test('opening an externally updated chat drains pending L1 after mutation reconc
     assert.ok(reconciliation.indexOf('syncChangedExtractions()') < reconciliation.indexOf('backgroundMemoryWork.schedule(0)'));
 });
 
+test('generation defers branch repair instead of failing while background L1 owns the processing lock', async () => {
+    const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/engine.js', import.meta.url), 'utf8'));
+    const start = source.indexOf('export async function repairDivergedBranch');
+    const end = source.indexOf('export async function repairTailRollback', start);
+    const repair = source.slice(start, end);
+    assert.ok(start >= 0 && end > start);
+    assert.match(repair, /if \(runtime\.processing\) return \{ deferred: true, repaired: false \};/u);
+    assert.doesNotMatch(repair, /Wait for current processing to finish/u);
+});
+
 test('generation queries an index that has reached minimum coverage without waiting for full sync', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/embedding-retrieval.js', import.meta.url), 'utf8'));
     assert.match(source, /embeddingCoverageReady\(indexed, total\)/u);

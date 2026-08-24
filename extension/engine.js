@@ -19,12 +19,12 @@ import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens, storyResponseTokens } from './memory-response-policy.js';
 import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.258';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.292';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.293';
 import { embedWorldInChat } from './portable.js';
 import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.258';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_QUALITY_RULE, ROLLING_STORY_QUALITY_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, ROLLING_STORY_VERIFY_RULE, ROLLING_STORY_VERIFY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.292';
-import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.14.0-standalone.292';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.292';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_QUALITY_RULE, ROLLING_STORY_QUALITY_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, ROLLING_STORY_VERIFY_RULE, ROLLING_STORY_VERIFY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.293';
+import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.14.0-standalone.293';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.293';
 import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.14.0-standalone.274';
 import { isRuntimeCancellation, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
 import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.258';
@@ -2840,7 +2840,7 @@ export function getBranchRepairStatus(world = runtime.world, sourceMessages = nu
 }
 
 export async function repairDivergedBranch({ sourceMessages = null, sourceMutation = false } = {}) {
-    if (runtime.processing) throw new Error('Wait for current processing to finish.');
+    if (runtime.processing) return { deferred: true, repaired: false };
     const worldId = getBoundWorldId();
     const chatKey = getChatKey();
     if (!worldId || !chatKey) throw new Error('Open a chat with Continuity memory first.');
