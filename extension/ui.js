@@ -21,7 +21,7 @@ import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRun
 import { completeL1MessageCount, latestCompleteL1MessageIndex, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
 import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.274';
-import { embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.284';
+import { embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.286';
 import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.258';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
 import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.258';
@@ -1634,6 +1634,63 @@ async function buildMemory() {
     return finishHierarchy(l1, false);
 }
 
+function waitForBuildRestart(delay, stopSequence) {
+    return new Promise((resolve, reject) => {
+        let unsubscribe = () => {};
+        const timer = globalThis.setTimeout(() => {
+            unsubscribe();
+            resolve();
+        }, delay);
+        const inspect = state => {
+            if (state.stopSequence === stopSequence && !state.paused) return;
+            globalThis.clearTimeout(timer);
+            unsubscribe();
+            reject(new Error('Build stopped by the user. Saved progress was kept.'));
+        };
+        unsubscribe = onRuntimeChange(inspect);
+        inspect(runtime);
+    });
+}
+
+async function buildMemoryWithRestart() {
+    const stopSequence = runtime.stopSequence;
+    let failures = 0;
+    try {
+        while (true) {
+            if (runtime.stopSequence !== stopSequence || runtime.paused) {
+                throw new Error('Build stopped by the user. Saved progress was kept.');
+            }
+            try {
+                const result = await buildMemory();
+                if (result.cancelled) return result;
+                let vectors = null;
+                if (getSettings().retrievalMode === 'embedding-hybrid' && runtime.world?.id) {
+                    updateRuntime({ processing: true, status: 'building', lastError: '', retryStatus: 'Memory layers are ready. Completing the selected embedding index…' });
+                    vectors = await resumeEmbeddingIndexing(runtime.world);
+                    if (vectors?.status !== 'ready') throw new Error(`Embedding index is ${vectors?.status || 'not ready'}.`);
+                }
+                updateRuntime({ processing: false, status: 'idle', lastError: '', retryStatus: vectors
+                    ? `Build complete: memory and ${vectors.total || 0} embedding records are ready.`
+                    : runtime.retryStatus });
+                return { ...result, vectors };
+            } catch (error) {
+                updateRuntime({ processing: false });
+                if (runtime.stopSequence !== stopSequence || runtime.paused) throw error;
+                failures++;
+                const delay = Math.min(20000, 2000 * (2 ** Math.min(4, failures - 1)));
+                const message = `Build activity failed (${error.message}). Restarting in ${Math.round(delay / 1000)}s (attempt ${failures + 1})…`;
+                updateRuntime({ processing: true, status: 'building', lastError: '', retryStatus: message });
+                await waitForBuildRestart(delay, stopSequence);
+                updateRuntime({ processing: false });
+            }
+        }
+    } finally {
+        if (runtime.stopSequence !== stopSequence || runtime.paused || runtime.status === 'building') {
+            updateRuntime({ processing: false });
+        }
+    }
+}
+
 async function repairRollback() {
     if (restorePendingExtractionReview()) return { cancelled: true, reviewPending: true };
     const rollback = getTailRollbackStatus();
@@ -1942,13 +1999,14 @@ export function initUI() {
         .catch(error => toast('error', error.message)));
     $('#continuity_stop').on('click', () => {
         const storyContinues = runtime.storyProcessing;
+        stopEmbeddingIndexing();
         stopRuntime();
         toast('info', storyContinues ? 'Memory processing stopped and its queue was cleared. Story continues independently.' : 'Memory processing stopped and its queue was cleared.');
     });
-        $('#continuity_build').on('click', () => buildMemory()
+        $('#continuity_build').on('click', () => buildMemoryWithRestart()
             .then(result => {
                 if (result.cancelled) return;
-                const changed = Boolean(result.continued || result.arcs || result.eras);
+                const changed = Boolean(result.continued || result.arcs || result.eras || result.vectors);
                 toast(changed ? 'success' : 'info', changed ? 'Memory build completed; L1 also updated Story so far.' : 'Memory and Story are already up to date.');
             })
         .catch(error => toast('error', error.message)));

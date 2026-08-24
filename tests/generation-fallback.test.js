@@ -9,13 +9,24 @@ test('roleplay readiness failures are configured to fall back instead of abortin
 
 test('selected embedding retrieval hard-stops generation below minimum coverage', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
-    assert.match(source, /retryTransientPendingReply\(\s*'embedding coverage'/u);
+    assert.match(source, /retryPendingReply\(\s*'embedding coverage'/u);
     assert.match(source, /ensureEmbeddingCoverage\(runtime\.world, undefined, stopSequence\)/u);
     assert.match(source, /required 80% embedding coverage/iu);
     assert.match(source, /function resolveWithin\(value, timeout = 3000\)/u);
     assert.match(source, /queryEmbeddingMemory\(world, recent\)/u);
     assert.match(source, /this reply is using local memory matching/iu);
     assert.doesNotMatch(source, /strictEmbedding/u);
+});
+
+test('a pending reply restarts failed memory and embedding work until the user stops generation', async () => {
+    const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
+    assert.match(source, /async function retryPendingReply/u);
+    assert.match(source, /memory processing[\s\S]*retryPendingReply|retryPendingReply\('memory processing'/u);
+    assert.match(source, /retryPendingReply\('memory catch-up'/u);
+    assert.match(source, /failed \(\$\{error\.message\}\)\. Restarting/u);
+    assert.doesNotMatch(source, /if \(!isTransientApiError\(error\)\) throw error/u);
+    assert.match(source, /event_types\.GENERATION_STOPPED/u);
+    assert.match(source, /stopRuntime\('Pending reply stopped by the user/u);
 });
 
 test('generation queries an index that has reached minimum coverage without waiting for full sync', async () => {

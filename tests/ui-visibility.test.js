@@ -40,6 +40,16 @@ test('loading a bound world does not run blocking whole-world maintenance', asyn
     assert.match(loader, /promoteStoredTailSnapshot/u);
 });
 
+test('manual Build restarts failures, completes embeddings, and obeys Stop processing', async () => {
+    const source = await readFile(new URL('../extension/ui.js', import.meta.url), 'utf8');
+    assert.match(source, /async function buildMemoryWithRestart/u);
+    assert.match(source, /Build activity failed \(\$\{error\.message\}\)\. Restarting/u);
+    assert.match(source, /vectors = await resumeEmbeddingIndexing\(runtime\.world\)/u);
+    assert.match(source, /buildMemoryWithRestart\(\)/u);
+    assert.match(source, /stopEmbeddingIndexing\(\);\s*stopRuntime\(\)/u);
+    assert.match(source, /state\.stopSequence === stopSequence && !state\.paused/u);
+});
+
 test('embedding settings appear directly after retrieval mode and before Story so far', async () => {
     const source = await readFile(new URL('../extension/settings.html', import.meta.url), 'utf8');
     const retrievalMode = source.indexOf('id="continuity_retrieval_mode"');

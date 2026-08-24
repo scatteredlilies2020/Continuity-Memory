@@ -6,15 +6,15 @@ import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceCha
 import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.285';
 import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.14.0-standalone.258';
 import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.274';
-import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
+import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
 import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.274';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.285';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.286';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
 import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.258';
 import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.258';
-import { ensureEmbeddingCoverage, purgeEmbeddingIndex, queryEmbeddingMemory, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.284';
+import { ensureEmbeddingCoverage, purgeEmbeddingIndex, queryEmbeddingMemory, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.286';
 import { isTransientApiError } from './errors.js?v=0.14.0-standalone.273';
 import { asRoleplayBlockingError, isRoleplayBlockingError, roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.282';
 import { completeL1MessageCount, isL1StabilityProtectedMessage, latestCompleteL1MessageIndex, resolveL1GroupSize } from './l1-policy.js';
@@ -230,7 +230,7 @@ function waitForPendingRetry(delay, stopSequence) {
     });
 }
 
-async function retryTransientPendingReply(label, stopSequence, work) {
+async function retryPendingReply(label, stopSequence, work) {
     let failures = 0;
     while (true) {
         assertRoleplayPreparationNotStopped(stopSequence);
@@ -238,11 +238,10 @@ async function retryTransientPendingReply(label, stopSequence, work) {
             return await work();
         } catch (error) {
             assertRoleplayPreparationNotStopped(stopSequence);
-            if (!isTransientApiError(error)) throw error;
             failures++;
             const delay = Math.min(20000, 2000 * (2 ** Math.min(4, failures - 1)));
             const seconds = Math.round(delay / 1000);
-            const message = `Reply remains pending: ${label} received a temporary gateway/network error. Retrying in ${seconds}s (attempt ${failures + 1})…`;
+            const message = `Reply remains pending: ${label} failed (${error.message}). Restarting in ${seconds}s (attempt ${failures + 1})…`;
             updateRuntime({ status: 'preparing-roleplay', lastError: '', retryStatus: message, roleplayGate: { active: true, message, stopping: false, startedAt: runtime.roleplayGate?.startedAt || Date.now() } });
             await waitForPendingRetry(delay, stopSequence);
         }
@@ -376,7 +375,7 @@ async function prepareRoleplayGeneration(type) {
     const revisionBeforeWaiting = Number(runtime.world?.revision ?? -1);
     if (blocksRoleplay) {
         try {
-            await retryTransientPendingReply('memory processing', stopSequence, () => waitForActiveMemoryWork(stopSequence));
+            await retryPendingReply('memory processing', stopSequence, () => waitForActiveMemoryWork(stopSequence));
         } catch (error) {
             throw asRoleplayBlockingError(error, 'Memory catch-up failed;');
         }
@@ -412,7 +411,7 @@ async function prepareRoleplayGeneration(type) {
             });
         }
         try {
-            await retryTransientPendingReply('memory catch-up', stopSequence, async () => {
+            await retryPendingReply('memory catch-up', stopSequence, async () => {
                 if (initialCoverage.required) await completeRequiredL1ForGeneration(sourceMessages, stopSequence);
                 await completeL1ForGeneration(sourceMessages, stopSequence);
                 hierarchy = await completeHierarchyForGeneration(stopSequence);
@@ -431,7 +430,7 @@ async function prepareRoleplayGeneration(type) {
             });
         }
         try {
-            await retryTransientPendingReply(
+            await retryPendingReply(
                 'embedding coverage',
                 stopSequence,
                 () => ensureEmbeddingCoverage(runtime.world, undefined, stopSequence),
@@ -860,6 +859,13 @@ async function init() {
         try { await refreshInjection(false); }
         catch (error) { updateRuntime({ lastError: `Could not prepare memory: ${error.message}` }); }
     });
+    if (event_types.GENERATION_STOPPED) {
+        eventSource.on(event_types.GENERATION_STOPPED, () => {
+            if (!activeGenerationReadiness) return;
+            stopEmbeddingIndexing();
+            stopRuntime('Pending reply stopped by the user. Saved memory and completed vectors were kept.');
+        });
+    }
     eventSource.on(event_types.MESSAGE_RECEIVED, () => {
         scheduleInjectionRefresh();
         backgroundMemoryWork.schedule();
