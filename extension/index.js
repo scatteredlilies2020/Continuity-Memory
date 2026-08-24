@@ -3,12 +3,12 @@ import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
 import { api } from './api.js?v=0.14.0-standalone.258';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.290';
+import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.291';
 import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.14.0-standalone.258';
 import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.274';
 import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
-import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.290';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.290';
+import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.14.0-standalone.291';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.14.0-standalone.291';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
@@ -796,8 +796,17 @@ function scheduleMutationSync(delay = 350, requireDivergenceRepair = false) {
             const result = repairRequested || rollback.detected
                 ? await repairDivergedBranch({ sourceMutation: true })
                 : await syncChangedExtractions();
-            if (result?.deferred) scheduleMutationSync(1000);
-            else if (result?.repaired || result?.synced) await refreshInjection();
+            if (result?.deferred) {
+                scheduleMutationSync(1000);
+            } else {
+                if (result?.repaired || result?.synced) await refreshInjection();
+                // CHAT_CHANGED is also how an externally updated chat (for
+                // example, a Syncthing replacement) becomes active. Its new
+                // messages do not emit MESSAGE_RECEIVED in this browser, so
+                // start the same safe background drain after source mutation
+                // reconciliation has finished.
+                backgroundMemoryWork.schedule(0);
+            }
         } catch (error) {
             if (repairRequested) divergenceRepairRequested = true;
             updateRuntime({ lastError: `Live memory update failed: ${error.message}` });

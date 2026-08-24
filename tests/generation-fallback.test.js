@@ -38,6 +38,17 @@ test('a pending reply restarts failed memory and embedding work until the user s
     assert.match(source, /stopRuntime\('Pending reply stopped by the user/u);
 });
 
+test('opening an externally updated chat drains pending L1 after mutation reconciliation', async () => {
+    const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
+    const start = source.indexOf('function scheduleMutationSync');
+    const end = source.indexOf('async function onChatChanged', start);
+    const reconciliation = source.slice(start, end);
+    assert.ok(start >= 0 && end > start);
+    assert.match(reconciliation, /syncChangedExtractions\(\)/u);
+    assert.match(reconciliation, /backgroundMemoryWork\.schedule\(0\)/u);
+    assert.ok(reconciliation.indexOf('syncChangedExtractions()') < reconciliation.indexOf('backgroundMemoryWork.schedule(0)'));
+});
+
 test('generation queries an index that has reached minimum coverage without waiting for full sync', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/embedding-retrieval.js', import.meta.url), 'utf8'));
     assert.match(source, /embeddingCoverageReady\(indexed, total\)/u);
