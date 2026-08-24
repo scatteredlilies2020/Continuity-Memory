@@ -13,9 +13,18 @@ test('selected embedding retrieval hard-stops generation below minimum coverage'
     assert.match(source, /ensureEmbeddingCoverage\(runtime\.world, undefined, stopSequence\)/u);
     assert.match(source, /required 99% embedding coverage/iu);
     assert.match(source, /function resolveWithin\(value, timeout = 3000\)/u);
-    assert.match(source, /queryEmbeddingMemory\(world, recent\)/u);
+    assert.match(source, /queryEmbeddingWithRetries\(world, recent\)/u);
     assert.match(source, /this reply is using local memory matching/iu);
     assert.doesNotMatch(source, /strictEmbedding/u);
+});
+
+test('embedding retrieval retries quick failures without overlapping a slow request', async () => {
+    const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
+    assert.match(source, /async function queryEmbeddingWithRetries/u);
+    assert.match(source, /attempt < 3/u);
+    assert.match(source, /return await resolveWithin\(request, 12000\)/u);
+    assert.match(source, /CONTINUITY_VECTOR_TIMEOUT/u);
+    assert.match(source, /350 \* \(attempt \+ 1\)/u);
 });
 
 test('a pending reply restarts failed memory and embedding work until the user stops generation', async () => {

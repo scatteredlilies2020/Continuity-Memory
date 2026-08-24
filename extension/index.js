@@ -105,11 +105,40 @@ function waitForBackgroundRetry(delay, stopSequence) {
 function resolveWithin(value, timeout = 3000) {
     let timer = null;
     const deadline = new Promise((_, reject) => {
-        timer = globalThis.setTimeout(() => reject(new Error('Vector retrieval timed out; local retrieval remains available.')), timeout);
+        timer = globalThis.setTimeout(() => {
+            const error = new Error('Vector retrieval timed out; local retrieval remains available.');
+            error.code = 'CONTINUITY_VECTOR_TIMEOUT';
+            reject(error);
+        }, timeout);
     });
     return Promise.race([value, deadline]).finally(() => {
         if (timer !== null) globalThis.clearTimeout(timer);
     });
+}
+
+async function queryEmbeddingWithRetries(world, recent) {
+    let lastError = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+        const request = queryEmbeddingMemory(world, recent);
+        try {
+            return await resolveWithin(request);
+        } catch (error) {
+            lastError = error;
+            if (error?.code === 'CONTINUITY_VECTOR_TIMEOUT') {
+                // Do not start an overlapping request when the first one is
+                // merely slow. Give that same request one longer grace window.
+                try {
+                    return await resolveWithin(request, 12000);
+                } catch (settledError) {
+                    lastError = settledError;
+                    if (settledError?.code === 'CONTINUITY_VECTOR_TIMEOUT') break;
+                }
+            }
+            if (attempt >= 2) break;
+            await new Promise(resolve => globalThis.setTimeout(resolve, 350 * (attempt + 1)));
+        }
+    }
+    throw lastError || new Error('Embedding retrieval failed.');
 }
 
 const backgroundMemoryWork = createBackgroundScheduler(async () => {
@@ -598,7 +627,7 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
             // Vector indexing is maintained in the background. Query the
             // currently stored near-complete index immediately; a slow vector
             // service must not strand SillyTavern generation.
-            semanticRanks = await resolveWithin(queryEmbeddingMemory(world, recent));
+            semanticRanks = await queryEmbeddingWithRetries(world, recent);
             if (!refreshIsCurrent()) return;
             retrievalAssist = { mode: 'embedding-hybrid', phase, executed: true, hits: semanticRanks.size, fallback: false };
             updateRuntime({ retrievalAssist });
