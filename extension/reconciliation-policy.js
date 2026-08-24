@@ -712,7 +712,7 @@ export function recoverExplicitOocIdentityBoundaries(result, world, messages) {
     let recovered = 0;
     for (const message of messages) {
         const source = cleanText(message?.text ?? message?.mes);
-        const ooc = source.match(/\bOOC\s*:\s*([\s\S]+)$/iu)?.[1] || '';
+        const ooc = source.match(/(?:^|[\s[(])(?:OOC|out[- ]of[- ]character|meta|canon(?:ical)?\s+note|author(?:'s)?\s+note|GM\s+note|narrator\s+note)\s*(?:[:—–-]|\)|\])\s*([\s\S]+)$/iu)?.[1] || '';
         if (!ooc) continue;
         const hidden = ooc.match(/\b(?:no\s+one|nobody)(?:\s+(?:here|present|in\s+the\s+scene))?\s+(?:knows?|recognizes?)\s+(?:that\s+)?(?:i\s+am|i['’]m|he\s+is|she\s+is|they\s+are)\s+([\p{L}\p{N}'’ -]{2,80}?)(?=[.!?;]|$)/iu);
         if (!hidden) continue;
@@ -828,7 +828,7 @@ function sourceExplicitlyGrantsIdentityKnowledge(messages, holder, identity) {
                 && !/\b(?:confirms?|confirmed|recognizes?|recognized|learns?|learned|discovers?|discovered|now knows?)\b/iu.test(window)) continue;
             return true;
         }
-        const ooc = source.match(/\bOOC\s*:\s*([\s\S]+)$/iu)?.[1] || '';
+        const ooc = source.match(/(?:^|[\s[(])(?:OOC|out[- ]of[- ]character|meta|canon(?:ical)?\s+note|author(?:'s)?\s+note|GM\s+note|narrator\s+note)\s*(?:[:—–-]|\)|\])\s*([\s\S]+)$/iu)?.[1] || '';
         if (ooc && textMentionsIdentityVariant(ooc, [holderName])
             && textMentionsIdentityVariant(ooc, [identityName])
             && /\b(?:knows?|recognizes?|is aware|learned|was told)\b/iu.test(ooc)
@@ -2742,7 +2742,7 @@ const AUDIT_ATTRIBUTED_PREDICATE = /^(?:belief|claim|allegation|rumou?r|report|s
 const AUDIT_ATTRIBUTION_VERB = /\b(?:believes?|believed|claims?|claimed|alleges?|alleged|reports?|reported|rumou?rs?|rumou?red|suspects?|suspected|speculates?|speculated|thinks?|thought|assumes?|assumed|infers?|inferred|concludes?|concluded|remembers?|remembered|recalls?|recalled|says?|said|tells?|told|states?|stated|reveals?|revealed|discloses?|disclosed|explains?|explained|informs?|informed|insists?|insisted|argues?|argued)\b/iu;
 const AUDIT_ACTIVE_ATTRIBUTION_VERB = /(?:believes?|believed|claims?|claimed|alleges?|alleged|reports?|reported|rumou?rs?|rumou?red|suspects?|suspected|speculates?|speculated|thinks?|thought|assumes?|assumed|infers?|inferred|concludes?|concluded|remembers?|remembered|recalls?|recalled|says?|said|states?|stated|reveals?|revealed|discloses?|disclosed|explains?|explained|informs?|informed|insists?|insisted|argues?|argued)/iu;
 const AUDIT_SOURCE_SUBJECTIVE = /(?:[“”"]|\b(?:i|we)\s+(?:say|said|tell|told|claim|claimed|state|stated|insist|insisted|argue|argued|believe|believed|think|thought|suspect|suspected|remember|remembered|recall|recalled)\b|\b(?:according to|in (?:his|her|their|my|our) (?:view|memory|belief)|appears?|appeared|seems?|seemed|probably|possibly|perhaps|maybe|might|unconfirmed|disputed)\b|\b(?:belief|claim|allegation|rumou?r|report|record|dossier|testimony|perspective|inference|conclusion|memory)\b)/iu;
-const AUDIT_SOURCE_AUTHORITATIVE = /\bOOC\s*:\s*(?:correction|canon|canonical|fact|established|actually|retcon)\b/iu;
+const AUDIT_SOURCE_AUTHORITATIVE = /(?:^|[\s[(])(?:OOC|out[- ]of[- ]character|meta|canon(?:ical)?\s+note|author(?:'s)?\s+note|GM\s+note|narrator\s+note)\s*(?:[:—–-]|\)|\])/iu;
 const CHARACTER_PROFILE_SECTION = /(Role\/background|Age\/demographics|Appearance|Personality\/quirks):\s*/giu;
 const CHARACTER_PROFILE_ORDER = ['roleBackground', 'ageDemographics', 'appearance', 'personalityQuirks'];
 const CHARACTER_PROFILE_LABEL = {

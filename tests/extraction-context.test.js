@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { formatExtractionMessages, precedingUserAttributionContext } from '../extension/extraction-context.js';
+import { formatExtractionMessages, isAuthoritativeUserMetaMessage, precedingUserAttributionContext } from '../extension/extraction-context.js';
 
 test('an assistant-led range receives the preceding user turn as attribution-only context', () => {
     const chat = [
@@ -25,4 +25,19 @@ test('user-led ranges and consecutive assistant turns do not borrow attribution 
         { mes: 'Second narration.', name: 'Narrator', is_user: false },
     ];
     assert.equal(precedingUserAttributionContext(assistants, [{ index: 1, name: 'Narrator', text: 'Second narration.' }]), null);
+});
+
+test('explicit user OOC and meta assertions are marked as authoritative extraction evidence', () => {
+    for (const text of [
+        'OOC: Caelen commanded the fleet.',
+        '[Meta] Caelen commanded the fleet.',
+        "Author's note — Caelen commanded the fleet.",
+        '(Canon note) Caelen commanded the fleet.',
+    ]) {
+        const message = { index: 4, name: 'User', text, isUser: true };
+        assert.equal(isAuthoritativeUserMetaMessage(message), true);
+        assert.match(formatExtractionMessages([message]), /AUTHORITATIVE USER OOC\/META ASSERTION — STORE DURABLE ASSERTIONS AS CANON/u);
+    }
+    assert.equal(isAuthoritativeUserMetaMessage({ text: 'Meta: generated panel', isUser: false }), false);
+    assert.equal(isAuthoritativeUserMetaMessage({ text: 'OOC: Is Caelen the commander?', isUser: true }), true);
 });

@@ -2,6 +2,7 @@ export const IMPORTANCE_RUBRIC = `Rate likely future continuity value, not prose
 
 export const CANONICAL_THIRD_PERSON_RULE = `Canonical memory prose uses explicit names and third person, never I/we/you or player-facing advice. Exact address-form values may preserve source wording.`;
 export const CHARACTER_PROFILE_RULE = `Fill characterProfile fields roleBackground, ageDemographics, appearance, personalityQuirks; age/life stage only in ageDemographics; exclude actions, reactions, other people; never invent, comparisons/status panels; empty if unknown/non-person.`;
+export const OOC_META_AUTHORITY_RULE = `Explicit user-authored out-of-character or meta assertions about scenario continuity are authoritative canon. Recognize OOC, out-of-character, Meta, canon/author/GM/narrator note, and equivalent author-level labels in brackets, parentheses, or before a colon or dash. Every durable assertion under such a label must appear in structured records even if not dramatized; a later explicit meta correction overrides conflicting narration or status. Store objective assertions as established canonical records, never rumor or character belief. If an assertion concerns what a character believes, knows, suspects, or does not know, the authoritative fact is that epistemic state; do not promote its embedded proposition. Questions, hypotheticals, style/format requests, and writing preferences are not continuity assertions.`;
 
 export const RELATIONAL_ADDRESS_RULE = `Store honorifics, titles, nicknames, callsigns, or first-name use as one fact per speaker-addressee pair. A form must be a direct, name-like vocative—not a sentence, clause, description, or nearby dialogue fragment. Ordinary "you" requires explicit social meaning (disrespect or name refusal). Require exact wording; omit absence, silence, indirect replies, and claims that no address is established. One meaningful shift is enough. Attribute quoted lines to explicit speakers; a message author is not automatically the speaker of every line it narrates. Self-directed facts require explicit self-use of the form; never infer self-address from another speaker. Subject says it; "calls ACTUAL_CANONICAL_NAME" names its recipient. Never output placeholder text or brackets. Value: list all exact current forms and meaningful former forms only; keep coexisting forms together. Update relationships only if a shift signals changed familiarity, distance, respect, or hierarchy. Ignore one-offs.`;
 
@@ -46,6 +47,7 @@ Keep sceneCapsule on the main chronological or causal spine. Omit atmosphere, re
 export const DEFAULT_EXTRACTION_SYSTEM_PROMPT = `Maintain long-term continuity for an open-ended roleplay or simulation.
 Extract supported information using the scenario's ontology. Subjects may be people, groups, institutions, places, objects, resources, processes, systems, or concepts. Track durable identity, rules, capabilities, control, conditions, relationships, intentions, events, consequences, and unresolved matters.
 Treat formatted panels and snapshots as evidence, not text to preserve. Keep changes, not formatting or unchanged repetition. Explicit user/OOC corrections override generated status.
+${OOC_META_AUTHORITY_RULE}
 For dialogue, actions, reports, logs, turns, status updates, or simulation results, sceneCapsule preserves chronological and causal flow: opening, ordered developments, reactions, outcomes, transitions, ending. Do not flatten sequences. emotionalArc gives the principal movement or stays empty. opening, emotionalArc, and closing are one short sentence each; use at most 10 concise beats and omit nonessential prose. ${L1_EPISTEMIC_COVERAGE_RULE}
 Narrative time is independent of messages, tokens, boundaries, and real time. Use only established relations within local subjective frames. Preserve relative wording through temporal metadata. Never invent dates, durations, skips, or synchronization; perceived duration is not elapsed time.
 ${DURABLE_MEMORY_RULES}
@@ -184,9 +186,12 @@ export function buildExtractionSystemPrompt(basePrompt, jbEnabled = false, jbPro
     const base = String(basePrompt ?? DEFAULT_EXTRACTION_SYSTEM_PROMPT).trim();
     const extra = jbEnabled ? String(jbPrompt ?? DEFAULT_JB_PROMPT).trim() : '';
     const combined = extra ? (base ? `${base}\n\n${extra}` : extra) : base;
-    return combined.includes(CHARACTER_PROFILE_RULE)
+    const withAuthority = combined.includes(OOC_META_AUTHORITY_RULE)
         ? combined
-        : (combined ? `${combined}\n\n${CHARACTER_PROFILE_RULE}` : CHARACTER_PROFILE_RULE);
+        : (combined ? `${combined}\n\n${OOC_META_AUTHORITY_RULE}` : OOC_META_AUTHORITY_RULE);
+    return withAuthority.includes(CHARACTER_PROFILE_RULE)
+        ? withAuthority
+        : `${withAuthority}\n\n${CHARACTER_PROFILE_RULE}`;
 }
 
 export function buildHierarchySystemPrompt(basePrompt) {

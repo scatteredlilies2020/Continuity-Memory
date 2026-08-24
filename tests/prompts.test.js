@@ -18,6 +18,7 @@ import {
     EPISTEMIC_MEMORY_RULES,
     HIERARCHY_CONCISION_RULES,
     L1_EPISTEMIC_COVERAGE_RULE,
+    OOC_META_AUTHORITY_RULE,
     PRE_ATOMIC_IDENTITY_L1_EPISTEMIC_COVERAGE_RULE,
     RELATIONSHIP_DESCRIPTION_RULE,
     ROLLING_STORY_QUALITY_RULE,
@@ -30,13 +31,13 @@ import {
 } from '../extension/prompts.js';
 
 test('JB prompt is appended to extraction instructions only when enabled', () => {
-    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', false, '<rules>custom</rules>'), `Base extraction instructions.\n\n${CHARACTER_PROFILE_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', false, '<rules>custom</rules>'), `Base extraction instructions.\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}`);
     assert.equal(
         buildExtractionSystemPrompt('Base extraction instructions.', true, '<rules>custom</rules>'),
-        `Base extraction instructions.\n\n<rules>custom</rules>\n\n${CHARACTER_PROFILE_RULE}`,
+        `Base extraction instructions.\n\n<rules>custom</rules>\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}`,
     );
-    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', true, '   '), `Base extraction instructions.\n\n${CHARACTER_PROFILE_RULE}`);
-    assert.equal(buildExtractionSystemPrompt('', true, '<rules>custom</rules>'), `<rules>custom</rules>\n\n${CHARACTER_PROFILE_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', true, '   '), `Base extraction instructions.\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('', true, '<rules>custom</rules>'), `<rules>custom</rules>\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}`);
     assert.match(DEFAULT_JB_PROMPT, /^<rules>[\s\S]*<\/rules>$/);
 });
 
@@ -79,6 +80,9 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /scenario's ontology/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /people, groups, institutions, places, objects, resources, processes, systems, or concepts/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /reports, logs, turns, status updates, or simulation results/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /out-of-character or meta assertions about scenario continuity are authoritative canon/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Every durable assertion under such a label must appear in structured records/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /epistemic state; do not promote its embedded proposition/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /State is a replaceable condition/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /durable, tense-neutral identity summaries/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /characterProfile fields roleBackground, ageDemographics, appearance, personalityQuirks/);
@@ -148,7 +152,7 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /consequential knowledge gaps as open threads/);
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /Most items are 2 or 3/);
     assert.match(DEFAULT_ERA_SYSTEM_PROMPT, /Most items are 2 or 3/);
-    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 10900);
+    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 11800);
     assert.ok(DEFAULT_ARC_SYSTEM_PROMPT.length < 1950);
     assert.ok(DEFAULT_ERA_SYSTEM_PROMPT.length < 1950);
 });

@@ -2829,6 +2829,18 @@ test('explicit OOC canon and matching stored canon are not source-attribution co
     }, [{ name: 'User', isUser: true, text: 'OOC: canon: Caelen Veyr commanded the Republic Twelfth Reconnaissance Fleet during the war.' }]);
     assert.equal(oocValidation.sourceAttributionConflicts.length, 0);
 
+    for (const text of [
+        'Meta: Caelen Veyr commanded the Republic Twelfth Reconnaissance Fleet during the war.',
+        "Author's note — Caelen Veyr commanded the Republic Twelfth Reconnaissance Fleet during the war.",
+    ]) {
+        const meta = makeResult();
+        const validation = sanitizeReconciliationMetadata(meta, {
+            entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
+        }, [{ name: 'User', isUser: true, text }]);
+        assert.equal(validation.sourceAttributionConflicts.length, 0);
+        assert.equal(meta.facts[0].category, 'biographical history');
+    }
+
     const known = makeResult();
     const knownValidation = sanitizeReconciliationMetadata(known, {
         entities: [], states: [], relationships: [], threads: [], backgrounds: [],
