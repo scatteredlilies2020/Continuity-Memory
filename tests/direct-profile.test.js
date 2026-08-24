@@ -17,6 +17,7 @@ test('ordinary connection profiles remain unchanged', () => {
 
 test('model-driven Continuity categories expose independent direct controls', () => {
     const html = readFileSync(new URL('../extension/settings.html', import.meta.url), 'utf8');
+    const ui = readFileSync(new URL('../extension/ui.js', import.meta.url), 'utf8');
     for (const kind of ['extraction', 'retrieval', 'correction', 'summary']) {
         for (const suffix of ['provider', 'url', 'key', 'save_key', 'fetch_models', 'key_status', 'model_select', 'models_status', 'model']) {
             assert.match(html, new RegExp(`id="continuity_${kind}_direct_${suffix}"`));
@@ -26,6 +27,8 @@ test('model-driven Continuity categories expose independent direct controls', ()
     assert.equal((html.match(/value="__direct_openrouter__"/g) || []).length, 4);
     assert.doesNotMatch(html, /continuity_story_profile/);
     assert.doesNotMatch(html, /continuity_story_direct_/);
+    assert.doesNotMatch(ui, /DIRECT_PROFILE_SELECTORS\.story/);
+    assert.doesNotMatch(ui, /story:\s*'storyProfileId'/);
 });
 
 test('AI retrieval has an independent reasoning control that defaults to Auto', () => {

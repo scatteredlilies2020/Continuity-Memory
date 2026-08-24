@@ -49,24 +49,22 @@ let liveUiRecoveryNeeded = false;
 let liveUiRecoveryPromise = null;
 let lastLiveUiRecoveryAt = Date.now();
 const LIVE_UI_RECOVERY_INTERVAL = 30000;
-const DIRECT_KINDS = Object.freeze(['extraction', 'retrieval', 'story', 'correction', 'summary']);
+const DIRECT_KINDS = Object.freeze(['extraction', 'retrieval', 'correction', 'summary']);
 const DIRECT_PROFILE_SETTINGS = Object.freeze({
     extraction: 'memoryProfileId',
     retrieval: 'retrievalProfileId',
-    story: 'storyProfileId',
     correction: 'correctionProfileId',
     summary: 'arcProfileId',
 });
 const DIRECT_PROFILE_SELECTORS = Object.freeze({
     extraction: '#continuity_model_profile',
     retrieval: '#continuity_retrieval_profile',
-    story: '#continuity_story_profile',
     correction: '#continuity_correction_profile',
     summary: '#continuity_arc_profile',
 });
 
 function directLabel(kind) {
-    return kind === 'summary' ? 'L2/L3 summarizer' : kind === 'story' ? 'Story' : kind === 'correction' ? 'correction' : kind === 'retrieval' ? 'retrieval' : 'extraction';
+    return kind === 'summary' ? 'L2/L3 summarizer' : kind === 'correction' ? 'correction' : kind === 'retrieval' ? 'retrieval' : 'extraction';
 }
 
 function directControl(kind, suffix) {
@@ -906,7 +904,6 @@ export function refreshModelProfiles() {
     const selections = {
         extraction: $(DIRECT_PROFILE_SELECTORS.extraction).empty().append($('<option>').val('').text('Current active SillyTavern model')),
         retrieval: $(DIRECT_PROFILE_SELECTORS.retrieval).empty().append($('<option>').val('').text('Same as extraction model')),
-        story: $(DIRECT_PROFILE_SELECTORS.story).empty().append($('<option>').val('').text('Same as extraction model (default)')),
         correction: $(DIRECT_PROFILE_SELECTORS.correction).empty().append($('<option>').val('').text('Same as extraction model')),
         summary: $(DIRECT_PROFILE_SELECTORS.summary).empty().append($('<option>').val('').text('Same as extraction model')),
     };
