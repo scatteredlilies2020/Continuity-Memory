@@ -23,10 +23,10 @@ test('browser resume repaints settings and restores persisted world and vector c
 
 test('context reduction status omits cumulative excluded-history counters only', async () => {
     const source = await readFile(new URL('../extension/ui.js', import.meta.url), 'utf8');
-    assert.match(source, /Last request: kept \$\{reduction\.tailTurns\} recent turn\(s\)/u);
-    assert.match(source, /Other prompts: ~\$\{reduction\.fixedPromptTokens\} tokens/u);
-    assert.match(source, /Total sent: ~\$\{totalPromptTokens\} tokens/u);
-    assert.match(source, /safety reserve: \$\{reduction\.safetyTokens\} tokens/u);
+    assert.match(source, /<strong>Last request:<\/strong> kept \$\{tailTurns\} recent turn\(s\)/u);
+    assert.match(source, /<strong>Other prompts:<\/strong> ~\$\{fixedPromptTokens\} tokens/u);
+    assert.match(source, /<strong>Total sent:<\/strong>/u);
+    assert.match(source, /<strong>Safety reserve:<\/strong> \$\{safetyTokens\} tokens/u);
     assert.doesNotMatch(source, /excluded \$\{reduction\.hiddenMessages\} old message/u);
     assert.doesNotMatch(source, /~\$\{reduction\.hiddenTokens\} tokens/u);
 });
