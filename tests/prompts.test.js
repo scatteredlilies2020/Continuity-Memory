@@ -31,13 +31,13 @@ import {
 } from '../extension/prompts.js';
 
 test('JB prompt is appended to extraction instructions only when enabled', () => {
-    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', false, '<rules>custom</rules>'), `Base extraction instructions.\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', false, '<rules>custom</rules>'), `Base extraction instructions.\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${ROLLING_STORY_RULE}`);
     assert.equal(
         buildExtractionSystemPrompt('Base extraction instructions.', true, '<rules>custom</rules>'),
-        `Base extraction instructions.\n\n<rules>custom</rules>\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}`,
+        `Base extraction instructions.\n\n<rules>custom</rules>\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${ROLLING_STORY_RULE}`,
     );
-    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', true, '   '), `Base extraction instructions.\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}`);
-    assert.equal(buildExtractionSystemPrompt('', true, '<rules>custom</rules>'), `<rules>custom</rules>\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', true, '   '), `Base extraction instructions.\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${ROLLING_STORY_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('', true, '<rules>custom</rules>'), `<rules>custom</rules>\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${ROLLING_STORY_RULE}`);
     assert.match(DEFAULT_JB_PROMPT, /^<rules>[\s\S]*<\/rules>$/);
 });
 
@@ -214,8 +214,10 @@ test('rolling snapshot is bounded, chronological, and sourced only from supplied
     assert.match(storyTask, /3840 characters/i);
     assert.doesNotMatch(storyTask, /\{\{/);
     assert.match(DEFAULT_EXTRACTION_TASK_TEMPLATE, /story_so_far/i);
+    assert.match(DEFAULT_EXTRACTION_TASK_TEMPLATE, /story_constraints/i);
     assert.match(DEFAULT_EXTRACTION_TASK_TEMPLATE, /concealed information|who knows what/i);
     assert.doesNotMatch(buildExtractionSystemPrompt(DEFAULT_EXTRACTION_SYSTEM_PROMPT), /storySoFar is a separate/i);
+    assert.ok(buildExtractionSystemPrompt(DEFAULT_EXTRACTION_SYSTEM_PROMPT).includes(ROLLING_STORY_RULE));
 });
 
 test('final Story quality repair protects stakes and removes low-value inventory before save', () => {

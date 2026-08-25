@@ -6,39 +6,39 @@ import { oai_settings, openai_setting_names, openai_settings, proxies } from '/s
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError, isTransientApiError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.258';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.296';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { normalizeHierarchyResult } from './hierarchy-result.js';
 import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.258';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.296';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedArc, addDerivedEra, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens, storyResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.258';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.293';
+import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.296';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.296';
 import { embedWorldInChat } from './portable.js';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.258';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_QUALITY_RULE, ROLLING_STORY_QUALITY_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, ROLLING_STORY_VERIFY_RULE, ROLLING_STORY_VERIFY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.293';
-import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.14.0-standalone.293';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.293';
-import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.14.0-standalone.274';
-import { isRuntimeCancellation, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.258';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.296';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_QUALITY_RULE, ROLLING_STORY_QUALITY_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, ROLLING_STORY_VERIFY_RULE, ROLLING_STORY_VERIFY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.296';
+import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.14.0-standalone.296';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.296';
+import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.14.0-standalone.296';
+import { isRuntimeCancellation, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.296';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.296';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { dynamicStoryRefineSourceChunk, dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.14.0-standalone.258';
-import { storyCompressionTarget, storyGenerationTargets } from './story-output-policy.js?v=0.14.0-standalone.258';
-import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.258';
-import { resolveProfileThinkingMode } from './story-thinking.js?v=0.14.0-standalone.258';
-import { alignStoryRebuildTarget, completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, stableStoryMessages, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.282';
-import { compileRollingStorySnapshot, ROLLING_STORY_SNAPSHOT_EXAMPLE, ROLLING_STORY_SNAPSHOT_SCHEMA } from './story-snapshot.js?v=0.14.0-standalone.258';
-import { planStoryMutationRecovery, withStoryCheckpoint } from './story-checkpoints.js?v=0.14.0-standalone.258';
-import { buildStorySourceUnits, isCurrentStorySnapshot, resolveStorySourceMode, storedStorySourceMode, storySourceModeLabel, storySourcePolicyIsCurrent, STORY_FORMAT_MANUAL, STORY_SOURCE_L1, STORY_SOURCE_POLICY_VERSION } from './story-source.js?v=0.14.0-standalone.258';
-import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.258';
+import { dynamicStoryRefineSourceChunk, dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.14.0-standalone.296';
+import { storyCompressionTarget, storyGenerationTargets } from './story-output-policy.js?v=0.14.0-standalone.296';
+import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.296';
+import { resolveProfileThinkingMode } from './story-thinking.js?v=0.14.0-standalone.296';
+import { alignStoryRebuildTarget, completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, stableStoryMessages, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.296';
+import { compileRollingStorySnapshot, ROLLING_STORY_SNAPSHOT_EXAMPLE, ROLLING_STORY_SNAPSHOT_SCHEMA } from './story-snapshot.js?v=0.14.0-standalone.296';
+import { planStoryMutationRecovery, withStoryCheckpoint } from './story-checkpoints.js?v=0.14.0-standalone.296';
+import { buildStorySourceUnits, isCurrentStorySnapshot, resolveStorySourceMode, storedStorySourceMode, storySourceModeLabel, storySourcePolicyIsCurrent, STORY_FORMAT_MANUAL, STORY_SOURCE_L1, STORY_SOURCE_POLICY_VERSION } from './story-source.js?v=0.14.0-standalone.296';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.296';
 
 const temporalRelationSchema = {
     type: 'object',
@@ -531,6 +531,12 @@ async function extractChunk(messages, world = runtime.world) {
             updateRuntime({ lastRawResponse: String(raw).slice(0, 30000) });
             const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
             const { result, validation } = validateResult(parsed, world, messages);
+            const storyAllowance = prepared.storyAllowance;
+            const compiledStory = compileRollingStorySnapshot(result.storySoFar);
+            const measuredStoryTokens = Math.max(1, Number(await getTokenCountAsync(compiledStory)) || Math.ceil([...compiledStory].length / 4));
+            if (!storyWithinAllowance(measuredStoryTokens, storyAllowance)) {
+                throw new Error(`Extractor Story exceeded its ${storyAllowance}-token allowance (${measuredStoryTokens} tokens).`);
+            }
             const failedClosedRecords = applySourceAttributionFailClosed(result, [
                 ...(validation.sourceAttributionConflicts || []),
                 ...(validation.relationshipEndpointConflicts || []),
@@ -568,6 +574,8 @@ async function extractChunk(messages, world = runtime.world) {
 
 function prepareExtractionPrompts(messages, world = runtime.world) {
     const settings = getSettings();
+    const storyAllowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext).tokens;
+    const storyTargets = storyGenerationTargets(storyAllowance);
     const detail = settings.detail;
     const detailInstruction = detail === 'light'
         ? 'Capture only details likely to matter again.'
@@ -581,19 +589,22 @@ function prepareExtractionPrompts(messages, world = runtime.world) {
     const taskValues = {
         detail: detailInstruction,
         messages: formatExtractionMessages(messages, attributionContext),
-        story_so_far: `PRIOR ROLLING STORY SNAPSHOT (rewrite this complete snapshot with the new excerpt; preserve load-bearing causal, emotional, relational, and knowledge-boundary meaning):\n${isCurrentStorySnapshot(world?.storySoFar?.[getChatKey()]) ? String(world.storySoFar[getChatKey()].text).trim() : '(No prior Story snapshot.)'}`,
+        story_constraints: `STORYSOFAR CONSTRAINT: Rewrite the complete snapshot within the configured ${storyAllowance}-token allowance. For substantial history, aim for approximately ${storyTargets.targetMinimum}–${storyTargets.targetMaximum} tokens and remain below approximately ${storyTargets.characterBudget} characters so tokenizer differences cannot cause overflow. These are whole-snapshot targets, not per-section quotas. Return complete thoughts; never clip, truncate, use an ellipsis, or add padding to fit.`,
+        story_so_far: `PRIOR ROLLING STORY SNAPSHOT — IMPORTANT EDITABLE REFERENCE (preserve load-bearing continuity unless the new excerpt corrects, resolves, supersedes, or makes it obsolete; this is not protected or append-only):\n${isCurrentStorySnapshot(world?.storySoFar?.[getChatKey()]) ? String(world.storySoFar[getChatKey()].text).trim() : '(No prior Story snapshot.)'}`,
         active_states: extractionStateContext(world, messages),
         temporal_context: extractionTemporalContext(world),
     };
-    const prompt = renderStructuredTaskPrompt(taskTemplate, DEFAULT_EXTRACTION_TASK_TEMPLATE, taskValues, JSON_SHAPE_EXAMPLE, usesStructuredSchema, ['messages', 'active_states', 'temporal_context', 'story_so_far']);
+    const requiredPayloads = ['messages', 'active_states', 'temporal_context', 'story_so_far', 'story_constraints'];
+    const prompt = renderStructuredTaskPrompt(taskTemplate, DEFAULT_EXTRACTION_TASK_TEMPLATE, taskValues, JSON_SHAPE_EXAMPLE, usesStructuredSchema, requiredPayloads);
     const fallbackPrompt = usesStructuredSchema
-        ? renderStructuredTaskPrompt(taskTemplate, DEFAULT_EXTRACTION_TASK_TEMPLATE, taskValues, JSON_SHAPE_EXAMPLE, false, ['messages', 'active_states', 'temporal_context', 'story_so_far'])
+        ? renderStructuredTaskPrompt(taskTemplate, DEFAULT_EXTRACTION_TASK_TEMPLATE, taskValues, JSON_SHAPE_EXAMPLE, false, requiredPayloads)
         : prompt;
     return {
         prompt,
         fallbackPrompt,
         systemPrompt: buildExtractionSystemPrompt(settings.extractionSystemPrompt, settings.jbEnabled, settings.jbPrompt),
         usesStructuredSchema,
+        storyAllowance,
     };
 }
 

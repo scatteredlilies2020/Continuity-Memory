@@ -61,7 +61,7 @@ sceneCapsule importance rates the whole excerpt.`;
 
 export const ROLLING_STORY_RULE = `Produce a compact world-state snapshot with history from the supplied prior snapshot plus new chronological source material only. Source material may contain raw chat or explicitly labeled L1 scene summaries; use only what is supplied and never consult L2, L3, retrieval results, or other memory. This is the global continuity spine, not a recap, transcript, scene summary, or memory inventory. Re-evaluate the whole snapshot on every call; never append merely because material is recent. If the excerpt changes no load-bearing continuity, preserve the prior content instead of forcing an update.
 
-Return exactly four arrays in the requested JSON object. Their lengths are flexible; the complete snapshot token allowance, importance, and causal complexity determine how many entries they need:
+For storySoFar, return exactly four arrays in its requested JSON object. Their lengths are flexible; the complete snapshot token allowance, importance, and causal complexity determine how many entries they need:
 - premise: the earliest initiating facts and foundational role, identity, relationship, or objective changes without which the story becomes unintelligible; earliest cause first.
 - majorDevelopments: only major completed turning points in strict causal chronology; one outcome-and-consequence entry per causal phase, never action-by-action narration.
 - boundaryState: only durable conditions established at the end of the covered material; state facts, not a recap and not an inventory.
@@ -129,6 +129,7 @@ export const PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION = `Background continui
 export const DEFAULT_INJECTION_INSTRUCTION = `Background continuity; never mention this block. Raw chat and user corrections override it. Model access does not grant character knowledge. A named knowledge boundary prevents that holder from using protected information until chat or memory records discovery or disclosure. Preserve natural address forms.`;
 
 export const DEFAULT_EXTRACTION_TASK_TEMPLATE = `Extract continuity from this chronological excerpt. Empty arrays are valid. {{detail}}
+{{story_constraints}}
 {{format}}
 
 {{messages}}
@@ -190,9 +191,12 @@ export function buildExtractionSystemPrompt(basePrompt, jbEnabled = false, jbPro
     const withAuthority = combined.includes(OOC_META_AUTHORITY_RULE)
         ? combined
         : (combined ? `${combined}\n\n${OOC_META_AUTHORITY_RULE}` : OOC_META_AUTHORITY_RULE);
-    return withAuthority.includes(CHARACTER_PROFILE_RULE)
+    const withProfiles = withAuthority.includes(CHARACTER_PROFILE_RULE)
         ? withAuthority
         : `${withAuthority}\n\n${CHARACTER_PROFILE_RULE}`;
+    return withProfiles.includes(ROLLING_STORY_RULE)
+        ? withProfiles
+        : `${withProfiles}\n\n${ROLLING_STORY_RULE}`;
 }
 
 export function buildHierarchySystemPrompt(basePrompt) {

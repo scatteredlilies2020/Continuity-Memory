@@ -455,6 +455,21 @@ test('story-so-far allowance is additive and cannot displace existing recall', (
     assert.match(enabled.prompt, /Story so far:\n[^\n]+\n<\/continuity>$/u);
 });
 
+test('Story injection preserves its complete ending instead of applying a hidden three-thousand-token prefix cap', () => {
+    const premise = 'Premise: ' + 'foundational cause '.repeat(850);
+    const ending = 'Open matters: Mara must choose whether to reveal the signal before dawn.';
+    const completeStory = `${premise}\n${ending}`;
+    const target = world({ storySoFar: { chat: { text: completeStory, from: 0, to: 95 } } });
+
+    const result = buildMemoryPrompt(target, user('Continue.'), 1000, 'chat', [], undefined, new Map(), {
+        includeStorySoFar: true,
+        storySoFarTokens: 6000,
+    });
+
+    assert.match(result.prompt, /Mara must choose whether to reveal the signal before dawn/);
+    assert.doesNotMatch(result.prompt, /…/u);
+});
+
 test('a deliberately small fixed recall allowance remains functional and bounded', () => {
     const target = world({
         facts: Array.from({ length: 20 }, (_, index) => ({
