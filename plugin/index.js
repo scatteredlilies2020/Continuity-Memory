@@ -5,9 +5,10 @@ import { fileURLToPath } from 'node:url';
 import { migrateLegacyBeliefs } from '../extension/attributed-beliefs.js';
 import { discardLegacyStorySnapshots } from '../extension/story-source.js';
 import { cancelDetachedJob, createDetachedJob, getDetachedJob, listDetachedJobs } from './detached-jobs.js';
+import { registerVectorRoutes } from './vector-store.js';
 
 const PLUGIN = 'continuity-memory';
-const VERSION = '0.14.0-standalone.156';
+const VERSION = '0.14.0-standalone.294';
 const SCHEMA_VERSION = 11;
 const STORAGE_VERSION = 2;
 const SHARD_CHUNK_SIZE = 128;
@@ -386,11 +387,12 @@ function sendError(res, error) {
     res.status(status).json({ ok: false, error: error.message || String(error) });
 }
 
-export async function init(router, { syncExtension = true, fetchImpl = fetch } = {}) {
+export async function init(router, { syncExtension = true, fetchImpl = fetch, embedTexts } = {}) {
     if (syncExtension) {
         const frontend = await syncBundledExtension();
         console.log(`[${PLUGIN}] frontend ${frontend.status} at ${frontend.path}`);
     }
+    registerVectorRoutes(router, { embedTexts });
     router.get('/health', async (req, res) => {
         try {
             const dirs = await ensureStorage(req);

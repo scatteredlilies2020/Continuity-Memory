@@ -22,7 +22,7 @@ function collectionId(worldId) {
 }
 
 async function vectorRequest(route, payload, signal) {
-    const response = await fetch(`/api/vector/${route}`, {
+    const response = await fetch(`/api/plugins/continuity-memory/vectors/${route}`, {
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify(payload),
