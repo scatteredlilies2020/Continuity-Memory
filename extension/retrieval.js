@@ -172,21 +172,6 @@ function estimatedTokens(value) {
     return Math.ceil(wide + ascii / 4);
 }
 
-function clipToTokens(value, limit) {
-    const characters = [...String(value ?? '')];
-    if (estimatedTokens(value) <= limit) return characters.join('');
-    if (limit <= estimatedTokens('…')) return '…';
-    let low = 0;
-    let high = characters.length;
-    while (low < high) {
-        const middle = Math.ceil((low + high) / 2);
-        if (estimatedTokens(`${characters.slice(0, middle).join('')}…`) <= limit) low = middle;
-        else high = middle - 1;
-    }
-    const clipped = characters.slice(0, low).join('').trimEnd();
-    return `${clipped}…`;
-}
-
 function searchable(item) {
     return plain(Object.entries(item || {})
         .filter(([key]) => !['id', 'sources', 'createdAt', 'updatedAt'].includes(key))
@@ -1213,59 +1198,46 @@ function addFairSections(parts, sections, budget) {
         .filter(section => section.rows.length > 0);
     if (!populated.length) return;
 
+    // The recall allowance is a soft packing target, not a text-cutting
+    // boundary. Give every populated section one complete representative first;
+    // this may cross the target when that is the only way to preserve both the
+    // category and its record. Then spend any remaining allowance on complete
+    // rows in fair rounds. A row is always atomic: it is included whole or left
+    // for a later retrieval.
     const closingSize = estimatedTokens('</continuity>');
-    const headersSize = populated.reduce((total, section) => total + estimatedTokens(`\n${section.title}:\n`), 0);
-    const available = Math.max(0, budget - estimatedTokens(parts.value) - closingSize);
-    if (!available) return;
-    if (headersSize >= available) {
-        let remaining = available;
-        for (const section of populated) {
-            const header = `\n${section.title}:\n`;
-            const headerSize = estimatedTokens(header);
-            if (headerSize + 1 > remaining) continue;
-            const row = clipToTokens(section.rows[0], remaining - headerSize);
-            if (!row) continue;
-            parts.value += `${header}${row}\n`;
-            remaining = Math.max(0, remaining - headerSize - estimatedTokens(`${row}\n`));
-        }
-        return;
-    }
-    let remaining = available - headersSize;
-    const selected = populated.map(() => []);
+    const available = budget - estimatedTokens(parts.value) - closingSize;
+    const selected = populated.map(section => [section.rows[0]]);
+    const mandatorySize = populated.reduce((total, section) => total
+        + estimatedTokens(`\n${section.title}:\n`)
+        + estimatedTokens(`${section.rows[0]}\n`), 0);
+    let remaining = available - mandatorySize;
 
-    const firstRowsSize = populated.reduce((total, section) => total + estimatedTokens(`${section.rows[0]}\n`), 0);
-    if (firstRowsSize <= remaining) {
-        for (let index = 0; index < populated.length; index++) {
-            selected[index].push(populated[index].rows[0]);
-            remaining -= estimatedTokens(`${populated[index].rows[0]}\n`);
-        }
-    } else {
-        for (let index = 0; index < populated.length; index++) {
-            const sectionsLeft = populated.length - index;
-            const allowance = Math.max(1, Math.floor(remaining / sectionsLeft));
-            const row = populated[index].rows[0];
-            const clipped = clipToTokens(row, allowance);
-            selected[index].push(clipped);
-            remaining = Math.max(0, remaining - estimatedTokens(`${clipped}\n`));
-        }
-    }
-
-    let rowIndex = 1;
-    let added = true;
-    while (remaining > 0 && added) {
-        added = false;
-        for (let index = 0; index < populated.length; index++) {
-            const row = populated[index].rows[rowIndex];
-            if (!row) continue;
-            const rowSize = estimatedTokens(`${row}\n`);
-            if (rowSize <= remaining) {
+    if (remaining > 0) {
+        const nextRows = populated.map(() => 1);
+        const blocked = populated.map(() => false);
+        let added = true;
+        while (remaining > 0 && added) {
+            added = false;
+            for (let index = 0; index < populated.length; index++) {
+                if (blocked[index]) continue;
+                const row = populated[index].rows[nextRows[index]];
+                if (!row) {
+                    blocked[index] = true;
+                    continue;
+                }
+                const rowSize = estimatedTokens(`${row}\n`);
+                if (rowSize > remaining) {
+                    // Preserve ranking within a section: do not skip a larger,
+                    // better-ranked row to admit one of its lower-ranked rows.
+                    blocked[index] = true;
+                    continue;
+                }
                 selected[index].push(row);
+                nextRows[index]++;
                 remaining -= rowSize;
                 added = true;
             }
         }
-        rowIndex++;
-        if (rowIndex > Math.max(...populated.map(section => section.rows.length))) break;
     }
 
     for (let index = 0; index < populated.length; index++) {
@@ -1406,7 +1378,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     const selectedCorrections = [...relevantCorrections, ...recentCorrections]
         .filter((item, index, all) => all.findIndex(other => other.id === item.id) === index);
     addSection('User corrections', selectedCorrections.map(item =>
-        `- ${plain(item.summary || item.instruction)}`.slice(0, 900)));
+        `- ${plain(item.summary || item.instruction)}`));
 
     const knowledgeBoundaryResults = recordSelections('Knowledge boundaries — hard constraints', 'fact', rank(
         availableFacts.filter(isKnowledgeBoundaryFact),
@@ -1770,7 +1742,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.296';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.297';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';

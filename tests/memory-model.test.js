@@ -1826,11 +1826,13 @@ test('hierarchy retrieval counts importance once and favors stronger matches', (
     assert.doesNotMatch(selectedL2, /High four/);
 });
 
-test('multilingual injection estimates remain within the token budget', () => {
+test('multilingual injection soft-overflows its recall target instead of clipping a complete row', () => {
     const target = world();
-    target.entities.push({ id: 'wide', name: '台灣', type: 'place', description: '狀'.repeat(2500), importance: 3 });
+    target.entities.push({ id: 'wide', name: '台灣', type: 'place', description: `${'狀'.repeat(2500)}完整結尾`, importance: 3 });
     const result = buildMemoryPrompt(target, [{ name: 'User', mes: '台灣' }], 1000);
-    assert.ok(result.estimatedTokens <= 1000);
+    assert.ok(result.estimatedTokens > 1000);
+    assert.match(result.prompt, /完整結尾/u);
+    assert.doesNotMatch(result.prompt, /…/u);
 });
 
 test('retrieval avoids repeating hierarchy records covered by a selected higher level', () => {

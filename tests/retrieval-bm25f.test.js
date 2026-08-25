@@ -470,7 +470,7 @@ test('Story injection preserves its complete ending instead of applying a hidden
     assert.doesNotMatch(result.prompt, /…/u);
 });
 
-test('a deliberately small fixed recall allowance remains functional and bounded', () => {
+test('a deliberately small recall target soft-overflows to preserve a complete category row', () => {
     const target = world({
         facts: Array.from({ length: 20 }, (_, index) => ({
             id: `compact-${index}`, subject: 'Mara', predicate: `rule ${index}`, value: `Compact rule detail ${index}.`,
@@ -479,9 +479,74 @@ test('a deliberately small fixed recall allowance remains functional and bounded
     });
     const result = buildMemoryPrompt(target, user('Mara reviews every rule.'), 128, 'chat', [], undefined, new Map(), { includeStorySoFar: false });
     assert.ok(result.estimatedTokens < 1000);
-    assert.doesNotMatch(result.prompt, /Facts:/);
+    assert.ok(result.estimatedTokens > 128);
+    assert.match(result.prompt, /Facts:/);
+    assert.match(result.prompt, /Compact rule detail \d+\./u);
+    assert.doesNotMatch(result.prompt, /…/u);
     assert.match(result.prompt, /^<continuity>/);
     assert.match(result.prompt, /<\/continuity>$/);
+});
+
+test('tight recall targets present every populated selected category without clipping its representative', () => {
+    const source = [{ chatKey: 'chat', from: 8, to: 15 }];
+    const target = world({
+        entities: [{ id: 'entity', name: 'Mara', type: 'person', description: 'Beacon keeper COMPLETE_ENTITY_END', sources: source }],
+        facts: [{
+            id: 'fact', subject: 'Mara', predicate: 'beacon oath', value: 'Keeps the beacon lit COMPLETE_FACT_END',
+            category: 'duty', persistence: 'persistent', importance: 4, sources: source,
+        }],
+        states: [{ id: 'state', subject: 'Mara', attribute: 'beacon watch', value: 'On duty COMPLETE_STATE_END', scope: 'scene', sources: source }],
+        relationships: [{
+            id: 'relationship', from: 'Mara', to: 'Ivo', kind: 'beacon allies', status: 'active',
+            dynamic: 'Guard the beacon together COMPLETE_RELATIONSHIP_END', sources: source,
+        }],
+        events: [{ id: 'event', title: 'Beacon lighting', summary: 'Mara lit the beacon COMPLETE_EVENT_END', participants: ['Mara'], sources: source }],
+        capsules: [{
+            id: 'capsule', title: 'Beacon watch', opening: 'Mara arrived', beats: ['She lit it'],
+            closing: 'Watch continues COMPLETE_L1_END', emotionalArc: '', chatKey: 'chat', from: 8, to: 15, sources: source,
+        }],
+        arcs: [{
+            id: 'arc', title: 'Beacon arc', summary: 'Mara became its keeper COMPLETE_L2_END', turningPoints: [],
+            closingState: '', openThreads: [], capsuleIds: [], sources: source,
+        }],
+        eras: [{
+            id: 'era', title: 'Beacon era', summary: 'Mara defended the coast COMPLETE_L3_END', turningPoints: [],
+            closingState: '', openThreads: [], arcIds: [], sources: source,
+        }],
+        threads: [{
+            id: 'thread', title: 'Beacon fuel', detail: 'Mara must secure fuel COMPLETE_THREAD_END',
+            status: 'open', participants: ['Mara'], sources: source,
+        }],
+        backgrounds: [{
+            id: 'background', topic: 'Beacon history', summary: 'Mara inherited the duty COMPLETE_BACKGROUND_END',
+            status: 'active', certainty: 'established', participants: ['Mara'], sources: source,
+        }],
+        corrections: [{ id: 'correction', summary: 'Mara—not Ivo—first lit the beacon COMPLETE_CORRECTION_END' }],
+    });
+
+    const result = buildMemoryPrompt(target, user('Mara checks the beacon.'), 128, 'chat', [], undefined, new Map(), { includeStorySoFar: false });
+
+    for (const section of [
+        'User corrections', 'L3 continuity', 'L2 continuity', 'Recent continuity', 'Open matters',
+        'Background', 'Entities', 'Current state', 'Relationships', 'Facts', 'Past events',
+    ]) assert.match(result.prompt, new RegExp(`\\n${section}:\\n`, 'u'));
+    for (const ending of [
+        'COMPLETE_CORRECTION_END', 'COMPLETE_L3_END', 'COMPLETE_L2_END', 'COMPLETE_L1_END',
+        'COMPLETE_THREAD_END', 'COMPLETE_BACKGROUND_END', 'COMPLETE_ENTITY_END', 'COMPLETE_STATE_END',
+        'COMPLETE_RELATIONSHIP_END', 'COMPLETE_FACT_END', 'COMPLETE_EVENT_END',
+    ]) assert.match(result.prompt, new RegExp(ending, 'u'));
+    assert.ok(result.estimatedTokens > 128);
+    assert.doesNotMatch(result.prompt, /…/u);
+});
+
+test('user corrections are injected whole instead of being character-sliced', () => {
+    const completeEnding = 'COMPLETE_CORRECTION_AFTER_900_CHARACTERS';
+    const target = world({ corrections: [{ id: 'long-correction', summary: `${'Authoritative correction detail. '.repeat(40)}${completeEnding}` }] });
+
+    const result = buildMemoryPrompt(target, user('Continue.'), 128, 'chat', [], undefined, new Map(), { includeStorySoFar: false });
+
+    assert.match(result.prompt, new RegExp(completeEnding, 'u'));
+    assert.doesNotMatch(result.prompt, /…/u);
 });
 
 test('older L1 evidence must occur within one beat or neighboring beats', () => {

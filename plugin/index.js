@@ -8,7 +8,7 @@ import { cancelDetachedJob, createDetachedJob, getDetachedJob, listDetachedJobs 
 import { registerVectorRoutes } from './vector-store.js';
 
 const PLUGIN = 'continuity-memory';
-const VERSION = '0.14.0-standalone.296';
+const VERSION = '0.14.0-standalone.297';
 const SCHEMA_VERSION = 11;
 const STORAGE_VERSION = 2;
 const SHARD_CHUNK_SIZE = 128;
