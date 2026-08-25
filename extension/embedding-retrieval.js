@@ -1,10 +1,10 @@
 import { getRequestHeaders } from '/script.js';
 import { buildEmbeddingDocuments, buildEmbeddingQuery, semanticRanksFromResponse } from './embedding-index.js';
-import { embeddingCoverage, embeddingCoverageReady, MINIMUM_EMBEDDING_COVERAGE } from './embedding-policy.js?v=0.14.0-standalone.297';
-import { resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.297';
-import { getSettings } from './settings.js?v=0.14.0-standalone.297';
-import { onRuntimeChange, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.297';
-import { createVectorStorageRequester } from './vector-storage-client.js?v=0.14.0-standalone.297';
+import { embeddingCoverage, embeddingCoverageReady, MINIMUM_EMBEDDING_COVERAGE } from './embedding-policy.js?v=0.14.0-standalone.298';
+import { resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.298';
+import { getSettings } from './settings.js?v=0.14.0-standalone.298';
+import { onRuntimeChange, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.298';
+import { createVectorStorageRequester } from './vector-storage-client.js?v=0.14.0-standalone.298';
 
 const syncedIndexes = new Map();
 const activeSyncs = new Map();

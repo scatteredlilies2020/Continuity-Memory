@@ -21,6 +21,16 @@ test('browser resume repaints settings and restores persisted world and vector c
     assert.match(source, /window\.addEventListener\('focus'/u);
 });
 
+test('context reduction status omits cumulative excluded-history counters only', async () => {
+    const source = await readFile(new URL('../extension/ui.js', import.meta.url), 'utf8');
+    assert.match(source, /Last request: kept \$\{reduction\.tailTurns\} recent turn\(s\)/u);
+    assert.match(source, /Other prompts: ~\$\{reduction\.fixedPromptTokens\} tokens/u);
+    assert.match(source, /Total sent: ~\$\{totalPromptTokens\} tokens/u);
+    assert.match(source, /safety reserve: \$\{reduction\.safetyTokens\} tokens/u);
+    assert.doesNotMatch(source, /excluded \$\{reduction\.hiddenMessages\} old message/u);
+    assert.doesNotMatch(source, /~\$\{reduction\.hiddenTokens\} tokens/u);
+});
+
 test('generation waits for an existing bound world instead of treating its chat as unprocessed', async () => {
     const source = await readFile(new URL('../extension/ui.js', import.meta.url), 'utf8');
     assert.match(source, /async function loadBoundWorldOnce/u);
