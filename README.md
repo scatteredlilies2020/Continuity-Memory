@@ -83,6 +83,8 @@ Semantic vector retrieval is combined with local text matching. This works well 
 
 Embeddings are optional. The vector index is derived from canonical Continuity memory, stored separately, and never included in memory exports or portable chat snapshots. It can be deleted or rebuilt at any time. If indexing or retrieval fails, Continuity falls back to local matching.
 
+When the optional Continuity server plugin is available, CM uses its detached vector store. If no detached index exists yet, CM copies the exact legacy SillyTavern `index.json`, reads the detached copy back for verification, and only then retires the original. An already verified detached cache also retires a no-larger old cache left by an earlier standalone build; a larger old cache is preserved. Without the server plugin, CM automatically keeps using SillyTavern's native vector API instead of interrupting indexing. Syncthing conflict copies and other similarly named files are never selected for automatic import.
+
 Existing records are embedded once. New and revised records are synchronized incrementally.
 
 Background developments are retrieved only when the current conversation matches their topic, participants, or meaning. They are not inserted into every response merely because they were retained.
@@ -138,7 +140,7 @@ Reasoning controls are translated independently for each selected provider. Stor
 
 ## Storage and portability
 
-Memory is isolated per chat. The browser-only installation stores it through SillyTavern's authenticated user-file API. The optional server plugin migrates a selected file-backed world into server storage without changing its ID or revision and retains the former files as a backup.
+Memory is isolated per chat. The browser-only installation stores it through SillyTavern's authenticated user-file API. When the optional server plugin is installed, CM automatically migrates file-backed worlds without changing their IDs or revisions. It reads each detached world back and compares its full canonical content before retiring the exact active source files. Divergent same-ID worlds, Syncthing conflict copies, and failed migrations are preserved for manual resolution rather than guessed or deleted.
 
 Continuity supports:
 

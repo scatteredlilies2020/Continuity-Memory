@@ -149,9 +149,14 @@ test('server migration preserves a file-backed world identity and revision', asy
     assert.equal(migrated.payload.world.id, source.id);
     assert.equal(migrated.payload.world.revision, 27);
     assert.equal(migrated.payload.world.facts[0].id, 'kept');
+    assert.equal(migrated.payload.verified, true);
+    const equivalent = await call(router.routes.get('POST /migrate-world'), root, { body: { world: source } });
+    assert.equal(equivalent.payload.existing, true);
+    assert.equal(equivalent.payload.equivalent, true);
     const repeated = await call(router.routes.get('POST /migrate-world'), root, { body: { world: { ...source, revision: 99 } } });
     assert.equal(repeated.status, 200);
     assert.equal(repeated.payload.existing, true);
+    assert.equal(repeated.payload.equivalent, false);
     assert.equal(repeated.payload.world.revision, 27);
 });
 

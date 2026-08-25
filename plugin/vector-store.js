@@ -122,23 +122,61 @@ async function legacyStore(req, location) {
             dimensions ||= item.vector.length;
             return item;
         });
-        return { version: STORE_VERSION, provider: location.provider, items };
+        return { file, store: { version: STORE_VERSION, provider: location.provider, items } };
     } catch (error) {
         // Never remove or overwrite a legacy SillyTavern index. A bad legacy
         // file is simply not imported; CM starts with its own empty store.
         console.warn(`[continuity-memory] Could not import legacy vector index ${file}: ${error.message}`);
-        return emptyStore(location);
+        return null;
+    }
+}
+
+async function retireLegacyFile(file, vectorsRoot) {
+    await fs.unlink(file);
+    const root = path.resolve(vectorsRoot);
+    let directory = path.dirname(file);
+    while (directory !== root && directory.startsWith(`${root}${path.sep}`)) {
+        try { await fs.rmdir(directory); }
+        catch (error) {
+            if (['ENOTEMPTY', 'EEXIST', 'ENOENT'].includes(error.code)) break;
+            throw error;
+        }
+        directory = path.dirname(directory);
+    }
+}
+
+async function retireCoveredLegacyStore(req, location, detached) {
+    const legacy = await legacyStore(req, location);
+    if (!legacy || detached.items.length < legacy.store.items.length) return;
+    try {
+        await retireLegacyFile(legacy.file, req.user.directories.vectors);
+    } catch (error) {
+        // Cleanup must never make an already verified detached store unavailable.
+        console.warn(`[continuity-memory] Could not retire covered legacy vector index ${legacy.file}: ${error.message}`);
     }
 }
 
 async function readStore(req, location, { create = true } = {}) {
     try {
-        return normalizeStore(JSON.parse(await fs.readFile(location.file, 'utf8')), location);
+        const detached = normalizeStore(JSON.parse(await fs.readFile(location.file, 'utf8')), location);
+        await retireCoveredLegacyStore(req, location, detached);
+        return detached;
     } catch (error) {
         if (error.code !== 'ENOENT') throw error;
     }
-    const store = await legacyStore(req, location) || emptyStore(location);
-    if (create) await atomicWrite(location.file, store);
+    const legacy = await legacyStore(req, location);
+    const store = legacy?.store || emptyStore(location);
+    if (create) {
+        await atomicWrite(location.file, store);
+        const verified = normalizeStore(JSON.parse(await fs.readFile(location.file, 'utf8')), location);
+        if (legacy && JSON.stringify(verified) === JSON.stringify(store)) {
+            try {
+                await retireLegacyFile(legacy.file, req.user.directories.vectors);
+            } catch (error) {
+                console.warn(`[continuity-memory] Could not retire verified legacy vector index ${legacy.file}: ${error.message}`);
+            }
+        }
+    }
     return store;
 }
 

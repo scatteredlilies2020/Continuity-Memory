@@ -56,11 +56,41 @@ async function getBackend() {
     return await backendPromise;
 }
 
+function sameWorldSummary(current, legacy) {
+    return current?.id === legacy?.id
+        && current?.name === legacy?.name
+        && Number(current?.revision || 0) === Number(legacy?.revision || 0)
+        && String(current?.updatedAt || '') === String(legacy?.updatedAt || '')
+        && JSON.stringify(current?.counts || {}) === JSON.stringify(legacy?.counts || {});
+}
+
+async function migrateAndRetireLegacyWorld(id) {
+    const legacy = await fileApi.getWorld(id);
+    const migrated = await pluginApi.migrateWorld(legacy.world);
+    if (!migrated?.verified) return migrated;
+    await fileApi.deleteWorld(id);
+    console.info(`[Continuity] Verified world ${id} in detached server storage and retired its former file-storage copy.`);
+    return migrated;
+}
+
 async function call(method, ...args) {
     const backend = await getBackend();
     if (method === 'health' && backend.health) return backend.health;
     if (backend.api === pluginApi && method === 'listWorlds') {
-        const [current, legacy] = await Promise.all([pluginApi.listWorlds(), fileApi.listWorlds()]);
+        let [current, legacy] = await Promise.all([pluginApi.listWorlds(), fileApi.listWorlds()]);
+        const currentById = new Map(current.worlds.map(world => [world.id, world]));
+        let migratedAny = false;
+        for (const world of legacy.worlds) {
+            const detached = currentById.get(world.id);
+            if (detached && !sameWorldSummary(detached, world)) continue;
+            try {
+                const migrated = await migrateAndRetireLegacyWorld(world.id);
+                migratedAny ||= Boolean(migrated?.verified);
+            } catch (error) {
+                console.warn(`[Continuity] Could not safely migrate legacy world ${world.id}; its source files were preserved.`, error);
+            }
+        }
+        if (migratedAny) [current, legacy] = await Promise.all([pluginApi.listWorlds(), fileApi.listWorlds()]);
         const worlds = new Map(legacy.worlds.map(world => [world.id, world]));
         for (const world of current.worlds) worlds.set(world.id, world);
         return { ok: true, worlds: [...worlds.values()].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))) };
@@ -76,9 +106,7 @@ async function call(method, ...args) {
         result = await backend.api[method](...args);
     } catch (error) {
         if (backend.api !== pluginApi || method !== 'getWorld' || error.status !== 404) throw error;
-        const legacy = await fileApi.getWorld(...args);
-        result = await pluginApi.migrateWorld(legacy.world);
-        console.info(`[Continuity] Migrated world ${legacy.world.id} into detached server storage; the former file copy remains as a backup.`);
+        result = await migrateAndRetireLegacyWorld(...args);
     }
     if (result?.world) migrateLegacyBeliefs(result.world);
     return result;

@@ -4,6 +4,7 @@ import { embeddingCoverage, embeddingCoverageReady, MINIMUM_EMBEDDING_COVERAGE }
 import { resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.258';
 import { getSettings } from './settings.js?v=0.14.0-standalone.258';
 import { onRuntimeChange, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.258';
+import { createVectorStorageRequester } from './vector-storage-client.js?v=0.14.0-standalone.295';
 
 const syncedIndexes = new Map();
 const activeSyncs = new Map();
@@ -12,6 +13,7 @@ const queryCache = new Map();
 const syncTimers = new Map();
 const activeControllers = new Set();
 let indexingControl = 'running';
+const requestVectorStorage = createVectorStorageRequester();
 
 function providerRequest() {
     return resolveEmbeddingProvider(getSettings());
@@ -22,7 +24,7 @@ function collectionId(worldId) {
 }
 
 async function vectorRequest(route, payload, signal) {
-    const response = await fetch(`/api/plugins/continuity-memory/vectors/${route}`, {
+    const response = await requestVectorStorage(route, {
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify(payload),

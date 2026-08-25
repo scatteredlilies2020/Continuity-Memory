@@ -8,7 +8,7 @@ import { cancelDetachedJob, createDetachedJob, getDetachedJob, listDetachedJobs 
 import { registerVectorRoutes } from './vector-store.js';
 
 const PLUGIN = 'continuity-memory';
-const VERSION = '0.14.0-standalone.294';
+const VERSION = '0.14.0-standalone.295';
 const SCHEMA_VERSION = 11;
 const STORAGE_VERSION = 2;
 const SHARD_CHUNK_SIZE = 128;
@@ -220,6 +220,24 @@ function normalizeWorld(input, expectedId) {
     base.updatedAt = now();
     base.revision = Math.max(0, Number(input.revision) || 0) + 1;
     return base;
+}
+
+function migrationWorld(source, id) {
+    const world = normalizeWorld({ ...source, id, revision: -1 }, id);
+    world.revision = Math.max(0, Number(source.revision) || 0);
+    world.createdAt = source.createdAt || world.createdAt;
+    world.updatedAt = source.updatedAt || world.updatedAt;
+    return world;
+}
+
+function canonicalValue(value) {
+    if (Array.isArray(value)) return value.map(canonicalValue);
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonicalValue(value[key])]));
+}
+
+function migrationFingerprint(world) {
+    return crypto.createHash('sha256').update(JSON.stringify(canonicalValue(migrationWorld(world, world.id)))).digest('hex');
 }
 
 async function readJson(file) {
@@ -501,14 +519,17 @@ export async function init(router, { syncExtension = true, fetchImpl = fetch, em
             const dirs = await ensureStorage(req);
             const source = req.body?.world || req.body;
             const id = assertWorldId(source?.id);
+            const candidate = migrationWorld(source, id);
             const existing = await optionalWorld(dirs, id);
-            if (existing) return res.json({ ok: true, existing: true, world: existing, counts: counts(existing) });
-            const world = normalizeWorld({ ...source, id, revision: -1 }, id);
-            world.revision = Math.max(0, Number(source.revision) || 0);
-            world.createdAt = source.createdAt || world.createdAt;
-            world.updatedAt = source.updatedAt || world.updatedAt;
-            await writeShardedWorld(dirs, world);
-            res.status(201).json({ ok: true, existing: false, world, counts: counts(world) });
+            if (existing) {
+                const equivalent = migrationFingerprint(existing) === migrationFingerprint(candidate);
+                return res.json({ ok: true, existing: true, equivalent, verified: equivalent, world: existing, counts: counts(existing) });
+            }
+            await writeShardedWorld(dirs, candidate);
+            const stored = await optionalWorld(dirs, id);
+            const verified = Boolean(stored && migrationFingerprint(stored) === migrationFingerprint(candidate));
+            if (!verified) throw new Error(`Migrated world failed verification: ${id}`);
+            res.status(201).json({ ok: true, existing: false, equivalent: true, verified: true, world: stored, counts: counts(stored) });
         } catch (error) {
             sendError(res, error);
         }

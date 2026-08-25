@@ -116,7 +116,7 @@ test('a corrupt CM vector file is reported and preserved for diagnosis', async t
     assert.equal(await fs.readFile(file, 'utf8'), '{broken-json');
 });
 
-test('a valid legacy SillyTavern index is imported once without changing it', async t => {
+test('a valid legacy SillyTavern index is verified in CM storage before its source is retired', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-vector-migrate-'));
     t.after(() => fs.rm(root, { recursive: true, force: true }));
     const vectors = path.join(root, 'legacy-vectors');
@@ -129,6 +129,64 @@ test('a valid legacy SillyTavern index is imported once without changing it', as
     registerVectorRoutes(router, { embedTexts: async ({ texts }) => texts.map(vectorFor) });
 
     assert.deepEqual((await call(router.routes.get('POST /vectors/list'), root, base, { vectors })).payload, [11]);
-    assert.equal(await fs.readFile(legacyFile, 'utf8'), legacyText);
+    await assert.rejects(fs.access(legacyFile), error => error.code === 'ENOENT');
     assert.equal((await fs.readdir(path.join(root, 'continuity-memory', 'vectors', base.collectionId))).length, 1);
+});
+
+test('an existing detached store retires a no-larger legacy cache after upgrade', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-vector-upgrade-cleanup-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const vectors = path.join(root, 'legacy-vectors');
+    const legacyDirectory = path.join(vectors, provider.source, base.collectionId, provider.model);
+    const legacyFile = path.join(legacyDirectory, 'index.json');
+    const router = mockRouter();
+    registerVectorRoutes(router, { embedTexts: async ({ texts }) => texts.map(vectorFor) });
+    await call(router.routes.get('POST /vectors/insert'), root, {
+        ...base,
+        items: [
+            { hash: 11, text: 'north memory', index: 0 },
+            { hash: 22, text: 'east memory', index: 1 },
+        ],
+    }, { vectors });
+    await fs.mkdir(legacyDirectory, { recursive: true });
+    await fs.writeFile(legacyFile, JSON.stringify({ version: 1, items: [{ vector: [0.5, 0.5], metadata: { hash: 99, text: 'stale derived memory', index: 9 } }] }), 'utf8');
+
+    assert.deepEqual((await call(router.routes.get('POST /vectors/list'), root, base, { vectors })).payload.sort((a, b) => a - b), [11, 22]);
+    await assert.rejects(fs.access(legacyFile), error => error.code === 'ENOENT');
+});
+
+test('an existing detached store preserves a larger legacy cache', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-vector-upgrade-preserve-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const vectors = path.join(root, 'legacy-vectors');
+    const legacyDirectory = path.join(vectors, provider.source, base.collectionId, provider.model);
+    const legacyFile = path.join(legacyDirectory, 'index.json');
+    const router = mockRouter();
+    registerVectorRoutes(router, { embedTexts: async ({ texts }) => texts.map(vectorFor) });
+    await call(router.routes.get('POST /vectors/insert'), root, { ...base, items: [{ hash: 11, text: 'north memory', index: 0 }] }, { vectors });
+    await fs.mkdir(legacyDirectory, { recursive: true });
+    const legacyText = JSON.stringify({ version: 1, items: [
+        { vector: [1, 0], metadata: { hash: 11, text: 'north memory', index: 0 } },
+        { vector: [0, 1], metadata: { hash: 22, text: 'east memory', index: 1 } },
+    ] });
+    await fs.writeFile(legacyFile, legacyText, 'utf8');
+
+    assert.deepEqual((await call(router.routes.get('POST /vectors/list'), root, base, { vectors })).payload, [11]);
+    assert.equal(await fs.readFile(legacyFile, 'utf8'), legacyText);
+});
+
+test('Syncthing conflict copies are never treated as the legacy vector index', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-vector-conflict-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const vectors = path.join(root, 'legacy-vectors');
+    const legacyDirectory = path.join(vectors, provider.source, base.collectionId, provider.model);
+    await fs.mkdir(legacyDirectory, { recursive: true });
+    const conflictFile = path.join(legacyDirectory, 'index.sync-conflict-20260825.json');
+    const conflictText = JSON.stringify({ version: 1, items: [{ id: 'conflict', vector: [1, 0], metadata: { hash: 99, text: 'conflicting memory', index: 0 } }] });
+    await fs.writeFile(conflictFile, conflictText, 'utf8');
+    const router = mockRouter();
+    registerVectorRoutes(router, { embedTexts: async ({ texts }) => texts.map(vectorFor) });
+
+    assert.deepEqual((await call(router.routes.get('POST /vectors/list'), root, base, { vectors })).payload, []);
+    assert.equal(await fs.readFile(conflictFile, 'utf8'), conflictText);
 });
