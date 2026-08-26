@@ -164,13 +164,13 @@ const backgroundMemoryWork = createBackgroundScheduler(async () => {
             if (!result) return;
         } catch (error) {
             if (backgroundCancelled || isRuntimeCancellation(error) || error?.code === 'CONTINUITY_BACKGROUND_CANCELLED' || runtime.stopSequence !== stopSequence) return;
-            if (!isTransientApiError(error) || failures >= 4) {
+            if (!isTransientApiError(error)) {
                 updateRuntime({ lastError: `Automatic memory update failed: ${error.message}` });
                 return;
             }
             failures++;
             if (runtime.paused) resumeRuntime();
-            const delay = Math.min(20000, 2000 * (2 ** (failures - 1)));
+            const delay = Math.min(60000, 2000 * (2 ** Math.min(5, failures - 1)));
             updateRuntime({
                 lastError: '',
                 retryStatus: `Automatic memory update hit a temporary error; retrying in ${Math.round(delay / 1000)}s (attempt ${failures + 1})…`,

@@ -175,11 +175,20 @@ test('detached extraction jobs remain separate from roleplay generation and save
         facts: [{ targetId: '', subject: 'Alice', predicate: 'takes tea', value: 'without sugar', category: 'preference', importance: 2, persistence: 'persistent' }],
         states: [], relationships: [], events: [], threads: [], backgrounds: [],
     };
-    const fetchImpl = async () => new Response(JSON.stringify({
-        choices: [{ message: { content: JSON.stringify(extracted) }, finish_reason: 'stop' }],
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    let attempts = 0;
+    const fetchImpl = async (_url, options) => {
+        attempts++;
+        if (attempts === 1) {
+            return await new Promise((_, reject) => {
+                options.signal.addEventListener('abort', () => reject(options.signal.reason || new Error('aborted')), { once: true });
+            });
+        }
+        return new Response(JSON.stringify({
+            choices: [{ message: { content: JSON.stringify(extracted) }, finish_reason: 'stop' }],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
     const router = mockRouter();
-    await init(router, { syncExtension: false, fetchImpl });
+    await init(router, { syncExtension: false, fetchImpl, detachedRequestTimeoutMs: 10, detachedRetryDelayMs: 10 });
     assert.equal(router.routes.has('POST /extraction-jobs'), true);
     assert.equal(router.routes.has('POST /generation-jobs'), false);
 
@@ -203,6 +212,7 @@ test('detached extraction jobs remain separate from roleplay generation and save
         await new Promise(resolve => setTimeout(resolve, 5));
     }
     assert.equal(job.status, 'complete', job.error);
+    assert.equal(attempts, 2);
     assert.equal(job.messages, 1);
     const loaded = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: worldId } });
     assert.equal(loaded.payload.world.capsules.length, 1);
