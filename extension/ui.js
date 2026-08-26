@@ -4,10 +4,10 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, buildRollingStory, rebuildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.299';
+import { buildNextArc, buildNextEra, buildRollingStory, rebuildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.300';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.299';
+import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.300';
 import { clearRetrievalExpansionCache } from './semantic-retrieval.js';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
@@ -15,23 +15,24 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.299';
-import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.299';
-import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.299';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.300';
+import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.300';
+import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.300';
 import { completeL1MessageCount, latestCompleteL1MessageIndex, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.299';
-import { embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.299';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.299';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.300';
+import { embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.300';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.300';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.299';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.299';
-import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.299';
-import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.299';
-import { stableStoryMessages } from './story-cadence.js?v=0.14.0-standalone.299';
+import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.300';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.300';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.300';
+import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.300';
+import { stableStoryMessages } from './story-cadence.js?v=0.14.0-standalone.300';
 import { createRenderScheduler } from './render-scheduler.js';
-import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.14.0-standalone.299';
-import { connectionProfileHasModel } from './profile-request-policy.js?v=0.14.0-standalone.299';
+import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.14.0-standalone.300';
+import { connectionProfileHasModel } from './profile-request-policy.js?v=0.14.0-standalone.300';
+import { isTransientApiError } from './errors.js';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -43,6 +44,7 @@ let viewerPage = 0;
 let viewerSignature = '';
 let extractionReviewSession = null;
 let reviewRecoveryListenersInstalled = false;
+let activeMemoryBuild = null;
 let nativeChatExportBridgeInstalled = false;
 let liveUiRecoveryListenersInstalled = false;
 let liveUiRecoveryNeeded = false;
@@ -1559,28 +1561,71 @@ async function deleteScope() {
 }
 
 async function continueFailedL1() {
-    if (runtime.processing) throw new Error('Wait for current processing to finish.');
-    const coverage = getProcessingCoverage();
-    if (!coverage.extractable) return { continued: 0, pendingMessages: 0, pendingTail: coverage.pending, bufferedMessages: coverage.buffered };
     const groupSize = resolveL1GroupSize(getSettings().extractionBatchMessages);
-    const eligible = completeL1MessageCount(coverage.extractable, groupSize);
-    const pendingTail = coverage.pending - eligible;
-    if (!eligible) return { continued: 0, pendingMessages: 0, pendingTail, bufferedMessages: coverage.buffered };
-    if (eligible > 50 && !window.confirm(`Continue ${eligible} eligible L1 messages? This may make several extraction requests.`)) return { cancelled: true, continued: 0 };
     if (!getSettings().enabled) throw new Error('Continuity is disabled. Enable it before building memory.');
     // Build Memory is an explicit request to process pending work, so it also
     // serves as Resume after Stop, Pause, or an automatic rate-limit pause.
     if (runtime.paused) resumeRuntime();
-    const result = await maybeAutoExtract(true);
-    if (!result) throw new Error('No pending L1 messages could be started. Open a populated chat and refresh Continuity.');
-    if (result.cancelled) return { cancelled: true, continued: 0, pendingMessages: coverage.pending, pendingTail, bufferedMessages: coverage.buffered };
-    return {
-        ...result,
-        continued: result.chunks || 1,
-        pendingMessages: result.messages || 0,
-        pendingTail,
-        bufferedMessages: coverage.buffered,
-    };
+    let confirmed = false;
+    const completed = { continued: 0, chunks: 0, pendingMessages: 0, arcs: 0, eras: 0, pendingTail: 0, bufferedMessages: 0 };
+    while (true) {
+        if (runtime.processing) throw new Error('Wait for current processing to finish.');
+        const coverage = getProcessingCoverage();
+        const eligible = completeL1MessageCount(coverage.extractable, groupSize);
+        completed.pendingTail = coverage.pending - eligible;
+        completed.bufferedMessages = coverage.buffered;
+        if (!eligible) return completed;
+        if (!confirmed && eligible > 50) {
+            if (!window.confirm(`Continue ${eligible} eligible L1 messages? This may make several extraction requests.`)) {
+                return { ...completed, cancelled: true };
+            }
+            confirmed = true;
+        }
+        const result = await maybeAutoExtract(true);
+        if (result?.cancelled) return { ...completed, cancelled: true };
+        const updated = getProcessingCoverage();
+        const remaining = completeL1MessageCount(updated.extractable, groupSize);
+        if (!result) {
+            if (remaining < eligible) continue;
+            throw new Error(`The L1 scheduler is busy and ${remaining} eligible message(s) remain pending.`);
+        }
+        completed.chunks += Number(result.chunks) || 0;
+        completed.continued += Number(result.chunks) || (Number(result.messages) > 0 ? 1 : 0);
+        completed.pendingMessages += Number(result.messages) || 0;
+        completed.arcs += Number(result.arcs) || 0;
+        completed.eras += Number(result.eras) || 0;
+        if (remaining >= eligible) {
+            throw new Error(`L1 processing made no progress; ${remaining} eligible message(s) remain pending.`);
+        }
+    }
+}
+
+async function waitForExistingMemoryWork(stopSequence) {
+    if (runtime.stopSequence !== stopSequence) throw new Error('Build stopped by the user. Saved progress was kept.');
+    if (runtime.paused) resumeRuntime();
+    continueQueue();
+    if (!runtime.processing && !runtime.queue.length) return;
+    updateRuntime({ retryStatus: 'Build is waiting for existing memory work to finish…' });
+    await new Promise((resolve, reject) => {
+        let unsubscribe = () => {};
+        const inspect = state => {
+            if (state.stopSequence !== stopSequence) {
+                unsubscribe();
+                reject(new Error('Build stopped by the user. Saved progress was kept.'));
+                return;
+            }
+            if (state.paused) {
+                resumeRuntime();
+                continueQueue();
+                return;
+            }
+            if (state.processing || state.queue.length) return;
+            unsubscribe();
+            resolve();
+        };
+        unsubscribe = onRuntimeChange(inspect);
+        inspect(runtime);
+    });
 }
 
 async function finishHierarchy(l1, clearRetrieval = false, rebuildVectors = false) {
@@ -1625,13 +1670,19 @@ async function finishHierarchy(l1, clearRetrieval = false, rebuildVectors = fals
     }
 }
 
-async function buildMemory() {
+async function buildMemory(stopSequence) {
     if (restorePendingExtractionReview()) return { cancelled: true, reviewPending: true };
+    await waitForExistingMemoryWork(stopSequence);
     await ensureCurrentChatMemory(true);
+    await waitForExistingMemoryWork(stopSequence);
     // A version upgrade makes every older L1 range divergent. Remove those
     // contributions before the first replacement chunk is prompted, so old
     // future ranges cannot leak into earlier rebuilt ranges or donate stale IDs.
-    await repairDivergedBranch();
+    while (true) {
+        const repair = await repairDivergedBranch();
+        if (!repair.deferred) break;
+        await waitForExistingMemoryWork(stopSequence);
+    }
     const l1 = await continueFailedL1();
     if (l1.cancelled) return l1;
     return finishHierarchy(l1, false);
@@ -1645,26 +1696,36 @@ function waitForBuildRestart(delay, stopSequence) {
             resolve();
         }, delay);
         const inspect = state => {
-            if (state.stopSequence === stopSequence && !state.paused) return;
-            globalThis.clearTimeout(timer);
-            unsubscribe();
-            reject(new Error('Build stopped by the user. Saved progress was kept.'));
+            if (state.stopSequence !== stopSequence) {
+                globalThis.clearTimeout(timer);
+                unsubscribe();
+                reject(new Error('Build stopped by the user. Saved progress was kept.'));
+                return;
+            }
+            if (state.paused) resumeRuntime();
         };
         unsubscribe = onRuntimeChange(inspect);
         inspect(runtime);
     });
 }
 
-async function buildMemoryWithRestart() {
+function buildFailureCanRetry(error) {
+    return isTransientApiError(error)
+        || /wait for current processing|already running|processing lock|scheduler is busy|processing made no progress|source message changed|processing stopped|revision conflict|\b409\b/iu.test(String(error?.message || error || ''));
+}
+
+async function runMemoryBuildWithRestart() {
     const stopSequence = runtime.stopSequence;
     let failures = 0;
+    if (runtime.paused) resumeRuntime();
     try {
         while (true) {
-            if (runtime.stopSequence !== stopSequence || runtime.paused) {
+            if (runtime.stopSequence !== stopSequence) {
                 throw new Error('Build stopped by the user. Saved progress was kept.');
             }
+            if (runtime.paused) resumeRuntime();
             try {
-                const result = await buildMemory();
+                const result = await buildMemory(stopSequence);
                 if (result.cancelled) return result;
                 let vectors = null;
                 if (getSettings().retrievalMode === 'embedding-hybrid' && runtime.world?.id) {
@@ -1678,7 +1739,11 @@ async function buildMemoryWithRestart() {
                 return { ...result, vectors };
             } catch (error) {
                 updateRuntime({ processing: false });
-                if (runtime.stopSequence !== stopSequence || runtime.paused) throw error;
+                if (runtime.stopSequence !== stopSequence) throw error;
+                if (!buildFailureCanRetry(error)) {
+                    updateRuntime({ status: 'error', lastError: error.message, retryStatus: `Build stopped safely: ${error.message}` });
+                    throw error;
+                }
                 failures++;
                 const delay = Math.min(20000, 2000 * (2 ** Math.min(4, failures - 1)));
                 const message = `Build activity failed (${error.message}). Restarting in ${Math.round(delay / 1000)}s (attempt ${failures + 1})…`;
@@ -1688,10 +1753,20 @@ async function buildMemoryWithRestart() {
             }
         }
     } finally {
-        if (runtime.stopSequence !== stopSequence || runtime.paused || runtime.status === 'building') {
+        if (runtime.stopSequence !== stopSequence || runtime.status === 'building') {
             updateRuntime({ processing: false });
         }
     }
+}
+
+function buildMemoryWithRestart() {
+    if (activeMemoryBuild) return activeMemoryBuild;
+    $('#continuity_build').prop('disabled', true);
+    activeMemoryBuild = Promise.resolve().then(() => runMemoryBuildWithRestart()).finally(() => {
+        activeMemoryBuild = null;
+        $('#continuity_build').prop('disabled', false);
+    });
+    return activeMemoryBuild;
 }
 
 async function repairRollback() {

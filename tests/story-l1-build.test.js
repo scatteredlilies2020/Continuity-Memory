@@ -13,7 +13,7 @@ test('manual L1-sourced Story builds complete eligible L1 before selecting Story
 
 test('combined memory build receives Story from L1 without launching a separate Story request', () => {
     const ui = readFileSync(new URL('../extension/ui.js', import.meta.url), 'utf8');
-    const buildStart = ui.indexOf('async function buildMemory()');
+    const buildStart = ui.indexOf('async function buildMemory(');
     const buildEnd = ui.indexOf('async function repairRollback()', buildStart);
     const build = ui.slice(buildStart, buildEnd);
     assert.match(build, /await continueFailedL1\(\)/);

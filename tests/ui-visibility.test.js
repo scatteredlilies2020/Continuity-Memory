@@ -52,12 +52,27 @@ test('loading a bound world does not run blocking whole-world maintenance', asyn
 
 test('manual Build restarts failures, completes embeddings, and obeys Stop processing', async () => {
     const source = await readFile(new URL('../extension/ui.js', import.meta.url), 'utf8');
-    assert.match(source, /async function buildMemoryWithRestart/u);
+    assert.match(source, /async function runMemoryBuildWithRestart/u);
+    assert.match(source, /function buildMemoryWithRestart/u);
     assert.match(source, /Build activity failed \(\$\{error\.message\}\)\. Restarting/u);
     assert.match(source, /vectors = await resumeEmbeddingIndexing\(runtime\.world\)/u);
     assert.match(source, /buildMemoryWithRestart\(\)/u);
     assert.match(source, /stopEmbeddingIndexing\(\);\s*stopRuntime\(\)/u);
-    assert.match(source, /state\.stopSequence === stopSequence && !state\.paused/u);
+    assert.match(source, /state\.stopSequence !== stopSequence/u);
+    assert.match(source, /if \(runtime\.paused\) resumeRuntime\(\)/u);
+    assert.match(source, /if \(activeMemoryBuild\) return activeMemoryBuild/u);
+    assert.match(source, /if \(!buildFailureCanRetry\(error\)\)/u);
+});
+
+test('manual Build adopts queued automatic L1 and drains remaining complete groups', async () => {
+    const engine = await readFile(new URL('../extension/engine.js', import.meta.url), 'utf8');
+    const ui = await readFile(new URL('../extension/ui.js', import.meta.url), 'utf8');
+    assert.match(engine, /const queuedAutomaticJob = runtime\.queue\.find/u);
+    assert.match(engine, /return force \? queuedAutomaticJob\.promise : null/u);
+    assert.match(engine, /promise,\s*\}\);\s*updateRuntime/u);
+    assert.match(ui, /while \(true\)[\s\S]*const result = await maybeAutoExtract\(true\)/u);
+    assert.match(ui, /await waitForExistingMemoryWork\(stopSequence\)/u);
+    assert.doesNotMatch(ui, /No pending L1 messages could be started/u);
 });
 
 test('embedding settings appear directly after retrieval mode and before Story so far', async () => {
