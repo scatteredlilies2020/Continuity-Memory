@@ -405,7 +405,14 @@ function sendError(res, error) {
     res.status(status).json({ ok: false, error: error.message || String(error) });
 }
 
-export async function init(router, { syncExtension = true, fetchImpl = fetch, embedTexts } = {}) {
+export async function init(router, {
+    syncExtension = true,
+    fetchImpl = fetch,
+    embedTexts,
+    detachedRequestTimeoutMs,
+    detachedRetryDelayMs,
+    detachedMaxRetryDelayMs,
+} = {}) {
     if (syncExtension) {
         const frontend = await syncBundledExtension();
         console.log(`[${PLUGIN}] frontend ${frontend.status} at ${frontend.path}`);
@@ -555,7 +562,12 @@ export async function init(router, { syncExtension = true, fetchImpl = fetch, em
                     return world;
                 },
             };
-            const { job, existing } = createDetachedJob(req, req.body, storage, { fetchImpl });
+            const { job, existing } = createDetachedJob(req, req.body, storage, {
+                fetchImpl,
+                requestTimeoutMs: detachedRequestTimeoutMs,
+                retryDelayMs: detachedRetryDelayMs,
+                maxRetryDelayMs: detachedMaxRetryDelayMs,
+            });
             res.status(existing ? 200 : 202).json({ ok: true, existing, job: getDetachedJob(req, job.id) });
         } catch (error) {
             sendError(res, error);

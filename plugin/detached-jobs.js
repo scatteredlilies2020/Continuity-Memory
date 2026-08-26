@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import { isRateLimitError } from '../extension/errors.js';
+import { isRateLimitError, isTransientApiError } from '../extension/errors.js';
 import { isRecoverableExtractionOutputError } from '../extension/extraction-recovery.js';
 import { fingerprintMessage } from '../extension/message-digest.js';
 import { addDerivedArc, addDerivedEra, mergeExtraction } from '../extension/memory-model.js';
@@ -15,6 +15,9 @@ import { isMandatoryThinkingError, isThinkingControlError } from '../extension/t
 const jobs = new Map();
 const activeByWorld = new Map();
 const MAX_FINISHED_JOBS = 40;
+const DEFAULT_REQUEST_TIMEOUT_MS = 120000;
+const DEFAULT_RETRY_DELAY_MS = 2000;
+const MAX_RETRY_DELAY_MS = 60000;
 
 function publicJob(job) {
     return {
@@ -287,14 +290,48 @@ async function runHierarchy(job) {
     }
 }
 
-async function backendRequest(job, body) {
-    const response = await job.fetchImpl(job.backendUrl, {
-        method: 'POST',
-        headers: job.backendHeaders,
-        body: JSON.stringify(body),
-        signal: job.controller.signal,
+function waitForRetry(job, delay) {
+    return new Promise((resolve, reject) => {
+        let timer = null;
+        const finish = () => {
+            job.controller.signal.removeEventListener('abort', cancel);
+            resolve();
+        };
+        const cancel = () => {
+            clearTimeout(timer);
+            job.controller.signal.removeEventListener('abort', cancel);
+            reject(new Error('Detached processing was cancelled.'));
+        };
+        timer = setTimeout(finish, delay);
+        if (job.controller.signal.aborted) cancel();
+        else job.controller.signal.addEventListener('abort', cancel, { once: true });
     });
-    const text = await response.text();
+}
+
+async function backendRequestOnce(job, body) {
+    const requestController = new AbortController();
+    const abortRequest = () => requestController.abort(job.controller.signal.reason);
+    if (job.controller.signal.aborted) abortRequest();
+    else job.controller.signal.addEventListener('abort', abortRequest, { once: true });
+    const timer = setTimeout(() => requestController.abort(new Error('Detached API request timed out.')), job.requestTimeoutMs);
+    let response;
+    let text;
+    try {
+        response = await job.fetchImpl(job.backendUrl, {
+            method: 'POST',
+            headers: job.backendHeaders,
+            body: JSON.stringify(body),
+            signal: requestController.signal,
+        });
+        text = await response.text();
+    } catch (error) {
+        if (job.controller.signal.aborted) throw new Error('Detached processing was cancelled.', { cause: error });
+        if (requestController.signal.aborted) throw new Error('Detached API request timed out.', { cause: error });
+        throw error;
+    } finally {
+        clearTimeout(timer);
+        job.controller.signal.removeEventListener('abort', abortRequest);
+    }
     let payload;
     try { payload = text ? JSON.parse(text) : {}; }
     catch { payload = { error: text || response.statusText }; }
@@ -306,6 +343,22 @@ async function backendRequest(job, body) {
     }
     assertNotTruncated(payload);
     return completionText(payload);
+}
+
+async function backendRequest(job, body) {
+    for (let attempt = 1; ; attempt++) {
+        try {
+            const result = await backendRequestOnce(job, body);
+            job.networkFailures = 0;
+            return result;
+        } catch (error) {
+            if (job.cancelled || !isTransientApiError(error)) throw error;
+            job.networkFailures = Math.max(job.networkFailures || 0, attempt);
+            const delay = Math.min(job.maxRetryDelayMs, job.retryDelayMs * (2 ** Math.min(5, attempt - 1)));
+            job.validation = `Temporary connection error; retrying in ${Math.round(delay / 1000)}s (attempt ${attempt + 1})…`;
+            await waitForRetry(job, delay);
+        }
+    }
 }
 
 function shouldRetryWithoutSchema(error) {
@@ -454,7 +507,12 @@ function backendContext(req) {
     };
 }
 
-export function createDetachedJob(req, payload, storage, { fetchImpl = fetch } = {}) {
+export function createDetachedJob(req, payload, storage, {
+    fetchImpl = fetch,
+    requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+    retryDelayMs = DEFAULT_RETRY_DELAY_MS,
+    maxRetryDelayMs = MAX_RETRY_DELAY_MS,
+} = {}) {
     const worldId = String(payload?.worldId || '');
     const chatKey = String(payload?.chatKey || '');
     const tasks = Array.isArray(payload?.tasks) ? payload.tasks.filter(task => Array.isArray(task?.messages) && task.messages.length && task.request && typeof task.request === 'object') : [];
@@ -478,6 +536,10 @@ export function createDetachedJob(req, payload, storage, { fetchImpl = fetch } =
         backendUrl: backend.url,
         backendHeaders: backend.headers,
         fetchImpl,
+        requestTimeoutMs: Math.max(10, Number(requestTimeoutMs) || DEFAULT_REQUEST_TIMEOUT_MS),
+        retryDelayMs: Math.max(10, Number(retryDelayMs) || DEFAULT_RETRY_DELAY_MS),
+        maxRetryDelayMs: Math.max(10, Number(maxRetryDelayMs) || MAX_RETRY_DELAY_MS),
+        networkFailures: 0,
         loadWorld: () => storage.loadWorld(worldId),
         saveWorld: world => storage.saveWorld(worldId, world),
         status: 'queued',
