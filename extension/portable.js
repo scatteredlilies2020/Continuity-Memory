@@ -1,6 +1,7 @@
 import { getContext } from '/scripts/st-context.js';
 import { getSettings } from './settings.js?v=0.14.0-standalone.299';
 import { createPortableSnapshot, PORTABLE_SCHEMA_VERSION, portableSnapshotIsNewer, portableSnapshotMatches } from './portable-state.js?v=0.14.0-standalone.299';
+import { canSafelySaveChatMetadata } from './chat-metadata-save-guard.js';
 
 const METADATA_KEY = 'continuityMemory';
 
@@ -11,29 +12,43 @@ export function getPortableSnapshot() {
 }
 
 async function saveChatMetadata(context) {
-    if (typeof context.saveMetadata === 'function') {
-        await context.saveMetadata();
-    } else {
-        context.saveMetadataDebounced?.();
+    const current = getContext();
+    if (!canSafelySaveChatMetadata(context, current)) {
+        console.warn('[Continuity] Skipped portable metadata save because the active chat was empty, loading, or had changed.');
+        return false;
     }
+    if (typeof current.saveMetadata === 'function') {
+        await current.saveMetadata();
+        return true;
+    }
+    console.warn('[Continuity] Portable metadata was not saved because this SillyTavern build has no immediate metadata-save API.');
+    return false;
 }
 
 export async function embedWorldInChat(world, { force = false } = {}) {
     if (!getSettings().embedMemoryInChat) return false;
     const context = getContext();
-    if (!context.chatId || !context.chatMetadata || !world?.id) return false;
+    if (!context.chatId || !context.chatMetadata || !world?.id || !canSafelySaveChatMetadata(context, getContext())) return false;
     const current = context.chatMetadata[METADATA_KEY];
     if (!force && portableSnapshotMatches(current, world)) return false;
     if (!force && portableSnapshotIsNewer(current, world)) return false;
     context.chatMetadata[METADATA_KEY] = createPortableSnapshot(world);
-    await saveChatMetadata(context);
+    if (!await saveChatMetadata(context)) {
+        if (current === undefined) delete context.chatMetadata[METADATA_KEY];
+        else context.chatMetadata[METADATA_KEY] = current;
+        return false;
+    }
     return true;
 }
 
 export async function clearPortableSnapshot() {
     const context = getContext();
-    if (!context.chatMetadata || !Object.hasOwn(context.chatMetadata, METADATA_KEY)) return false;
+    if (!context.chatMetadata || !Object.hasOwn(context.chatMetadata, METADATA_KEY) || !canSafelySaveChatMetadata(context, getContext())) return false;
+    const current = context.chatMetadata[METADATA_KEY];
     delete context.chatMetadata[METADATA_KEY];
-    await saveChatMetadata(context);
+    if (!await saveChatMetadata(context)) {
+        context.chatMetadata[METADATA_KEY] = current;
+        return false;
+    }
     return true;
 }
