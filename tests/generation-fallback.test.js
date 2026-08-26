@@ -38,6 +38,17 @@ test('a pending reply restarts failed memory and embedding work until the user s
     assert.match(source, /stopRuntime\('Pending reply stopped by the user/u);
 });
 
+test('a new roleplay generation resumes stopped background memory before scheduling it', async () => {
+    const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
+    const start = source.indexOf('eventSource.on(event_types.GENERATION_STARTED');
+    const end = source.indexOf('event_types.GENERATION_STOPPED', start);
+    const handler = source.slice(start, end);
+    assert.ok(start >= 0 && end > start);
+    assert.match(handler, /const roleplayGeneration = !dryRun && shouldGateRoleplayGeneration/u);
+    assert.match(handler, /if \(roleplayGeneration && runtime\.paused\) resumeRuntime\(\)/u);
+    assert.ok(handler.indexOf('resumeRuntime()') < handler.indexOf('backgroundMemoryWork.schedule(0)'));
+});
+
 test('opening an externally updated chat drains pending L1 after mutation reconciliation', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
     const start = source.indexOf('function scheduleMutationSync');

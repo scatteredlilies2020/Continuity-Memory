@@ -925,13 +925,18 @@ async function init() {
         eventSource.on(event_types.CHAT_RENAMED, eventData => onChatRenamed(eventData).catch(error => updateRuntime({ lastError: `Chat memory rename failed: ${error.message}` })));
     }
     eventSource.on(event_types.GENERATION_STARTED, async (type, _params, dryRun) => {
+        const roleplayGeneration = !dryRun && shouldGateRoleplayGeneration(getSettings(), getContext().chat || [], type);
+        // A new user-requested reply is also an explicit Resume. Stop keeps
+        // completed work, but must not leave safe background L1 catch-up
+        // paused after the next ordinary generation begins.
+        if (roleplayGeneration && runtime.paused) resumeRuntime();
         // Start safe background catch-up as soon as the user asks for a
         // message. It runs independently while the model generates.
         if (!dryRun) backgroundMemoryWork.schedule(0);
         // Ordinary roleplay generations are refreshed later by the interceptor
         // with the complete user turn. Do not issue an early request against
         // stale chat text or overwrite its authoritative retrieval diagnostics.
-        if (!dryRun && shouldGateRoleplayGeneration(getSettings(), getContext().chat || [], type)) return;
+        if (roleplayGeneration) return;
         try { await refreshInjection(false); }
         catch (error) { updateRuntime({ lastError: `Could not prepare memory: ${error.message}` }); }
     });
