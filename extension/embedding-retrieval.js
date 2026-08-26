@@ -12,6 +12,7 @@ const activeWorldSyncs = new Map();
 const queryCache = new Map();
 const syncTimers = new Map();
 const activeControllers = new Set();
+const VECTOR_REQUEST_TIMEOUT_MS = 45000;
 let indexingControl = 'running';
 const requestVectorStorage = createVectorStorageRequester();
 
@@ -24,16 +25,33 @@ function collectionId(worldId) {
 }
 
 async function vectorRequest(route, payload, signal) {
-    const response = await requestVectorStorage(route, {
-        method: 'POST',
-        headers: getRequestHeaders(),
-        body: JSON.stringify(payload),
-        signal,
-    });
-    if (!response.ok) throw new Error(`Vector Storage ${route} failed (${response.status} ${response.statusText})`);
-    if (response.status === 204 || response.headers.get('content-length') === '0') return null;
-    const contentType = response.headers.get('content-type') || '';
-    return contentType.includes('application/json') ? response.json() : null;
+    const requestController = new AbortController();
+    let timedOut = false;
+    const forwardAbort = () => requestController.abort(signal?.reason || new DOMException('Vector request stopped.', 'AbortError'));
+    if (signal?.aborted) forwardAbort();
+    else signal?.addEventListener('abort', forwardAbort, { once: true });
+    const timer = globalThis.setTimeout(() => {
+        timedOut = true;
+        requestController.abort(new DOMException('Vector request timed out.', 'TimeoutError'));
+    }, VECTOR_REQUEST_TIMEOUT_MS);
+    try {
+        const response = await requestVectorStorage(route, {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify(payload),
+            signal: requestController.signal,
+        });
+        if (!response.ok) throw new Error(`Vector Storage ${route} failed (${response.status} ${response.statusText})`);
+        if (response.status === 204 || response.headers.get('content-length') === '0') return null;
+        const contentType = response.headers.get('content-type') || '';
+        return contentType.includes('application/json') ? response.json() : null;
+    } catch (error) {
+        if (timedOut) throw new Error(`Vector Storage ${route} timed out after ${Math.round(VECTOR_REQUEST_TIMEOUT_MS / 1000)} seconds; it will resume from stored vectors.`, { cause: error });
+        throw error;
+    } finally {
+        globalThis.clearTimeout(timer);
+        signal?.removeEventListener('abort', forwardAbort);
+    }
 }
 
 function indexSignature(world, provider) {

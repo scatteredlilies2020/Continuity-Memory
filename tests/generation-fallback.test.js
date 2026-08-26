@@ -27,6 +27,14 @@ test('embedding retrieval retries quick failures without overlapping a slow requ
     assert.match(source, /350 \* \(attempt \+ 1\)/u);
 });
 
+test('a stalled vector request times out so commute connectivity can retry it', async () => {
+    const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/embedding-retrieval.js', import.meta.url), 'utf8'));
+    assert.match(source, /VECTOR_REQUEST_TIMEOUT_MS = 45000/u);
+    assert.match(source, /requestController\.abort\(new DOMException\('Vector request timed out\.'/u);
+    assert.match(source, /it will resume from stored vectors/u);
+    assert.match(source, /globalThis\.clearTimeout\(timer\)/u);
+});
+
 test('a pending reply restarts failed memory and embedding work until the user stops generation', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
     assert.match(source, /async function retryPendingReply/u);
