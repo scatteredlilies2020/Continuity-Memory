@@ -22,8 +22,11 @@ import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
 import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.14.0-standalone.300';
 import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.300';
 import { createBackgroundScheduler } from './background-scheduler.js';
+import { createContinuityContextBridge } from './context-bridge.js';
 
 const PROMPT_KEY = 'continuity_memory_context';
+const continuityContextBridge = createContinuityContextBridge(getContext);
+globalThis.continuityMemoryBridge = continuityContextBridge.bridge;
 let lastObservedWorldId = null;
 let lastObservedWorldRevision = null;
 let injectionRefreshRunning = false;
@@ -547,6 +550,7 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
             ? 'Continuity Memory is disabled.'
             : 'No stored memory yet; it will be created when extraction begins.';
         updateRuntime({ lastInjection: '', lastInjectionTokens: 0, injectionStatus });
+        continuityContextBridge.publish('');
         return;
     }
     let world = runtime.world;
@@ -559,6 +563,7 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
             if (!refreshIsCurrent()) return;
             setExtensionPrompt(PROMPT_KEY, '', placement.position, placement.depth, false, placement.role);
             updateRuntime({ world: null, lastInjection: '', lastInjectionTokens: 0, injectionStatus: message, lastError: message });
+            continuityContextBridge.publish('');
             return;
         }
     }
@@ -613,6 +618,7 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
                 lastError: message,
                 retrievalAssist,
             });
+            continuityContextBridge.publish('');
             if (useRetrievalAssist) throw new Error(message, { cause: error });
             return;
         }
@@ -701,6 +707,7 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
         injectionStatus,
         ...retrievalSnapshotPatch(retrievalSnapshot),
     });
+    continuityContextBridge.publish(prompt);
 }
 
 async function refreshInjection(useRetrievalAssist = false, coverageMessages = null, recentMessages = null, promptOptions = {}) {
@@ -831,6 +838,7 @@ async function onChatChanged() {
         lastGenerationRetrieval: null,
         nextRetrievalPreview: null,
     });
+    continuityContextBridge.publish('');
     await refreshWorlds();
     scheduleInjectionRefresh();
     scheduleMutationSync();

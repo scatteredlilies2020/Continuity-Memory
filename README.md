@@ -27,6 +27,8 @@ Continuity combines several forms of memory instead:
 
 This produces a compact working context backed by a searchable and traceable history.
 
+Continuity also exposes the already-prepared prompt through a small read-only browser bridge for compatible extensions such as Tale Fairy. The bridge never starts retrieval or extraction, exposes no mutation methods, and marks its snapshot stale as soon as the active chat changes.
+
 ## What it remembers
 
 Continuity maintains structured records for:
