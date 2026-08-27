@@ -11,10 +11,14 @@ import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload 
 import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.302';
 
 const cache = new Map();
+const pending = new Map();
+let cacheEpoch = 0;
 
 export function clearRetrievalExpansionCache() {
     const removed = cache.size;
+    cacheEpoch++;
     cache.clear();
+    pending.clear();
     return removed;
 }
 
@@ -66,11 +70,21 @@ export async function expandRetrievalTerms(recentMessages) {
         ? `${settings.retrievalDirectProvider}|${settings.retrievalDirectUrl}|${settings.retrievalDirectModel}|${settings.retrievalOpenRouterUrl}|${settings.retrievalOpenRouterModel}`
         : '';
     const key = `${profileId}|${directConfig}|${thinkingMode}|${settings.retrievalSystemPrompt}|${query}`;
-    if (cache.has(key)) return cache.get(key);
-    const prompt = renderPromptTemplate(settings.retrievalQueryTemplate ?? DEFAULT_RETRIEVAL_QUERY_TEMPLATE, { conversation: query }, ['conversation']);
-    const raw = await requestExpansion(prompt);
-    const terms = parseExpandedTerms(raw);
-    cache.set(key, terms);
-    if (cache.size > 100) cache.delete(cache.keys().next().value);
-    return terms;
+    if (cache.has(key)) return [...cache.get(key)];
+    if (pending.has(key)) return [...await pending.get(key)];
+    const epoch = cacheEpoch;
+    const operation = (async () => {
+        const prompt = renderPromptTemplate(settings.retrievalQueryTemplate ?? DEFAULT_RETRIEVAL_QUERY_TEMPLATE, { conversation: query }, ['conversation']);
+        const raw = await requestExpansion(prompt);
+        const terms = parseExpandedTerms(raw);
+        if (cacheEpoch === epoch) {
+            cache.set(key, [...terms]);
+            if (cache.size > 100) cache.delete(cache.keys().next().value);
+        }
+        return terms;
+    })().finally(() => {
+        if (pending.get(key) === operation) pending.delete(key);
+    });
+    pending.set(key, operation);
+    return [...await operation];
 }
