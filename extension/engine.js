@@ -1710,7 +1710,7 @@ async function generateArc(capsules) {
     return validateArcResult(typeof raw === 'string' ? parseJsonResponse(raw) : raw, 'L2');
 }
 
-async function saveDerivedArc(world, result, capsules) {
+async function saveDerivedArc(world, result, capsules, embed = true) {
     const worldId = world.id;
     for (let attempt = 0; attempt < 4; attempt++) {
         if (attempt) world = (await api.getWorld(worldId)).world;
@@ -1725,11 +1725,11 @@ async function saveDerivedArc(world, result, capsules) {
         }
     }
     updateRuntime({ world, arcStatus: `Created L2 “${world.arcs.at(-1)?.title || 'Untitled'}”.`, arcError: '' });
-    await embedWorldInChat(world);
+    if (embed) await embedWorldInChat(world);
     return world.arcs.at(-1);
 }
 
-export async function buildNextArc(worldId = getBoundWorldId(), expectedEpoch = null) {
+export async function buildNextArc(worldId = getBoundWorldId(), expectedEpoch = null, { embed = true } = {}) {
     if (!worldId) throw new Error('Open a chat and prepare its memory first.');
     let health = runtime.health;
     if (!health || Number(health.schemaVersion) < 4) {
@@ -1745,10 +1745,10 @@ export async function buildNextArc(worldId = getBoundWorldId(), expectedEpoch = 
     if (expectedEpoch !== null && runtime.generation !== expectedEpoch) throw new Error('Processing stopped; pending L2 result was discarded.');
     result = await reviewHierarchyBeforeSave(result, 'L2', capsules, 'hierarchy', () => generateArc(capsules));
     if (expectedEpoch !== null && runtime.generation !== expectedEpoch) throw new Error('Processing stopped; pending L2 result was discarded.');
-    return saveDerivedArc(world, result, capsules);
+    return saveDerivedArc(world, result, capsules, embed);
 }
 
-async function saveDerivedEra(world, result, arcs) {
+async function saveDerivedEra(world, result, arcs, embed = true) {
     const worldId = world.id;
     for (let attempt = 0; attempt < 4; attempt++) {
         if (attempt) world = (await api.getWorld(worldId)).world;
@@ -1763,11 +1763,11 @@ async function saveDerivedEra(world, result, arcs) {
         }
     }
     updateRuntime({ world, arcStatus: `Created L3 “${world.eras.at(-1)?.title || 'Untitled'}”.`, arcError: '' });
-    await embedWorldInChat(world);
+    if (embed) await embedWorldInChat(world);
     return world.eras.at(-1);
 }
 
-export async function buildNextEra(worldId = getBoundWorldId(), expectedEpoch = null) {
+export async function buildNextEra(worldId = getBoundWorldId(), expectedEpoch = null, { embed = true } = {}) {
     if (!worldId) throw new Error('Open a chat and prepare its memory first.');
     if (getSettings().hierarchyMode !== 'l3') return null;
     let health = runtime.health;
@@ -1784,7 +1784,7 @@ export async function buildNextEra(worldId = getBoundWorldId(), expectedEpoch = 
     if (expectedEpoch !== null && runtime.generation !== expectedEpoch) throw new Error('Processing stopped; pending L3 result was discarded.');
     result = await reviewHierarchyBeforeSave(result, 'L3', arcs, 'hierarchy', () => generateEra(arcs));
     if (expectedEpoch !== null && runtime.generation !== expectedEpoch) throw new Error('Processing stopped; pending L3 result was discarded.');
-    return saveDerivedEra(world, result, arcs);
+    return saveDerivedEra(world, result, arcs, embed);
 }
 
 async function requireRetryStorage() {
@@ -2576,9 +2576,11 @@ export async function restartL1FromScratch(afterReset = null) {
                 to: chunk.at(-1).index,
                 allowStateUpdates: true,
                 messageFingerprints: chunk.map(message => ({ index: message.index, fingerprint: fingerprintMessage(message) })),
+                embed: false,
             });
             completedChunks++;
         }
+        if (completedChunks && runtime.world?.id === worldId) await embedWorldInChat(runtime.world);
         updateRuntime({
             status: 'idle',
             progress: null,
@@ -2650,7 +2652,10 @@ async function saveExtraction(worldId, result, meta) {
         }
     }
     updateRuntime({ world });
-    await embedWorldInChat(world);
+    // Embedding the complete world back into chat is comparatively expensive.
+    // Callers processing a batch can defer this until the batch finishes while
+    // the canonical world is still durably saved on every chunk.
+    if (meta?.embed !== false) await embedWorldInChat(world);
     return world;
 }
 
@@ -2711,19 +2716,27 @@ async function processRange(job, epoch) {
             to: chunk.at(-1).index,
             allowStateUpdates: job.allowStateUpdates,
             messageFingerprints: chunk.map(message => ({ index: message.index, fingerprint: message.fingerprint })),
+            embed: false,
         }),
-        afterSave: async () => {
-            try {
-                await buildNextArc(job.worldId, epoch);
-                await buildNextEra(job.worldId, epoch);
-            } catch (error) {
-                console.warn('[Continuity] Non-destructive hierarchy generation was deferred.', error);
-                updateRuntime({ arcStatus: 'L2/L3 hierarchy deferred; lower-level memory is safe.', arcError: error.message });
-            }
-        },
+        // L1 saves stay on the critical path; hierarchy generation runs once
+        // after the batch so each chunk does not trigger another large
+        // world-save/embed cycle.
+        afterSave: async () => {},
     });
     if (adaptive.splits) {
         updateRuntime({ retryStatus: `Adaptive extraction recovered ${adaptive.splits} incomplete section${adaptive.splits === 1 ? '' : 's'} as ${adaptive.completed} validated L1 parts.` });
+    }
+    try {
+        while (await buildNextArc(job.worldId, epoch, { embed: false })) { /* drain eligible L2 */ }
+        while (await buildNextEra(job.worldId, epoch, { embed: false })) { /* drain eligible L3 */ }
+    } catch (error) {
+        console.warn('[Continuity] Non-destructive hierarchy generation was deferred.', error);
+        updateRuntime({ arcStatus: 'L2/L3 hierarchy deferred; lower-level memory is safe.', arcError: error.message });
+    }
+    // Publish one portable snapshot after the batch rather than rewriting the
+    // entire chat metadata after every successfully saved L1 chunk.
+    if (adaptive.completed && runtime.world?.id === job.worldId) {
+        await embedWorldInChat(runtime.world);
     }
     return { chunks: adaptive.completed, adaptiveSplits: adaptive.splits, messages: unseen.length, skipped };
 }
