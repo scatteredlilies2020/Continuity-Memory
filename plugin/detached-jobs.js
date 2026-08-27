@@ -18,6 +18,17 @@ const MAX_FINISHED_JOBS = 40;
 const DEFAULT_REQUEST_TIMEOUT_MS = 120000;
 const DEFAULT_RETRY_DELAY_MS = 2000;
 const MAX_RETRY_DELAY_MS = 60000;
+const TASK_REQUEST_FIELDS = ['request', 'fallbackRequest', 'mandatoryRequest', 'mandatoryFallbackRequest', 'uncontrolledRequest'];
+
+export function releaseDetachedTaskPayload(task, { recursive = true } = {}) {
+    if (!task || typeof task !== 'object') return;
+    for (const field of TASK_REQUEST_FIELDS) task[field] = null;
+    if (recursive && Array.isArray(task.parts)) {
+        for (const part of task.parts) releaseDetachedTaskPayload(part);
+    }
+    task.parts = null;
+    task.messages = [];
+}
 
 function publicJob(job) {
     return {
@@ -43,6 +54,7 @@ function publicJob(job) {
         l2: job.l2,
         l3: job.l3,
         hierarchyError: job.hierarchyError || '',
+        pendingTasks: job.tasks.length,
     };
 }
 
@@ -449,10 +461,18 @@ async function runTask(job, task) {
         return;
     } catch (error) {
         if (!isRecoverableExtractionOutputError(error) || !Array.isArray(task.parts) || task.parts.length !== 2) throw error;
+        const parts = task.parts;
+        task.parts = null;
+        for (const field of TASK_REQUEST_FIELDS) task[field] = null;
         job.splits++;
         job.total++;
-        await runTask(job, task.parts[0]);
-        await runTask(job, task.parts[1]);
+        for (const part of parts) {
+            try {
+                await runTask(job, part);
+            } finally {
+                releaseDetachedTaskPayload(part);
+            }
+        }
     }
 }
 
@@ -467,7 +487,14 @@ async function run(job) {
     job.status = 'processing';
     job.startedAt = new Date().toISOString();
     try {
-        for (const task of job.tasks) await runTask(job, task);
+        while (job.tasks.length) {
+            const task = job.tasks.shift();
+            try {
+                await runTask(job, task);
+            } finally {
+                releaseDetachedTaskPayload(task);
+            }
+        }
         try {
             await runHierarchy(job);
         } catch (error) {
