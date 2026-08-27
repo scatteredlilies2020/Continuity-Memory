@@ -16,6 +16,8 @@ import {
     DEFAULT_JB_PROMPT,
     DEFAULT_RETRIEVAL_SYSTEM_PROMPT,
     EPISTEMIC_MEMORY_RULES,
+    EXTREME_CANON_FIDELITY_RULE,
+    EXTREME_SUMMARY_FIDELITY_RULE,
     HIERARCHY_CONCISION_RULES,
     L1_EPISTEMIC_COVERAGE_RULE,
     OOC_META_AUTHORITY_RULE,
@@ -31,13 +33,13 @@ import {
 } from '../extension/prompts.js';
 
 test('JB prompt is appended to extraction instructions only when enabled', () => {
-    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', false, '<rules>custom</rules>'), `Base extraction instructions.\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${ROLLING_STORY_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', false, '<rules>custom</rules>'), `Base extraction instructions.\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${ROLLING_STORY_RULE}`);
     assert.equal(
         buildExtractionSystemPrompt('Base extraction instructions.', true, '<rules>custom</rules>'),
-        `Base extraction instructions.\n\n<rules>custom</rules>\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${ROLLING_STORY_RULE}`,
+        `Base extraction instructions.\n\n<rules>custom</rules>\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${ROLLING_STORY_RULE}`,
     );
-    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', true, '   '), `Base extraction instructions.\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${ROLLING_STORY_RULE}`);
-    assert.equal(buildExtractionSystemPrompt('', true, '<rules>custom</rules>'), `<rules>custom</rules>\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${ROLLING_STORY_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', true, '   '), `Base extraction instructions.\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${ROLLING_STORY_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('', true, '<rules>custom</rules>'), `<rules>custom</rules>\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${ROLLING_STORY_RULE}`);
     assert.match(DEFAULT_JB_PROMPT, /^<rules>[\s\S]*<\/rules>$/);
 });
 
@@ -86,6 +88,9 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /establishes only that the source said, reported, remembered, inferred, or believed it/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /leave the embedded proposition unconfirmed/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /epistemic state; do not promote its embedded proposition/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /statistically extreme, unprecedented, unique, off-scale/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Setting averages and records are context, not ceilings/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /preserve the relational constraint and do not fabricate false precision/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /State is a replaceable condition/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /durable, tense-neutral identity summaries/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /characterProfile fields roleBackground, ageDemographics, appearance, personalityQuirks/);
@@ -131,9 +136,10 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /keep coexisting forms together/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /shift signals changed familiarity, distance, respect, or hierarchy/);
     assert.match(DEFAULT_INJECTION_INSTRUCTION, /never mention this block/i);
-    assert.match(DEFAULT_INJECTION_INSTRUCTION, /Model access does not grant character knowledge/);
-    assert.match(DEFAULT_INJECTION_INSTRUCTION, /prevents that holder from using protected information/);
+    assert.match(DEFAULT_INJECTION_INSTRUCTION, /Model access is not character knowledge/);
+    assert.match(DEFAULT_INJECTION_INSTRUCTION, /Named knowledge boundaries bar protected information/);
     assert.match(DEFAULT_INJECTION_INSTRUCTION, /discovery or disclosure/);
+    assert.match(DEFAULT_INJECTION_INSTRUCTION, /Preserve stated extremes and rankings; lore norms are not ceilings/);
     assert.ok(DEFAULT_INJECTION_INSTRUCTION.length < 350);
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(CONTINUITY_COVERAGE_RULES));
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(EPISTEMIC_MEMORY_RULES));
@@ -155,9 +161,9 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /consequential knowledge gaps as open threads/);
     assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /Most items are 2 or 3/);
     assert.match(DEFAULT_ERA_SYSTEM_PROMPT, /Most items are 2 or 3/);
-    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 12600);
-    assert.ok(DEFAULT_ARC_SYSTEM_PROMPT.length < 1950);
-    assert.ok(DEFAULT_ERA_SYSTEM_PROMPT.length < 1950);
+    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 13400);
+    assert.ok(DEFAULT_ARC_SYSTEM_PROMPT.length < 2300);
+    assert.ok(DEFAULT_ERA_SYSTEM_PROMPT.length < 2300);
 });
 
 test('rolling snapshot is bounded, chronological, and sourced only from supplied Story material', () => {
@@ -182,6 +188,8 @@ test('rolling snapshot is bounded, chronological, and sourced only from supplied
     assert.match(ROLLING_STORY_RULE, /removing it would make a later identity/i);
     assert.match(ROLLING_STORY_RULE, /Aggressively collapse counts, percentages, measurements, colors/i);
     assert.match(ROLLING_STORY_RULE, /Retain an exact detail only when that exactness directly controls an unresolved choice/i);
+    assert.match(ROLLING_STORY_RULE, /compression never permits weakening semantic magnitude/i);
+    assert.ok(ROLLING_STORY_RULE.includes(EXTREME_SUMMARY_FIDELITY_RULE));
     assert.match(ROLLING_STORY_RULE, /combat forms, treatment, and other inventories/i);
     assert.match(ROLLING_STORY_RULE, /majorDevelopments spans the history rather than the newest scene/i);
     assert.match(ROLLING_STORY_RULE, /never end, truncate, or replace text with an ellipsis/i);
@@ -226,6 +234,7 @@ test('final Story quality repair protects stakes and removes low-value inventory
     assert.match(ROLLING_STORY_QUALITY_RULE, /active ultimatum with its actor, demanded action, and exact stated consequence/i);
     assert.match(ROLLING_STORY_QUALITY_RULE, /never replace an order with a warning/i);
     assert.match(ROLLING_STORY_QUALITY_RULE, /Never strengthen source severity or certainty/i);
+    assert.match(ROLLING_STORY_QUALITY_RULE, /never normalize unprecedented, unique, record-breaking, or off-scale canon to merely high/i);
     assert.match(ROLLING_STORY_QUALITY_RULE, /Remove rosters, technique lists, injury lists/i);
     const repair = renderPromptTemplate(ROLLING_STORY_QUALITY_TASK_TEMPLATE, {
         allowance: 1500,
@@ -246,6 +255,7 @@ test('final Story quality repair protects stakes and removes low-value inventory
     assert.match(ROLLING_STORY_QUALITY_RULE, /Never silently reinterpret older history during continuation/i);
     assert.match(ROLLING_STORY_VERIFY_RULE, /learning that a former apprentice was named A does not mean learning B=A/i);
     assert.match(ROLLING_STORY_VERIFY_RULE, /hiding B=A never permits erasing that the name A was learned/i);
+    assert.match(ROLLING_STORY_VERIFY_RULE, /relational rank normalized toward setting averages or records/i);
     const verification = renderPromptTemplate(ROLLING_STORY_VERIFY_TASK_TEMPLATE, {
         format: 'Return validation JSON.',
         prior: 'Toska learned the name Lucas Alcazar.',
