@@ -29,6 +29,7 @@ import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecovery
 import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.302';
 import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.302';
 import { stableStoryMessages } from './story-cadence.js?v=0.14.0-standalone.302';
+import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.14.0-standalone.302';
 import { createRenderScheduler } from './render-scheduler.js';
 import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.14.0-standalone.302';
 import { connectionProfileHasModel } from './profile-request-policy.js?v=0.14.0-standalone.302';
@@ -544,17 +545,14 @@ async function exportNativeChatWithPortableMemory(target, filenameFull, chatId, 
     if (context.chatId === chatId) await saveChatConditional();
     const response = await fetch('/api/chats/export', {
         method: 'POST',
-        body: JSON.stringify({
-            is_group: Boolean(context.groupId),
-            character_id: characters[this_chid]?.id,
-            file: filenameFull,
-            exportfilename: filenameFull,
-            format: 'jsonl',
-        }),
+        body: JSON.stringify(buildNativeChatExportRequest({
+            isGroup: Boolean(context.groupId),
+            avatarUrl: characters[this_chid]?.avatar,
+            filename: filenameFull,
+        })),
         headers: getRequestHeaders(),
     });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.message || `Chat export failed (${response.status}).`);
+    const payload = await readNativeChatExportResponse(response);
 
     if (!includePortableMemory) {
         downloadPortableChat(removePortableMemoryFromChatExport(payload.result), filenameFull);
