@@ -13,6 +13,9 @@ const queryCache = new Map();
 const syncTimers = new Map();
 const activeControllers = new Set();
 const VECTOR_REQUEST_TIMEOUT_MS = 45000;
+const EMBEDDING_INSERT_TIMEOUT_MS = 180000;
+const EMBEDDING_STALL_RESTARTS = 2;
+const EMBEDDING_STALL_RESTART_DELAY_MS = 10000;
 let indexingControl = 'running';
 const requestVectorStorage = createVectorStorageRequester();
 
@@ -26,6 +29,7 @@ function collectionId(worldId) {
 
 async function vectorRequest(route, payload, signal) {
     const requestController = new AbortController();
+    const timeoutMs = route === 'insert' ? EMBEDDING_INSERT_TIMEOUT_MS : VECTOR_REQUEST_TIMEOUT_MS;
     let timedOut = false;
     const forwardAbort = () => requestController.abort(signal?.reason || new DOMException('Vector request stopped.', 'AbortError'));
     if (signal?.aborted) forwardAbort();
@@ -33,7 +37,7 @@ async function vectorRequest(route, payload, signal) {
     const timer = globalThis.setTimeout(() => {
         timedOut = true;
         requestController.abort(new DOMException('Vector request timed out.', 'TimeoutError'));
-    }, VECTOR_REQUEST_TIMEOUT_MS);
+    }, timeoutMs);
     try {
         const response = await requestVectorStorage(route, {
             method: 'POST',
@@ -46,12 +50,54 @@ async function vectorRequest(route, payload, signal) {
         const contentType = response.headers.get('content-type') || '';
         return contentType.includes('application/json') ? response.json() : null;
     } catch (error) {
-        if (timedOut) throw new Error(`Vector Storage ${route} timed out after ${Math.round(VECTOR_REQUEST_TIMEOUT_MS / 1000)} seconds; it will resume from stored vectors.`, { cause: error });
+        if (timedOut) {
+            const timeoutError = new Error(`Vector Storage ${route} timed out after ${Math.round(timeoutMs / 1000)} seconds; it will resume from stored vectors.`, { cause: error });
+            timeoutError.code = 'CONTINUITY_VECTOR_REQUEST_TIMEOUT';
+            throw timeoutError;
+        }
         throw error;
     } finally {
         globalThis.clearTimeout(timer);
         signal?.removeEventListener('abort', forwardAbort);
     }
+}
+
+function waitForEmbeddingRestart(signal, delay = EMBEDDING_STALL_RESTART_DELAY_MS) {
+    return new Promise((resolve, reject) => {
+        let timer = null;
+        const stop = () => {
+            if (timer !== null) globalThis.clearTimeout(timer);
+            signal?.removeEventListener('abort', stop);
+            reject(signal?.reason || new DOMException('Vector request stopped.', 'AbortError'));
+        };
+        timer = globalThis.setTimeout(() => {
+            signal?.removeEventListener('abort', stop);
+            resolve();
+        }, delay);
+        if (signal?.aborted) stop();
+        else signal?.addEventListener('abort', stop, { once: true });
+    });
+}
+
+async function insertEmbeddingBatch(base, items, signal, onRestart = () => {}) {
+    let pending = items;
+    for (let restart = 0; restart <= EMBEDDING_STALL_RESTARTS; restart++) {
+        try {
+            return await vectorRequest('insert', { ...base, items: pending }, signal);
+        } catch (error) {
+            if (error?.code !== 'CONTINUITY_VECTOR_REQUEST_TIMEOUT' || restart >= EMBEDDING_STALL_RESTARTS || signal?.aborted) throw error;
+            onRestart(restart + 1, EMBEDDING_STALL_RESTARTS);
+            await waitForEmbeddingRestart(signal);
+            // The server may have completed the timed-out request after the
+            // browser stopped waiting. Re-check its atomic store so a restart
+            // requests only records that are genuinely still missing.
+            const saved = await vectorRequest('list', base, signal) || [];
+            const savedHashes = new Set((Array.isArray(saved) ? saved : []).map(Number).filter(Number.isFinite));
+            pending = items.filter(item => !savedHashes.has(Number(item.hash)));
+            if (!pending.length) return { ok: true, inserted: 0, recovered: true };
+        }
+    }
+    throw new Error('Embedding batch restart limit was reached.');
 }
 
 function indexSignature(world, provider) {
@@ -260,7 +306,23 @@ export async function ensureEmbeddingIndex(world, force = false, lockHeld = fals
                 batches,
                 worldId: world.id,
             });
-            await vectorRequest('insert', { ...base, items }, controller.signal);
+            await insertEmbeddingBatch(base, items, controller.signal, (restart, maximum) => {
+                setIndexStatus({
+                    status: 'syncing',
+                    phase: `Embedding batch ${batch} stalled; restarting ${restart} of ${maximum} after checking saved vectors`,
+                    provider: provider.label,
+                    total: documents.length,
+                    indexed: retained + index,
+                    existing: retained,
+                    missing: missing.length,
+                    added: index,
+                    removed: 0,
+                    batch,
+                    batches,
+                    worldId: world.id,
+                    error: '',
+                });
+            });
             setIndexStatus({
                 status: 'syncing',
                 phase: `Completed embedding batch ${batch} of ${batches}`,
