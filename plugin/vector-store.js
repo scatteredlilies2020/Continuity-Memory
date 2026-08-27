@@ -209,20 +209,37 @@ function cosine(left, right) {
     return denominator ? dot / denominator : 0;
 }
 
-export async function hostEmbedTexts({ provider, texts, directories }) {
-    const results = [];
-    for (let offset = 0; offset < texts.length; offset += 10) {
-        const batch = texts.slice(offset, offset + 10);
-        if (provider.source === 'vllm') {
-            const moduleUrl = pathToFileURL(path.join(process.cwd(), 'src', 'vectors', 'vllm-vectors.js')).href;
-            const { getVllmBatchVector } = await import(moduleUrl);
-            results.push(...await getVllmBatchVector(batch, provider.apiUrl, provider.model, directories));
-        } else if (provider.source === 'openrouter') {
-            const moduleUrl = pathToFileURL(path.join(process.cwd(), 'src', 'vectors', 'openai-vectors.js')).href;
-            const { getOpenAIBatchVector } = await import(moduleUrl);
-            results.push(...await getOpenAIBatchVector(batch, 'openrouter', directories, provider.model, provider.apiUrl));
+export async function embedBatchesInOrder(texts, embedBatch, { batchSize = 10, concurrency = 2 } = {}) {
+    const source = Array.isArray(texts) ? texts : [];
+    if (!source.length) return [];
+    if (typeof embedBatch !== 'function') throw new Error('Embedding batch worker is unavailable');
+    const size = Math.max(1, Math.round(Number(batchSize) || 10));
+    const batches = [];
+    for (let offset = 0; offset < source.length; offset += size) batches.push(source.slice(offset, offset + size));
+    const results = new Array(batches.length);
+    let next = 0;
+    const worker = async () => {
+        while (next < batches.length) {
+            const index = next++;
+            results[index] = await embedBatch(batches[index]);
         }
+    };
+    await Promise.all(Array.from({ length: Math.min(batches.length, Math.max(1, Math.round(Number(concurrency) || 2))) }, worker));
+    return results.flat();
+}
+
+export async function hostEmbedTexts({ provider, texts, directories }) {
+    let embedBatch;
+    if (provider.source === 'vllm') {
+        const moduleUrl = pathToFileURL(path.join(process.cwd(), 'src', 'vectors', 'vllm-vectors.js')).href;
+        const { getVllmBatchVector } = await import(moduleUrl);
+        embedBatch = batch => getVllmBatchVector(batch, provider.apiUrl, provider.model, directories);
+    } else if (provider.source === 'openrouter') {
+        const moduleUrl = pathToFileURL(path.join(process.cwd(), 'src', 'vectors', 'openai-vectors.js')).href;
+        const { getOpenAIBatchVector } = await import(moduleUrl);
+        embedBatch = batch => getOpenAIBatchVector(batch, 'openrouter', directories, provider.model, provider.apiUrl);
     }
+    const results = await embedBatchesInOrder(texts, embedBatch, { batchSize: 10, concurrency: 2 });
     if (results.length !== texts.length) throw new Error(`Embedding provider returned ${results.length} vectors for ${texts.length} texts`);
     return results;
 }

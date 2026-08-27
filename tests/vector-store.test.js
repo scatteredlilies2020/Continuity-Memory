@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { registerVectorRoutes } from '../plugin/vector-store.js';
+import { embedBatchesInOrder, registerVectorRoutes } from '../plugin/vector-store.js';
 
 function mockRouter() {
     const routes = new Map();
@@ -33,6 +33,22 @@ function vectorFor(text) {
     if (text.includes('east')) return [0, 1];
     return [0.5, 0.5];
 }
+
+test('embedding provider batches use bounded concurrency and preserve vector order', async () => {
+    const texts = Array.from({ length: 35 }, (_, index) => `memory-${index}`);
+    let active = 0;
+    let maximumActive = 0;
+    const vectors = await embedBatchesInOrder(texts, async batch => {
+        active++;
+        maximumActive = Math.max(maximumActive, active);
+        await new Promise(resolve => setTimeout(resolve, batch[0] === 'memory-0' ? 15 : 2));
+        active--;
+        return batch.map(text => [Number(text.split('-')[1])]);
+    }, { batchSize: 10, concurrency: 2 });
+
+    assert.equal(maximumActive, 2);
+    assert.deepEqual(vectors, texts.map((_, index) => [index]));
+});
 
 test('CM vector routes persist, query, delete, and purge their own atomic store', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-vectors-'));
