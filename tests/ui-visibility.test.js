@@ -50,12 +50,13 @@ test('loading a bound world does not run blocking whole-world maintenance', asyn
     assert.match(loader, /promoteStoredTailSnapshot/u);
 });
 
-test('manual Build restarts failures, completes embeddings, and obeys Stop processing', async () => {
+test('manual memory Build restarts failures, completes vectors, and obeys Stop processing', async () => {
     const source = await readFile(new URL('../extension/ui.js', import.meta.url), 'utf8');
     assert.match(source, /async function runMemoryBuildWithRestart/u);
     assert.match(source, /function buildMemoryWithRestart/u);
     assert.match(source, /Build activity failed \(\$\{error\.message\}\)\. Restarting/u);
     assert.match(source, /vectors = await resumeEmbeddingIndexing\(runtime\.world\)/u);
+    assert.match(source, /Completing the selected embedding index to 100%/u);
     assert.match(source, /buildMemoryWithRestart\(\)/u);
     assert.match(source, /stopEmbeddingIndexing\(\);\s*stopRuntime\(\)/u);
     assert.match(source, /state\.stopSequence !== stopSequence/u);

@@ -1727,12 +1727,12 @@ async function runMemoryBuildWithRestart() {
                 if (result.cancelled) return result;
                 let vectors = null;
                 if (getSettings().retrievalMode === 'embedding-hybrid' && runtime.world?.id) {
-                    updateRuntime({ processing: true, status: 'building', lastError: '', retryStatus: 'Memory layers are ready. Completing the selected embedding index…' });
+                    updateRuntime({ processing: true, status: 'building', lastError: '', retryStatus: 'Memory layers are ready. Completing the selected embedding index to 100%…' });
                     vectors = await resumeEmbeddingIndexing(runtime.world);
                     if (vectors?.status !== 'ready') throw new Error(`Embedding index is ${vectors?.status || 'not ready'}.`);
                 }
                 updateRuntime({ processing: false, status: 'idle', lastError: '', retryStatus: vectors
-                    ? `Build complete: memory and ${vectors.total || 0} embedding records are ready.`
+                    ? `Build complete: memory and all ${vectors.total || 0} embedding records are ready.`
                     : runtime.retryStatus });
                 return { ...result, vectors };
             } catch (error) {

@@ -7,12 +7,11 @@ test('roleplay readiness failures are configured to fall back instead of abortin
     assert.doesNotMatch(source, /Roleplay generation stopped until Continuity is ready/iu);
 });
 
-test('roleplay uses latency-safe local retrieval while embeddings converge in the background', async () => {
+test('roleplay uses latency-safe local retrieval without starting embeddings', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
     assert.match(source, /localOnly: true/u);
     assert.match(source, /reason: 'latency-safe'/u);
-    assert.match(source, /continueEmbeddingAfterReplyRelease\(runtime\.world, runtime\.stopSequence\)/u);
-    assert.doesNotMatch(source, /queryEmbeddingWithRetries|Vector retrieval timed out/u);
+    assert.doesNotMatch(source, /continueEmbeddingAfterReplyRelease|ensureEmbeddingCoverage|queryEmbeddingWithRetries|Vector retrieval timed out/u);
     assert.doesNotMatch(source, /required 99% embedding coverage|Reply pending while Continuity/u);
 });
 
@@ -54,7 +53,7 @@ test('background memory resumes only after the visible reply returns', async () 
     const received = source.slice(receivedStart, receivedEnd);
     assert.match(received, /if \(runtime\.paused\) resumeRuntime\(\)/u);
     assert.match(received, /backgroundMemoryWork\.schedule\(\)/u);
-    assert.match(received, /continueEmbeddingAfterReplyRelease/u);
+    assert.doesNotMatch(received, /Embedding|embedding/u);
 });
 
 test('background memory captures the runtime stop sequence before processing', async () => {
@@ -88,22 +87,24 @@ test('generation defers branch repair instead of failing while background L1 own
     assert.doesNotMatch(repair, /Wait for current processing to finish/u);
 });
 
-test('generation queries an index that has reached minimum coverage without waiting for full sync', async () => {
+test('an explicit vector query requires a fully complete index', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/embedding-retrieval.js', import.meta.url), 'utf8'));
-    assert.match(source, /embeddingCoverageReady\(indexed, total\)/u);
-    assert.match(source, /generation readiness has enforced the minimum coverage/u);
-    assert.match(source, /const indexCoverage = index\.status === 'ready'/u);
+    assert.match(source, /index\.status !== 'ready' \|\| indexed !== total/u);
+    assert.match(source, /until all \$\{total\} records are ready/u);
+    assert.doesNotMatch(source, /hasUsablePartialIndex|embeddingCoverageReady/u);
     assert.doesNotMatch(source, /if \(index\.status !== 'ready' && options\.waitForActiveSync\)/u);
     assert.doesNotMatch(source, /await activeSync/u);
 });
 
-test('after a reply returns, embeddings keep restarting to full coverage', async () => {
+test('unchanged replies do not schedule embeddings while memory revisions do', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
-    assert.match(source, /function continueEmbeddingAfterReplyRelease/u);
-    assert.match(source, /ensureEmbeddingCoverage\(world, 1, stopSequence\)/u);
-    assert.match(source, /continueEmbeddingAfterReplyRelease\(runtime\.world, runtime\.stopSequence\)/u);
-    assert.match(source, /Background embedding completion failed/u);
-    assert.match(source, /!activeGenerationReadiness && !generationEmbeddingCompletion/u);
+    const receivedStart = source.indexOf('eventSource.on(event_types.MESSAGE_RECEIVED');
+    const receivedEnd = source.indexOf('eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY', receivedStart);
+    const received = source.slice(receivedStart, receivedEnd);
+    assert.doesNotMatch(received, /Embedding|embedding|scheduleEmbeddingIndexSync/u);
+    assert.match(source, /worldRevision !== lastObservedWorldRevision/u);
+    assert.match(source, /scheduleEmbeddingIndexSync\(state\.world, 300, changedDuringSession\)/u);
+    assert.doesNotMatch(source, /continueEmbeddingAfterReplyRelease|ensureEmbeddingCoverage|generationEmbeddingCompletion/u);
 });
 
 test('embedding replacement keeps the previous usable index until new vectors are stored', async () => {
@@ -121,7 +122,12 @@ test('embedding builds are serialized across restored browser page instances', a
     assert.match(source, /continuity-embedding-index:/u);
 });
 
-test('automatic memory-change sync resumes a previously paused or stopped vector index', async () => {
-    const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/embedding-retrieval.js', import.meta.url), 'utf8'));
-    assert.match(source, /settings\.embeddingAutoSync \? resumeEmbeddingIndexing\(world\) : inspectEmbeddingIndex\(world\)/u);
+test('automatic embedding sync is revision-driven and full Build reaches 100%', async () => {
+    const retrieval = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/embedding-retrieval.js', import.meta.url), 'utf8'));
+    const ui = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/ui.js', import.meta.url), 'utf8'));
+    assert.match(retrieval, /allowAutomaticBuild && settings\.embeddingAutoSync/u);
+    assert.match(retrieval, /resumeEmbeddingIndexing\(world\)/u);
+    assert.match(ui, /continuity_embedding_build'[\s\S]*resumeEmbeddingIndexing\(runtime\.world\)/u);
+    assert.match(ui, /continuity_embedding_rebuild'[\s\S]*rebuildEmbeddingIndex\(runtime\.world\)/u);
+    assert.match(ui, /Completing the selected embedding index to 100%/u);
 });

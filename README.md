@@ -67,7 +67,7 @@ Relevant existing mutable records are supplied to each extraction with stable ID
 
 ## Memory retrieval
 
-Continuity retains three retrieval configurations. Visible roleplay generation always uses latency-safe local matching, so an LLM or vector provider can never hold the reply open. Embedding synchronization resumes in the background after the visible reply returns.
+Continuity retains three retrieval configurations. Visible roleplay generation always uses latency-safe local matching, so an LLM or vector provider can never hold the reply open. Automatic embedding updates are triggered only by actual structured-memory revisions, not by every visible reply.
 
 Retrieval supplements the default story-so-far overview rather than replacing it. Story So Far is persisted as the chronological narrative spine and is returned inside the same L1 extraction response as the structured memory, so normal processing does not make a second Story request. It is built from completed L1 scene summaries and keeps premise, chronology, durable state, unresolved matters, and knowledge boundaries within the configured allowance. Build / Continue and Rebuild remain available as explicit manual recovery actions; Delete removes only Story So Far. Story never reads L2, L3, retrieved records, or other recall output. The main Build action also advances Story through the same L1 processing queue, and Erase everything & start over reconstructs it after structured memory.
 
@@ -81,7 +81,7 @@ This configuration is retained for memory tooling and future enhanced retrieval.
 
 ### Embedding hybrid
 
-The vector index is maintained in the background for memory tooling and future enhanced retrieval. Vector queries are not called on the visible roleplay path.
+The optional vector index is retained for memory tooling and future enhanced retrieval. Vector queries are not called on the visible roleplay path. When auto-sync is enabled, changed memory records are embedded after an L1/L2/L3 revision; unchanged replies do not request or retry embeddings.
 
 Embeddings are optional. The vector index is derived from canonical Continuity memory, stored separately, and never included in memory exports or portable chat snapshots. It can be deleted or rebuilt at any time. Indexing failures never affect visible roleplay, which already uses local matching.
 
@@ -125,7 +125,7 @@ Recent conversation remains verbatim. Extracted records sourced wholly from that
 
 If extraction fails or coverage is incomplete, Continuity keeps the uncovered messages in context. Stored ranges whose source messages were edited, swiped, hidden, or deleted are excluded from retrieval immediately and repaired before later use.
 
-Roleplay never waits for extraction, hierarchy building, embedding synchronization, or an embedding query. Continuity injects the latest safe snapshot using local matching on the generation path; unfinished memory and vector work continues in the background, while recent unprocessed messages remain available as raw chat.
+Roleplay never waits for extraction, hierarchy building, embedding synchronization, or an embedding query. Continuity injects the latest safe snapshot using local matching on the generation path; unfinished memory and revision-triggered vector work continues in the background, while recent unprocessed messages remain available as raw chat.
 
 ## Models and connections
 

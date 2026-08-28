@@ -14,7 +14,7 @@ import { clearPromptManagerInjection, configurePromptManagerInjection } from './
 import { resolveInjectionBudget } from './injection-budget.js';
 import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.302';
 import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.302';
-import { ensureEmbeddingCoverage, purgeEmbeddingIndex, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.302';
+import { purgeEmbeddingIndex, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.14.0-standalone.302';
 import { isTransientApiError } from './errors.js?v=0.14.0-standalone.302';
 import { roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.302';
 import { isL1StabilityProtectedMessage, latestCompleteL1MessageIndex } from './l1-policy.js';
@@ -34,7 +34,6 @@ let injectionRefreshPending = false;
 let mutationSync = null;
 let divergenceRepairRequested = false;
 let activeGenerationReadiness = null;
-let generationEmbeddingCompletion = null;
 let pendingEmbeddingSyncWorld = null;
 let injectionRefreshCancel = null;
 let injectionRefreshRevision = 0;
@@ -199,56 +198,6 @@ globalThis.continuityMemoryGenerateInterceptor = async (coreChat, contextSize, a
         showGenerationNotification('error', message);
     }
 };
-
-function waitForEmbeddingRetry(delay, stopSequence) {
-    return new Promise((resolve, reject) => {
-        let unsubscribe = () => {};
-        const timer = globalThis.setTimeout(() => {
-            unsubscribe();
-            resolve();
-        }, delay);
-        const inspect = state => {
-            if (state.stopSequence === stopSequence) return;
-            globalThis.clearTimeout(timer);
-            unsubscribe();
-            reject(new Error('Continuity preparation was stopped. Saved memory progress was kept.'));
-        };
-        unsubscribe = onRuntimeChange(inspect);
-        inspect(runtime);
-    });
-}
-
-function continueEmbeddingAfterReplyRelease(world, stopSequence) {
-    if (!world?.id) return;
-    if (generationEmbeddingCompletion?.worldId === world.id) return;
-    const completion = (async () => {
-        let failures = 0;
-        while (runtime.stopSequence === stopSequence) {
-            try {
-                const result = await ensureEmbeddingCoverage(world, 1, stopSequence);
-                if (result?.status === 'ready' || Number(result?.coverage) >= 1) return;
-                throw new Error(`Embedding index is ${result?.status || 'not ready'}.`);
-            } catch (error) {
-                if (runtime.stopSequence !== stopSequence) return;
-                failures++;
-                const delay = Math.min(20000, 2000 * (2 ** Math.min(4, failures - 1)));
-                updateRuntime({
-                    lastError: '',
-                    retryStatus: `Background embedding completion failed (${error.message}). Restarting in ${Math.round(delay / 1000)}s (attempt ${failures + 1})…`,
-                });
-                try {
-                    await waitForEmbeddingRetry(delay, stopSequence);
-                } catch {
-                    return;
-                }
-            }
-        }
-    })();
-    generationEmbeddingCompletion = { worldId: world.id, completion };
-    completion.finally(() => {
-        if (generationEmbeddingCompletion?.completion === completion) generationEmbeddingCompletion = null;
-    });
-}
 
 async function prepareRoleplayGeneration(type) {
     const updates = [];
@@ -634,7 +583,7 @@ async function onChatRenamed(eventData) {
 }
 
 async function init() {
-    const templateResponse = await fetch(new URL('./settings.html?v=0.14.0-standalone.303', import.meta.url));
+    const templateResponse = await fetch(new URL('./settings.html?v=0.14.0-standalone.304', import.meta.url));
     if (!templateResponse.ok) throw new Error(`Could not load settings template: ${templateResponse.status} ${templateResponse.statusText}`);
     const html = $(await templateResponse.text());
     const container = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
@@ -669,18 +618,14 @@ async function init() {
     });
     if (event_types.GENERATION_STOPPED) {
         eventSource.on(event_types.GENERATION_STOPPED, () => {
-            if (!activeGenerationReadiness && !generationEmbeddingCompletion) return;
-            stopEmbeddingIndexing();
-            stopRuntime('Pending reply stopped by the user. Saved memory and completed vectors were kept.');
+            if (!activeGenerationReadiness) return;
+            stopRuntime('Pending reply stopped by the user. Saved memory progress was kept.');
         });
     }
     eventSource.on(event_types.MESSAGE_RECEIVED, () => {
         scheduleInjectionRefresh();
         if (runtime.paused) resumeRuntime();
         backgroundMemoryWork.schedule();
-        if (getSettings().retrievalMode === 'embedding-hybrid' && runtime.world?.id) {
-            continueEmbeddingAfterReplyRelease(runtime.world, runtime.stopSequence);
-        }
     });
     eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY, eventData => {
         if (!shouldCapturePromptMeasurement(eventData)) return;

@@ -1,9 +1,8 @@
 import { getRequestHeaders } from '/script.js';
 import { buildEmbeddingDocuments, buildEmbeddingQuery, semanticRanksFromResponse } from './embedding-index.js';
-import { embeddingCoverage, embeddingCoverageReady, MINIMUM_EMBEDDING_COVERAGE } from './embedding-policy.js?v=0.14.0-standalone.302';
 import { resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.302';
 import { getSettings } from './settings.js?v=0.14.0-standalone.302';
-import { onRuntimeChange, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.302';
+import { runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.302';
 import { createVectorStorageRequester } from './vector-storage-client.js?v=0.14.0-standalone.302';
 
 const syncedIndexes = new Map();
@@ -138,50 +137,6 @@ export async function resumeEmbeddingIndexing(world) {
     indexingControl = 'running';
     setIndexStatus({ status: 'syncing', phase: 'Resuming from stored vector hashes', error: '', worldId: world.id });
     return ensureEmbeddingIndex(world);
-}
-
-export async function ensureEmbeddingCoverage(world, minimum = MINIMUM_EMBEDDING_COVERAGE, stopSequence = null) {
-    if (!world?.id) throw new Error('Open a chat with Continuity memory first.');
-    let settled = false;
-    let unsubscribe = () => {};
-
-    return new Promise((resolve, reject) => {
-        const finish = (error = null, index = null) => {
-            if (settled) return;
-            settled = true;
-            unsubscribe();
-            if (error) reject(error);
-            else resolve(index);
-        };
-        const inspect = state => {
-            if (stopSequence !== null && state.stopSequence !== stopSequence) {
-                finish(new Error('Continuity vector preparation was stopped.'));
-                return;
-            }
-            const index = state.embeddingIndex;
-            if (!index || index.worldId !== world.id) return;
-            const indexed = Number(index.indexed ?? index.existing ?? 0);
-            const total = Number(index.total ?? 0);
-            if (index.status === 'ready' || embeddingCoverageReady(indexed, total, minimum)) {
-                finish(null, { ...index, coverage: embeddingCoverage(indexed, total), minimum });
-                return;
-            }
-            if (['error', 'paused', 'stopped'].includes(index.status)) {
-                const percent = Math.round(Math.min(1, Math.max(0, Number(minimum) || 0)) * 100);
-                finish(new Error(`Embedding index ${index.status} before reaching the required ${percent}% coverage${index.error ? `: ${index.error}` : '.'}`));
-            }
-        };
-        unsubscribe = onRuntimeChange(inspect);
-        const task = resumeEmbeddingIndexing(world);
-        task.then(result => {
-            if (settled) return;
-            inspect(runtime);
-            if (settled) return;
-            if (result?.status === 'ready') finish(null, result);
-            else finish(new Error(`Embedding index is ${result?.status || 'not ready'}.`));
-        }, error => finish(error));
-        inspect(runtime);
-    });
 }
 
 export function embeddingProviderDescription() {
@@ -387,16 +342,14 @@ export function scheduleEmbeddingIndexSync(world, delay = 300, allowAutomaticBui
         syncTimers.delete(world.id);
         const settings = getSettings();
         if (settings.retrievalMode !== 'embedding-hybrid') return;
-        // A changed memory is a new indexing request, not a continuation of
-        // the operation the user previously paused or stopped. Resume from the
-        // stored hashes so completed batches are retained and only changed
-        // records are embedded.
-        const task = allowAutomaticBuild && settings.embeddingAutoSync ? resumeEmbeddingIndexing(world) : inspectEmbeddingIndex(world);
+        const task = allowAutomaticBuild && settings.embeddingAutoSync
+            ? resumeEmbeddingIndexing(world)
+            : inspectEmbeddingIndex(world);
         task.catch(error => console.warn('[Continuity] Embedding index check or synchronization failed; local retrieval remains available.', error));
     }, Math.max(0, delay)));
 }
 
-export async function queryEmbeddingMemory(world, messages, options = {}) {
+export async function queryEmbeddingMemory(world, messages) {
     const settings = getSettings();
     const provider = providerRequest();
     const signature = indexSignature(world, provider);
@@ -405,21 +358,14 @@ export async function queryEmbeddingMemory(world, messages, options = {}) {
         : await inspectEmbeddingIndex(world);
     const indexed = Number(index.indexed ?? index.existing ?? 0);
     const total = Number(index.total ?? 0);
-    const hasUsablePartialIndex = embeddingCoverageReady(indexed, total);
-    // Once generation readiness has enforced the minimum coverage, the stored
-    // partial index remains useful while the indexer finishes missing records.
-    if (index.status !== 'ready' && !hasUsablePartialIndex) {
-        throw new Error(`Embedding index is ${index.status}; local retrieval will be used until it resumes.`);
+    if (index.status !== 'ready' || indexed !== total) {
+        throw new Error(`Embedding index is ${index.status}; local retrieval will be used until all ${total} records are ready.`);
     }
-    const readyIndexed = indexed;
     const query = buildEmbeddingQuery(messages, settings.embeddingQueryMessages, 6000);
     if (!query) return new Map();
     const topK = Math.min(200, Math.max(10, Number(settings.embeddingTopK) || 100));
     const threshold = Math.min(1, Math.max(0, Number(settings.embeddingThreshold) || 0));
-    // Include partial-index coverage so newly completed batches cannot reuse a
-    // result cached against an older, smaller set of stored vectors.
-    const indexCoverage = index.status === 'ready' ? 'ready' : readyIndexed;
-    const cacheKey = `${world.id}|${world.revision ?? 0}|${provider.fingerprint}|${indexCoverage}|${topK}|${threshold}|${query}`;
+    const cacheKey = `${world.id}|${world.revision ?? 0}|${provider.fingerprint}|ready|${topK}|${threshold}|${query}`;
     if (queryCache.has(cacheKey)) return new Map(queryCache.get(cacheKey));
     const documents = buildEmbeddingDocuments(world);
     const response = await vectorRequest('query', {

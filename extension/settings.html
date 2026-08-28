@@ -141,7 +141,7 @@
                         <option value="embedding-hybrid">Embedding hybrid (vector + local, optional)</option>
                     </select>
                 </label>
-                <small>Visible roleplay replies always use latency-safe local matching, so retrieval providers cannot delay generation. AI-expanded and embedding configuration is retained for memory tooling and future enhanced retrieval; embedding indexing continues only after the reply returns.</small>
+                <small>Visible roleplay replies always use latency-safe local matching, so retrieval providers cannot delay generation. AI-expanded and embedding configuration is retained for memory tooling and future enhanced retrieval; embedding indexing updates only after structured memory actually changes.</small>
                 <div class="continuity-embedding-setting continuity-card-inset">
                     <b>Embedding hybrid index</b>
                     <label>Embedding provider
@@ -214,7 +214,7 @@
                     <details>
                         <summary>Index maintenance</summary>
                         <label class="checkbox_label"><input id="continuity_embedding_auto_sync" type="checkbox"><span>Update vectors automatically when memory changes</span></label>
-                        <small>On by default. Startup and opening or switching chats only inspect local index metadata; they never start embedding requests.</small>
+                        <small>On by default. Ordinary replies do not start or retry vector work when structured memory has not changed.</small>
                         <div class="continuity-button-row">
                             <button id="continuity_embedding_rebuild" class="menu_button redWarningBG"><i class="fa-solid fa-rotate"></i> Rebuild from scratch</button>
                             <button id="continuity_embedding_delete" class="menu_button"><i class="fa-solid fa-trash"></i> Delete index</button>
