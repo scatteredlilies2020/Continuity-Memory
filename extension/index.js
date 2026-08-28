@@ -34,7 +34,7 @@ let injectionRefreshPending = false;
 let mutationSync = null;
 let divergenceRepairRequested = false;
 let activeGenerationReadiness = null;
-let pendingEmbeddingSyncWorld = null;
+let pendingEmbeddingSync = null;
 let injectionRefreshCancel = null;
 let injectionRefreshRevision = 0;
 let generationInjectionRunning = false;
@@ -169,7 +169,6 @@ globalThis.continuityMemoryGenerateInterceptor = async (coreChat, contextSize, a
         if (!activeGenerationReadiness) {
             if (mutationSync) clearTimeout(mutationSync);
             mutationSync = null;
-            pendingEmbeddingSyncWorld = null;
             activeGenerationReadiness = prepareRoleplayGeneration(type)
                 .finally(() => {
                     activeGenerationReadiness = null;
@@ -690,21 +689,27 @@ async function init() {
     onRuntimeChange(state => {
         const worldId = state.world?.id || null;
         const worldRevision = state.world?.revision ?? null;
-        if (!state.world) pendingEmbeddingSyncWorld = null;
+        if (!state.world) pendingEmbeddingSync = null;
         if (worldId !== lastObservedWorldId || worldRevision !== lastObservedWorldRevision) {
             const changedDuringSession = Boolean(worldId && worldId === lastObservedWorldId && lastObservedWorldRevision !== null);
             lastObservedWorldId = worldId;
             lastObservedWorldRevision = worldRevision;
             scheduleInjectionRefresh();
-            if (state.world && !activeGenerationReadiness) {
-                if (state.processing) pendingEmbeddingSyncWorld = state.world;
-                else scheduleEmbeddingIndexSync(state.world, 300, changedDuringSession);
+            if (state.world) {
+                if (state.processing || activeGenerationReadiness) {
+                    const alreadyRequiresBuild = pendingEmbeddingSync?.world?.id === worldId
+                        && pendingEmbeddingSync.allowAutomaticBuild;
+                    pendingEmbeddingSync = {
+                        world: state.world,
+                        allowAutomaticBuild: Boolean(changedDuringSession || alreadyRequiresBuild),
+                    };
+                } else scheduleEmbeddingIndexSync(state.world, 300, changedDuringSession);
             }
         }
-        if (!state.processing && !activeGenerationReadiness && pendingEmbeddingSyncWorld) {
-            const world = pendingEmbeddingSyncWorld;
-            pendingEmbeddingSyncWorld = null;
-            scheduleEmbeddingIndexSync(world, 300, true);
+        if (!state.processing && !activeGenerationReadiness && pendingEmbeddingSync) {
+            const { world, allowAutomaticBuild } = pendingEmbeddingSync;
+            pendingEmbeddingSync = null;
+            scheduleEmbeddingIndexSync(world, 300, allowAutomaticBuild);
         }
     });
 

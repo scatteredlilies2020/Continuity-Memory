@@ -107,6 +107,21 @@ test('unchanged replies do not schedule embeddings while memory revisions do', a
     assert.doesNotMatch(source, /continueEmbeddingAfterReplyRelease|ensureEmbeddingCoverage|generationEmbeddingCompletion/u);
 });
 
+test('a memory revision observed during roleplay readiness remains queued for embedding sync', async () => {
+    const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
+    const interceptorStart = source.indexOf('globalThis.continuityMemoryGenerateInterceptor');
+    const preparationStart = source.indexOf('async function prepareRoleplayGeneration', interceptorStart);
+    const interceptor = source.slice(interceptorStart, preparationStart);
+    const listenerStart = source.indexOf('onRuntimeChange(state =>');
+    const listenerEnd = source.indexOf('\n    });\n\n    scheduleInjectionRefresh();', listenerStart);
+    const listener = source.slice(listenerStart, listenerEnd);
+    assert.doesNotMatch(interceptor, /pendingEmbeddingSync\s*=\s*null/u);
+    assert.match(listener, /state\.processing \|\| activeGenerationReadiness/u);
+    assert.match(listener, /pendingEmbeddingSync = \{/u);
+    assert.match(listener, /!state\.processing && !activeGenerationReadiness && pendingEmbeddingSync/u);
+    assert.match(listener, /scheduleEmbeddingIndexSync\(world, 300, allowAutomaticBuild\)/u);
+});
+
 test('embedding replacement keeps the previous usable index until new vectors are stored', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/embedding-retrieval.js', import.meta.url), 'utf8'));
     const insert = source.indexOf("await vectorRequest('insert'");
