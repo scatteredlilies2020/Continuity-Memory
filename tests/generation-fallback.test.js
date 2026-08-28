@@ -7,24 +7,13 @@ test('roleplay readiness failures are configured to fall back instead of abortin
     assert.doesNotMatch(source, /Roleplay generation stopped until Continuity is ready/iu);
 });
 
-test('selected embedding retrieval hard-stops generation below minimum coverage', async () => {
+test('roleplay uses latency-safe local retrieval while embeddings converge in the background', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
-    assert.match(source, /retryPendingReply\(\s*'embedding coverage'/u);
-    assert.match(source, /ensureEmbeddingCoverage\(runtime\.world, undefined, stopSequence\)/u);
-    assert.match(source, /required 99% embedding coverage/iu);
-    assert.match(source, /function resolveWithin\(value, timeout = 3000\)/u);
-    assert.match(source, /queryEmbeddingWithRetries\(world, recent\)/u);
-    assert.match(source, /this reply is using local memory matching/iu);
-    assert.doesNotMatch(source, /strictEmbedding/u);
-});
-
-test('embedding retrieval retries quick failures without overlapping a slow request', async () => {
-    const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
-    assert.match(source, /async function queryEmbeddingWithRetries/u);
-    assert.match(source, /attempt < 3/u);
-    assert.match(source, /return await resolveWithin\(request, 12000\)/u);
-    assert.match(source, /CONTINUITY_VECTOR_TIMEOUT/u);
-    assert.match(source, /350 \* \(attempt \+ 1\)/u);
+    assert.match(source, /localOnly: true/u);
+    assert.match(source, /reason: 'latency-safe'/u);
+    assert.match(source, /continueEmbeddingAfterReplyRelease\(runtime\.world, runtime\.stopSequence\)/u);
+    assert.doesNotMatch(source, /queryEmbeddingWithRetries|Vector retrieval timed out/u);
+    assert.doesNotMatch(source, /required 99% embedding coverage|Reply pending while Continuity/u);
 });
 
 test('embedding inserts get a long stall watchdog and restart from saved vectors', async () => {
@@ -41,26 +30,41 @@ test('embedding inserts get a long stall watchdog and restart from saved vectors
     assert.match(source, /globalThis\.clearTimeout\(timer\)/u);
 });
 
-test('a pending reply restarts failed memory and embedding work until the user stops generation', async () => {
+test('memory catch-up never retries or waits on the visible roleplay path', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
-    assert.match(source, /async function retryPendingReply/u);
-    assert.match(source, /memory processing[\s\S]*retryPendingReply|retryPendingReply\('memory processing'/u);
-    assert.match(source, /retryPendingReply\('memory catch-up'/u);
-    assert.match(source, /failed \(\$\{error\.message\}\)\. Restarting/u);
-    assert.doesNotMatch(source, /if \(!isTransientApiError\(error\)\) throw error/u);
+    const start = source.indexOf('async function prepareRoleplayGeneration');
+    const end = source.indexOf('async function performInjectionRefresh', start);
+    const preparation = source.slice(start, end);
+    assert.ok(start >= 0 && end > start);
+    assert.match(preparation, /Roleplay released immediately/u);
+    assert.doesNotMatch(preparation, /backgroundMemoryWork\.schedule|await maybeAutoExtract|await ensureEmbeddingCoverage|retryPendingReply|completeL1ForGeneration/u);
     assert.match(source, /event_types\.GENERATION_STOPPED/u);
-    assert.match(source, /stopRuntime\('Pending reply stopped by the user/u);
 });
 
-test('a new roleplay generation resumes stopped background memory before scheduling it', async () => {
+test('background memory resumes only after the visible reply returns', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
     const start = source.indexOf('eventSource.on(event_types.GENERATION_STARTED');
     const end = source.indexOf('event_types.GENERATION_STOPPED', start);
     const handler = source.slice(start, end);
     assert.ok(start >= 0 && end > start);
     assert.match(handler, /const roleplayGeneration = !dryRun && shouldGateRoleplayGeneration/u);
-    assert.match(handler, /if \(roleplayGeneration && runtime\.paused\) resumeRuntime\(\)/u);
-    assert.ok(handler.indexOf('resumeRuntime()') < handler.indexOf('backgroundMemoryWork.schedule(0)'));
+    assert.doesNotMatch(handler, /resumeRuntime|backgroundMemoryWork\.schedule/u);
+    const receivedStart = source.indexOf('eventSource.on(event_types.MESSAGE_RECEIVED');
+    const receivedEnd = source.indexOf('eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY', receivedStart);
+    const received = source.slice(receivedStart, receivedEnd);
+    assert.match(received, /if \(runtime\.paused\) resumeRuntime\(\)/u);
+    assert.match(received, /backgroundMemoryWork\.schedule\(\)/u);
+    assert.match(received, /continueEmbeddingAfterReplyRelease/u);
+});
+
+test('background memory captures the runtime stop sequence before processing', async () => {
+    const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
+    const start = source.indexOf('const backgroundMemoryWork = createBackgroundScheduler');
+    const end = source.indexOf('onRuntimeStop(', start);
+    const worker = source.slice(start, end);
+    assert.ok(start >= 0 && end > start);
+    assert.match(worker, /const stopSequence = runtime\.stopSequence;/u);
+    assert.ok(worker.indexOf('const stopSequence') < worker.indexOf('runtime.stopSequence !== stopSequence'));
 });
 
 test('opening an externally updated chat drains pending L1 after mutation reconciliation', async () => {
@@ -93,12 +97,12 @@ test('generation queries an index that has reached minimum coverage without wait
     assert.doesNotMatch(source, /await activeSync/u);
 });
 
-test('releasing a reply at safe coverage keeps restarting embeddings to full coverage', async () => {
+test('after a reply returns, embeddings keep restarting to full coverage', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
     assert.match(source, /function continueEmbeddingAfterReplyRelease/u);
     assert.match(source, /ensureEmbeddingCoverage\(world, 1, stopSequence\)/u);
-    assert.match(source, /continueEmbeddingAfterReplyRelease\(runtime\.world, stopSequence\)/u);
-    assert.match(source, /Reply released at safe embedding coverage; full indexing failed/u);
+    assert.match(source, /continueEmbeddingAfterReplyRelease\(runtime\.world, runtime\.stopSequence\)/u);
+    assert.match(source, /Background embedding completion failed/u);
     assert.match(source, /!activeGenerationReadiness && !generationEmbeddingCompletion/u);
 });
 

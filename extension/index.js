@@ -3,7 +3,7 @@ import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
 import { api } from './api.js?v=0.14.0-standalone.302';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, buildNextArc, buildNextEra, continueQueue, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.302';
+import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.14.0-standalone.302';
 import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.14.0-standalone.302';
 import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.14.0-standalone.302';
 import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.302';
@@ -14,10 +14,10 @@ import { clearPromptManagerInjection, configurePromptManagerInjection } from './
 import { resolveInjectionBudget } from './injection-budget.js';
 import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.14.0-standalone.302';
 import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.14.0-standalone.302';
-import { ensureEmbeddingCoverage, purgeEmbeddingIndex, queryEmbeddingMemory, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.302';
+import { ensureEmbeddingCoverage, purgeEmbeddingIndex, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.302';
 import { isTransientApiError } from './errors.js?v=0.14.0-standalone.302';
-import { asRoleplayBlockingError, isRoleplayBlockingError, roleplayBacklogPolicy, roleplaySourceMessages, roleplayWaitNotification, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.302';
-import { completeL1MessageCount, isL1StabilityProtectedMessage, latestCompleteL1MessageIndex, resolveL1GroupSize } from './l1-policy.js';
+import { roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.14.0-standalone.302';
+import { isL1StabilityProtectedMessage, latestCompleteL1MessageIndex } from './l1-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
 import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.14.0-standalone.302';
 import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.302';
@@ -105,45 +105,6 @@ function waitForBackgroundRetry(delay, stopSequence) {
     });
 }
 
-function resolveWithin(value, timeout = 3000) {
-    let timer = null;
-    const deadline = new Promise((_, reject) => {
-        timer = globalThis.setTimeout(() => {
-            const error = new Error('Vector retrieval timed out; local retrieval remains available.');
-            error.code = 'CONTINUITY_VECTOR_TIMEOUT';
-            reject(error);
-        }, timeout);
-    });
-    return Promise.race([value, deadline]).finally(() => {
-        if (timer !== null) globalThis.clearTimeout(timer);
-    });
-}
-
-async function queryEmbeddingWithRetries(world, recent) {
-    let lastError = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-        const request = queryEmbeddingMemory(world, recent);
-        try {
-            return await resolveWithin(request);
-        } catch (error) {
-            lastError = error;
-            if (error?.code === 'CONTINUITY_VECTOR_TIMEOUT') {
-                // Do not start an overlapping request when the first one is
-                // merely slow. Give that same request one longer grace window.
-                try {
-                    return await resolveWithin(request, 12000);
-                } catch (settledError) {
-                    lastError = settledError;
-                    if (settledError?.code === 'CONTINUITY_VECTOR_TIMEOUT') break;
-                }
-            }
-            if (attempt >= 2) break;
-            await new Promise(resolve => globalThis.setTimeout(resolve, 350 * (attempt + 1)));
-        }
-    }
-    throw lastError || new Error('Embedding retrieval failed.');
-}
-
 const backgroundMemoryWork = createBackgroundScheduler(async () => {
     const stopSequence = runtime.stopSequence;
     backgroundCancelled = false;
@@ -220,16 +181,10 @@ globalThis.continuityMemoryGenerateInterceptor = async (coreChat, contextSize, a
         const reduction = await reduceChatContext(coreChat, contextSize, abort, type);
         await refreshInjection(true, readiness.sourceMessages, readiness.recentMessages, {
             rawTailRange: reduction?.rawTailRange || null,
+            localOnly: true,
         });
         if (readiness.notification) showGenerationNotification('success', readiness.notification);
     } catch (error) {
-        if (isRoleplayBlockingError(error)) {
-            const message = `Continuity cancelled the pending reply safely: ${error.message}`;
-            updateRuntime({ status: 'error', lastError: error.message, injectionStatus: message, retryStatus: message, roleplayGate: null });
-            console.error('[Continuity] Pending roleplay could not reach its safe memory boundary.', error);
-            showGenerationNotification('error', message, { timeOut: 0, extendedTimeOut: 0 });
-            throw error;
-        }
         // Memory is an enhancement, not a hard dependency for roleplay. A
         // storage/model failure must not cancel the user's generation; fall
         // back to SillyTavern's normal context reduction and raw chat.
@@ -245,7 +200,7 @@ globalThis.continuityMemoryGenerateInterceptor = async (coreChat, contextSize, a
     }
 };
 
-function waitForPendingRetry(delay, stopSequence) {
+function waitForEmbeddingRetry(delay, stopSequence) {
     return new Promise((resolve, reject) => {
         let unsubscribe = () => {};
         const timer = globalThis.setTimeout(() => {
@@ -261,24 +216,6 @@ function waitForPendingRetry(delay, stopSequence) {
         unsubscribe = onRuntimeChange(inspect);
         inspect(runtime);
     });
-}
-
-async function retryPendingReply(label, stopSequence, work) {
-    let failures = 0;
-    while (true) {
-        assertRoleplayPreparationNotStopped(stopSequence);
-        try {
-            return await work();
-        } catch (error) {
-            assertRoleplayPreparationNotStopped(stopSequence);
-            failures++;
-            const delay = Math.min(20000, 2000 * (2 ** Math.min(4, failures - 1)));
-            const seconds = Math.round(delay / 1000);
-            const message = `Reply remains pending: ${label} failed (${error.message}). Restarting in ${seconds}s (attempt ${failures + 1})…`;
-            updateRuntime({ status: 'preparing-roleplay', lastError: '', retryStatus: message, roleplayGate: { active: true, message, stopping: false, startedAt: runtime.roleplayGate?.startedAt || Date.now() } });
-            await waitForPendingRetry(delay, stopSequence);
-        }
-    }
 }
 
 function continueEmbeddingAfterReplyRelease(world, stopSequence) {
@@ -297,10 +234,10 @@ function continueEmbeddingAfterReplyRelease(world, stopSequence) {
                 const delay = Math.min(20000, 2000 * (2 ** Math.min(4, failures - 1)));
                 updateRuntime({
                     lastError: '',
-                    retryStatus: `Reply released at safe embedding coverage; full indexing failed (${error.message}). Restarting in ${Math.round(delay / 1000)}s (attempt ${failures + 1})…`,
+                    retryStatus: `Background embedding completion failed (${error.message}). Restarting in ${Math.round(delay / 1000)}s (attempt ${failures + 1})…`,
                 });
                 try {
-                    await waitForPendingRetry(delay, stopSequence);
+                    await waitForEmbeddingRetry(delay, stopSequence);
                 } catch {
                     return;
                 }
@@ -313,222 +250,24 @@ function continueEmbeddingAfterReplyRelease(world, stopSequence) {
     });
 }
 
-function assertRoleplayPreparationNotStopped(stopSequence) {
-    if (stopSequence !== null && runtime.stopSequence !== stopSequence) {
-        throw new Error('Continuity preparation was stopped. Memory remains pending, so the reply was not generated.');
-    }
-}
-
-async function waitForActiveMemoryWork(stopSequence = null) {
-    assertRoleplayPreparationNotStopped(stopSequence);
-    if (runtime.paused) resumeRuntime();
-    continueQueue();
-    if (!runtime.processing && !runtime.queue.length) return;
-    await new Promise((resolve, reject) => {
-        let resumedPause = false;
-        let unsubscribe = () => {};
-        const inspect = state => {
-            if (stopSequence !== null && state.stopSequence !== stopSequence) {
-                unsubscribe();
-                reject(new Error('Continuity preparation was stopped. Memory remains pending, so the reply was not generated.'));
-                return;
-            }
-            if (state.paused && !resumedPause) {
-                resumedPause = true;
-                resumeRuntime();
-                continueQueue();
-                return;
-            }
-            if (state.processing || state.queue.length) return;
-            unsubscribe();
-            if (state.status === 'error') reject(new Error(state.lastError || 'Existing memory processing failed.'));
-            else resolve();
-        };
-        unsubscribe = onRuntimeChange(inspect);
-        inspect(runtime);
-    });
-}
-
-async function completeL1ForGeneration(sourceMessages, stopSequence) {
-    await waitForActiveMemoryWork(stopSequence);
-    while (true) {
-        assertRoleplayPreparationNotStopped(stopSequence);
-        const coverage = getProcessingCoverage(runtime.world, sourceMessages);
-        if (!coverage.extractable) return coverage;
-        const groupSize = resolveL1GroupSize(getSettings().extractionBatchMessages);
-        if (!completeL1MessageCount(coverage.extractable, groupSize)) return coverage;
-        if (runtime.paused) resumeRuntime();
-        updateRuntime({ status: 'preparing-roleplay', retryStatus: `Roleplay is waiting while Continuity processes ${coverage.extractable} stable pending message(s)…` });
-        const result = await maybeAutoExtract(true, sourceMessages);
-        assertRoleplayPreparationNotStopped(stopSequence);
-        if (!result) throw new Error(`${coverage.extractable} stable memory message(s) remain pending and could not be started.`);
-        const updated = getProcessingCoverage(runtime.world, sourceMessages);
-        if (updated.extractable >= coverage.extractable) throw new Error(`Memory processing made no progress; ${updated.extractable} stable message(s) remain pending.`);
-    }
-}
-
-async function completeRequiredL1ForGeneration(sourceMessages, stopSequence) {
-    await waitForActiveMemoryWork(stopSequence);
-    while (true) {
-        assertRoleplayPreparationNotStopped(stopSequence);
-        const coverage = getProcessingCoverage(runtime.world, sourceMessages);
-        if (!coverage.required) return coverage;
-        if (!coverage.requiredExtractable) {
-            throw new Error(`${coverage.required} required memory message(s) are not currently safe to rebuild. Roleplay remains blocked so it cannot continue with missing memory.`);
-        }
-        if (runtime.paused) resumeRuntime();
-        updateRuntime({ status: 'preparing-roleplay', retryStatus: `Roleplay is waiting while Continuity rebuilds ${coverage.required} deliberately undone memory message(s)…` });
-        const result = await maybeAutoExtract(true, sourceMessages, { requiredOnly: true });
-        assertRoleplayPreparationNotStopped(stopSequence);
-        if (!result) throw new Error(`${coverage.required} required memory message(s) remain pending and could not be started.`);
-        const updated = getProcessingCoverage(runtime.world, sourceMessages);
-        if (updated.required >= coverage.required) throw new Error(`Required memory processing made no progress; ${updated.required} message(s) remain incomplete.`);
-    }
-}
-
-async function completeHierarchyForGeneration(stopSequence) {
-    const runLayer = async (builder, label) => {
-        let count = 0;
-        while (true) {
-            assertRoleplayPreparationNotStopped(stopSequence);
-            if (runtime.paused) resumeRuntime();
-            const epoch = runtime.generation;
-            try {
-                const record = await builder(undefined, epoch);
-                if (!record) return count;
-                count++;
-                updateRuntime({ retryStatus: `Roleplay is waiting while Continuity completes ${label}…` });
-            } catch (error) {
-                assertRoleplayPreparationNotStopped(stopSequence);
-                if (runtime.paused || /processing stopped/i.test(error.message)) {
-                    resumeRuntime();
-                    continue;
-                }
-                throw error;
-            }
-        }
-    };
-    updateRuntime({ processing: true, status: 'preparing-roleplay', retryStatus: 'L1 is ready. Completing eligible L2 and L3 before roleplay…' });
-    try {
-        const arcs = await runLayer(buildNextArc, 'L2');
-        const eras = await runLayer(buildNextEra, 'L3');
-        return { arcs, eras };
-    } finally {
-        updateRuntime({ processing: false, progress: null });
-    }
-}
-
 async function prepareRoleplayGeneration(type) {
     const updates = [];
     await ensureCurrentChatMemory(true);
-    const waitingChat = roleplaySourceMessages(getContext().chat || [], type).filter(message => !message?.is_system);
-    const waitingMessages = collectMemoryEligibleMessages(waitingChat);
-    const waitingCoverage = getProcessingCoverage(runtime.world, waitingMessages);
-    const groupSize = resolveL1GroupSize(getSettings().extractionBatchMessages);
-    const waitingBacklog = roleplayBacklogPolicy(waitingCoverage.extractable, groupSize, waitingCoverage.required);
-    const activeWorkAtStart = runtime.processing || runtime.queue.length > 0;
-    // At two full pending L1 batches, keep this reply pending until memory catches up.
-    const blocksRoleplay = waitingBacklog.shouldCatchUp;
-    const waitingNotification = blocksRoleplay
-        ? roleplayWaitNotification(runtime, waitingBacklog.blocking)
-        : '';
-    const stopSequence = runtime.stopSequence;
-    if (waitingNotification) {
-        updateRuntime({ roleplayGate: { active: true, message: waitingNotification, stopping: false, startedAt: Date.now() } });
-        showGenerationNotification('info', waitingNotification, { timeOut: 12000, extendedTimeOut: 4000 });
-    }
-    const revisionBeforeWaiting = Number(runtime.world?.revision ?? -1);
-    if (blocksRoleplay) {
-        try {
-            await retryPendingReply('memory processing', stopSequence, () => waitForActiveMemoryWork(stopSequence));
-        } catch (error) {
-            throw asRoleplayBlockingError(error, 'Memory catch-up failed;');
-        }
-    }
     const activeChat = roleplaySourceMessages(getContext().chat || [], type).filter(message => !message?.is_system);
     const sourceMessages = collectMemoryEligibleMessages(activeChat);
-    // This repair must precede every injection and every catch-up attempt.
-    // It removes stale saved contributions after edits, swipes, and deletes;
-    // refreshInjection also excludes any still-invalid source ranges fail-closed.
-    let repair;
-    try {
-        repair = await repairDivergedBranch({ sourceMessages });
-    } catch (error) {
-        if (waitingBacklog.shouldCatchUp) throw asRoleplayBlockingError(error, 'The pending reply could not validate changed memory;');
-        throw error;
-    }
+    // Repair is local and may defer while background extraction owns the
+    // processing lock. Invalid ranges remain excluded fail-closed, so neither
+    // extraction nor vector work needs to hold up the user's reply.
+    const repair = await repairDivergedBranch({ sourceMessages });
     if (repair.repaired) {
         if (repair.divergenceDetected) updates.push(`repaired changed memory from message ${repair.repairFrom} onward`);
         if (repair.stabilityRewound) updates.push('restored the two-message extraction buffer');
     }
-    const initialCoverage = getProcessingCoverage(runtime.world, sourceMessages);
-    const initialBacklog = roleplayBacklogPolicy(initialCoverage.extractable, groupSize, initialCoverage.required);
-    let hierarchy = { arcs: 0, eras: 0 };
-    if (initialBacklog.shouldCatchUp) {
-        if (!runtime.roleplayGate) {
-            updateRuntime({
-                roleplayGate: {
-                    active: true,
-                    message: `Reply pending while Continuity processes ${initialBacklog.blocking} memory message(s)…`,
-                    stopping: false,
-                    startedAt: Date.now(),
-                },
-            });
-        }
-        try {
-            await retryPendingReply('memory catch-up', stopSequence, async () => {
-                if (initialCoverage.required) await completeRequiredL1ForGeneration(sourceMessages, stopSequence);
-                await completeL1ForGeneration(sourceMessages, stopSequence);
-                hierarchy = await completeHierarchyForGeneration(stopSequence);
-            });
-        } catch (error) {
-            throw asRoleplayBlockingError(error, 'The pending reply could not finish memory catch-up;');
-        }
-    }
-    if (getSettings().retrievalMode === 'embedding-hybrid' && runtime.world?.id) {
-        const message = 'Reply pending while Continuity prepares at least 99% of the selected embedding index…';
-        if (!runtime.roleplayGate) {
-            updateRuntime({
-                status: 'preparing-roleplay',
-                retryStatus: message,
-                roleplayGate: { active: true, message, stopping: false, startedAt: Date.now() },
-            });
-        }
-        try {
-            await retryPendingReply(
-                'embedding coverage',
-                stopSequence,
-                () => ensureEmbeddingCoverage(runtime.world, undefined, stopSequence),
-            );
-            // Reaching the safe generation threshold releases the reply, but
-            // the selected index must keep building to 100%. If a later batch
-            // fails, restart it in the background until the user explicitly
-            // stops generation or presses Continuity's Stop processing.
-            continueEmbeddingAfterReplyRelease(runtime.world, stopSequence);
-        } catch (error) {
-            throw asRoleplayBlockingError(error, 'The pending reply could not reach the required 99% embedding coverage;');
-        }
-    }
-    assertRoleplayPreparationNotStopped(stopSequence);
     const coverage = getProcessingCoverage(runtime.world, sourceMessages);
-    const remainingBacklog = roleplayBacklogPolicy(coverage.extractable, groupSize, coverage.required);
-    if (remainingBacklog.shouldCatchUp) {
-        throw asRoleplayBlockingError(
-            new Error(`${remainingBacklog.blocking} memory message(s) remain beyond the safe pending boundary.`),
-            'The pending reply was cancelled safely;',
-        );
-    }
-    const processedMessages = Math.max(0, initialCoverage.pending - coverage.pending);
-    if (processedMessages) updates.push(`processed ${processedMessages} message(s) into L1`);
-    if (hierarchy.arcs) updates.push(`created ${hierarchy.arcs} L2 record(s)`);
-    if (hierarchy.eras) updates.push(`created ${hierarchy.eras} L3 record(s)`);
-    if (activeWorkAtStart && Number(runtime.world?.revision ?? -1) !== revisionBeforeWaiting && !updates.length) {
-        updates.push('completed pending memory work');
-    }
     const retainedError = runtime.paused ? runtime.lastError : '';
     const retryStatus = coverage.pending
-        ? `Continuity is ready with ${coverage.pending} recent message(s) raw (${coverage.buffered} protected by the stability buffer); background L1 may trail safely up to ${remainingBacklog.hardLimit - 1} additional stable messages.`
-        : 'Continuity is fully ready. Starting roleplay generation…';
+        ? `Roleplay released immediately with ${coverage.pending} recent message(s) still raw; Continuity will catch up after the reply.`
+        : 'Continuity snapshot is ready; roleplay was not delayed.';
     updateRuntime(retainedError
         ? { status: runtime.paused ? 'paused' : 'error', lastError: retainedError, retryStatus }
         : { status: 'idle', lastError: '', retryStatus });
@@ -541,6 +280,7 @@ async function prepareRoleplayGeneration(type) {
 async function performInjectionRefresh(useRetrievalAssist, coverageMessages, recentMessages, promptOptions, refreshRevision) {
     const settings = getSettings();
     const phase = useRetrievalAssist ? 'generation' : 'preview';
+    const localOnly = promptOptions?.localOnly === true;
     const placement = resolveInjectionPlacement(settings, extension_prompt_types, extension_prompt_roles);
     const refreshIsCurrent = () => injectionRefreshIsCurrent(refreshRevision);
     if (!settings.enabled || !getBoundWorldId()) {
@@ -585,7 +325,10 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
     let expandedTerms = [];
     let semanticRanks = new Map();
     let retrievalAssist = { mode: settings.retrievalMode, phase, executed: false, terms: [], fallback: false };
-    if (settings.retrievalMode === 'ai-expanded' && useRetrievalAssist) {
+    if (useRetrievalAssist && localOnly) {
+        retrievalAssist = { mode: 'local', phase, executed: true, terms: [], fallback: true, reason: 'latency-safe' };
+        updateRuntime({ retrievalAssist });
+    } else if (settings.retrievalMode === 'ai-expanded' && useRetrievalAssist) {
         try {
             expandedTerms = await expandRetrievalTerms(recent);
             if (!refreshIsCurrent()) return;
@@ -628,25 +371,6 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
         // the authoritative AI-expanded retrieval immediately above.
         retrievalAssist = { mode: 'ai-expanded', phase, executed: false, terms: [], fallback: false };
         updateRuntime({ retrievalAssist });
-    } else if (useRetrievalAssist && settings.retrievalMode === 'embedding-hybrid') {
-        try {
-            // Vector indexing is maintained in the background. Query the
-            // currently stored near-complete index immediately; a slow vector
-            // service must not strand SillyTavern generation.
-            semanticRanks = await queryEmbeddingWithRetries(world, recent);
-            if (!refreshIsCurrent()) return;
-            retrievalAssist = { mode: 'embedding-hybrid', phase, executed: true, hits: semanticRanks.size, fallback: false };
-            updateRuntime({ retrievalAssist });
-        } catch (error) {
-            if (!refreshIsCurrent()) return;
-            console.warn('[Continuity] Embedding retrieval failed; using local matching.', error);
-            showGenerationNotification(
-                'warning',
-                'Embedding retrieval was unavailable or slow, so this reply is using local memory matching. Vector work will continue in the background.',
-            );
-            retrievalAssist = { mode: 'local', phase, executed: true, terms: [], fallback: true, error: error.message };
-            updateRuntime({ retrievalAssist });
-        }
     } else if (settings.retrievalMode === 'embedding-hybrid') {
         retrievalAssist = { mode: 'embedding-hybrid', phase, executed: false, hits: 0, fallback: false };
         updateRuntime({ retrievalAssist });
@@ -665,6 +389,8 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
     if (!refreshIsCurrent()) return;
     await prepareRetrievalCorpus(world, yieldToBrowser, refreshIsCurrent);
     if (!refreshIsCurrent()) return;
+    const memoryPromptOptions = { ...(promptOptions || {}) };
+    delete memoryPromptOptions.localOnly;
     const { prompt, estimatedTokens, retrievalDiagnostics } = buildMemoryPrompt(
         world,
         recent,
@@ -673,7 +399,7 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
         expandedTerms,
         settings.injectionInstruction,
         semanticRanks,
-        { ...promptOptions, invalidSourceRanges, includeSceneCheckpoint: coverage.pending === 0, includeStorySoFar: settings.storySoFarEnabled, storySoFarTokens: storyBudget.tokens },
+        { ...memoryPromptOptions, invalidSourceRanges, includeSceneCheckpoint: coverage.pending === 0, includeStorySoFar: settings.storySoFarEnabled, storySoFarTokens: storyBudget.tokens },
     );
     if (!refreshIsCurrent()) return;
     const managerApplied = useRetrievalAssist && getContext().mainApi === 'openai'
@@ -908,7 +634,7 @@ async function onChatRenamed(eventData) {
 }
 
 async function init() {
-    const templateResponse = await fetch(new URL('./settings.html?v=0.14.0-standalone.302', import.meta.url));
+    const templateResponse = await fetch(new URL('./settings.html?v=0.14.0-standalone.303', import.meta.url));
     if (!templateResponse.ok) throw new Error(`Could not load settings template: ${templateResponse.status} ${templateResponse.statusText}`);
     const html = $(await templateResponse.text());
     const container = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
@@ -934,16 +660,9 @@ async function init() {
     }
     eventSource.on(event_types.GENERATION_STARTED, async (type, _params, dryRun) => {
         const roleplayGeneration = !dryRun && shouldGateRoleplayGeneration(getSettings(), getContext().chat || [], type);
-        // A new user-requested reply is also an explicit Resume. Stop keeps
-        // completed work, but must not leave safe background L1 catch-up
-        // paused after the next ordinary generation begins.
-        if (roleplayGeneration && runtime.paused) resumeRuntime();
-        // Start safe background catch-up as soon as the user asks for a
-        // message. It runs independently while the model generates.
-        if (!dryRun) backgroundMemoryWork.schedule(0);
         // Ordinary roleplay generations are refreshed later by the interceptor
-        // with the complete user turn. Do not issue an early request against
-        // stale chat text or overwrite its authoritative retrieval diagnostics.
+        // with the complete user turn. Memory work resumes only after the
+        // visible reply returns so it cannot compete with the RP provider.
         if (roleplayGeneration) return;
         try { await refreshInjection(false); }
         catch (error) { updateRuntime({ lastError: `Could not prepare memory: ${error.message}` }); }
@@ -957,7 +676,11 @@ async function init() {
     }
     eventSource.on(event_types.MESSAGE_RECEIVED, () => {
         scheduleInjectionRefresh();
+        if (runtime.paused) resumeRuntime();
         backgroundMemoryWork.schedule();
+        if (getSettings().retrievalMode === 'embedding-hybrid' && runtime.world?.id) {
+            continueEmbeddingAfterReplyRelease(runtime.world, runtime.stopSequence);
+        }
     });
     eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY, eventData => {
         if (!shouldCapturePromptMeasurement(eventData)) return;

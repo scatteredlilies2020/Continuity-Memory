@@ -141,7 +141,7 @@
                         <option value="embedding-hybrid">Embedding hybrid (vector + local, optional)</option>
                     </select>
                 </label>
-                <small>AI-expanded uses a small cached LLM request and never silently substitutes local retrieval; a failed expansion stops roleplay generation. Embedding hybrid uses Continuity's own embedding provider configuration and local matching, without an LLM retrieval request.</small>
+                <small>Visible roleplay replies always use latency-safe local matching, so retrieval providers cannot delay generation. AI-expanded and embedding configuration is retained for memory tooling and future enhanced retrieval; embedding indexing continues only after the reply returns.</small>
                 <div class="continuity-embedding-setting continuity-card-inset">
                     <b>Embedding hybrid index</b>
                     <label>Embedding provider
@@ -284,7 +284,7 @@
                     <summary>Advanced retrieval history</summary>
                     <label>Recent messages
                         <input id="continuity_retrieval_messages" class="text_pole" type="number" min="2" max="50" step="1">
-                        <small>complete messages; default 6. Local matching processes them on-device. AI-expanded sends them to its retrieval model. Long messages are not truncated.</small>
+                        <small>complete messages; default 6. Visible roleplay matching processes them on-device. Long messages are not truncated.</small>
                     </label>
                 </details>
                 <details>

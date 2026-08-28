@@ -67,7 +67,7 @@ Relevant existing mutable records are supplied to each extraction with stable ID
 
 ## Memory retrieval
 
-Continuity offers three retrieval modes.
+Continuity retains three retrieval configurations. Visible roleplay generation always uses latency-safe local matching, so an LLM or vector provider can never hold the reply open. Embedding synchronization resumes in the background after the visible reply returns.
 
 Retrieval supplements the default story-so-far overview rather than replacing it. Story So Far is persisted as the chronological narrative spine and is returned inside the same L1 extraction response as the structured memory, so normal processing does not make a second Story request. It is built from completed L1 scene summaries and keeps premise, chronology, durable state, unresolved matters, and knowledge boundaries within the configured allowance. Build / Continue and Rebuild remain available as explicit manual recovery actions; Delete removes only Story So Far. Story never reads L2, L3, retrieved records, or other recall output. The main Build action also advances Story through the same L1 processing queue, and Erase everything & start over reconstructs it after structured memory.
 
@@ -77,13 +77,13 @@ Deterministic multilingual text matching with no additional model request. This 
 
 ### AI-expanded matching
 
-A model generates related search terms before Continuity performs local matching. This helps with indirect references, alternative names, and callbacks that do not use the original wording.
+This configuration is retained for memory tooling and future enhanced retrieval. It is not called on the visible roleplay path.
 
 ### Embedding hybrid
 
-Semantic vector retrieval is combined with local text matching. This works well for large memories and paraphrased references without requiring an LLM retrieval request.
+The vector index is maintained in the background for memory tooling and future enhanced retrieval. Vector queries are not called on the visible roleplay path.
 
-Embeddings are optional. The vector index is derived from canonical Continuity memory, stored separately, and never included in memory exports or portable chat snapshots. It can be deleted or rebuilt at any time. If indexing or retrieval fails, Continuity falls back to local matching.
+Embeddings are optional. The vector index is derived from canonical Continuity memory, stored separately, and never included in memory exports or portable chat snapshots. It can be deleted or rebuilt at any time. Indexing failures never affect visible roleplay, which already uses local matching.
 
 When the optional Continuity server plugin is available, CM uses its detached vector store. If no detached index exists yet, CM copies the exact legacy SillyTavern `index.json`, reads the detached copy back for verification, and only then retires the original. An already verified detached cache also retires a no-larger old cache left by an earlier standalone build; a larger old cache is preserved. Without the server plugin, CM automatically keeps using SillyTavern's native vector API instead of interrupting indexing. Syncthing conflict copies and other similarly named files are never selected for automatic import.
 
@@ -125,7 +125,7 @@ Recent conversation remains verbatim. Extracted records sourced wholly from that
 
 If extraction fails or coverage is incomplete, Continuity keeps the uncovered messages in context. Stored ranges whose source messages were edited, swiped, hidden, or deleted are excluded from retrieval immediately and repaired before later use.
 
-When a roleplay request must wait for queued memory work, Continuity shows a single status notification with the pending message count, active range, and queued-job count. Generation resumes automatically when memory is ready.
+Roleplay never waits for extraction, hierarchy building, embedding synchronization, or an embedding query. Continuity injects the latest safe snapshot using local matching on the generation path; unfinished memory and vector work continues in the background, while recent unprocessed messages remain available as raw chat.
 
 ## Models and connections
 

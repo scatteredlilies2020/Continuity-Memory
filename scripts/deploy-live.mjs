@@ -33,8 +33,9 @@ async function digest(filename) {
 export async function liveLayout(targetRoot, sourceRoot = repositoryRoot) {
     const manifest = await json(path.join(sourceRoot, 'manifest.json'));
     if (!manifest.js) throw new Error('Root manifest has no js entrypoint.');
-    const sourceEntry = path.resolve(sourceRoot, manifest.js);
-    const targetEntry = path.resolve(targetRoot, manifest.js);
+    const entryFile = manifest.js.split('?')[0];
+    const sourceEntry = path.resolve(sourceRoot, entryFile);
+    const targetEntry = path.resolve(targetRoot, entryFile);
     const sourceCodeRoot = path.dirname(sourceEntry);
     const targetCodeRoot = path.dirname(targetEntry);
     if (!sourceEntry.startsWith(`${path.resolve(sourceRoot)}${path.sep}`)) throw new Error('Manifest js escapes the repository.');

@@ -11,7 +11,7 @@ const extensionRoot = path.join(root, 'extension');
 const installManifest = JSON.parse(readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 for (const asset of ['js', 'css']) {
     if (!installManifest[asset]) throw new Error(`Root manifest is missing ${asset}`);
-    const assetPath = path.resolve(root, installManifest[asset]);
+    const assetPath = path.resolve(root, installManifest[asset].split('?')[0]);
     if (!assetPath.startsWith(`${root}${path.sep}`)) throw new Error(`Root manifest ${asset} escapes the repository`);
     readFileSync(assetPath);
 }
