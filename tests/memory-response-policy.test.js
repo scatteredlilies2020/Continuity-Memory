@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { GEMINI_MEMORY_RESPONSE_TOKENS, memoryResponseTokens, PROVIDER_MANAGED_MEMORY_RESPONSE_TOKENS, resolveMemoryResponseTokens, storyResponseTokens } from '../extension/memory-response-policy.js';
 
-test('L1, L2, and L3 delegate output length to SillyTavern and the provider', () => {
+test('L1 and Chronicle promotion delegate output length to SillyTavern and the provider', () => {
     assert.equal(PROVIDER_MANAGED_MEMORY_RESPONSE_TOKENS, null);
-    for (const layer of ['l1', 'l2', 'l3']) assert.equal(memoryResponseTokens(layer), null);
+    for (const layer of ['l1', 'chronicle']) assert.equal(memoryResponseTokens(layer), null);
 });
 
 test('Story generation inherits the selected connection profile output capacity', () => {

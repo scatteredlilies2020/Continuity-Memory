@@ -52,8 +52,8 @@ test('legacy Story snapshots are deleted without touching structured layers', ()
             manual: { text: 'Manual Story', sourceMode: STORY_SOURCE_RAW, sourcePolicyVersion: STORY_SOURCE_POLICY_VERSION, storyFormat: STORY_FORMAT_MANUAL },
         },
         capsules: [{ id: 'l1' }],
-        arcs: [{ id: 'l2' }],
-        eras: [{ id: 'l3' }],
+        arcs: [{ id: 'legacy-arc' }],
+        eras: [{ id: 'legacy-era' }],
     };
     assert.equal(discardLegacyStorySnapshots(world), 1);
     assert.equal(world.storySoFar.chat, undefined);

@@ -40,14 +40,14 @@ test('discarding a review can stop generation with a specific visible reason', (
     runtime.lastError = 'Old failure';
     runtime.queue = [{ resolve: result => resolved.push(result) }];
     try {
-        stopRuntime('Reviewed L2 candidate was discarded.');
+        stopRuntime('Reviewed C1 candidate was discarded.');
         assert.equal(runtime.generation, 11);
         assert.equal(runtime.stopSequence, 3);
         assert.equal(runtime.paused, true);
         assert.equal(runtime.status, 'paused');
         assert.deepEqual(runtime.queue, []);
-        assert.equal(runtime.lastValidation, 'Reviewed L2 candidate was discarded.');
-        assert.equal(runtime.retryStatus, 'Reviewed L2 candidate was discarded.');
+        assert.equal(runtime.lastValidation, 'Reviewed C1 candidate was discarded.');
+        assert.equal(runtime.retryStatus, 'Reviewed C1 candidate was discarded.');
         assert.equal(runtime.lastError, '');
         assert.deepEqual(resolved, [{ cancelled: true, messages: 0, chunks: 0 }]);
     } finally {

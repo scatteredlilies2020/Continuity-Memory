@@ -79,10 +79,6 @@ test('reviewed correction updates established records and invalidates only conta
     assert.equal(world.corrections.length, 1);
     assert.deepEqual(world.arcs.map(item => item.id), ['arc-safe']);
     assert.deepEqual(world.eras.map(item => item.id), ['era-safe']);
-    assert.equal(result.invalidatedArcs, 1);
-    assert.equal(result.invalidatedEras, 1);
-    assert.equal(result.invalidatedArcRecords[0].id, 'arc-affected');
-    assert.equal(result.invalidatedEraRecords[0].id, 'era-affected');
     assert.ok(buildEmbeddingDocuments(world).some(item => item.key.startsWith('correction:')));
     const injected = buildMemoryPrompt(world, [{ name: 'User', mes: 'What did Sasuke know about Elizabeth?' }], 2000, 'chat');
     assert.match(injected.prompt, /User corrections:/);
@@ -108,8 +104,6 @@ test('a newly asserted historical event is propagated into L1 before hierarchy r
     assert.equal(proposal.operations[1].action, 'update');
     assert.match(proposal.operations[1].replacement.beats.join(' '), /shatters Hiruzen/i);
     const result = applyCorrectionProposal(world, proposal);
-    assert.equal(result.invalidatedArcs, 1);
-    assert.equal(result.invalidatedEras, 1);
 });
 
 test('a historical event without a matching chronology creates an authoritative L1 source', () => {

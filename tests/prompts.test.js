@@ -7,10 +7,8 @@ import {
     CHRONICLE_ENTRY_RULE,
     CHARACTER_PROFILE_RULE,
     CONTINUITY_COVERAGE_RULES,
-    DEFAULT_ARC_SYSTEM_PROMPT,
-    DEFAULT_ARC_TASK_TEMPLATE,
-    DEFAULT_ERA_SYSTEM_PROMPT,
-    DEFAULT_ERA_TASK_TEMPLATE,
+    DEFAULT_CHRONICLE_SYSTEM_PROMPT,
+    DEFAULT_CHRONICLE_TASK_TEMPLATE,
     DEFAULT_EXTRACTION_SYSTEM_PROMPT,
     DEFAULT_EXTRACTION_TASK_TEMPLATE,
     DEFAULT_INJECTION_INSTRUCTION,
@@ -55,8 +53,7 @@ test('custom prompt templates cannot omit required payloads', () => {
 });
 
 test('hierarchy concision rules apply to defaults and custom instructions', () => {
-    assert.equal(buildHierarchySystemPrompt(DEFAULT_ARC_SYSTEM_PROMPT), DEFAULT_ARC_SYSTEM_PROMPT);
-    assert.equal(buildHierarchySystemPrompt(DEFAULT_ERA_SYSTEM_PROMPT), DEFAULT_ERA_SYSTEM_PROMPT);
+    assert.equal(buildHierarchySystemPrompt(DEFAULT_CHRONICLE_SYSTEM_PROMPT), DEFAULT_CHRONICLE_SYSTEM_PROMPT);
     assert.equal(buildHierarchySystemPrompt('Custom hierarchy instructions.'), `Custom hierarchy instructions.\n\n${HIERARCHY_CONCISION_RULES}`);
     assert.match(HIERARCHY_CONCISION_RULES, /without omission ellipses/i);
 });
@@ -66,8 +63,7 @@ test('prompt builders preserve custom instructions without adding prose-style di
     for (const prompt of [
         buildExtractionSystemPrompt(DEFAULT_EXTRACTION_SYSTEM_PROMPT),
         buildRetrievalSystemPrompt(DEFAULT_RETRIEVAL_SYSTEM_PROMPT),
-        buildHierarchySystemPrompt(DEFAULT_ARC_SYSTEM_PROMPT),
-        buildHierarchySystemPrompt(DEFAULT_ERA_SYSTEM_PROMPT),
+        buildHierarchySystemPrompt(DEFAULT_CHRONICLE_SYSTEM_PROMPT),
     ]) assert.doesNotMatch(prompt, /avoid em dashes/i);
 });
 
@@ -157,21 +153,18 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_RETRIEVAL_SYSTEM_PROMPT, /immediate next response/);
     assert.match(DEFAULT_RETRIEVAL_SYSTEM_PROMPT, /every phrase independently searchable/);
     assert.match(DEFAULT_RETRIEVAL_SYSTEM_PROMPT, /include those actors in that same phrase/);
-    assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /participants need not be people/);
-    assert.match(DEFAULT_ERA_SYSTEM_PROMPT, /participants need not be people/);
-    assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /consequential knowledge gaps as open threads/);
-    assert.match(DEFAULT_ARC_SYSTEM_PROMPT, /Most items are 2 or 3/);
-    assert.match(DEFAULT_ERA_SYSTEM_PROMPT, /Most items are 2 or 3/);
+    assert.match(DEFAULT_CHRONICLE_SYSTEM_PROMPT, /chronological Chronicle nodes/);
+    assert.match(DEFAULT_CHRONICLE_SYSTEM_PROMPT, /consequential knowledge gaps as open threads/);
+    assert.match(DEFAULT_CHRONICLE_SYSTEM_PROMPT, /Most items are 2 or 3/);
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 13400);
-    assert.ok(DEFAULT_ARC_SYSTEM_PROMPT.length < 2300);
-    assert.ok(DEFAULT_ERA_SYSTEM_PROMPT.length < 2300);
+    assert.ok(DEFAULT_CHRONICLE_SYSTEM_PROMPT.length < 2400);
 });
 
 test('rolling snapshot is bounded, chronological, and sourced only from supplied Story material', () => {
     assert.match(ROLLING_STORY_RULE, /prior snapshot plus new chronological source material only/i);
     assert.match(ROLLING_STORY_RULE, /raw chat or explicitly labeled L1 scene summaries/i);
-    assert.match(ROLLING_STORY_RULE, /never consult L2, L3, retrieval results, or other memory/i);
-    assert.match(ROLLING_STORY_RULE, /Do not cite or name L1, L2, L3/i);
+    assert.match(ROLLING_STORY_RULE, /never consult derived hierarchy, retrieval results, or other memory/i);
+    assert.match(ROLLING_STORY_RULE, /Do not cite or name L1, Chronicle nodes/i);
     assert.match(ROLLING_STORY_RULE, /Record only what has already occurred/i);
     assert.match(ROLLING_STORY_RULE, /do not write current, currently, present, latest, ongoing, now, or at present/i);
     assert.match(ROLLING_STORY_RULE, /plans and expectations belong only in openMatters and remain explicitly unresolved/i);
@@ -269,7 +262,7 @@ test('final Story quality repair protects stakes and removes low-value inventory
 });
 
 test('default structured task prompts avoid repeating full schemas', () => {
-    for (const template of [DEFAULT_EXTRACTION_TASK_TEMPLATE, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_TASK_TEMPLATE]) {
+    for (const template of [DEFAULT_EXTRACTION_TASK_TEMPLATE, DEFAULT_CHRONICLE_TASK_TEMPLATE]) {
         assert.match(template, /\{\{format\}\}/);
         assert.doesNotMatch(template, /\{\{schema\}\}/);
     }

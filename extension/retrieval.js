@@ -1419,33 +1419,6 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     addSection('Established character knowledge', establishedKnowledge.map(({ item }) =>
         `- ${plain(item.subject)} — ${plain(item.predicate)}: ${anchoredRelativeText(item.value, item)}`));
 
-    const selectedEras = takeMatches('L3 continuity', 'era', hasChronicle ? [] : (world.eras || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)), 2);
-    const eraRows = selectedEras
-        .map(({ item }) => {
-            const storyTime = anchoredStoryTime(item);
-            const storyTimeAnchored = storyTime !== plain(item.storyTime);
-            const turns = (item.turningPoints || []).map(plain).filter(Boolean).join(' → ');
-            const threads = (item.openThreads || []).map(plain).filter(Boolean).join('; ');
-            const continuity = `${plain(item.summary)}${turns ? ` Major turning points: ${turns}.` : ''}${plain(item.closingState) ? ` Closing state: ${plain(item.closingState)}.` : ''}${threads ? ` Still open: ${threads}.` : ''}`;
-            const body = `${plain(item.title)}: ${continuity}`;
-            return `- ${storyTime ? `[${storyTime}] ` : ''}${storyTimeAnchored ? body : anchoredRelativeText(body, item)}`;
-        });
-    addSection('L3 continuity', eraRows);
-
-    const coveredArcIds = new Set(selectedEras.flatMap(({ item }) => item.arcIds || []));
-    const selectedArcs = takeMatches('L2 continuity', 'arc', hasChronicle ? [] : (world.arcs || []).filter(item => sourceIsCurrent(item) && !coveredArcIds.has(item.id) && !whollyRaw(item)), 2);
-    const arcRows = selectedArcs
-        .map(({ item }) => {
-            const storyTime = anchoredStoryTime(item);
-            const storyTimeAnchored = storyTime !== plain(item.storyTime);
-            const turns = (item.turningPoints || []).map(plain).filter(Boolean).join(' → ');
-            const threads = (item.openThreads || []).map(plain).filter(Boolean).join('; ');
-            const continuity = `${plain(item.summary)}${turns ? ` Turning points: ${turns}.` : ''}${plain(item.closingState) ? ` Closing state: ${plain(item.closingState)}.` : ''}${threads ? ` Still open: ${threads}.` : ''}`;
-            const body = `${plain(item.title)}: ${continuity}`;
-            return `- ${storyTime ? `[${storyTime}] ` : ''}${storyTimeAnchored ? body : anchoredRelativeText(body, item)}`;
-        });
-    addSection('L2 continuity', arcRows);
-
     const capsules = world.capsules || [];
     const chronological = capsules.filter(item => sourceIsCurrent(item) && !whollyRaw(item)).slice().sort((a, b) => {
         if (a.chatKey === b.chatKey) return Number(a.from ?? 0) - Number(b.from ?? 0);
@@ -1454,11 +1427,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     const currentChronology = chatKey ? chronological.filter(item => item.chatKey === chatKey) : chronological;
     const latest = hasChronicle ? [] : currentChronology.slice(-3);
     const latestIds = new Set(latest.map(item => item.id));
-    const coveredCapsuleIds = new Set([
-        ...selectedEras.flatMap(({ item }) => item.capsuleIds || []),
-        ...selectedArcs.flatMap(({ item }) => item.capsuleIds || []),
-    ]);
-    const relevant = takeMatches('Recent continuity', 'capsule', (hasChronicle ? [] : chronological).filter(item => !latestIds.has(item.id) && !coveredCapsuleIds.has(item.id)), 2)
+    const relevant = takeMatches('Recent continuity', 'capsule', (hasChronicle ? [] : chronological).filter(item => !latestIds.has(item.id)), 2)
         .map(({ item }) => item);
     recordSelections('Recent continuity', 'capsule', latest, 'latest L1');
     const selectedCapsules = [...relevant, ...latest]
@@ -1599,8 +1568,6 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         ...((world.relationships || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)).map(item => ({ category: 'relationship', item }))),
         ...((world.events || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)).map(item => ({ category: 'event', item }))),
         ...((hasChronicle ? [] : chronological).map(item => ({ category: 'capsule', item }))),
-        ...((hasChronicle ? [] : (world.arcs || [])).filter(item => sourceIsCurrent(item) && !whollyRaw(item)).map(item => ({ category: 'arc', item }))),
-        ...((hasChronicle ? [] : (world.eras || [])).filter(item => sourceIsCurrent(item) && !whollyRaw(item)).map(item => ({ category: 'era', item }))),
         ...((world.threads || []).filter(item => sourceIsCurrent(item) && item.status === 'open' && !latestIsRaw(item)).map(item => ({ category: 'thread', item }))),
         ...((world.backgrounds || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)).map(item => ({ category: 'background', item }))),
     ].filter(candidate => candidate.item?.id && !selectedIds.has(candidate.item.id));
@@ -1611,10 +1578,10 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     const supportDepthScale = Math.min(1.5, Math.max(0.75, Math.sqrt(budget / 10000)));
     const primarySupportSeeds = selectedMemoryRecords
         .filter(selection => selection.category !== 'entity' && selection.reason !== 'latest L1')
-        // L1/L2/L3 records already carry their own condensed history. Expanding
+        // L1 records already carry their own condensed history. Expanding
         // them again tends to recover a whole old interval instead of useful
         // prerequisites for the current query.
-        .filter(selection => !['capsule', 'arc', 'era'].includes(selection.category))
+        .filter(selection => selection.category !== 'capsule')
         // Open matters remain visible as primaries on a permissive match, but
         // only strong/direct thread evidence may unlock their wider history.
         .filter(selection => selection.category !== 'thread'
@@ -1737,10 +1704,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
             const sequence = [item.opening, ...(item.beats || []), item.closing].map(plain).filter(Boolean).join(' → ');
             return `- [L1] ${storyTime ? `[${storyTime}] ` : ''}${anchoredRelativeText(`${item.title}: ${sequence}${item.emotionalArc ? ` Overall movement: ${plain(item.emotionalArc)}` : ''}`, item)}`;
         }
-        const turns = (item.turningPoints || []).map(plain).filter(Boolean).join(' → ');
-        const threads = (item.openThreads || []).map(plain).filter(Boolean).join('; ');
-        const detail = `${plain(item.summary)}${turns ? ` Turning points: ${turns}.` : ''}${plain(item.closingState) ? ` Closing state: ${plain(item.closingState)}.` : ''}${threads ? ` Still open: ${threads}.` : ''}`;
-        return `- [${category === 'arc' ? 'L2' : 'L3'}] ${plain(item.title)}: ${detail}`;
+        return '';
     };
     for (const result of prioritizedClosureRecords) {
         recordSelections(
@@ -1757,7 +1721,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.1';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.2';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';

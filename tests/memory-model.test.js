@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildEmbeddingDocuments } from '../extension/embedding-index.js';
 import { EXTRACTION_VERSION } from '../extension/coverage.js';
-import { addDerivedArc, addDerivedEra, compactDuplicateMemoryRecords, compactHierarchyFields, compactRepeatedEntityDescriptions, freshResetResiduals, getLatestL1UndoStatus, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from '../extension/memory-model.js';
+import { addDerivedChronicle, compactDuplicateMemoryRecords, compactHierarchyFields, compactRepeatedEntityDescriptions, freshResetResiduals, getLatestL1UndoStatus, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from '../extension/memory-model.js';
 import { buildMemoryPrompt, orderEventsChronologically } from '../extension/retrieval.js';
 import { sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
 
@@ -1812,20 +1812,6 @@ test('retrieval supports short identifiers and CJK names', () => {
     assert.match(result.prompt, /台灣 \(place\)/);
 });
 
-test('hierarchy retrieval counts importance once and favors stronger matches', () => {
-    const target = world();
-    target.arcs = [
-        { id: 'high-five', title: 'High five', summary: 'alpha only', importance: 5 },
-        { id: 'high-four', title: 'High four', summary: 'alpha only', importance: 4 },
-        { id: 'strong-match', title: 'Strong match', summary: 'alpha beta', importance: 1 },
-    ];
-    const result = buildMemoryPrompt(target, [{ name: 'User', mes: 'alpha beta' }], 1200);
-    const selectedL2 = result.prompt.match(/L2 continuity:\n([\s\S]*?)(?:\n\n|<\/continuity>)/)?.[1] || '';
-    assert.match(selectedL2, /Strong match/);
-    assert.match(selectedL2, /High five/);
-    assert.doesNotMatch(selectedL2, /High four/);
-});
-
 test('multilingual injection soft-overflows its recall target instead of clipping a complete row', () => {
     const target = world();
     target.entities.push({ id: 'wide', name: '台灣', type: 'place', description: `${'狀'.repeat(2500)}完整結尾`, importance: 3 });
@@ -1833,85 +1819,6 @@ test('multilingual injection soft-overflows its recall target instead of clippin
     assert.ok(result.estimatedTokens > 1000);
     assert.match(result.prompt, /完整結尾/u);
     assert.doesNotMatch(result.prompt, /…/u);
-});
-
-test('retrieval avoids repeating hierarchy records covered by a selected higher level', () => {
-    const target = world();
-    target.capsules = [
-        { id: 'old', chatKey: 'chat', from: 0, title: 'Old alpha detail', opening: 'alpha began', importance: 3 },
-        { id: 'recent-1', chatKey: 'chat', from: 10, title: 'Recent one', opening: 'unrelated one', importance: 3 },
-        { id: 'recent-2', chatKey: 'chat', from: 20, title: 'Recent two', opening: 'unrelated two', importance: 3 },
-        { id: 'recent-3', chatKey: 'chat', from: 30, title: 'Recent three', opening: 'unrelated three', importance: 3 },
-    ];
-    target.arcs = [{ id: 'arc', title: 'Alpha L2', summary: 'alpha continued', capsuleIds: ['old'], importance: 3 }];
-    target.eras = [{ id: 'era', title: 'Alpha L3', summary: 'alpha history', arcIds: ['arc'], capsuleIds: ['old'], importance: 3 }];
-    const result = buildMemoryPrompt(target, [{ name: 'User', mes: 'alpha' }], 2000, 'chat');
-    assert.match(result.prompt, /Alpha L3/);
-    assert.doesNotMatch(result.prompt, /Alpha L2/);
-    assert.doesNotMatch(result.prompt, /Old alpha detail/);
-    assert.match(result.prompt, /Recent three/);
-});
-
-test('L2 records are non-destructive derivatives and become stale when an L1 source changes', () => {
-    const target = world();
-    const meta = { chatKey: 'chat', from: 0, to: 4, allowStateUpdates: true };
-    mergeExtraction(target, extraction(), meta);
-    const capsule = target.capsules[0];
-    addDerivedArc(target, {
-        title: 'Music club beginnings', storyTime: 'After school', participants: ['Yui', 'Mio'],
-        summary: 'Practice strengthened their friendship and established a weekend plan.',
-        turningPoints: ['They completed a song.'], emotionalArc: 'They became more confident.',
-        closingState: 'They planned another rehearsal.', openThreads: ['Weekend rehearsal'], importance: 4,
-    }, [capsule]);
-    assert.equal(target.capsules.length, 1);
-    assert.equal(target.arcs.length, 1);
-    const prompt = buildMemoryPrompt(target, [{ name: 'User', mes: 'What happened with the music club?' }], 2000);
-    assert.match(prompt.prompt, /L2 continuity:/);
-    assert.match(prompt.prompt, /Music club beginnings/);
-
-    mergeExtraction(target, extraction({ sceneCapsule: { ...extraction().sceneCapsule, closing: 'The rehearsal plan was cancelled.' } }), meta);
-    assert.equal(target.capsules.length, 1);
-    assert.equal(target.arcs.length, 0);
-});
-
-test('L2 preserves a complete generated summary through storage and retrieval', () => {
-    const target = world();
-    const chatKey = 'long-l2-chat';
-    mergeExtraction(target, extraction(), { chatKey, from: 0, to: 7, allowStateUpdates: true });
-    const completeSummary = `${'Alpha development remained causally important. '.repeat(80)}FINAL_L2_SENTENCE.`;
-    const completeTitle = `${'Complete alpha title context. '.repeat(8)}FINAL_L2_TITLE.`;
-    const completeStoryTime = `${'Relative narrative interval. '.repeat(8)}FINAL_L2_TIME.`;
-    const completeTurningPoint = `${'A detailed causal turning point remained important. '.repeat(8)}FINAL_L2_TURN.`;
-    const completeThread = `${'A detailed unresolved thread remained important. '.repeat(7)}FINAL_L2_THREAD.`;
-    assert.ok(completeSummary.length > 1800);
-    assert.ok(completeTitle.length > 140);
-    assert.ok(completeStoryTime.length > 180);
-
-    const completeProgression = `${'Trust changed through each major development. '.repeat(20)}FINAL_L2_PROGRESSION.`;
-    const completeClosing = `${'The interval closed with a durable consequence. '.repeat(20)}FINAL_L2_CLOSING.`;
-    const arc = addDerivedArc(target, {
-        title: completeTitle, storyTime: completeStoryTime, participants: ['Yui', 'Mio'],
-        summary: completeSummary, turningPoints: [completeTurningPoint], emotionalArc: completeProgression,
-        closingState: completeClosing, openThreads: [completeThread], importance: 4,
-    }, [target.capsules[0]]);
-
-    assert.equal(arc.summary, completeSummary);
-    assert.ok(arc.title.length <= 140);
-    assert.ok(arc.storyTime.length <= 180);
-    assert.ok(arc.title.endsWith('…'));
-    assert.ok(arc.storyTime.endsWith('…'));
-    assert.equal(arc.turningPoints[0], completeTurningPoint);
-    assert.equal(arc.emotionalArc, completeProgression);
-    assert.equal(arc.closingState, completeClosing);
-    assert.equal(arc.openThreads[0], completeThread);
-    assert.ok(!arc.summary.endsWith('…'));
-    assert.ok(!arc.emotionalArc.endsWith('…'));
-    assert.ok(!arc.closingState.endsWith('…'));
-    target.chronicle = [];
-    target.storySoFar = {};
-    const prompt = buildMemoryPrompt(target, [{ name: 'User', mes: 'Continue the alpha history.' }], 12000, chatKey);
-    assert.match(prompt.prompt, /FINAL_L2_SENTENCE\./);
-    assert.match(prompt.prompt, /FINAL_L2_CLOSING\./);
 });
 
 test('hierarchy compaction removes only exact repeated field text', () => {
@@ -1951,82 +1858,6 @@ test('L1 retrieval preserves the complete bounded capsule', () => {
     assert.match(prompt.prompt, /FINAL_L1_SENTENCE\./);
 });
 
-test('L3 records retain L2 and L1 sources and invalidate when a source changes', () => {
-    const target = world();
-    const meta = { chatKey: 'chat', from: 0, to: 4, allowStateUpdates: true };
-    mergeExtraction(target, extraction(), meta);
-    const capsule = target.capsules[0];
-    const arc = addDerivedArc(target, {
-        title: 'Music club beginnings', storyTime: 'Spring', participants: ['Yui', 'Mio'],
-        summary: 'The club formed and began practicing.', turningPoints: ['Their first rehearsal'], emotionalArc: 'Trust grew.',
-        closingState: 'The club was established.', openThreads: ['First concert'], importance: 4,
-    }, [capsule]);
-    addDerivedEra(target, {
-        title: 'The club foundation era', storyTime: 'Spring', participants: ['Yui', 'Mio'],
-        summary: 'The musicians established their club.', turningPoints: ['The club formed'], emotionalArc: 'They became friends.',
-        closingState: 'They prepared for a concert.', openThreads: ['First concert'], importance: 5,
-    }, [arc]);
-    assert.equal(target.eras.length, 1);
-    assert.deepEqual(target.eras[0].arcIds, [arc.id]);
-    assert.deepEqual(target.eras[0].capsuleIds, [capsule.id]);
-    assert.equal(target.arcs.length, 1);
-    assert.equal(target.capsules.length, 1);
-    target.chronicle = [];
-    target.storySoFar = {};
-    const prompt = buildMemoryPrompt(target, [{ name: 'User', mes: 'Remember the music club foundation era and first concert.' }], 3000, 'chat');
-    assert.match(prompt.prompt, /L3 continuity:/);
-    assert.match(prompt.prompt, /The club foundation era/);
-
-    replaceExtraction(target, extraction({ sceneCapsule: { ...extraction().sceneCapsule, closing: 'The club disbanded.' } }), meta);
-    assert.equal(target.arcs.length, 0);
-    assert.equal(target.eras.length, 0);
-});
-
-test('L3 preserves a complete generated summary through storage and retrieval', () => {
-    const target = world();
-    const chatKey = 'long-l3-chat';
-    mergeExtraction(target, extraction(), { chatKey, from: 0, to: 7, allowStateUpdates: true });
-    const arc = addDerivedArc(target, {
-        title: 'Omega arc', storyTime: 'Spring', participants: ['Yui', 'Mio'],
-        summary: 'The omega history began.', turningPoints: ['Their first rehearsal'], emotionalArc: 'Trust grew.',
-        closingState: 'The club remained active.', openThreads: ['First concert'], importance: 4,
-    }, [target.capsules[0]]);
-    const completeSummary = `${'Omega era development remained causally important. '.repeat(80)}FINAL_L3_SENTENCE.`;
-    const completeTitle = `${'Complete omega title context. '.repeat(8)}FINAL_L3_TITLE.`;
-    const completeStoryTime = `${'Long-range narrative interval. '.repeat(9)}FINAL_L3_TIME.`;
-    const completeTurningPoint = `${'A detailed long-range turning point remained important. '.repeat(9)}FINAL_L3_TURN.`;
-    const completeThread = `${'A detailed long-range unresolved thread remained important. '.repeat(7)}FINAL_L3_THREAD.`;
-    assert.ok(completeSummary.length > 2600);
-    assert.ok(completeTitle.length > 160);
-    assert.ok(completeStoryTime.length > 220);
-
-    const completeProgression = `${'The long-range progression remained causally significant. '.repeat(20)}FINAL_L3_PROGRESSION.`;
-    const completeClosing = `${'The era closed with a durable long-range consequence. '.repeat(20)}FINAL_L3_CLOSING.`;
-    const era = addDerivedEra(target, {
-        title: completeTitle, storyTime: completeStoryTime, participants: ['Yui', 'Mio'],
-        summary: completeSummary, turningPoints: [completeTurningPoint], emotionalArc: completeProgression,
-        closingState: completeClosing, openThreads: [completeThread], importance: 5,
-    }, [arc]);
-
-    assert.equal(era.summary, completeSummary);
-    assert.ok(era.title.length <= 160);
-    assert.ok(era.storyTime.length <= 220);
-    assert.ok(era.title.endsWith('…'));
-    assert.ok(era.storyTime.endsWith('…'));
-    assert.equal(era.turningPoints[0], completeTurningPoint);
-    assert.equal(era.emotionalArc, completeProgression);
-    assert.equal(era.closingState, completeClosing);
-    assert.equal(era.openThreads[0], completeThread);
-    assert.ok(!era.summary.endsWith('…'));
-    assert.ok(!era.emotionalArc.endsWith('…'));
-    assert.ok(!era.closingState.endsWith('…'));
-    target.chronicle = [];
-    target.storySoFar = {};
-    const prompt = buildMemoryPrompt(target, [{ name: 'User', mes: 'Continue the omega era.' }], 12000, chatKey);
-    assert.match(prompt.prompt, /FINAL_L3_SENTENCE\./);
-    assert.match(prompt.prompt, /FINAL_L3_CLOSING\./);
-});
-
 test('retrying L1 transactionally replaces the selected range contribution', () => {
     const target = world();
     const meta = { chatKey: 'chat', from: 0, to: 4, allowStateUpdates: true, messageFingerprints: [] };
@@ -2043,14 +1874,11 @@ test('retrying L1 transactionally replaces the selected range contribution', () 
     assert.equal(target.extractions.length, 1);
 });
 
-test('scratch rebuild removal invalidates only memory derived from the current chat', () => {
+test('scratch rebuild removal invalidates legacy derived data from only the current chat', () => {
     const target = world();
     mergeExtraction(target, extraction(), { chatKey: 'current', from: 0, to: 4, allowStateUpdates: true });
     const currentCapsule = target.capsules[0];
-    addDerivedArc(target, {
-        title: 'Current arc', storyTime: '', participants: [], summary: 'Current chat arc.',
-        turningPoints: [], emotionalArc: '', closingState: '', openThreads: [], importance: 3,
-    }, [currentCapsule]);
+    target.arcs.push({ id: 'legacy-current', chatKey: 'current', capsuleIds: [currentCapsule.id] });
     mergeExtraction(target, extraction({ facts: [{ subject: 'Mio', predicate: 'instrument', value: 'bass', category: 'identity', importance: 4, persistence: 'persistent' }] }), { chatKey: 'other', from: 0, to: 4, allowStateUpdates: false });
 
     removeChatContributions(target, 'current');
@@ -2061,7 +1889,7 @@ test('scratch rebuild removal invalidates only memory derived from the current c
     assert.ok(target.sources.other);
 });
 
-test('branch replay preserves retained record and hierarchy identities', () => {
+test('branch replay preserves retained record and Chronicle identities', () => {
     const target = world();
     const chatKey = 'chat';
     const first = extraction();
@@ -2070,15 +1898,7 @@ test('branch replay preserves retained record and hierarchy identities', () => {
         events: [{ ...extraction().events[0], title: 'Saturday rehearsal' }],
     });
     mergeExtraction(target, first, { chatKey, from: 0, to: 5, allowStateUpdates: true });
-    const retainedCapsule = target.capsules[0];
-    const retainedArc = addDerivedArc(target, {
-        title: 'Practice arc', storyTime: '', participants: [], summary: 'The first practice.',
-        turningPoints: [], emotionalArc: '', closingState: '', openThreads: [], importance: 3,
-    }, [retainedCapsule]);
-    addDerivedEra(target, {
-        title: 'Practice era', storyTime: '', participants: [], summary: 'The retained era.',
-        turningPoints: [], emotionalArc: '', closingState: '', openThreads: [], importance: 3,
-    }, [retainedArc]);
+    const retainedChronicle = target.chronicle[0];
     mergeExtraction(target, second, { chatKey, from: 6, to: 11, allowStateUpdates: true });
     const previous = structuredClone(target);
     const previousHashes = new Map(buildEmbeddingDocuments(previous).map(item => [item.key, item.hash]));
@@ -2088,8 +1908,7 @@ test('branch replay preserves retained record and hierarchy identities', () => {
         event: previous.events[0].id,
         capsule: previous.capsules[0].id,
         extraction: previous.extractions[0].id,
-        arc: previous.arcs[0].id,
-        era: previous.eras[0].id,
+        chronicle: retainedChronicle.id,
     };
 
     removeChatContributions(target, chatKey);
@@ -2101,11 +1920,10 @@ test('branch replay preserves retained record and hierarchy identities', () => {
     assert.equal(target.events[0].id, retainedIds.event);
     assert.equal(target.capsules[0].id, retainedIds.capsule);
     assert.equal(target.extractions[0].id, retainedIds.extraction);
-    assert.equal(target.arcs[0].id, retainedIds.arc);
-    assert.equal(target.eras[0].id, retainedIds.era);
+    assert.equal(target.chronicle[0].id, retainedIds.chronicle);
     assert.equal(target.capsules.some(item => Number(item.from) === 6), false);
     const replayedHashes = new Map(buildEmbeddingDocuments(target).map(item => [item.key, item.hash]));
-    for (const key of [`capsule:${retainedIds.capsule}`, `arc:${retainedIds.arc}`, `era:${retainedIds.era}`]) {
+    for (const key of [`capsule:${retainedIds.capsule}`]) {
         assert.equal(replayedHashes.get(key), previousHashes.get(key));
     }
 });
@@ -2125,36 +1943,24 @@ test('undo latest L1 keeps chat messages pending and removes all dependent memor
     });
     const fingerprints = (from, to) => Array.from({ length: to - from + 1 }, (_, offset) => ({ index: from + offset, fingerprint: `fingerprint-${from + offset}` }));
     mergeExtraction(target, first, { chatKey, from: 0, to: 4, allowStateUpdates: true, messageFingerprints: fingerprints(0, 4) });
-    const retainedCapsule = target.capsules[0];
-    const retainedArc = addDerivedArc(target, {
-        title: 'Practice arc', storyTime: '', participants: [], summary: 'The original practice.',
-        turningPoints: [], emotionalArc: '', closingState: '', openThreads: [], importance: 3,
-    }, [retainedCapsule]);
-    const retainedEra = addDerivedEra(target, {
-        title: 'Practice era', storyTime: '', participants: [], summary: 'The original practice era.',
-        turningPoints: [], emotionalArc: '', closingState: '', openThreads: [], importance: 3,
-    }, [retainedArc]);
+    const retainedChronicle = target.chronicle[0];
     mergeExtraction(target, second, { chatKey, from: 5, to: 9, allowStateUpdates: true, messageFingerprints: fingerprints(5, 9) });
-    const dependentArc = addDerivedArc(target, {
-        title: 'Concert arc', storyTime: '', participants: [], summary: 'Practice led to the concert.',
+    const dependentChronicle = addDerivedChronicle(target, {
+        title: 'Concert history', storyTime: '', participants: [], summary: 'Practice led to the concert.',
         turningPoints: [], emotionalArc: '', closingState: '', openThreads: [], importance: 4,
-    }, target.capsules);
-    const dependentEra = addDerivedEra(target, {
-        title: 'Concert era', storyTime: '', participants: [], summary: 'The concert era.',
-        turningPoints: [], emotionalArc: '', closingState: '', openThreads: [], importance: 4,
-    }, [retainedArc, dependentArc]);
+    }, target.chronicle.filter(item => item.chatKey === chatKey && Number(item.level) === 0));
     mergeExtraction(target, extraction({
         facts: [{ subject: 'Mio', predicate: 'instrument', value: 'bass', category: 'identity', importance: 4, persistence: 'persistent' }],
     }), { chatKey: 'other', from: 0, to: 4, allowStateUpdates: false, messageFingerprints: fingerprints(0, 4) });
 
     const status = getLatestL1UndoStatus(target, chatKey);
-    assert.deepEqual({ available: status.available, replayable: status.replayable, from: status.from, to: status.to, dependentL2: status.dependentL2, dependentL3: status.dependentL3 }, {
-        available: true, replayable: true, from: 5, to: 9, dependentL2: 1, dependentL3: 1,
+    assert.deepEqual({ available: status.available, replayable: status.replayable, from: status.from, to: status.to, dependentChronicle: status.dependentChronicle }, {
+        available: true, replayable: true, from: 5, to: 9, dependentChronicle: 1,
     });
 
     const result = undoLatestL1Extraction(target, chatKey, status.extractionId);
-    assert.deepEqual({ from: result.from, to: result.to, removedL2: result.removedL2, removedL3: result.removedL3, retainedL1: result.retainedL1 }, {
-        from: 5, to: 9, removedL2: 1, removedL3: 1, retainedL1: 1,
+    assert.deepEqual({ from: result.from, to: result.to, removedChronicle: result.removedChronicle, retainedL1: result.retainedL1 }, {
+        from: 5, to: 9, removedChronicle: 1, retainedL1: 1,
     });
     assert.deepEqual(target.extractions.filter(item => item.chatKey === chatKey).map(item => [item.from, item.to]), [[0, 4]]);
     assert.deepEqual(target.sources[chatKey].processedMessages.map(item => item.index), [0, 1, 2, 3, 4]);
@@ -2164,10 +1970,8 @@ test('undo latest L1 keeps chat messages pending and removes all dependent memor
     assert.equal(target.facts.some(item => item.predicate === 'concert role'), false);
     assert.equal(target.events.some(item => item.title === 'Concert performance'), false);
     assert.equal(target.scene.location, 'Music room');
-    assert.equal(target.arcs.some(item => item.id === retainedArc.id), true);
-    assert.equal(target.arcs.some(item => item.id === dependentArc.id), false);
-    assert.equal(target.eras.some(item => item.id === retainedEra.id), true);
-    assert.equal(target.eras.some(item => item.id === dependentEra.id), false);
+    assert.equal(target.chronicle.some(item => item.id === retainedChronicle.id), true);
+    assert.equal(target.chronicle.some(item => item.id === dependentChronicle.id), false);
     assert.equal(target.facts.some(item => item.subject === 'Mio'), true);
     assert.ok(target.sources.other);
 
@@ -2248,11 +2052,12 @@ test('fresh rebuild verification detects stale records left after a claimed rese
     assert.deepEqual(freshResetResiduals(target), ['sources', 'relationships:1']);
 });
 
-test('hierarchy reset deletes L2 and L3 while preserving L1 and extracted memory', () => {
+test('hierarchy reset removes derived Chronicle and inert legacy hierarchy while preserving L1', () => {
     const target = world();
     mergeExtraction(target, extraction(), { chatKey: 'chat', from: 0, to: 4, allowStateUpdates: true });
     target.arcs.push({ id: 'arc' });
     target.eras.push({ id: 'era' });
+    target.chronicle.push({ id: 'derived', level: 1, chatKey: 'chat', childIds: target.chronicle.map(item => item.id) });
     const l1 = structuredClone(target.capsules);
     const extractions = structuredClone(target.extractions);
     const facts = structuredClone(target.facts);
@@ -2261,6 +2066,7 @@ test('hierarchy reset deletes L2 and L3 while preserving L1 and extracted memory
 
     assert.deepEqual(target.arcs, []);
     assert.deepEqual(target.eras, []);
+    assert.equal(target.chronicle.every(item => Number(item.level) === 0), true);
     assert.deepEqual(target.capsules, l1);
     assert.deepEqual(target.extractions, extractions);
     assert.deepEqual(target.facts, facts);

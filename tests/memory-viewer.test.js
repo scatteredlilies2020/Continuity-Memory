@@ -15,12 +15,10 @@ const world = {
         { id: 'late', title: 'Later', opening: 'Second', from: 20, to: 29 },
         { id: 'early', title: 'Early', opening: 'First', coverageWarnings: ['A durable vow remains only in L1.'], from: 0, to: 9 },
     ],
-    arcs: [{ id: 'l2', title: 'Team trial', summary: 'The team learns cooperation.', from: 0, to: 59 }],
-    eras: [{ id: 'l3', title: 'Academy transition', summary: 'A major phase.', from: 0, to: 200 }],
 };
 
-test('viewer exposes simple L1, L2, and L3 category names', () => {
-    assert.deepEqual(MEMORY_VIEW_CATEGORIES.slice(-3).map(item => item.label), ['L1', 'L2', 'L3']);
+test('viewer exposes L1 and Recursive Chronicle categories', () => {
+    assert.deepEqual(MEMORY_VIEW_CATEGORIES.slice(-2).map(item => item.label), ['L1', 'Chronicle']);
 });
 
 test('viewer labels the scene as an extracted checkpoint with its latest source message', () => {

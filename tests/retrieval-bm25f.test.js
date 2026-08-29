@@ -395,34 +395,30 @@ test('reciprocal-rank fusion favors agreement between lexical and semantic sourc
     assert.equal(selected.find(item => item.id === 'agreement').semanticRank, 2);
 });
 
-test('L2 is selected by relevance and is never inserted merely because it exists', () => {
+test('legacy hierarchy arrays remain inert even when query-relevant', () => {
     const target = world({
         arcs: [{
             id: 'arc', title: 'The Harrowing', storyTime: '', participants: [], summary: 'The ordeal changed them.',
             turningPoints: [], emotionalArc: '', closingState: '', openThreads: [], importance: 4, capsuleIds: [],
         }],
     });
-    const unrelated = buildMemoryPrompt(target, user('A quiet picnic'), 2000);
-    assert.deepEqual(selections(unrelated, 'L2 continuity'), []);
-    assert.doesNotMatch(unrelated.prompt, /L2 continuity:/);
-
     const relevant = buildMemoryPrompt(target, user('Harrowing'), 2000);
-    assert.deepEqual(selections(relevant, 'L2 continuity').map(item => item.id), ['arc']);
-    assert.match(relevant.prompt, /L2 continuity:/);
+    assert.doesNotMatch(relevant.prompt, /The Harrowing|The ordeal changed them/);
+    assert.equal(relevant.retrievalDiagnostics.selections.some(item => item.id === 'arc'), false);
 });
 
 test('story so far is injected from its independent rolling stream, never hierarchy records', () => {
     const target = world({
         storySoFar: { chat: { text: 'Mara left home, found Ivo, and together they reached the flooded city.', from: 0, to: 79 } },
         capsules: [{ id: 'l1-secret', title: 'Internal L1 wording', opening: '', beats: [], closing: 'Must not enter overview.', chatKey: 'chat', from: 0, to: 7 }],
-        arcs: [{ id: 'l2-secret', title: 'Internal L2 wording', summary: 'Must not enter overview.', capsuleIds: [] }],
-        eras: [{ id: 'l3-secret', title: 'Internal L3 wording', summary: 'Must not enter overview.', arcIds: [] }],
+        arcs: [{ id: 'legacy-arc', title: 'Internal old hierarchy wording', summary: 'Must not enter overview.', capsuleIds: [] }],
+        eras: [{ id: 'legacy-era', title: 'Internal older hierarchy wording', summary: 'Must not enter overview.', arcIds: [] }],
     });
 
     const result = buildMemoryPrompt(target, user('A quiet unrelated moment.'), 4000, 'chat');
     const overview = result.prompt.match(/Story so far:\n([\s\S]*?)(?:\n\n|<\/continuity>)/)?.[1] || '';
     assert.match(overview, /Mara left home/);
-    assert.doesNotMatch(overview, /Internal L[123] wording/);
+    assert.doesNotMatch(overview, /Internal (?:old|older) hierarchy wording/);
     assert.deepEqual(selections(result, 'Story so far'), []);
 
     const disabled = buildMemoryPrompt(target, user('A quiet unrelated moment.'), 4000, 'chat', [], undefined, new Map(), { includeStorySoFar: false });
@@ -505,14 +501,6 @@ test('tight recall targets present every populated selected category without cli
             id: 'capsule', title: 'Beacon watch', opening: 'Mara arrived', beats: ['She lit it'],
             closing: 'Watch continues COMPLETE_L1_END', emotionalArc: '', chatKey: 'chat', from: 8, to: 15, sources: source,
         }],
-        arcs: [{
-            id: 'arc', title: 'Beacon arc', summary: 'Mara became its keeper COMPLETE_L2_END', turningPoints: [],
-            closingState: '', openThreads: [], capsuleIds: [], sources: source,
-        }],
-        eras: [{
-            id: 'era', title: 'Beacon era', summary: 'Mara defended the coast COMPLETE_L3_END', turningPoints: [],
-            closingState: '', openThreads: [], arcIds: [], sources: source,
-        }],
         threads: [{
             id: 'thread', title: 'Beacon fuel', detail: 'Mara must secure fuel COMPLETE_THREAD_END',
             status: 'open', participants: ['Mara'], sources: source,
@@ -527,11 +515,11 @@ test('tight recall targets present every populated selected category without cli
     const result = buildMemoryPrompt(target, user('Mara checks the beacon.'), 128, 'chat', [], undefined, new Map(), { includeStorySoFar: false });
 
     for (const section of [
-        'User corrections', 'L3 continuity', 'L2 continuity', 'Recent continuity', 'Open matters',
+        'User corrections', 'Recent continuity', 'Open matters',
         'Background', 'Entities', 'Current state', 'Relationships', 'Facts', 'Past events',
     ]) assert.match(result.prompt, new RegExp(`\\n${section}:\\n`, 'u'));
     for (const ending of [
-        'COMPLETE_CORRECTION_END', 'COMPLETE_L3_END', 'COMPLETE_L2_END', 'COMPLETE_L1_END',
+        'COMPLETE_CORRECTION_END', 'COMPLETE_L1_END',
         'COMPLETE_THREAD_END', 'COMPLETE_BACKGROUND_END', 'COMPLETE_ENTITY_END', 'COMPLETE_STATE_END',
         'COMPLETE_RELATIONSHIP_END', 'COMPLETE_FACT_END', 'COMPLETE_EVENT_END',
     ]) assert.match(result.prompt, new RegExp(ending, 'u'));

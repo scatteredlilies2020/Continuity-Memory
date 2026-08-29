@@ -34,25 +34,25 @@ test('review exposes editable JSON and resolves only after validation', async ()
     assert.equal(getPendingExtractionReview(), null);
 });
 
-test('review identifies editable L2 and L3 hierarchy results', async () => {
-    const l2Promise = requestExtractionReview({
+test('review identifies editable recursive Chronicle results', async () => {
+    const c1Promise = requestExtractionReview({
         result: { summary: 'Arc summary', participants: [], turningPoints: [], openThreads: [] },
-        meta: { layer: 'l2', from: 0, to: 191, sourceCount: 24, reason: 'hierarchy' },
+        meta: { layer: 'C1', from: 0, to: 191, sourceCount: 24, reason: 'hierarchy' },
     });
-    const l2 = getPendingExtractionReview();
-    assert.equal(l2.layer, 'L2');
-    assert.equal(l2.sourceCount, 24);
-    assert.equal(l2.reason, 'hierarchy');
-    approveExtractionReview(l2.json, l2.id);
-    await l2Promise;
+    const c1 = getPendingExtractionReview();
+    assert.equal(c1.layer, 'C1');
+    assert.equal(c1.sourceCount, 24);
+    assert.equal(c1.reason, 'hierarchy');
+    approveExtractionReview(c1.json, c1.id);
+    await c1Promise;
 
-    const l3Promise = requestExtractionReview({
+    const c2Promise = requestExtractionReview({
         result: { summary: 'Era summary', participants: [], turningPoints: [], openThreads: [] },
-        meta: { layer: 'L3', from: 0, to: 1151, sourceCount: 6 },
+        meta: { layer: 'C2', from: 0, to: 1151, sourceCount: 6 },
     });
-    assert.equal(getPendingExtractionReview().layer, 'L3');
+    assert.equal(getPendingExtractionReview().layer, 'C2');
     cancelExtractionReview(undefined, getPendingExtractionReview().id);
-    await assert.rejects(l3Promise, error => error.code === 'EXTRACTION_REVIEW_CANCELLED');
+    await assert.rejects(c2Promise, error => error.code === 'EXTRACTION_REVIEW_CANCELLED');
 });
 
 test('discard rejects safely and leaves no active review', async () => {
@@ -66,7 +66,7 @@ test('regeneration creates temporary swipes and preserves each manual draft', as
     let generations = 1;
     const promise = requestExtractionReview({
         result: { summary: 'candidate one' },
-        meta: { layer: 'L2', sourceCount: 24 },
+        meta: { layer: 'C1', sourceCount: 24 },
         regenerate: async () => ({ summary: `candidate ${++generations}` }),
     });
     let review = updateExtractionReviewDraft('{"summary":"edited one"}');

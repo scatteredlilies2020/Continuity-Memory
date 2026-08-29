@@ -1,11 +1,11 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CANONICAL_THIRD_PERSON_RULE, CHARACTER_PROFILE_RULE, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, EXTREME_CANON_FIDELITY_RULE, EXTREME_SUMMARY_FIDELITY_RULE, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, L1_EPISTEMIC_COVERAGE_RULE, LEGACY_EPISTEMIC_MEMORY_RULES, LEGACY_HIERARCHY_ATTRIBUTION_RULE, OOC_META_AUTHORITY_RULE, PRE_ATOMIC_IDENTITY_L1_EPISTEMIC_COVERAGE_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRICT_OOC_META_AUTHORITY_RULE, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.15.0-testing.1';
+import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CANONICAL_THIRD_PERSON_RULE, CHARACTER_PROFILE_RULE, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, EXTREME_CANON_FIDELITY_RULE, EXTREME_SUMMARY_FIDELITY_RULE, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, L1_EPISTEMIC_COVERAGE_RULE, LEGACY_EPISTEMIC_MEMORY_RULES, OOC_META_AUTHORITY_RULE, PRE_ATOMIC_IDENTITY_L1_EPISTEMIC_COVERAGE_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRICT_OOC_META_AUTHORITY_RULE, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.15.0-testing.2';
 import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
-import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.15.0-testing.1';
-import { retainLatestPromptRule } from './prompt-migration.js?v=0.15.0-testing.1';
+import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.15.0-testing.2';
+import { retainLatestPromptRule } from './prompt-migration.js?v=0.15.0-testing.2';
 
 export const EXTENSION_NAME = 'continuityMemory';
 
@@ -83,12 +83,9 @@ const DEFAULTS = Object.freeze({
     summaryOpenRouterUrl: '',
     summaryOpenRouterModel: 'openai/gpt-4.1-mini',
     summaryOpenRouterSecretId: '',
-    hierarchyMode: 'l3',
+    hierarchyMode: 'chronicle',
     chronicleLayerCapacity: 24,
     chroniclePromotionSize: 10,
-    arcGroupSize: 24,
-    eraStartArcs: 12,
-    eraGroupSize: 6,
     thinkingMode: 'auto',
     contextReductionEnabled: true,
     rawTailMode: 'tokens',
@@ -105,10 +102,6 @@ const TOKEN_EFFICIENT_LEGACY_DEFAULTS = Object.freeze({
     extractionTaskTemplate: '0873e1f3',
     retrievalSystemPrompt: 'b78f11b4',
     injectionInstruction: 'fb79e92a',
-    arcSystemPrompt: '054e60fd',
-    arcTaskTemplate: 'c8c25343',
-    eraSystemPrompt: '3e6d1634',
-    eraTaskTemplate: '83dc1d5a',
 });
 
 function promptFingerprint(value) {
@@ -137,7 +130,7 @@ export function getSettings() {
         let extractionPrompt = String(settings.extractionSystemPrompt || PROMPT_DEFAULTS.extractionSystemPrompt);
         if (!extractionPrompt.includes(EXTREME_CANON_FIDELITY_RULE)) extractionPrompt = `${extractionPrompt}\n${EXTREME_CANON_FIDELITY_RULE}`;
         settings.extractionSystemPrompt = extractionPrompt;
-        for (const key of ['arcSystemPrompt', 'eraSystemPrompt']) {
+        for (const key of ['chronicleSystemPrompt']) {
             let prompt = String(settings[key] || PROMPT_DEFAULTS[key]);
             if (!prompt.includes(EXTREME_SUMMARY_FIDELITY_RULE)) prompt = `${prompt}\n${EXTREME_SUMMARY_FIDELITY_RULE}`;
             settings[key] = prompt;
@@ -220,19 +213,6 @@ export function getSettings() {
         settings.compactInjectionInstructionVersion = 1;
         saveSettingsDebounced();
     }
-    if (Number(settings.hierarchyDefaultVersion || 0) < 1) {
-        if (settings.hierarchyMode === undefined || settings.hierarchyMode === 'l2') settings.hierarchyMode = 'l3';
-        settings.hierarchyDefaultVersion = 1;
-        saveSettingsDebounced();
-    }
-    if (Number(settings.l2BatchDefaultVersion || 0) < 1) {
-        const legacyStart = Math.round(Number(settings.arcStartCapsules));
-        const legacyGroup = Math.round(Number(settings.arcGroupSize));
-        settings.arcGroupSize = Math.max(4, Math.min(200, legacyStart || legacyGroup || 24));
-        delete settings.arcStartCapsules;
-        settings.l2BatchDefaultVersion = 1;
-        saveSettingsDebounced();
-    }
     if (Number(settings.l1GroupDefaultVersion || 0) < 1) {
         if (settings.extractionBatchMessages === undefined || Number(settings.extractionBatchMessages) === 6) {
             settings.extractionBatchMessages = DEFAULT_L1_GROUP_SIZE;
@@ -243,18 +223,6 @@ export function getSettings() {
     if (Number(settings.hierarchyLabelVersion || 0) < 1) {
         if (String(settings.extractionSystemPrompt || '').includes('The sceneCapsule must preserve')) {
             settings.extractionSystemPrompt = String(settings.extractionSystemPrompt).replace('The sceneCapsule must preserve', 'The L1 record in sceneCapsule must preserve');
-        }
-        if (String(settings.arcSystemPrompt || '').startsWith('Compress a sequence of chronological L1 scene capsules into one accurate L2 story arc')) {
-            settings.arcSystemPrompt = PROMPT_DEFAULTS.arcSystemPrompt;
-        }
-        if (String(settings.arcTaskTemplate || '').startsWith('Create one concise L2 arc from these chronological scene capsules.')) {
-            settings.arcTaskTemplate = PROMPT_DEFAULTS.arcTaskTemplate;
-        }
-        if (String(settings.eraSystemPrompt || '').startsWith('Compress a sequence of chronological L2 story arcs into one accurate L3 era or saga')) {
-            settings.eraSystemPrompt = PROMPT_DEFAULTS.eraSystemPrompt;
-        }
-        if (String(settings.eraTaskTemplate || '').startsWith('Create one concise L3 era from these chronological L2 story arcs.')) {
-            settings.eraTaskTemplate = PROMPT_DEFAULTS.eraTaskTemplate;
         }
         settings.hierarchyLabelVersion = 1;
         saveSettingsDebounced();
@@ -271,16 +239,6 @@ export function getSettings() {
         const retrievalPrompt = String(settings.retrievalSystemPrompt || '');
         if (retrievalPrompt.startsWith('Expand a roleplay memory-search query.')) {
             settings.retrievalSystemPrompt = PROMPT_DEFAULTS.retrievalSystemPrompt;
-        }
-        const arcPrompt = String(settings.arcSystemPrompt || '');
-        if (arcPrompt.startsWith('Compress a sequence of chronological L1 records into one accurate L2 record for long-term roleplay continuity.')
-            || arcPrompt.includes('personal, political, diplomatic, military, or strategic movement')) {
-            settings.arcSystemPrompt = PROMPT_DEFAULTS.arcSystemPrompt;
-        }
-        const eraPrompt = String(settings.eraSystemPrompt || '');
-        if (eraPrompt.startsWith('Compress a sequence of chronological L2 records into one accurate L3 record for very long roleplay continuity.')
-            || eraPrompt.includes('lasting personal, political, diplomatic, military, or strategic changes')) {
-            settings.eraSystemPrompt = PROMPT_DEFAULTS.eraSystemPrompt;
         }
         settings.scenarioNeutralPromptVersion = 2;
         saveSettingsDebounced();
@@ -321,7 +279,7 @@ export function getSettings() {
     }
     if (Number(settings.removeStyleDirectiveVersion || 0) < 1) {
         const obsolete = 'In generated prose, avoid em dashes. Use commas, colons, parentheses, semicolons, or separate sentences instead.';
-        for (const key of ['extractionSystemPrompt', 'retrievalSystemPrompt', 'injectionInstruction', 'arcSystemPrompt', 'eraSystemPrompt']) {
+        for (const key of ['extractionSystemPrompt', 'retrievalSystemPrompt', 'injectionInstruction', 'chronicleSystemPrompt']) {
             if (typeof settings[key] !== 'string' || !settings[key].includes(obsolete)) continue;
             settings[key] = settings[key].replaceAll(obsolete, '')
                 .replace(/[ \t]{2,}/gu, ' ')
@@ -426,7 +384,7 @@ export function getSettings() {
         saveSettingsDebounced();
     }
     if (Number(settings.thirdPersonPromptVersion || 0) < 1) {
-        for (const key of ['extractionSystemPrompt', 'arcSystemPrompt', 'eraSystemPrompt']) {
+        for (const key of ['extractionSystemPrompt', 'chronicleSystemPrompt']) {
             const prompt = String(settings[key] || PROMPT_DEFAULTS[key]);
             if (!prompt.includes(CANONICAL_THIRD_PERSON_RULE)) settings[key] = `${prompt}\n${CANONICAL_THIRD_PERSON_RULE}`;
         }
@@ -510,14 +468,10 @@ export function getSettings() {
             extractionPrompt = `${extractionPrompt}\n${EPISTEMIC_MEMORY_RULES}`;
         }
         settings.extractionSystemPrompt = extractionPrompt;
-        for (const key of ['arcSystemPrompt', 'eraSystemPrompt']) {
+        for (const key of ['chronicleSystemPrompt']) {
             let prompt = String(settings[key] || PROMPT_DEFAULTS[key]);
             if (prompt.includes(HIERARCHY_ATTRIBUTION_RULE)) {
                 // Already current, including on a new installation.
-            } else if (prompt.includes(LEGACY_HIERARCHY_ATTRIBUTION_RULE)) {
-                prompt = prompt.replace(LEGACY_HIERARCHY_ATTRIBUTION_RULE, HIERARCHY_ATTRIBUTION_RULE);
-            } else if (prompt.includes(PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE)) {
-                prompt = prompt.replace(PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE, HIERARCHY_ATTRIBUTION_RULE);
             } else if (!prompt.includes(HIERARCHY_ATTRIBUTION_RULE)) {
                 prompt = `${prompt}\n${HIERARCHY_ATTRIBUTION_RULE}`;
             }
@@ -626,11 +580,12 @@ export function getSettings() {
         settings.thinkingEffortOptionsVersion = 1;
         saveSettingsDebounced();
     }
-    if (Number(settings.chronicleSettingsVersion || 0) < 1) {
-        if (settings.hierarchyMode === 'l2') settings.hierarchyMode = 'l3';
+    if (Number(settings.chronicleSettingsVersion || 0) < 2) {
+        if (settings.hierarchyMode !== 'off') settings.hierarchyMode = 'chronicle';
         settings.chronicleLayerCapacity = Math.max(8, Math.min(100, Math.round(Number(settings.chronicleLayerCapacity) || 24)));
         settings.chroniclePromotionSize = Math.max(3, Math.min(settings.chronicleLayerCapacity, Math.round(Number(settings.chroniclePromotionSize) || 10)));
-        settings.chronicleSettingsVersion = 1;
+        for (const key of ['arcSystemPrompt', 'arcTaskTemplate', 'eraSystemPrompt', 'eraTaskTemplate', 'arcGroupSize', 'arcStartCapsules', 'eraStartArcs', 'eraGroupSize']) delete settings[key];
+        settings.chronicleSettingsVersion = 2;
         saveSettingsDebounced();
     }
     for (const [key, value] of Object.entries(DEFAULTS)) {

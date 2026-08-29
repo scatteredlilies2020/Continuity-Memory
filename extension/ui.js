@@ -4,10 +4,10 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.15.0-testing.1';
+import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.15.0-testing.2';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.1';
+import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.2';
 import { clearRetrievalExpansionCache } from './semantic-retrieval.js';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
@@ -15,23 +15,23 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.15.0-testing.1';
-import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.15.0-testing.1';
-import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.1';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.15.0-testing.2';
+import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.15.0-testing.2';
+import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.2';
 import { completeL1MessageCount, latestCompleteL1MessageIndex, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.1';
-import { embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.1';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.1';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.2';
+import { embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.2';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.2';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.1';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.1';
-import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.15.0-testing.1';
-import { resolveStoryBudget } from './story-budget.js?v=0.15.0-testing.1';
-import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.15.0-testing.1';
+import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.2';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.2';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.15.0-testing.2';
+import { resolveStoryBudget } from './story-budget.js?v=0.15.0-testing.2';
+import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.15.0-testing.2';
 import { createRenderScheduler } from './render-scheduler.js';
-import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.1';
-import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.1';
+import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.2';
+import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.2';
 import { isTransientApiError } from './errors.js';
 
 let worlds = [];
@@ -66,7 +66,7 @@ const DIRECT_PROFILE_SELECTORS = Object.freeze({
 });
 
 function directLabel(kind) {
-    return kind === 'summary' ? 'L2/L3 summarizer' : kind === 'correction' ? 'correction' : kind === 'retrieval' ? 'retrieval' : 'extraction';
+    return kind === 'summary' ? 'Chronicle promotion' : kind === 'correction' ? 'correction' : kind === 'retrieval' ? 'retrieval' : 'extraction';
 }
 
 function directControl(kind, suffix) {
@@ -146,7 +146,8 @@ function toast(type, message) {
 }
 
 function extractionReviewTitle(review) {
-    const sourceLayer = review.layer === 'L3' ? 'L2' : 'L1';
+    const sourceLevel = Number(String(review.layer || '').match(/^C(\d+)$/)?.[1]);
+    const sourceLayer = Number.isFinite(sourceLevel) ? `C${Math.max(0, sourceLevel - 1)}` : 'source';
     return review.layer === 'L1'
         ? `Review L1 · messages ${review.from}–${review.to}`
         : `Review ${review.layer} · ${review.sourceCount} ${sourceLayer} record(s)`;
@@ -156,7 +157,8 @@ function extractionReviewStopMessage(review) {
     if (review.layer === 'L1') {
         return 'Generation stopped because the reviewed L1 candidate was discarded instead of saved. Its source messages remain pending and can be generated again later.';
     }
-    const sourceLayer = review.layer === 'L3' ? 'L2' : 'L1';
+    const sourceLevel = Number(String(review.layer || '').match(/^C(\d+)$/)?.[1]);
+    const sourceLayer = Number.isFinite(sourceLevel) ? `C${Math.max(0, sourceLevel - 1)}` : 'source';
     return `Generation stopped because the reviewed ${review.layer} candidate was discarded instead of saved. Its source ${sourceLayer} records remain available for another build.`;
 }
 
@@ -1759,8 +1761,7 @@ async function undoLatestL1Memory() {
     if (!latest.available) throw new Error('There is no saved L1 memory to undo for this chat.');
     if (!latest.replayable) throw new Error('This older memory cannot safely undo one L1 range. Rebuild it from scratch first.');
     const dependent = [
-        latest.dependentL2 ? `${latest.dependentL2} dependent L2` : '',
-        latest.dependentL3 ? `${latest.dependentL3} dependent L3` : '',
+        latest.dependentChronicle ? `${latest.dependentChronicle} dependent Chronicle node(s)` : '',
     ].filter(Boolean).join(' and ');
     if (!window.confirm(`Undo the latest L1 for messages ${latest.from}–${latest.to}?\n\nThe chat messages will stay, but this L1, facts, states, relationships, events, threads, and backgrounds established by it${dependent ? `, plus ${dependent}` : ''} will be removed. These messages become incomplete memory and will be rebuilt before the next roleplay reply.`)) return { cancelled: true };
     clearRetrievalExpansionCache();
@@ -1951,7 +1952,7 @@ export function initUI() {
     });
     setSetting('#continuity_chunk', 'extractionChunkTokens', value => Math.min(50000, Math.max(0, Number(value) || 0)));
     setSetting('#continuity_correction_tokens', 'correctionResponseTokens', resolveCorrectionResponseTokens);
-    setSetting('#continuity_hierarchy_mode', 'hierarchyMode', value => value === 'off' ? 'off' : 'l3');
+    setSetting('#continuity_hierarchy_mode', 'hierarchyMode', value => value === 'off' ? 'off' : 'chronicle');
     setSetting('#continuity_chronicle_capacity', 'chronicleLayerCapacity', value => Math.min(100, Math.max(8, Number(value) || 24)));
     setSetting('#continuity_chronicle_fan_in', 'chroniclePromotionSize', value => {
         const capacity = Math.min(100, Math.max(8, Number(getSettings().chronicleLayerCapacity) || 24));
@@ -2027,7 +2028,7 @@ export function initUI() {
             })
         .catch(error => toast('error', error.message)));
     $('#continuity_undo_latest_l1').on('click', () => undoLatestL1Memory()
-        .then(result => !result.cancelled && toast('success', `Undid L1 messages ${result.from}–${result.to}${result.removedL2 || result.removedL3 ? `; removed ${result.removedL2} L2 and ${result.removedL3} L3` : ''}. The range will rebuild before the next reply.`))
+        .then(result => !result.cancelled && toast('success', `Undid L1 messages ${result.from}–${result.to}${result.removedChronicle ? `; removed ${result.removedChronicle} dependent Chronicle node(s)` : ''}. The range will rebuild before the next reply.`))
         .catch(error => toast('error', error.message)));
     $('#continuity_repair_rollback').on('click', () => repairRollback()
         .then(result => !result.cancelled && toast('success', `Rollback repaired: removed memory from ${result.removedMessages || 0} deleted message(s).`))

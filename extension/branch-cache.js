@@ -1,4 +1,4 @@
-import { fingerprintMessage } from './message-digest.js?v=0.15.0-testing.1';
+import { fingerprintMessage } from './message-digest.js?v=0.15.0-testing.2';
 import { l1StabilityRepairFrom } from './l1-policy.js';
 import { mergeExtraction, removeChatContributions, restoreRetainedReplayRecords } from './memory-model.js';
 import { refreshChronicleStory, syncChronicleBase } from './chronicle.js';

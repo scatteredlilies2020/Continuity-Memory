@@ -339,8 +339,6 @@ export function applyCorrectionProposal(world, proposal) {
         .filter(era => (era.arcIds || []).some(id => removedArcIds.has(id))
             || (era.capsuleIds || []).some(id => affectedCapsuleIds.has(id)))
         .map(item => structuredClone(item));
-    const oldArcCount = world.arcs.length;
-    const oldEraCount = world.eras.length;
     world.arcs = world.arcs.filter(arc => !removedArcIds.has(arc.id));
     world.eras = world.eras.filter(era =>
         !(era.arcIds || []).some(id => removedArcIds.has(id))
@@ -361,13 +359,9 @@ export function applyCorrectionProposal(world, proposal) {
     return {
         correction,
         changed: storedOperations.length,
-        invalidatedArcs: oldArcCount - world.arcs.length,
-        invalidatedEras: oldEraCount - world.eras.length,
         invalidatedChronicle,
         invalidatedChronicleRecords,
         affectedCapsules: affectedCapsuleIds.size,
-        invalidatedArcRecords,
-        invalidatedEraRecords,
         addedCapsuleIds: [...addedCapsuleIds],
     };
 }

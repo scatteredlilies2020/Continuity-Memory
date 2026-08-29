@@ -6,39 +6,38 @@ import { oai_settings, openai_setting_names, openai_settings, proxies } from '/s
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError, isTransientApiError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.1';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.2';
 import { resolveExtractionChunk } from './extraction-budget.js';
-import { nextArcCapsules } from './hierarchy-policy.js';
 import { normalizeHierarchyResult } from './hierarchy-result.js';
 import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.1';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.2';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
-import { addDerivedArc, addDerivedChronicle, addDerivedEra, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
+import { addDerivedChronicle, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens, storyResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.1';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.1';
+import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.2';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.2';
 import { embedWorldInChat } from './portable.js';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.1';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_QUALITY_RULE, ROLLING_STORY_QUALITY_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, ROLLING_STORY_VERIFY_RULE, ROLLING_STORY_VERIFY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.1';
-import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.1';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.1';
-import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.1';
-import { isRuntimeCancellation, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.1';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.1';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.2';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_QUALITY_RULE, ROLLING_STORY_QUALITY_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, ROLLING_STORY_VERIFY_RULE, ROLLING_STORY_VERIFY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.2';
+import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.2';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.2';
+import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.2';
+import { isRuntimeCancellation, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.2';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.2';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { dynamicStoryRefineSourceChunk, dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.15.0-testing.1';
-import { storyCompressionTarget, storyGenerationTargets } from './story-output-policy.js?v=0.15.0-testing.1';
-import { resolveStoryRequestProfile } from './story-profile.js?v=0.15.0-testing.1';
-import { resolveProfileThinkingMode } from './story-thinking.js?v=0.15.0-testing.1';
-import { alignStoryRebuildTarget, completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, stableStoryMessages, storyChunkMessageLimit } from './story-cadence.js?v=0.15.0-testing.1';
-import { compileRollingStorySnapshot, ROLLING_STORY_SNAPSHOT_EXAMPLE, ROLLING_STORY_SNAPSHOT_SCHEMA } from './story-snapshot.js?v=0.15.0-testing.1';
-import { planStoryMutationRecovery, withStoryCheckpoint } from './story-checkpoints.js?v=0.15.0-testing.1';
-import { buildStorySourceUnits, isCurrentStorySnapshot, resolveStorySourceMode, storedStorySourceMode, storySourceModeLabel, storySourcePolicyIsCurrent, STORY_FORMAT_MANUAL, STORY_SOURCE_L1, STORY_SOURCE_POLICY_VERSION } from './story-source.js?v=0.15.0-testing.1';
-import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.1';
+import { dynamicStoryRefineSourceChunk, dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.15.0-testing.2';
+import { storyCompressionTarget, storyGenerationTargets } from './story-output-policy.js?v=0.15.0-testing.2';
+import { resolveStoryRequestProfile } from './story-profile.js?v=0.15.0-testing.2';
+import { resolveProfileThinkingMode } from './story-thinking.js?v=0.15.0-testing.2';
+import { alignStoryRebuildTarget, completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, stableStoryMessages, storyChunkMessageLimit } from './story-cadence.js?v=0.15.0-testing.2';
+import { compileRollingStorySnapshot, ROLLING_STORY_SNAPSHOT_EXAMPLE, ROLLING_STORY_SNAPSHOT_SCHEMA } from './story-snapshot.js?v=0.15.0-testing.2';
+import { planStoryMutationRecovery, withStoryCheckpoint } from './story-checkpoints.js?v=0.15.0-testing.2';
+import { buildStorySourceUnits, isCurrentStorySnapshot, resolveStorySourceMode, storedStorySourceMode, storySourceModeLabel, storySourcePolicyIsCurrent, STORY_FORMAT_MANUAL, STORY_SOURCE_L1, STORY_SOURCE_POLICY_VERSION } from './story-source.js?v=0.15.0-testing.2';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.2';
 import { nextChroniclePromotion } from './chronicle.js';
 
 const temporalRelationSchema = {
@@ -223,7 +222,7 @@ const rollingStoryQualityReviewJsonSchema = Object.freeze({
     },
 });
 
-const arcSchema = {
+const chronicleParentSchema = {
     type: 'object',
     additionalProperties: false,
     required: ['title', 'storyTime', 'participants', 'summary', 'turningPoints', 'emotionalArc', 'closingState', 'openThreads', 'importance'],
@@ -240,20 +239,12 @@ const arcSchema = {
     },
 };
 
-const arcJsonSchema = Object.freeze({
-    name: 'continuity_l2_arc',
-    description: 'A non-destructive L2 record derived from chronological L1 records. Canonical prose uses explicit names and third person.',
+const chronicleJsonSchema = Object.freeze({
+    name: 'continuity_chronicle_parent',
+    description: 'A non-destructive Chronicle parent derived from chronological same-layer Chronicle nodes. Canonical prose uses explicit names and third person.',
     strict: true,
     returnInvalid: true,
-    value: arcSchema,
-});
-
-const eraJsonSchema = Object.freeze({
-    name: 'continuity_l3_era',
-    description: 'A non-destructive L3 record derived from chronological L2 records. Canonical prose uses explicit names and third person.',
-    strict: true,
-    returnInvalid: true,
-    value: arcSchema,
+    value: chronicleParentSchema,
 });
 
 const correctionSchema = {
@@ -723,8 +714,7 @@ function reviewStatus(review) {
         const sourceLayer = `C${Math.max(0, Number(review.layer.slice(1)) - 1)}`;
         return `Review ${review.layer} Chronicle parent from ${review.sourceCount} ${sourceLayer} node(s) before it is saved.`;
     }
-    const sourceLayer = review.layer === 'L3' ? 'L2' : 'L1';
-    return `Review ${review.layer} summary from ${review.sourceCount} ${sourceLayer} record(s) before it is saved.`;
+    return `Review ${review.layer} memory candidate before it is saved.`;
 }
 
 async function reviewMemoryBeforeSave(result, meta, validate, regenerate = null) {
@@ -1235,46 +1225,36 @@ function prepareDetachedTask(messages, world) {
     };
 }
 
-function prepareDetachedHierarchyLayer(layer) {
+function prepareDetachedChronicleLayer() {
     const settings = getSettings();
-    const chronicle = layer === 'chronicle';
-    const l2 = layer === 'l2' || chronicle;
     const profileId = settings.arcProfileId || settings.memoryProfileId;
     const directKind = settings.arcProfileId === DIRECT_PROFILE_ID ? 'summary' : 'extraction';
-    const jsonSchema = l2 ? arcJsonSchema : eraJsonSchema;
+    const jsonSchema = chronicleJsonSchema;
     const thinkingMode = settings.summaryThinkingMode;
     const usesStructuredSchema = requestSupportsStructuredSchema(jsonSchema, profileId, directKind, thinkingMode);
     const placeholder = '__CONTINUITY_DETACHED_HIERARCHY_PROMPT__';
     const requests = detachedRequestBodies({
         prompt: placeholder,
         fallbackPrompt: placeholder,
-        systemPrompt: buildHierarchySystemPrompt(chronicle
-            ? settings.chronicleSystemPrompt ?? DEFAULT_CHRONICLE_SYSTEM_PROMPT
-            : l2
-            ? settings.arcSystemPrompt ?? DEFAULT_ARC_SYSTEM_PROMPT
-            : settings.eraSystemPrompt ?? DEFAULT_ERA_SYSTEM_PROMPT),
+        systemPrompt: buildHierarchySystemPrompt(settings.chronicleSystemPrompt ?? DEFAULT_CHRONICLE_SYSTEM_PROMPT),
         usesStructuredSchema,
-    }, { jsonSchema, layer, profileId, directKind, thinkingMode });
+    }, { jsonSchema, layer: 'chronicle', profileId, directKind, thinkingMode });
     if (!requests) return null;
     return {
         ...requests,
         placeholder,
         usesStructuredSchema,
-        taskTemplate: chronicle
-            ? settings.chronicleTaskTemplate ?? DEFAULT_CHRONICLE_TASK_TEMPLATE
-            : l2
-            ? settings.arcTaskTemplate ?? DEFAULT_ARC_TASK_TEMPLATE
-            : settings.eraTaskTemplate ?? DEFAULT_ERA_TASK_TEMPLATE,
+        taskTemplate: settings.chronicleTaskTemplate ?? DEFAULT_CHRONICLE_TASK_TEMPLATE,
         shapeExample: ARC_JSON_SHAPE_EXAMPLE,
-        valueKey: chronicle ? 'nodes' : l2 ? 'capsules' : 'arcs',
+        valueKey: 'nodes',
     };
 }
 
 function prepareDetachedHierarchyPlan() {
     const settings = getSettings();
-    if (!['l2', 'l3'].includes(settings.hierarchyMode)) return null;
+    if (settings.hierarchyMode === 'off') return null;
     try {
-        const chronicle = prepareDetachedHierarchyLayer('chronicle');
+        const chronicle = prepareDetachedChronicleLayer();
         if (!chronicle) return null;
         return {
             settings: {
@@ -1294,7 +1274,7 @@ async function waitForDetachedJob(id, worldId = '') {
     let syncedChunks = 0;
     while (true) {
         const { job } = await api.getExtractionJob(id);
-        const hierarchyPhase = job.phase === 'chronicle' || job.phase === 'l2' || job.phase === 'l3';
+        const hierarchyPhase = job.phase === 'chronicle';
         updateRuntime({
             status: job.status === 'complete' ? 'processing' : job.status,
             progress: hierarchyPhase ? null : {
@@ -1305,9 +1285,7 @@ async function waitForDetachedJob(id, worldId = '') {
                 inputTokens: job.inputTokens,
             },
             ...(hierarchyPhase ? {
-                arcStatus: job.phase === 'chronicle'
-                    ? `Promoting Recursive Chronicle layers… created ${job.chronicle || 0} parent node(s).`
-                    : `${job.phase === 'l2' ? 'Building eligible L2' : 'Building eligible L3'}… created L2 ${job.l2 || 0}, L3 ${job.l3 || 0}.`,
+                arcStatus: `Promoting Recursive Chronicle layers… created ${job.chronicle || 0} parent node(s).`,
             } : {}),
             lastValidation: job.validation || 'Detached extraction is running in SillyTavern; this tab may be closed.',
         });
@@ -1443,8 +1421,6 @@ async function processDetachedRange(job, chunks, currentWorld) {
             adaptiveSplits: completed.splits,
             messages: completed.messages,
             skipped: 0,
-            arcs: completed.l2 || 0,
-            eras: completed.l3 || 0,
             chroniclePromotions: completed.chronicle || 0,
             hierarchyError: completed.hierarchyError || '',
         };
@@ -1500,7 +1476,7 @@ export async function reviewMemoryCorrection(instruction) {
 
 async function rebuildCorrectionHierarchy(result, expectedEpoch) {
     const hierarchyMode = getSettings().hierarchyMode;
-    if (!['l2', 'l3'].includes(hierarchyMode)) return { chroniclePromotions: 0, world: runtime.world };
+    if (hierarchyMode === 'off') return { chroniclePromotions: 0, world: runtime.world };
     let world = runtime.world;
     let chroniclePromotions = 0;
     const rebuiltIds = new Map();
@@ -1615,80 +1591,8 @@ function parseJsonResponse(value) {
     throw new Error('Extractor returned text without a valid JSON object.');
 }
 
-function formatCapsules(capsules) {
-    return capsules.map((capsule, index) => JSON.stringify({
-        sequence: index + 1,
-        storyTime: capsule.storyTime,
-        temporal: capsule.temporal,
-        location: capsule.location,
-        participants: capsule.participants,
-        opening: capsule.opening,
-        beats: capsule.beats,
-        emotionalArc: capsule.emotionalArc,
-        closing: capsule.closing,
-        importance: capsule.importance,
-    })).join('\n');
-}
-
-function formatArcs(arcs) {
-    return arcs.map((arc, index) => JSON.stringify({
-        sequence: index + 1,
-        storyTime: arc.storyTime,
-        temporalAnchorIds: arc.temporalAnchorIds,
-        temporalFrames: arc.temporalFrames,
-        participants: arc.participants,
-        summary: arc.summary,
-        turningPoints: arc.turningPoints,
-        emotionalArc: arc.emotionalArc,
-        closingState: arc.closingState,
-        openThreads: arc.openThreads,
-        importance: arc.importance,
-    })).join('\n');
-}
-
-function nextEraArcs(world, settings = getSettings()) {
-    if (settings.hierarchyMode !== 'l3') return null;
-    const groupSize = Math.max(3, Math.min(16, Math.round(Number(settings.eraGroupSize) || 6)));
-    const threshold = Math.max(groupSize * 2, Math.min(100, Math.round(Number(settings.eraStartArcs) || 12)));
-    const covered = new Set((world.eras || []).flatMap(era => era.arcIds || []));
-    const byChat = new Map();
-    for (const arc of world.arcs || []) {
-        const chatKey = arc.chatKey || '';
-        if (!byChat.has(chatKey)) byChat.set(chatKey, []);
-        byChat.get(chatKey).push(arc);
-    }
-    for (const arcs of byChat.values()) {
-        arcs.sort((a, b) => Number(a.from ?? 0) - Number(b.from ?? 0) || String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
-        if (arcs.length < threshold) continue;
-        const ungrouped = arcs.filter(arc => !covered.has(arc.id));
-        // Always retain at least one recent group as fine-grained L2-only history.
-        if (ungrouped.length < groupSize * 2) continue;
-        return ungrouped.slice(0, groupSize);
-    }
-    return null;
-}
-
-function validateArcResult(result, layer = 'L2') {
+function validateArcResult(result, layer = 'Chronicle') {
     return normalizeHierarchyResult(result, layer);
-}
-
-async function generateArc(capsules) {
-    const settings = getSettings();
-    const profileId = settings.arcProfileId || settings.memoryProfileId;
-    const directKind = settings.arcProfileId === DIRECT_PROFILE_ID ? 'summary' : 'extraction';
-    const thinkingMode = settings.summaryThinkingMode;
-    const usesStructuredSchema = requestSupportsStructuredSchema(arcJsonSchema, profileId, directKind, thinkingMode);
-    const taskTemplate = settings.arcTaskTemplate ?? DEFAULT_ARC_TASK_TEMPLATE;
-    const taskValues = {
-        capsules: formatCapsules(capsules),
-    };
-    const prompt = renderStructuredTaskPrompt(taskTemplate, DEFAULT_ARC_TASK_TEMPLATE, taskValues, ARC_JSON_SHAPE_EXAMPLE, usesStructuredSchema, ['capsules']);
-    const fallbackPrompt = usesStructuredSchema
-        ? renderStructuredTaskPrompt(taskTemplate, DEFAULT_ARC_TASK_TEMPLATE, taskValues, ARC_JSON_SHAPE_EXAMPLE, false, ['capsules'])
-        : prompt;
-    const raw = await requestStructured(prompt, buildHierarchySystemPrompt(settings.arcSystemPrompt ?? DEFAULT_ARC_SYSTEM_PROMPT), arcJsonSchema, memoryResponseTokens('l2'), profileId, directKind, fallbackPrompt, thinkingMode);
-    updateRuntime({ lastArcResponse: String(raw).slice(0, 20000) });
-    return validateArcResult(typeof raw === 'string' ? parseJsonResponse(raw) : raw, 'L2');
 }
 
 function formatChronicleNodes(nodes) {
@@ -1708,14 +1612,14 @@ async function generateChroniclePromotion(nodes) {
     const profileId = settings.arcProfileId || settings.memoryProfileId;
     const directKind = settings.arcProfileId === DIRECT_PROFILE_ID ? 'summary' : 'extraction';
     const thinkingMode = settings.summaryThinkingMode;
-    const usesStructuredSchema = requestSupportsStructuredSchema(arcJsonSchema, profileId, directKind, thinkingMode);
+    const usesStructuredSchema = requestSupportsStructuredSchema(chronicleJsonSchema, profileId, directKind, thinkingMode);
     const task = settings.chronicleTaskTemplate ?? DEFAULT_CHRONICLE_TASK_TEMPLATE;
     const values = { nodes: formatChronicleNodes(nodes) };
     const prompt = renderStructuredTaskPrompt(task, task, values, ARC_JSON_SHAPE_EXAMPLE, usesStructuredSchema, ['nodes']);
     const fallbackPrompt = usesStructuredSchema
         ? renderStructuredTaskPrompt(task, task, values, ARC_JSON_SHAPE_EXAMPLE, false, ['nodes'])
         : prompt;
-    const raw = await requestStructured(prompt, buildHierarchySystemPrompt(settings.chronicleSystemPrompt ?? DEFAULT_CHRONICLE_SYSTEM_PROMPT), arcJsonSchema, memoryResponseTokens('l2'), profileId, directKind, fallbackPrompt, thinkingMode);
+    const raw = await requestStructured(prompt, buildHierarchySystemPrompt(settings.chronicleSystemPrompt ?? DEFAULT_CHRONICLE_SYSTEM_PROMPT), chronicleJsonSchema, memoryResponseTokens('chronicle'), profileId, directKind, fallbackPrompt, thinkingMode);
     updateRuntime({ lastArcResponse: String(raw).slice(0, 20000) });
     return validateArcResult(typeof raw === 'string' ? parseJsonResponse(raw) : raw, `C${(Number(nodes[0]?.level) || 0) + 1}`);
 }
@@ -1754,90 +1658,13 @@ export async function buildNextChronicle(worldId = getBoundWorldId(), expectedEp
     return saveChroniclePromotion(world, result, nodes, embed);
 }
 
-async function saveDerivedArc(world, result, capsules, embed = true) {
-    const worldId = world.id;
-    for (let attempt = 0; attempt < 4; attempt++) {
-        if (attempt) world = (await api.getWorld(worldId)).world;
-        const currentCapsules = capsules.map(source => (world.capsules || []).find(item => item.id === source.id)).filter(Boolean);
-        if (currentCapsules.length !== capsules.length) throw new Error('L1 records changed while L2 was being built; retry later.');
-        addDerivedArc(world, result, currentCapsules);
-        try {
-            world = (await api.saveWorld(world)).world;
-            break;
-        } catch (error) {
-            if (error.status !== 409 || attempt === 3) throw error;
-        }
-    }
-    updateRuntime({ world, arcStatus: `Created L2 “${world.arcs.at(-1)?.title || 'Untitled'}”.`, arcError: '' });
-    if (embed) await embedWorldInChat(world);
-    return world.arcs.at(-1);
-}
-
-export async function buildNextArc(worldId = getBoundWorldId(), expectedEpoch = null, { embed = true } = {}) {
-    if (!worldId) throw new Error('Open a chat and prepare its memory first.');
-    let health = runtime.health;
-    if (!health || Number(health.schemaVersion) < 4) {
-        health = await api.health();
-        updateRuntime({ health });
-    }
-    if (Number(health.schemaVersion) < 4) throw new Error('Restart SillyTavern once to activate non-destructive L2 storage.');
-    let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
-    const capsules = nextArcCapsules(world, getSettings());
-    if (!capsules) return null;
-    updateRuntime({ arcStatus: `Building L2 from ${capsules.length} L1 records…`, arcError: '' });
-    let result = await generateArc(capsules);
-    if (expectedEpoch !== null && runtime.generation !== expectedEpoch) throw new Error('Processing stopped; pending L2 result was discarded.');
-    result = await reviewHierarchyBeforeSave(result, 'L2', capsules, 'hierarchy', () => generateArc(capsules));
-    if (expectedEpoch !== null && runtime.generation !== expectedEpoch) throw new Error('Processing stopped; pending L2 result was discarded.');
-    return saveDerivedArc(world, result, capsules, embed);
-}
-
-async function saveDerivedEra(world, result, arcs, embed = true) {
-    const worldId = world.id;
-    for (let attempt = 0; attempt < 4; attempt++) {
-        if (attempt) world = (await api.getWorld(worldId)).world;
-        const currentArcs = arcs.map(source => (world.arcs || []).find(item => item.id === source.id)).filter(Boolean);
-        if (currentArcs.length !== arcs.length) throw new Error('L2 records changed while L3 was being built; retry later.');
-        addDerivedEra(world, result, currentArcs);
-        try {
-            world = (await api.saveWorld(world)).world;
-            break;
-        } catch (error) {
-            if (error.status !== 409 || attempt === 3) throw error;
-        }
-    }
-    updateRuntime({ world, arcStatus: `Created L3 “${world.eras.at(-1)?.title || 'Untitled'}”.`, arcError: '' });
-    if (embed) await embedWorldInChat(world);
-    return world.eras.at(-1);
-}
-
-export async function buildNextEra(worldId = getBoundWorldId(), expectedEpoch = null, { embed = true } = {}) {
-    if (!worldId) throw new Error('Open a chat and prepare its memory first.');
-    if (getSettings().hierarchyMode !== 'l3') return null;
-    let health = runtime.health;
-    if (!health || Number(health.schemaVersion) < 6) {
-        health = await api.health();
-        updateRuntime({ health });
-    }
-    if (Number(health.schemaVersion) < 6) throw new Error('Restart SillyTavern once to activate non-destructive L3 storage.');
-    let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
-    const arcs = nextEraArcs(world);
-    if (!arcs) return null;
-    updateRuntime({ arcStatus: `Building L3 from ${arcs.length} L2 records…`, arcError: '' });
-    let result = await generateEra(arcs);
-    if (expectedEpoch !== null && runtime.generation !== expectedEpoch) throw new Error('Processing stopped; pending L3 result was discarded.');
-    result = await reviewHierarchyBeforeSave(result, 'L3', arcs, 'hierarchy', () => generateEra(arcs));
-    if (expectedEpoch !== null && runtime.generation !== expectedEpoch) throw new Error('Processing stopped; pending L3 result was discarded.');
-    return saveDerivedEra(world, result, arcs, embed);
-}
-
 async function requireRetryStorage() {
     let health = runtime.health;
     if (!health || Number(health.schemaVersion) < 5) {
         health = await api.health();
         updateRuntime({ health });
     }
-    if (Number(health.schemaVersion) < 5) throw new Error('Restart SillyTavern once to activate editable L1/L2 storage.');
+    if (Number(health.schemaVersion) < 5) throw new Error('Restart SillyTavern once to activate editable L1 storage.');
 }
 
 function latestCurrentCompleteL1Index() {
@@ -1851,9 +1678,6 @@ function retryTargets(world, layer) {
         const chatKey = getChatKey();
         return (world.capsules || []).filter(item => item.chatKey === chatKey)
             .slice().sort((a, b) => Number(b.to ?? 0) - Number(a.to ?? 0));
-    }
-    if (layer === 'l2') {
-        return (world.arcs || []).slice().sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')));
     }
     return [];
 }
@@ -1880,33 +1704,8 @@ async function saveRetriedL1(worldId, target, result, messages) {
     await embedWorldInChat(world);
 }
 
-async function saveRetriedL2(worldId, target, result) {
-    const apply = world => {
-        const capsules = (target.capsuleIds || []).map(id => (world.capsules || []).find(item => item.id === id)).filter(Boolean);
-        if (capsules.length !== (target.capsuleIds || []).length) throw new Error(`Cannot rebuild “${target.title}”; one or more source L1 records changed.`);
-        world.arcs = (world.arcs || []).filter(item => item.id !== target.id);
-        world.eras = (world.eras || []).filter(era => !(era.arcIds || []).includes(target.id));
-        const replacement = addDerivedArc(world, result, capsules);
-        replacement.id = target.id;
-        replacement.createdAt = target.createdAt || replacement.createdAt;
-        replacement.updatedAt = new Date().toISOString();
-    };
-    let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
-    apply(world);
-    try {
-        world = (await api.saveWorld(world)).world;
-    } catch (error) {
-        if (error.status !== 409) throw error;
-        world = (await api.getWorld(worldId)).world;
-        apply(world);
-        world = (await api.saveWorld(world)).world;
-    }
-    updateRuntime({ world });
-    await embedWorldInChat(world);
-}
-
 export async function retryMemoryLayer({ layer, targetId = 'latest', all = false } = {}) {
-    if (!['l1', 'l2'].includes(layer)) throw new Error('Choose L1 or L2 to retry.');
+    if (layer !== 'l1') throw new Error('Only L1 extraction records can be retried.');
     if (runtime.processing) throw new Error('Wait for current processing to finish.');
     const worldId = getBoundWorldId();
     if (!worldId) throw new Error('Open a chat and prepare its memory first.');
@@ -1925,23 +1724,12 @@ export async function retryMemoryLayer({ layer, targetId = 'latest', all = false
     try {
         for (const target of targets) {
             if (runtime.generation !== epoch) throw new Error('Retry stopped; the current generated result was discarded.');
-            if (layer === 'l1') {
-                const messages = collectMessages(target.from, target.to);
-                if (!messages.length) throw new Error(`Source messages ${target.from}–${target.to} are unavailable in this chat.`);
-                let result = await extractChunk(messages);
-                result = await reviewExtractionBeforeSave(result, runtime.world, messages, { from: target.from, to: target.to, reason: 'retry' }, () => extractChunk(messages));
-                if (runtime.generation !== epoch) throw new Error('Retry stopped; the current generated result was discarded.');
-                await saveRetriedL1(worldId, target, result, messages);
-            } else {
-                world = runtime.world?.id === worldId ? runtime.world : (await api.getWorld(worldId)).world;
-                const capsules = (target.capsuleIds || []).map(id => (world.capsules || []).find(item => item.id === id)).filter(Boolean);
-                if (capsules.length !== (target.capsuleIds || []).length) throw new Error(`Cannot rebuild “${target.title}”; its source L1 records changed.`);
-                let result = await generateArc(capsules);
-                if (runtime.generation !== epoch) throw new Error('Retry stopped; the current generated result was discarded.');
-                result = await reviewHierarchyBeforeSave(result, 'L2', capsules, 'retry', () => generateArc(capsules));
-                if (runtime.generation !== epoch) throw new Error('Retry stopped; the current generated result was discarded.');
-                await saveRetriedL2(worldId, target, result);
-            }
+            const messages = collectMessages(target.from, target.to);
+            if (!messages.length) throw new Error(`Source messages ${target.from}–${target.to} are unavailable in this chat.`);
+            let result = await extractChunk(messages);
+            result = await reviewExtractionBeforeSave(result, runtime.world, messages, { from: target.from, to: target.to, reason: 'retry' }, () => extractChunk(messages));
+            if (runtime.generation !== epoch) throw new Error('Retry stopped; the current generated result was discarded.');
+            await saveRetriedL1(worldId, target, result, messages);
             retried++;
             updateRuntime({ retryStatus: `Rebuilt ${retried}/${targets.length} ${layer.toUpperCase()} item(s).` });
         }
@@ -1954,25 +1742,6 @@ export async function retryMemoryLayer({ layer, targetId = 'latest', all = false
         updateRuntime({ processing: false });
         if (!runtime.paused) queueMicrotask(processQueue);
     }
-}
-
-async function generateEra(arcs) {
-    const settings = getSettings();
-    const profileId = settings.arcProfileId || settings.memoryProfileId;
-    const directKind = settings.arcProfileId === DIRECT_PROFILE_ID ? 'summary' : 'extraction';
-    const thinkingMode = settings.summaryThinkingMode;
-    const usesStructuredSchema = requestSupportsStructuredSchema(eraJsonSchema, profileId, directKind, thinkingMode);
-    const taskTemplate = settings.eraTaskTemplate ?? DEFAULT_ERA_TASK_TEMPLATE;
-    const taskValues = {
-        arcs: formatArcs(arcs),
-    };
-    const prompt = renderStructuredTaskPrompt(taskTemplate, DEFAULT_ERA_TASK_TEMPLATE, taskValues, ARC_JSON_SHAPE_EXAMPLE, usesStructuredSchema, ['arcs']);
-    const fallbackPrompt = usesStructuredSchema
-        ? renderStructuredTaskPrompt(taskTemplate, DEFAULT_ERA_TASK_TEMPLATE, taskValues, ARC_JSON_SHAPE_EXAMPLE, false, ['arcs'])
-        : prompt;
-    const raw = await requestStructured(prompt, buildHierarchySystemPrompt(settings.eraSystemPrompt ?? DEFAULT_ERA_SYSTEM_PROMPT), eraJsonSchema, memoryResponseTokens('l3'), profileId, directKind, fallbackPrompt, thinkingMode);
-    updateRuntime({ lastEraResponse: String(raw).slice(0, 20000) });
-    return validateArcResult(typeof raw === 'string' ? parseJsonResponse(raw) : raw, 'L3');
 }
 
 export async function syncChangedExtractions(force = false) {

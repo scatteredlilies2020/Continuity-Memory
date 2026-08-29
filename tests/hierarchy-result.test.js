@@ -9,7 +9,7 @@ test('hierarchy output recovers scalar and missing list fields', () => {
         participants: 'Alice',
         turningPoints: null,
         openThreads: 'Alice still needs to arrive.',
-    }, 'L2');
+    }, 'C1');
 
     assert.deepEqual(result.participants, ['Alice']);
     assert.deepEqual(result.turningPoints, []);
@@ -22,5 +22,5 @@ test('hierarchy output still rejects object-shaped list fields', () => {
         participants: { Alice: true },
         turningPoints: [],
         openThreads: [],
-    }, 'L2'), /L2 field "participants" is not an array/);
+    }, 'C1'), /C1 field "participants" is not an array/);
 });

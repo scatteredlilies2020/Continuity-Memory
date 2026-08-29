@@ -1563,6 +1563,9 @@ export function restoreRetainedReplayRecords(world, previousWorld, chatKey) {
         world.eras.push(structuredClone(era));
         eraIds.add(era.id);
     }
+    // Capsule identities are restored above, so rebuild their deterministic C0 nodes
+    // before returning the replayed world.
+    syncChronicleBase(world, chatKey);
     const requiredMemoryIndexes = (previousWorld?.sources?.[chatKey]?.requiredMemoryIndexes || [])
         .map(Number)
         .filter(Number.isFinite);
@@ -1586,15 +1589,14 @@ function orderedChatExtractions(world, chatKey) {
 export function getLatestL1UndoStatus(world, chatKey) {
     const extractions = orderedChatExtractions(world, chatKey);
     const target = extractions.at(-1);
-    if (!target) return { available: false, replayable: false, from: null, to: null, extractionId: '', dependentL2: 0, dependentL3: 0 };
+    if (!target) return { available: false, replayable: false, from: null, to: null, extractionId: '', dependentChronicle: 0 };
 
     const targetCapsuleIds = new Set((world?.capsules || [])
         .filter(item => item.chatKey === chatKey && Number(item.from) === Number(target.from) && Number(item.to) === Number(target.to))
         .map(item => item.id));
-    const dependentArcIds = new Set((world?.arcs || [])
-        .filter(item => (item.capsuleIds || []).some(id => targetCapsuleIds.has(id)))
-        .map(item => item.id));
-    const dependentL3 = (world?.eras || []).filter(item => (item.arcIds || []).some(id => dependentArcIds.has(id))).length;
+    const dependentChronicle = (world?.chronicle || [])
+        .filter(item => Number(item.level) > 0 && (item.capsuleIds || []).some(id => targetCapsuleIds.has(id)))
+        .length;
 
     return {
         available: true,
@@ -1602,8 +1604,7 @@ export function getLatestL1UndoStatus(world, chatKey) {
         from: Number(target.from),
         to: Number(target.to),
         extractionId: String(target.id || ''),
-        dependentL2: dependentArcIds.size,
-        dependentL3,
+        dependentChronicle,
     };
 }
 
@@ -1620,8 +1621,7 @@ export function undoLatestL1Extraction(world, chatKey, expectedExtractionId = ''
     const target = orderedChatExtractions(world, chatKey)
         .find(item => Number(item.from) === status.from && Number(item.to) === status.to);
     const previousWorld = structuredClone(world);
-    const previousArcIds = new Set((world.arcs || []).map(item => item.id));
-    const previousEraIds = new Set((world.eras || []).map(item => item.id));
+    const previousChronicleIds = new Set((world.chronicle || []).filter(item => Number(item.level) > 0).map(item => item.id));
 
     removeChatContributions(world, chatKey);
     for (const item of retained) {
@@ -1646,8 +1646,7 @@ export function undoLatestL1Extraction(world, chatKey, expectedExtractionId = ''
         requiredMemoryIndexes: [...new Set([...alreadyRequired, ...(requiredMemoryIndexes.length ? requiredMemoryIndexes : fallbackIndexes)])].sort((a, b) => a - b),
     };
 
-    const retainedArcIds = new Set((world.arcs || []).map(item => item.id));
-    const retainedEraIds = new Set((world.eras || []).map(item => item.id));
+    const retainedChronicleIds = new Set((world.chronicle || []).filter(item => Number(item.level) > 0).map(item => item.id));
     return {
         undone: true,
         world,
@@ -1655,8 +1654,7 @@ export function undoLatestL1Extraction(world, chatKey, expectedExtractionId = ''
         to: status.to,
         extractionId: status.extractionId,
         removedL1: 1,
-        removedL2: [...previousArcIds].filter(id => !retainedArcIds.has(id)).length,
-        removedL3: [...previousEraIds].filter(id => !retainedEraIds.has(id)).length,
+        removedChronicle: [...previousChronicleIds].filter(id => !retainedChronicleIds.has(id)).length,
         retainedL1: retained.length,
     };
 }
@@ -1717,92 +1715,6 @@ export function addDerivedChronicle(world, result, nodes) {
     return addChroniclePromotion(world, result, nodes);
 }
 
-export function addDerivedArc(world, result, capsules) {
-    world.arcs ||= [];
-    const capsuleIds = (capsules || []).map(item => item.id).filter(Boolean);
-    if (!capsuleIds.length) throw new Error('Cannot create L2 without source L1 records.');
-    const signature = capsuleIds.join('|');
-    const duplicate = world.arcs.find(item => (item.capsuleIds || []).join('|') === signature);
-    if (duplicate) return duplicate;
-    const sources = [];
-    const seenSources = new Set();
-    for (const capsule of capsules) {
-        for (const source of capsule.sources || []) {
-            const sourceKey = `${source.chatKey}|${source.from}|${source.to}`;
-            if (seenSources.has(sourceKey)) continue;
-            seenSources.add(sourceKey);
-            sources.push(source);
-        }
-    }
-    const rangeStarts = capsules.map(item => Number(item.from)).filter(Number.isFinite);
-    const rangeEnds = capsules.map(item => Number(item.to)).filter(Number.isFinite);
-    const temporalAnchorIds = [...new Set(capsules.map(item => item.temporal?.anchorId).filter(Boolean))];
-    const temporalFrames = [...new Set(capsules.map(item => item.temporal?.frame).filter(Boolean))];
-    const hierarchy = compactHierarchyFields(result, 8, 12);
-    const arc = {
-        id: id('arc'),
-        title: clipped(result.title, 140) || `L2 covering ${capsules.length} L1 records`,
-        storyTime: clipped(result.storyTime, 180),
-        participants: cleanList(result.participants, 30),
-        ...hierarchy,
-        importance: clampImportance(result.importance),
-        capsuleIds,
-        temporalAnchorIds,
-        temporalFrames,
-        chatKey: capsules[0]?.chatKey || '',
-        ...(rangeStarts.length && rangeEnds.length ? { from: Math.min(...rangeStarts), to: Math.max(...rangeEnds) } : {}),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        sources: sources.slice(-50),
-    };
-    world.arcs.push(arc);
-    return arc;
-}
-
-export function addDerivedEra(world, result, arcs) {
-    world.eras ||= [];
-    const arcIds = (arcs || []).map(item => item.id).filter(Boolean);
-    if (!arcIds.length) throw new Error('Cannot create L3 without source L2 records.');
-    const signature = arcIds.join('|');
-    const duplicate = world.eras.find(item => (item.arcIds || []).join('|') === signature);
-    if (duplicate) return duplicate;
-    const capsuleIds = [...new Set(arcs.flatMap(arc => arc.capsuleIds || []))];
-    const sources = [];
-    const seenSources = new Set();
-    for (const arc of arcs) {
-        for (const source of arc.sources || []) {
-            const sourceKey = `${source.chatKey}|${source.from}|${source.to}`;
-            if (seenSources.has(sourceKey)) continue;
-            seenSources.add(sourceKey);
-            sources.push(source);
-        }
-    }
-    const rangeStarts = arcs.map(item => Number(item.from)).filter(Number.isFinite);
-    const rangeEnds = arcs.map(item => Number(item.to)).filter(Number.isFinite);
-    const temporalAnchorIds = [...new Set(arcs.flatMap(item => item.temporalAnchorIds || []))];
-    const temporalFrames = [...new Set(arcs.flatMap(item => item.temporalFrames || []))];
-    const hierarchy = compactHierarchyFields(result, 12, 16);
-    const era = {
-        id: id('era'),
-        title: clipped(result.title, 160) || `L3 covering ${arcs.length} L2 records`,
-        storyTime: clipped(result.storyTime, 220),
-        participants: cleanList(result.participants, 40),
-        ...hierarchy,
-        importance: clampImportance(result.importance),
-        arcIds,
-        capsuleIds,
-        temporalAnchorIds,
-        temporalFrames,
-        chatKey: arcs[0]?.chatKey || '',
-        ...(rangeStarts.length && rangeEnds.length ? { from: Math.min(...rangeStarts), to: Math.max(...rangeEnds) } : {}),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        sources: sources.slice(-100),
-    };
-    world.eras.push(era);
-    return era;
-}
-
 function clampImportance(value) {
     return Math.min(5, Math.max(1, Math.round(Number(value) || 3)));
 }
@@ -1813,8 +1725,7 @@ export function worldCounts(world) {
     const counts = Object.fromEntries(['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds']
         .map(name => [name, world[name]?.length || 0]));
     counts.L1 = world.capsules?.length || 0;
-    counts.L2 = world.arcs?.length || 0;
-    counts.L3 = world.eras?.length || 0;
+    counts.Chronicle = world.chronicle?.length || 0;
     counts['L1 source ranges'] = world.extractions?.length || 0;
     counts.corrections = world.corrections?.length || 0;
     return counts;

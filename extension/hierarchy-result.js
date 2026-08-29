@@ -10,7 +10,7 @@ function normalizeListField(value, key, label) {
 // Structured-output support is not uniform across providers. Preserve a useful
 // scalar answer when a provider ignores the array portion of the schema, while
 // continuing to reject ambiguous object-shaped output instead of saving it.
-export function normalizeHierarchyResult(result, label = 'L2') {
+export function normalizeHierarchyResult(result, label = 'Chronicle') {
     if (!result || typeof result !== 'object' || Array.isArray(result)) {
         throw new Error(`${label} summarizer returned no JSON object.`);
     }

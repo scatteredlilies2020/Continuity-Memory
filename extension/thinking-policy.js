@@ -1,4 +1,4 @@
-import { minimumReasoningEffort } from './model-compatibility.js?v=0.15.0-testing.1';
+import { minimumReasoningEffort } from './model-compatibility.js?v=0.15.0-testing.2';
 
 function normalizedMode(mode) {
     const value = String(mode || '').toLowerCase();
@@ -109,7 +109,7 @@ export function buildThinkingRequest({ mode, source = '', model = '', url = '', 
 /**
  * Continuity's L1 extraction schema is intentionally broad and deeply nested.
  * Gemini may reject that one schema with a generic INVALID_ARGUMENT, so L1 uses
- * its exact-shape prompt and local validator there. Smaller L2, L3, and
+ * its exact-shape prompt and local validator there. Smaller Chronicle and
  * correction schemas remain enabled.
  */
 export function shouldSendStructuredSchema(adapter = '', jsonSchema = null) {

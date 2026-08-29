@@ -10,8 +10,6 @@ const INDEXED_CATEGORIES = Object.freeze([
     ['thread', 'threads', ['title', 'detail', 'status', 'participants']],
     ['background', 'backgrounds', ['topic', 'summary', 'status', 'certainty', 'participants']],
     ['capsule', 'capsules', ['title', 'storyTime', 'location', 'participants', 'opening', 'beats', 'emotionalArc', 'closing']],
-    ['arc', 'arcs', ['title', 'storyTime', 'participants', 'summary', 'turningPoints', 'emotionalArc', 'closingState', 'openThreads']],
-    ['era', 'eras', ['title', 'storyTime', 'participants', 'summary', 'turningPoints', 'emotionalArc', 'closingState', 'openThreads']],
     ['correction', 'corrections', ['instruction', 'summary']],
 ]);
 

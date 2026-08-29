@@ -13,8 +13,7 @@ export const MEMORY_VIEW_CATEGORIES = Object.freeze([
     { key: 'backgrounds', label: 'Background developments' },
     { key: 'corrections', label: 'Corrections' },
     { key: 'l1', label: 'L1' },
-    { key: 'l2', label: 'L2' },
-    { key: 'l3', label: 'L3' },
+    { key: 'chronicle', label: 'Chronicle' },
 ]);
 
 function text(value) {
@@ -64,8 +63,7 @@ function categoryItems(world, category, chatKey = '') {
         return story && (story.text || story.rebuildIncomplete || story.rebuildRestartPending) ? [story] : [];
     }
     if (category === 'l1') return world.capsules || [];
-    if (category === 'l2') return world.arcs || [];
-    if (category === 'l3') return world.eras || [];
+    if (category === 'chronicle') return world.chronicle || [];
     return Array.isArray(world[category]) ? world[category] : [];
 }
 
@@ -194,7 +192,7 @@ function entry(category, item, index) {
 
 export function memoryViewerPage(world, category = 'l1', query = '', page = 0, pageSize = 30, chatKey = '') {
     const known = MEMORY_VIEW_CATEGORIES.some(item => item.key === category) ? category : 'l1';
-    const chronological = ['story', 'l1', 'l2', 'l3', 'events'].includes(known);
+    const chronological = ['story', 'l1', 'chronicle', 'events'].includes(known);
     let entries = categoryItems(world, known, chatKey).map((item, index) => entry(known, item, index));
     entries.sort((a, b) => chronological
         ? (Number.isFinite(a.from) ? a.from : Number.MAX_SAFE_INTEGER) - (Number.isFinite(b.from) ? b.from : Number.MAX_SAFE_INTEGER)

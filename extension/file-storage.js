@@ -111,8 +111,6 @@ function counts(world) {
         relationships: world.relationships?.length || 0,
         events: world.events?.length || 0,
         narrativeCapsules: world.capsules?.length || 0,
-        l2Arcs: world.arcs?.length || 0,
-        l3Eras: world.eras?.length || 0,
         chronicleNodes: world.chronicle?.length || 0,
         retryableL1: world.extractions?.length || 0,
         threads: world.threads?.length || 0,

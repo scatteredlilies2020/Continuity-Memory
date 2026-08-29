@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { addDerivedArc, addDerivedEra, mergeExtraction } from '../extension/memory-model.js';
+import { addDerivedChronicle, mergeExtraction } from '../extension/memory-model.js';
 import { buildMemoryPrompt } from '../extension/retrieval.js';
 import { anchoredRelativeText, anchoredStoryTime, l1AnchorId } from '../extension/temporal-anchors.js';
 
@@ -102,24 +102,20 @@ test('subjective frames link only to their own prior frame', () => {
     assert.notEqual(target.capsules[2].temporal.referenceId, target.capsules[1].temporal.anchorId);
 });
 
-test('L2 and L3 preserve anchor spans without inflating ordinary text', () => {
+test('Chronicle promotion preserves anchor spans without inflating ordinary text', () => {
     const target = world();
     const chatKey = 'chat:hierarchy';
     mergeExtraction(target, extraction({ title: 'First' }), { chatKey, from: 0, to: 7, allowStateUpdates: true });
     mergeExtraction(target, extraction({ title: 'Second' }), { chatKey, from: 8, to: 15, allowStateUpdates: true });
-    const arc = addDerivedArc(target, {
-        title: 'Last year arc', storyTime: 'last year', participants: ['A'], summary: 'Two scenes occurred.', turningPoints: [], emotionalArc: '', closingState: '', openThreads: [], importance: 3,
-    }, target.capsules);
-    const era = addDerivedEra(target, {
-        title: 'Era', storyTime: 'last year', participants: ['A'], summary: 'The arc occurred.', turningPoints: [], emotionalArc: '', closingState: '', openThreads: [], importance: 3,
-    }, [arc]);
+    const parent = addDerivedChronicle(target, {
+        title: 'Last year', storyTime: 'last year', participants: ['A'], summary: 'Two scenes occurred.', turningPoints: [], emotionalArc: '', closingState: '', openThreads: [], importance: 3,
+    }, target.chronicle);
 
-    assert.deepEqual(arc.temporalAnchorIds, target.capsules.map(item => item.temporal.anchorId));
-    assert.deepEqual(era.temporalAnchorIds, arc.temporalAnchorIds);
-    assert.match(anchoredStoryTime(era), /relative to L1-.*…L1-/);
-    assert.equal(anchoredStoryTime({ storyTime: 'After school', temporalAnchorIds: arc.temporalAnchorIds }), 'After school');
-    assert.equal(anchoredRelativeText('A waited at the station', arc), 'A waited at the station');
-    assert.equal(anchoredRelativeText('A waited for the last 300 days', arc), `A waited for the last 300 days (relative to ${arc.temporalAnchorIds[0]}…${arc.temporalAnchorIds.at(-1)})`);
+    assert.deepEqual(parent.temporalAnchorIds, target.capsules.map(item => item.temporal.anchorId));
+    assert.match(anchoredStoryTime(parent), /relative to L1-.*…L1-/);
+    assert.equal(anchoredStoryTime({ storyTime: 'After school', temporalAnchorIds: parent.temporalAnchorIds }), 'After school');
+    assert.equal(anchoredRelativeText('A waited at the station', parent), 'A waited at the station');
+    assert.equal(anchoredRelativeText('A waited for the last 300 days', parent), `A waited for the last 300 days (relative to ${parent.temporalAnchorIds[0]}…${parent.temporalAnchorIds.at(-1)})`);
 });
 
 test('legacy relative phrases fail closed until they are re-extracted with anchors', () => {

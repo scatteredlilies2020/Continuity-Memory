@@ -62,7 +62,7 @@ ${CONTINUITY_COVERAGE_RULES}
 ${IMPORTANCE_RUBRIC}
 sceneCapsule importance rates the whole excerpt.`;
 
-export const ROLLING_STORY_RULE = `Produce a compact world-state snapshot with history from the supplied prior snapshot plus new chronological source material only. Source material may contain raw chat or explicitly labeled L1 scene summaries; use only what is supplied and never consult L2, L3, retrieval results, or other memory. This is the global continuity spine, not a recap, transcript, scene summary, or memory inventory. Re-evaluate the whole snapshot on every call; never append merely because material is recent. If the excerpt changes no load-bearing continuity, preserve the prior content instead of forcing an update.
+export const ROLLING_STORY_RULE = `Produce a compact world-state snapshot with history from the supplied prior snapshot plus new chronological source material only. Source material may contain raw chat or explicitly labeled L1 scene summaries; use only what is supplied and never consult derived hierarchy, retrieval results, or other memory. This is the global continuity spine, not a recap, transcript, scene summary, or memory inventory. Re-evaluate the whole snapshot on every call; never append merely because material is recent. If the excerpt changes no load-bearing continuity, preserve the prior content instead of forcing an update.
 
 For storySoFar, return exactly four arrays in its requested JSON object. Their lengths are flexible; the complete snapshot token allowance, importance, and causal complexity determine how many entries they need:
 - premise: the earliest initiating facts and foundational role, identity, relationship, or objective changes without which the story becomes unintelligible; earliest cause first.
@@ -76,7 +76,7 @@ Every entry must pass this counterfactual test: removing it would make a later i
 
 Use one dense telegraphic sentence or fragment per array entry. Omit headings, markdown, atmosphere, sensory detail, scene-setting, dialogue retelling, transitions, literary phrasing, repetition, and internal commentary. The compiled snapshot's token allowance is the final maximum; for substantial history, use it efficiently rather than omitting load-bearing continuity. Compress wording, never causal meaning.
 
-Record only what has already occurred. boundaryState means state at the covered endpoint, but do not write current, currently, present, latest, ongoing, now, or at present. Plans and expectations belong only in openMatters and remain explicitly unresolved. Preserve every unresolved explicit ultimatum or conditional threat with its actor, demanded choice, and stated consequence; never soften death, destruction, loss, or a deadline into generic danger, pressure, or risk. Match source severity and certainty exactly: do not intensify injury into near-death, coercion into ownership, suspicion into fact, or possibility into certainty. Attribute beliefs, reports, deception, and uncertainty to their holders or sources. Use explicit names only where omission creates ambiguity. Do not cite or name L1, L2, L3, retrieved records, hierarchy levels, memory categories, or internal IDs in the returned snapshot.
+Record only what has already occurred. boundaryState means state at the covered endpoint, but do not write current, currently, present, latest, ongoing, now, or at present. Plans and expectations belong only in openMatters and remain explicitly unresolved. Preserve every unresolved explicit ultimatum or conditional threat with its actor, demanded choice, and stated consequence; never soften death, destruction, loss, or a deadline into generic danger, pressure, or risk. Match source severity and certainty exactly: do not intensify injury into near-death, coercion into ownership, suspicion into fact, or possibility into certainty. Attribute beliefs, reports, deception, and uncertainty to their holders or sources. Use explicit names only where omission creates ambiguity. Do not cite or name L1, Chronicle nodes, retrieved records, hierarchy levels, memory categories, or internal IDs in the returned snapshot.
 
 Before returning, silently verify that premise begins with the earliest load-bearing cause, majorDevelopments spans the history rather than the newest scene, boundaryState contains no historical recap, openMatters states each active ultimatum without euphemism and contains no inventory, severity never exceeds the source, each consequential secret identity says exactly who knows which link, no event is duplicated, durable premise-level capabilities and ambitions survive, ownership and provenance remain unchanged, and every retained number, named object, minor actor, or physical specification is indispensable.`;
 
@@ -149,32 +149,6 @@ export const DEFAULT_RETRIEVAL_QUERY_TEMPLATE = `Current conversation:
 
 export const HIERARCHY_CONCISION_RULES = `Keep hierarchy fields concise, complete, and non-redundant. Store each detail once in its most specific field; never repeat a sentence across summary, turningPoints, emotionalArc, closingState, or openThreads. title and storyTime are compact labels; summary holds only causal continuity; turningPoints and openThreads items are one concise sentence; emotionalArc and closingState are at most one short paragraph. Finish fields cleanly without omission ellipses.`;
 
-export const DEFAULT_ARC_SYSTEM_PROMPT = `Compress chronological L1 records into one accurate L2 continuity record. Preserve causal order, important decisions, consequences, durable changes, and unresolved threads using the scenario's ontology; participants need not be people. Keep meaningful local developments, remove repetition and formatting, and never invent or resolve open matters.
-${HIERARCHY_ATTRIBUTION_RULE}
-${EXTREME_SUMMARY_FIDELITY_RULE}
-L1 order is source order, not elapsed time. Preserve supplied anchors, relative wording, subjective frames, and explicit skips; never invent dates, durations, boundaries, or synchronization.
-${HIERARCHY_CONCISION_RULES}
-${IMPORTANCE_RUBRIC}
-Rate the whole L2 interval.`;
-
-export const DEFAULT_ARC_TASK_TEMPLATE = `Create one concise L2 from chronological L1 records.
-{{format}}
-
-{{capsules}}`;
-
-export const DEFAULT_ERA_SYSTEM_PROMPT = `Compress chronological L2 records into one accurate L3 continuity record. Preserve major causal progression, foundational decisions, consequences, lasting changes, and surviving unresolved threads using the scenario's ontology; participants need not be people. Remove repeated detail and formatting; never invent, alter chronology, or resolve open matters.
-${HIERARCHY_ATTRIBUTION_RULE}
-${EXTREME_SUMMARY_FIDELITY_RULE}
-Hierarchy order is source order, not elapsed time. Preserve anchor spans, relative wording, subjective frames, and explicit skips; never invent dates, durations, boundaries, or synchronization.
-${HIERARCHY_CONCISION_RULES}
-${IMPORTANCE_RUBRIC}
-Rate the whole L3 interval.`;
-
-export const DEFAULT_ERA_TASK_TEMPLATE = `Create one concise L3 from chronological L2 records.
-{{format}}
-
-{{arcs}}`;
-
 export const DEFAULT_CHRONICLE_SYSTEM_PROMPT = `Compress chronological Chronicle nodes into one accurate parent Chronicle node. Preserve source order, causal progression, foundational premises, consequential decisions, durable changes, relationship meaning, knowledge boundaries, attributed uncertainty, and every surviving unresolved matter. Use only the supplied child nodes. Never invent a transition, flatten a character's belief into objective fact, or resolve an open matter.
 ${HIERARCHY_ATTRIBUTION_RULE}
 ${EXTREME_SUMMARY_FIDELITY_RULE}
@@ -195,10 +169,6 @@ export const PROMPT_DEFAULTS = Object.freeze({
     retrievalSystemPrompt: DEFAULT_RETRIEVAL_SYSTEM_PROMPT,
     retrievalQueryTemplate: DEFAULT_RETRIEVAL_QUERY_TEMPLATE,
     injectionInstruction: DEFAULT_INJECTION_INSTRUCTION,
-    arcSystemPrompt: DEFAULT_ARC_SYSTEM_PROMPT,
-    arcTaskTemplate: DEFAULT_ARC_TASK_TEMPLATE,
-    eraSystemPrompt: DEFAULT_ERA_SYSTEM_PROMPT,
-    eraTaskTemplate: DEFAULT_ERA_TASK_TEMPLATE,
     chronicleSystemPrompt: DEFAULT_CHRONICLE_SYSTEM_PROMPT,
     chronicleTaskTemplate: DEFAULT_CHRONICLE_TASK_TEMPLATE,
 });
