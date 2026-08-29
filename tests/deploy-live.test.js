@@ -18,6 +18,7 @@ test('live deployment follows the manifest entrypoint and rejects a stale loaded
         await writeFile(path.join(source, 'extension', 'style.css'), '/* tested */\n');
         await writeFile(path.join(target, 'manifest.json'), JSON.stringify({ js: 'extension/index.js', css: 'extension/style.css', version: 'test.9' }));
         await writeFile(path.join(target, 'extension', 'index.js'), 'export const loaded = 3;\n');
+        await writeFile(path.join(target, 'extension', 'obsolete.js'), 'export const stale = true;\n');
         await writeFile(path.join(target, 'index.js'), 'export const misleadingSibling = 9;\n');
 
         await assert.rejects(verifyLiveDeployment(target, source), /differs from tested source/u);
@@ -26,6 +27,7 @@ test('live deployment follows the manifest entrypoint and rejects a stale loaded
         assert.equal(receipt.extractionVersion, 41);
         assert.match(await readFile(path.join(target, 'extension', 'index.js'), 'utf8'), /loaded = 9/u);
         assert.match(await readFile(path.join(target, 'index.js'), 'utf8'), /misleadingSibling/u);
+        await assert.rejects(readFile(path.join(target, 'extension', 'obsolete.js'), 'utf8'), error => error?.code === 'ENOENT');
         await verifyLiveDeployment(target, source);
 
         await writeFile(path.join(target, 'extension', 'index.js'), 'export const loaded = 9;\r\n');

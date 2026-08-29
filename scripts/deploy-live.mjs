@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { cp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -50,6 +50,11 @@ export async function verifyLiveDeployment(targetRoot, sourceRoot = repositoryRo
     if (liveManifest.version !== layout.manifest.version) throw new Error(`Live version ${liveManifest.version} does not match tested version ${layout.manifest.version}.`);
     const mismatches = [];
     const files = await filesUnder(layout.sourceCodeRoot);
+    const liveFiles = await filesUnder(layout.targetCodeRoot);
+    const sourceFiles = new Set(files);
+    for (const relative of liveFiles) {
+        if (!sourceFiles.has(relative)) mismatches.push(`${relative} (stale)`);
+    }
     for (const relative of files) {
         const source = path.join(layout.sourceCodeRoot, relative);
         const target = path.join(layout.targetCodeRoot, relative);
@@ -68,6 +73,10 @@ export async function verifyLiveDeployment(targetRoot, sourceRoot = repositoryRo
 
 export async function deployLive(targetRoot, sourceRoot = repositoryRoot) {
     const layout = await liveLayout(targetRoot, sourceRoot);
+    // liveLayout proves this directory is the manifest entrypoint's directory
+    // and that it remains inside targetRoot. Replace it completely so renamed
+    // or deleted modules cannot survive an update and remain browser-loadable.
+    await rm(layout.targetCodeRoot, { recursive: true, force: true });
     await mkdir(layout.targetCodeRoot, { recursive: true });
     await cp(layout.sourceCodeRoot, layout.targetCodeRoot, { recursive: true, force: true });
     await cp(path.join(sourceRoot, 'manifest.json'), path.join(targetRoot, 'manifest.json'), { force: true });
