@@ -2444,29 +2444,48 @@ export async function restartHierarchyFromL1() {
     if (!worldId) throw new Error('Open a chat with Continuity memory first.');
     await requireRetryStorage();
     runtime.generation++;
+    const epoch = runtime.generation;
     const queued = runtime.queue.splice(0);
     for (const job of queued) job.reject?.(new Error('Chronicle rebuild cleared the processing queue.'));
-    updateRuntime({ processing: true, paused: false, status: 'restarting', progress: null, lastError: '', retryStatus: 'Rebuilding every Chronicle layer from preserved L1…' });
+    updateRuntime({ processing: true, paused: false, status: 'restarting', progress: null, lastError: '', retryStatus: 'Preparing a complete replacement Chronicle from preserved L1…' });
     try {
-        const clear = world => resetWorldHierarchy(world);
         let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
         if (!(world.capsules || []).length) throw new Error('There are no L1 records to build Chronicle parents from. Use Build or erase everything and start over.');
         const l1Kept = world.capsules.length;
-        clear(world);
+        const baseRevision = Number(world.revision) || 0;
+        resetWorldHierarchy(world);
+        let chroniclePromotions = 0;
+
+        for (;;) {
+            const nodes = nextChroniclePromotion(world, getSettings());
+            if (!nodes) break;
+            const destination = (Number(nodes[0].level) || 0) + 1;
+            updateRuntime({
+                status: 'building',
+                arcStatus: `Promoting ${nodes.length} C${nodes[0].level} nodes into replacement Chronicle C${destination}…`,
+                retryStatus: `Building replacement Chronicle in memory; the currently saved hierarchy remains untouched (${chroniclePromotions} promotion(s) ready)…`,
+            });
+            let result = await generateChroniclePromotion(nodes);
+            if (runtime.generation !== epoch) throw new Error('Chronicle rebuild was stopped; the previously saved hierarchy was kept.');
+            result = await reviewHierarchyBeforeSave(result, `C${destination}`, nodes, 'hierarchy', () => generateChroniclePromotion(nodes));
+            if (runtime.generation !== epoch) throw new Error('Chronicle rebuild was stopped; the previously saved hierarchy was kept.');
+            assertAuthoritativeMetaProvenance(result, chronicleProvenanceBoundaries(nodes));
+            addDerivedChronicle(world, result, nodes);
+            chroniclePromotions++;
+        }
+
+        if (runtime.generation !== epoch) throw new Error('Chronicle rebuild was stopped; the previously saved hierarchy was kept.');
         try {
             world = (await api.saveWorld(world)).world;
         } catch (error) {
-            if (error.status !== 409) throw error;
-            world = (await api.getWorld(worldId)).world;
-            if (!(world.capsules || []).length) throw new Error('There are no L1 records to build Chronicle parents from. Use Build or erase everything and start over.');
-            clear(world);
-            world = (await api.saveWorld(world)).world;
+            if (error.status === 409) throw new Error(`Memory changed while the replacement Chronicle was being built (started at revision ${baseRevision}). Nothing was replaced; run the rebuild again.`);
+            throw error;
         }
-        updateRuntime({ world, status: 'idle', retryStatus: `Recreated ${l1Kept} C0 record(s) from preserved L1. Rebuilding eligible parent layers…` });
+        updateRuntime({ world, status: 'idle', arcStatus: `Replacement Chronicle committed with ${chroniclePromotions} promotion(s).`, retryStatus: `Atomically rebuilt ${l1Kept} C0 record(s) and ${chroniclePromotions} eligible parent node(s) from preserved L1.` });
         await embedWorldInChat(world);
-        return { l1Kept, continued: 0 };
+        return { l1Kept, continued: 0, chroniclePromotions };
     } catch (error) {
-        updateRuntime({ status: 'error', progress: null, lastError: error.message, retryStatus: `Chronicle reset failed: ${error.message}` });
+        updateRuntime({ status: 'error', progress: null, lastError: error.message, retryStatus: `Chronicle rebuild did not commit; the previously saved hierarchy was kept: ${error.message}` });
         throw error;
     } finally {
         updateRuntime({ processing: false });

@@ -1800,10 +1800,6 @@ async function rebuildHierarchy() {
     const l1Count = runtime.world?.capsules?.length || 0;
     if (!l1Count) throw new Error('There are no L1 records to build Chronicle parents from. Use Build or erase everything and start over.');
     if (!window.confirm(`Rebuild every Recursive Chronicle layer from the ${l1Count} existing L1 record(s)? Every C0 will be recreated locally; eligible C1+ parents will be regenerated. L1, structured memory books, and extraction records will remain untouched.`)) return { cancelled: true };
-    stopEmbeddingIndexing();
-    clearRetrievalExpansionCache();
-    try { await purgeEmbeddingIndex(runtime.world.id); }
-    catch (error) { console.warn('[Continuity] Could not purge the old derived embedding index before rebuilding Chronicle layers.', error); }
     const reset = await restartHierarchyFromL1();
     return finishHierarchy(reset, true, true);
 }
