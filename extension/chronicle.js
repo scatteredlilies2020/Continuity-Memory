@@ -79,6 +79,7 @@ function nodeFromCapsule(capsule) {
         to: Number(capsule.to),
         capsuleIds: [capsule.id],
         childIds: [],
+        provenanceBoundaries: structuredClone(capsule.provenanceBoundaries || []),
         temporalAnchorIds: unique([capsule.temporal?.anchorId]),
         createdAt: capsule.createdAt || new Date().toISOString(),
         updatedAt: capsule.updatedAt || new Date().toISOString(),
@@ -122,7 +123,8 @@ export function syncChronicleBase(world, chatKey = '') {
             continue;
         }
         const prior = world.chronicle[index];
-        if (prior.text !== incoming.text || Number(prior.from) !== incoming.from || Number(prior.to) !== incoming.to || prior.chatKey !== incoming.chatKey) {
+        if (prior.text !== incoming.text || Number(prior.from) !== incoming.from || Number(prior.to) !== incoming.to || prior.chatKey !== incoming.chatKey
+            || JSON.stringify(prior.provenanceBoundaries || []) !== JSON.stringify(incoming.provenanceBoundaries || [])) {
             changedIds.add(prior.id);
             world.chronicle[index] = { ...incoming, createdAt: prior.createdAt || incoming.createdAt };
         }
@@ -194,6 +196,7 @@ export function addChroniclePromotion(world, result, children) {
         participants: unique((result.participants || []).map(clean)),
         childIds,
         capsuleIds: unique(children.flatMap(item => item.capsuleIds || [])),
+        provenanceBoundaries: children.flatMap(item => structuredClone(item.provenanceBoundaries || [])),
         temporalAnchorIds: unique(children.flatMap(item => item.temporalAnchorIds || [])),
         ...(starts.length && ends.length ? { from: Math.min(...starts), to: Math.max(...ends) } : {}),
         createdAt: now,

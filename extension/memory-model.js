@@ -1379,6 +1379,7 @@ export function mergeExtraction(world, result, meta) {
             coverageWarnings: cleanList(raw.coverageWarnings, 8).map(item => clipped(item, 440)),
             importance: clampImportance(raw.importance),
             chronicleText: clipped(result.chronicleEntry || compileRollingStorySnapshot(result.storySoFar), 2400),
+            provenanceBoundaries: structuredClone(result._authoritativeMetaBoundaries || []),
             chatKey: meta.chatKey,
             from: meta.from,
             to: meta.to,
@@ -1706,8 +1707,8 @@ export function freshResetResiduals(world, { allowCorrections = false } = {}) {
 export function resetWorldHierarchy(world) {
     world.arcs = [];
     world.eras = [];
-    world.chronicle = (world.chronicle || []).filter(item => Number(item.level) === 0);
-    for (const chatKey of new Set(world.chronicle.map(item => item.chatKey))) syncChronicleBase(world, chatKey);
+    world.chronicle = [];
+    for (const chatKey of new Set((world.capsules || []).map(item => item.chatKey || ''))) syncChronicleBase(world, chatKey);
     return world;
 }
 

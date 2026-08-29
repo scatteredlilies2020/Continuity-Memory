@@ -18,7 +18,7 @@ import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedChronicle, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens, storyResponseTokens } from './memory-response-policy.js';
 import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.2';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.2';
+import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.2';
 import { embedWorldInChat } from './portable.js';
 import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.2';
 import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_QUALITY_RULE, ROLLING_STORY_QUALITY_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, ROLLING_STORY_VERIFY_RULE, ROLLING_STORY_VERIFY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.2';
@@ -409,7 +409,11 @@ function validateResult(result, world, messages) {
         result.chronicleEntry = compileRollingStorySnapshot(result.storySoFar)
             || [result.sceneCapsule.opening, ...(result.sceneCapsule.beats || []), result.sceneCapsule.closing].filter(Boolean).join(' ');
     }
+    const provenanceBoundaries = authoritativeMetaBoundaries(messages);
+    assertAuthoritativeMetaProvenance(result, provenanceBoundaries);
     const validation = sanitizeReconciliationMetadata(result, world, messages);
+    assertAuthoritativeMetaProvenance(result, provenanceBoundaries);
+    result._authoritativeMetaBoundaries = provenanceBoundaries;
     return { result, validation };
 }
 
@@ -745,7 +749,7 @@ async function reviewHierarchyBeforeSave(result, layer, sources, reason = 'hiera
         sourceCount: sources?.length || 0,
         from: ranges.length ? Math.min(...ranges) : 0,
         to: ranges.length ? Math.max(...ranges) : 0,
-    }, candidate => validateArcResult(candidate, layer), regenerate);
+    }, candidate => validateChronicleResult(candidate, layer, sources), regenerate);
 }
 
 function completionFinishReason(payload) {
@@ -1595,6 +1599,22 @@ function validateArcResult(result, layer = 'Chronicle') {
     return normalizeHierarchyResult(result, layer);
 }
 
+function chronicleProvenanceBoundaries(nodes) {
+    const seen = new Set();
+    return (nodes || []).flatMap(node => node?.provenanceBoundaries || []).filter(boundary => {
+        const key = JSON.stringify(boundary);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
+
+function validateChronicleResult(result, layer, nodes) {
+    const normalized = validateArcResult(result, layer);
+    assertAuthoritativeMetaProvenance(normalized, chronicleProvenanceBoundaries(nodes));
+    return normalized;
+}
+
 function formatChronicleNodes(nodes) {
     return nodes.map((node, index) => JSON.stringify({
         sequence: index + 1,
@@ -1621,11 +1641,13 @@ async function generateChroniclePromotion(nodes) {
         : prompt;
     const raw = await requestStructured(prompt, buildHierarchySystemPrompt(settings.chronicleSystemPrompt ?? DEFAULT_CHRONICLE_SYSTEM_PROMPT), chronicleJsonSchema, memoryResponseTokens('chronicle'), profileId, directKind, fallbackPrompt, thinkingMode);
     updateRuntime({ lastArcResponse: String(raw).slice(0, 20000) });
-    return validateArcResult(typeof raw === 'string' ? parseJsonResponse(raw) : raw, `C${(Number(nodes[0]?.level) || 0) + 1}`);
+    const layer = `C${(Number(nodes[0]?.level) || 0) + 1}`;
+    return validateChronicleResult(typeof raw === 'string' ? parseJsonResponse(raw) : raw, layer, nodes);
 }
 
 async function saveChroniclePromotion(world, result, nodes, embed = true) {
     const worldId = world.id;
+    assertAuthoritativeMetaProvenance(result, chronicleProvenanceBoundaries(nodes));
     let created;
     for (let attempt = 0; attempt < 4; attempt++) {
         if (attempt) world = (await api.getWorld(worldId)).world;
@@ -2424,7 +2446,7 @@ export async function restartHierarchyFromL1() {
     runtime.generation++;
     const queued = runtime.queue.splice(0);
     for (const job of queued) job.reject?.(new Error('Chronicle rebuild cleared the processing queue.'));
-    updateRuntime({ processing: true, paused: false, status: 'restarting', progress: null, lastError: '', retryStatus: 'Deleting existing Chronicle parents while preserving L1 and C0…' });
+    updateRuntime({ processing: true, paused: false, status: 'restarting', progress: null, lastError: '', retryStatus: 'Rebuilding every Chronicle layer from preserved L1…' });
     try {
         const clear = world => resetWorldHierarchy(world);
         let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
@@ -2440,7 +2462,7 @@ export async function restartHierarchyFromL1() {
             clear(world);
             world = (await api.saveWorld(world)).world;
         }
-        updateRuntime({ world, status: 'idle', retryStatus: `Deleted old Chronicle parents. Rebuilding from ${l1Kept} preserved C0/L1 record(s)…` });
+        updateRuntime({ world, status: 'idle', retryStatus: `Recreated ${l1Kept} C0 record(s) from preserved L1. Rebuilding eligible parent layers…` });
         await embedWorldInChat(world);
         return { l1Kept, continued: 0 };
     } catch (error) {

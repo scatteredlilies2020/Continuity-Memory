@@ -1799,7 +1799,7 @@ async function rebuildHierarchy() {
     await ensureCurrentChatMemory(true);
     const l1Count = runtime.world?.capsules?.length || 0;
     if (!l1Count) throw new Error('There are no L1 records to build Chronicle parents from. Use Build or erase everything and start over.');
-    if (!window.confirm(`Delete and regenerate Recursive Chronicle parent layers from the ${l1Count} existing L1 record(s)? C0, L1, structured memory books, and extraction records will remain untouched.`)) return { cancelled: true };
+    if (!window.confirm(`Rebuild every Recursive Chronicle layer from the ${l1Count} existing L1 record(s)? Every C0 will be recreated locally; eligible C1+ parents will be regenerated. L1, structured memory books, and extraction records will remain untouched.`)) return { cancelled: true };
     stopEmbeddingIndexing();
     clearRetrievalExpansionCache();
     try { await purgeEmbeddingIndex(runtime.world.id); }

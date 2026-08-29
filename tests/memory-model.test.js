@@ -2052,12 +2052,13 @@ test('fresh rebuild verification detects stale records left after a claimed rese
     assert.deepEqual(freshResetResiduals(target), ['sources', 'relationships:1']);
 });
 
-test('hierarchy reset removes derived Chronicle and inert legacy hierarchy while preserving L1', () => {
+test('hierarchy reset recreates C0 from L1 and removes every derived parent', () => {
     const target = world();
     mergeExtraction(target, extraction(), { chatKey: 'chat', from: 0, to: 4, allowStateUpdates: true });
     target.arcs.push({ id: 'arc' });
     target.eras.push({ id: 'era' });
     target.chronicle.push({ id: 'derived', level: 1, chatKey: 'chat', childIds: target.chronicle.map(item => item.id) });
+    target.chronicle[0].text = 'Stale C0 text that must not survive the rebuild.';
     const l1 = structuredClone(target.capsules);
     const extractions = structuredClone(target.extractions);
     const facts = structuredClone(target.facts);
@@ -2067,6 +2068,9 @@ test('hierarchy reset removes derived Chronicle and inert legacy hierarchy while
     assert.deepEqual(target.arcs, []);
     assert.deepEqual(target.eras, []);
     assert.equal(target.chronicle.every(item => Number(item.level) === 0), true);
+    assert.equal(target.chronicle.length, target.capsules.length);
+    assert.notEqual(target.chronicle[0].text, 'Stale C0 text that must not survive the rebuild.');
+    assert.match(target.chronicle[0].text, /Yui and Mio met to practice/u);
     assert.deepEqual(target.capsules, l1);
     assert.deepEqual(target.extractions, extractions);
     assert.deepEqual(target.facts, facts);

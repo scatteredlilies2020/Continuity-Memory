@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 
 import { isRateLimitError, isTransientApiError } from '../extension/errors.js';
 import { isRecoverableExtractionOutputError } from '../extension/extraction-recovery.js';
+import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries } from '../extension/extraction-context.js';
 import { fingerprintMessage } from '../extension/message-digest.js';
 import { addDerivedChronicle, mergeExtraction } from '../extension/memory-model.js';
 import { isCurrentStorySnapshot } from '../extension/story-source.js';
@@ -134,7 +135,11 @@ function validateResult(result, world, messages) {
     for (const key of ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds']) {
         if (!Array.isArray(result[key])) throw new Error(`Extractor field "${key}" is not an array.`);
     }
+    const provenanceBoundaries = authoritativeMetaBoundaries(messages);
+    assertAuthoritativeMetaProvenance(result, provenanceBoundaries);
     const validation = sanitizeReconciliationMetadata(result, world, messages);
+    assertAuthoritativeMetaProvenance(result, provenanceBoundaries);
+    result._authoritativeMetaBoundaries = provenanceBoundaries;
     return { result, validation };
 }
 
@@ -163,6 +168,16 @@ function formatChronicleNodes(nodes) {
 
 function validateHierarchyResult(result, label) {
     return normalizeHierarchyResult(result, label);
+}
+
+function chronicleProvenanceBoundaries(nodes) {
+    const seen = new Set();
+    return (nodes || []).flatMap(node => node?.provenanceBoundaries || []).filter(boundary => {
+        const key = JSON.stringify(boundary);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
 }
 
 function hierarchyPrompt(layer, records, withSchema) {
@@ -211,10 +226,13 @@ async function requestHierarchy(job, layer, records, label) {
             }
         } else throw error;
     }
-    return validateHierarchyResult(parseJsonResponse(raw), label);
+    const result = validateHierarchyResult(parseJsonResponse(raw), label);
+    assertAuthoritativeMetaProvenance(result, chronicleProvenanceBoundaries(records));
+    return result;
 }
 
 async function saveChronicleResult(job, result, sourceRecords) {
+    assertAuthoritativeMetaProvenance(result, chronicleProvenanceBoundaries(sourceRecords));
     for (let attempt = 0; attempt < 4; attempt++) {
         const world = await job.loadWorld();
         const current = sourceRecords.map(source => (world.chronicle || []).find(item => item.id === source.id)).filter(Boolean);

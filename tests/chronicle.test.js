@@ -65,6 +65,15 @@ test('promotion is oldest-first, same-layer, non-destructive, and capacity-gated
     assert.equal(nextChroniclePromotion(value, settings), null);
 });
 
+test('OOC provenance boundaries survive C0 creation and every recursive promotion', () => {
+    const value = world(3);
+    value.capsules[0].provenanceBoundaries = [{ messageIndex: 17, speaker: 'Lucia', terms: ['midichlorian', 'count'] }];
+    syncChronicleBase(value);
+    assert.deepEqual(value.chronicle[0].provenanceBoundaries, value.capsules[0].provenanceBoundaries);
+    const parent = promote(value, value.chronicle.slice(0, 3));
+    assert.deepEqual(parent.provenanceBoundaries, value.capsules[0].provenanceBoundaries);
+});
+
 test('recursive promotion creates higher layers while retaining every lower node', () => {
     const value = world(40);
     const settings = { chronicleLayerCapacity: 8, chroniclePromotionSize: 3 };

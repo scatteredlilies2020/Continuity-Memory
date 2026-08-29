@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { formatExtractionMessages, isAuthoritativeUserMetaMessage, precedingUserAttributionContext } from '../extension/extraction-context.js';
+import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, isAuthoritativeUserMetaMessage, precedingUserAttributionContext, splitAuthoritativeUserMeta } from '../extension/extraction-context.js';
 
 test('an assistant-led range receives the preceding user turn as attribution-only context', () => {
     const chat = [
@@ -36,8 +36,53 @@ test('explicit user OOC and meta assertions are marked as authoritative extracti
     ]) {
         const message = { index: 4, name: 'User', text, isUser: true };
         assert.equal(isAuthoritativeUserMetaMessage(message), true);
-        assert.match(formatExtractionMessages([message]), /AUTHORITATIVE USER OOC\/META ASSERTION — STORE DURABLE ASSERTIONS AS CANON/u);
+        assert.match(formatExtractionMessages([message]), /<AUTHOR_OOC_META_SPAN>/u);
     }
     assert.equal(isAuthoritativeUserMetaMessage({ text: 'Meta: generated panel', isUser: false }), false);
     assert.equal(isAuthoritativeUserMetaMessage({ text: 'OOC: Is Caelen the commander?', isUser: true }), true);
+});
+
+test('mixed dialogue and OOC messages explicitly keep author canon out of character speech', () => {
+    const formatted = formatExtractionMessages([{
+        index: 1,
+        name: 'Lucia',
+        text: '"The name is Lucia."\nOOC: Lucia has a historically exceptional midichlorian count.',
+        isUser: true,
+    }]);
+    assert.match(formatted, /<IN_WORLD_SPAN>\n"The name is Lucia\."\n<\/IN_WORLD_SPAN>/u);
+    assert.match(formatted, /<AUTHOR_OOC_META_SPAN>\nLucia has a historically exceptional midichlorian count\./u);
+    assert.match(formatted, /is not Lucia's speech, action, disclosure, or knowledge/u);
+});
+
+test('mixed IC and OOC spans are separated deterministically', () => {
+    assert.deepEqual(splitAuthoritativeUserMeta({
+        name: 'Lucia', isUser: true,
+        text: '"Uhm... Lucia. The name is Lucia."\nOoc: I have an abnormally high Midichlorian count.',
+    }), {
+        inWorld: '"Uhm... Lucia. The name is Lucia."',
+        meta: 'I have an abnormally high Midichlorian count.',
+    });
+});
+
+test('author-only canon cannot be persisted as the persona speech or knowledge', () => {
+    const messages = [{
+        index: 17, name: 'Lucia', isUser: true,
+        text: '"The name is Lucia."\nOOC: I have an abnormally high midichlorian count.',
+    }];
+    const boundaries = authoritativeMetaBoundaries(messages);
+    assert.throws(
+        () => assertAuthoritativeMetaProvenance({ chronicleEntry: 'Lucia asserted her abnormally high midichlorian count.' }, boundaries),
+        /OOC provenance violation/u,
+    );
+    assert.throws(
+        () => assertAuthoritativeMetaProvenance({ chronicleEntry: 'Vekk learned that her midichlorian count was abnormally high.' }, boundaries),
+        /OOC provenance violation/u,
+    );
+    assert.throws(
+        () => assertAuthoritativeMetaProvenance({ chronicleEntry: 'She revealed her abnormally high midichlorian count.' }, boundaries),
+        /OOC provenance violation/u,
+    );
+    assert.doesNotThrow(() => assertAuthoritativeMetaProvenance({
+        chronicleEntry: 'Author-level context established Lucia’s abnormally high midichlorian count; Lucia did not disclose it in-world.',
+    }, boundaries));
 });
