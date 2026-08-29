@@ -225,8 +225,8 @@
                 <label class="checkbox_label"><input id="continuity_story_so_far" type="checkbox"><span>Include Recursive Chronicle layers (default)</span></label>
                 <small>Each L1 creates one source-linked C0 entry. Older entries are periodically promoted into compact C1, C2, and higher layers without deleting their sources. Structured memory books remain separate and unchanged.</small>
                 <label>Chronicle allowance
-                    <input id="continuity_story_so_far_tokens" class="text_pole" type="number" min="0" max="12000" step="32">
-                    <small>Maximum tokens reserved when the active Chronicle frontier is injected. 0 uses the automatic context-based allowance.</small>
+                    <input id="continuity_story_so_far_tokens" class="text_pole" type="number" min="0" max="100000" step="250">
+                    <small>Maximum tokens reserved when the active Chronicle frontier is injected. 0 automatically uses 20% of the model context.</small>
                 </label>
                 <div id="continuity_story_progress" class="continuity-progress">C0 is updated with L1 extraction; parent layers are promoted only when a layer exceeds capacity.</div>
                 <small id="continuity_story_status">No Chronicle is stored for this chat yet.</small>

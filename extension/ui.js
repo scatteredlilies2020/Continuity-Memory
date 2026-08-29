@@ -1871,7 +1871,7 @@ export function initUI() {
     setSetting('#continuity_notifications', 'showNotifications', Boolean);
     setSetting('#continuity_retrieval_mode', 'retrievalMode');
     setSetting('#continuity_story_so_far', 'storySoFarEnabled', Boolean);
-    setSetting('#continuity_story_so_far_tokens', 'storySoFarTokens', value => Math.min(12000, Math.max(0, Number(value) || 0)));
+    setSetting('#continuity_story_so_far_tokens', 'storySoFarTokens', value => Math.min(100000, Math.max(0, Number(value) || 0)));
     setSetting('#continuity_retrieval_thinking', 'retrievalThinkingMode');
     setSetting('#continuity_summary_thinking', 'summaryThinkingMode');
     $('#continuity_retrieval_mode').on('change', () => {
