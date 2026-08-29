@@ -12,7 +12,7 @@ export function tailPolicy(settings, contextSize, fixedPromptTokens = null) {
     const size = Math.max(4000, Number(contextSize) || 50000);
     const limitMode = settings.rawTailMode === 'turns' ? 'turns' : 'tokens';
     const configuredValue = Math.max(0, Number(settings.rawTailValue) || 0);
-    const safetyTokens = Math.max(3000, Math.round(size * 0.1));
+    const safetyTokens = Math.max(2000, Math.round(size * 0.05));
     const available = Number.isFinite(fixedPromptTokens)
         ? Math.max(1000, size - fixedPromptTokens - safetyTokens)
         : Math.max(1000, size - safetyTokens);

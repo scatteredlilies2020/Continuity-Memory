@@ -16,13 +16,19 @@ test('dynamic token limit caps at twenty-five thousand tokens', () => {
 
 test('explicit token limit remains bounded by fixed prompt overhead', () => {
     const policy = tailPolicy({ rawTailMode: 'tokens', rawTailValue: 30000 }, 50000, 38000);
-    assert.equal(policy.budget, 7000);
+    assert.equal(policy.budget, 9500);
+    assert.equal(policy.safetyTokens, 2500);
     assert.equal(policy.limitMode, 'tokens');
 });
 
 test('turn mode uses only the selected turn limit plus context safety', () => {
     const policy = tailPolicy({ rawTailMode: 'turns', rawTailValue: 5 }, 50000, 5000);
     assert.equal(policy.maxMessages, 10);
-    assert.equal(policy.budget, 40000);
+    assert.equal(policy.budget, 42500);
     assert.equal(policy.limitMode, 'turns');
+});
+
+test('safety reserve is five percent with a two-thousand-token floor', () => {
+    assert.equal(tailPolicy({ rawTailMode: 'tokens', rawTailValue: 0 }, 50000).safetyTokens, 2500);
+    assert.equal(tailPolicy({ rawTailMode: 'tokens', rawTailValue: 0 }, 16000).safetyTokens, 2000);
 });
