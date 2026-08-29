@@ -9,6 +9,7 @@ import { isRateLimitError, isTransientApiError } from './errors.js';
 import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.2';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { normalizeHierarchyResult } from './hierarchy-result.js';
+import { assertChronicleCompaction, chronicleCompactionInstruction } from './chronicle-compaction.js';
 import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
@@ -1612,6 +1613,7 @@ function chronicleProvenanceBoundaries(nodes) {
 function validateChronicleResult(result, layer, nodes) {
     const normalized = validateArcResult(result, layer);
     assertAuthoritativeMetaProvenance(normalized, chronicleProvenanceBoundaries(nodes));
+    assertChronicleCompaction(normalized, nodes, layer);
     return normalized;
 }
 
@@ -1635,9 +1637,10 @@ async function generateChroniclePromotion(nodes) {
     const usesStructuredSchema = requestSupportsStructuredSchema(chronicleJsonSchema, profileId, directKind, thinkingMode);
     const task = settings.chronicleTaskTemplate ?? DEFAULT_CHRONICLE_TASK_TEMPLATE;
     const values = { nodes: formatChronicleNodes(nodes) };
-    const prompt = renderStructuredTaskPrompt(task, task, values, ARC_JSON_SHAPE_EXAMPLE, usesStructuredSchema, ['nodes']);
+    const compaction = chronicleCompactionInstruction(nodes);
+    const prompt = `${renderStructuredTaskPrompt(task, task, values, ARC_JSON_SHAPE_EXAMPLE, usesStructuredSchema, ['nodes'])}\n\n${compaction}`;
     const fallbackPrompt = usesStructuredSchema
-        ? renderStructuredTaskPrompt(task, task, values, ARC_JSON_SHAPE_EXAMPLE, false, ['nodes'])
+        ? `${renderStructuredTaskPrompt(task, task, values, ARC_JSON_SHAPE_EXAMPLE, false, ['nodes'])}\n\n${compaction}`
         : prompt;
     const raw = await requestStructured(prompt, buildHierarchySystemPrompt(settings.chronicleSystemPrompt ?? DEFAULT_CHRONICLE_SYSTEM_PROMPT), chronicleJsonSchema, memoryResponseTokens('chronicle'), profileId, directKind, fallbackPrompt, thinkingMode);
     updateRuntime({ lastArcResponse: String(raw).slice(0, 20000) });
