@@ -5,6 +5,10 @@ import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from '../extension/memory-vi
 const world = {
     scene: { location: 'Music room', sources: [{ from: 10, to: 14 }, { from: 15, to: 20 }] },
     storySoFar: { chat: { text: 'The club formed and prepared for its first concert.', from: 0, to: 42, updatedAt: '2026-08-21T01:02:03.000Z', rebuiltFromRawChat: true } },
+    chronicle: [
+        { id: 'c0-a', chatKey: 'chat', level: 0, title: 'Club formation', storyTime: 'First week', text: 'The club formed.', from: 0, to: 9, capsuleIds: ['early'], childIds: [] },
+        { id: 'c0-b', chatKey: 'chat', level: 0, title: 'Concert preparation', text: 'The club prepared for its first concert.', from: 10, to: 42, capsuleIds: ['late'], childIds: [] },
+    ],
     facts: [{ id: 'fact', subject: 'Naruto', predicate: 'rank', value: 'Genin', importance: 4, sources: [{ from: 4, to: 8 }] }],
     backgrounds: [{ id: 'background', topic: 'Qing White Lotus suppression', summary: 'Militia reliance is increasing.', status: 'active', certainty: 'reported', participants: ['Qing China'], importance: 2, sources: [{ from: 12, to: 16 }] }],
     capsules: [
@@ -24,16 +28,13 @@ test('viewer labels the scene as an extracted checkpoint with its latest source 
     assert.equal(page.items[0].title, 'Latest extracted checkpoint (through message 20)');
 });
 
-test('viewer exposes only the current chat story with its raw message boundary', () => {
+test('viewer exposes the complete active Chronicle frontier for the current chat', () => {
     const page = memoryViewerPage(world, 'story', '', 0, 30, 'chat');
-    assert.equal(page.total, 1);
-    assert.equal(page.items[0].title, 'Story so far (through message 42)');
-    assert.deepEqual(page.items[0].sources, ['Messages 0–42']);
-    assert.ok(page.items[0].fields.some(field => field.label === 'Covered chat range' && field.value === 'Messages 0–42'));
-    assert.ok(page.items[0].fields.some(field => field.label === 'Stored through' && field.value === 'Message 42'));
-    assert.ok(page.items[0].fields.some(field => field.label === 'Build state' && field.value === 'Complete at its stored boundary'));
-    assert.ok(page.items[0].fields.some(field => field.label === 'Narrative' && field.value.includes('first concert')));
-    assert.ok(page.items[0].fields.some(field => field.label === 'Source' && field.value === 'Raw chat'));
+    assert.equal(page.total, 2);
+    assert.equal(page.items[0].title, 'C0 · Club formation');
+    assert.deepEqual(page.items[0].sources, ['Messages 0–9']);
+    assert.ok(page.items[0].fields.some(field => field.label === 'Layer' && field.value === 'C0'));
+    assert.ok(page.items[1].fields.some(field => field.label === 'Narrative' && field.value.includes('first concert')));
     assert.equal(memoryViewerPage(world, 'story', '', 0, 30, 'other-chat').total, 0);
 });
 
@@ -43,9 +44,10 @@ test('viewer exposes a rebuild that failed before its first replacement checkpoi
         text: '', from: 0, to: -1, rebuildIncomplete: true,
         rebuildRestartPending: true, rebuildTargetTo: 42,
     };
+    pending.chronicle = [];
     const page = memoryViewerPage(pending, 'story', '', 0, 30, 'chat');
     assert.equal(page.total, 1);
-    assert.equal(page.items[0].title, 'Story so far (rebuild pending)');
+    assert.equal(page.items[0].title, 'Legacy story snapshot (rebuild pending)');
     assert.ok(page.items[0].fields.some(field => field.label === 'Build state' && field.value.includes('restarts from the first eligible message')));
 });
 

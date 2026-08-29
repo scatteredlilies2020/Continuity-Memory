@@ -77,7 +77,7 @@ test('server plugin creates, saves, and explicitly deletes worlds', async t => {
     assert.equal(router.routes.has('GET /backups'), false);
 });
 
-test('server load permanently discards obsolete Story snapshots but preserves L1/L2/L3', async t => {
+test('server load replaces obsolete Story snapshots with a source-linked Chronicle frontier', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-story-migration-'));
     t.after(() => fs.rm(root, { recursive: true, force: true }));
     const router = mockRouter();
@@ -89,14 +89,16 @@ test('server load permanently discards obsolete Story snapshots but preserves L1
     world.arcs.push({ id: 'l2', capsuleIds: ['l1'] });
     world.eras.push({ id: 'l3', arcIds: ['l2'] });
     const saved = await call(router.routes.get('PUT /worlds/:id'), root, { params: { id: world.id }, body: world });
-    assert.equal(saved.payload.world.storySoFar.chat, undefined);
+    assert.equal(saved.payload.world.storySoFar.chat.sourceMode, 'chronicle');
     const loaded = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: world.id } });
-    assert.deepEqual(loaded.payload.world.storySoFar, {});
+    assert.equal(loaded.payload.world.storySoFar.chat.sourceMode, 'chronicle');
+    assert.deepEqual(loaded.payload.world.storySoFar.chat.nodeIds, ['chronicle_l1']);
     assert.equal(loaded.payload.world.capsules.length, 1);
     assert.equal(loaded.payload.world.arcs.length, 1);
     assert.equal(loaded.payload.world.eras.length, 1);
     const files = await fs.readdir(path.join(root, 'continuity-memory', 'worlds', `${world.id}.shards`));
-    assert.equal(files.some(file => file.startsWith('storySoFar-')), false);
+    assert.equal(files.some(file => file.startsWith('storySoFar-')), true);
+    assert.equal(files.some(file => file.startsWith('chronicle-')), true);
 });
 
 test('server plugin migrates a monolithic world on its next save', async t => {

@@ -1,6 +1,7 @@
-import { fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.302';
+import { fingerprintMessage } from './message-digest.js?v=0.15.0-testing.1';
 import { l1StabilityRepairFrom } from './l1-policy.js';
 import { mergeExtraction, removeChatContributions, restoreRetainedReplayRecords } from './memory-model.js';
+import { refreshChronicleStory, syncChronicleBase } from './chronicle.js';
 
 function remapWorldChatKey(world, from, to) {
     const remapped = structuredClone(world);
@@ -23,7 +24,7 @@ function remapWorldChatKey(world, from, to) {
         }
     };
     remapRefs(remapped.scene);
-    for (const key of ['entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds']) {
+    for (const key of ['entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'chronicle', 'extractions', 'threads', 'backgrounds']) {
         for (const item of remapped[key] || []) remapRefs(item);
     }
     return remapped;
@@ -126,6 +127,18 @@ export function forkWorldToBranch(world, currentMessages, targetChatKey, sourceC
         });
     }
     restoreRetainedReplayRecords(branchedWorld, previousWorld, targetChatKey);
+    syncChronicleBase(branchedWorld, targetChatKey);
+    const retainedNodeIds = new Set((branchedWorld.chronicle || []).map(item => item.id));
+    const retainedParents = (previousWorld.chronicle || [])
+        .filter(item => item.chatKey === targetChatKey && Number(item.level) > 0)
+        .slice()
+        .sort((left, right) => Number(left.level) - Number(right.level));
+    for (const parent of retainedParents) {
+        if (retainedNodeIds.has(parent.id) || !(parent.childIds || []).every(id => retainedNodeIds.has(id))) continue;
+        branchedWorld.chronicle.push(structuredClone(parent));
+        retainedNodeIds.add(parent.id);
+    }
+    refreshChronicleStory(branchedWorld, targetChatKey);
 
     const processed = branchedWorld.sources?.[targetChatKey]?.processedMessages?.length || 0;
     return {

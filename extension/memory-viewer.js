@@ -1,8 +1,9 @@
 import { formatEntityProfile } from './entity-profile.js';
+import { activeChronicleNodes } from './chronicle.js';
 
 export const MEMORY_VIEW_CATEGORIES = Object.freeze([
     { key: 'scene', label: 'Latest extracted checkpoint' },
-    { key: 'story', label: 'Story so far' },
+    { key: 'story', label: 'Recursive Chronicle' },
     { key: 'entities', label: 'Entities' },
     { key: 'facts', label: 'Facts' },
     { key: 'states', label: 'States' },
@@ -56,6 +57,9 @@ function categoryItems(world, category, chatKey = '') {
     if (!world) return [];
     if (category === 'scene') return world.scene ? [world.scene] : [];
     if (category === 'story') {
+        const keys = [...new Set([world.continuation?.inheritedChatKey, chatKey].filter(Boolean))];
+        const chronicle = keys.flatMap(key => activeChronicleNodes(world, key));
+        if (chronicle.length) return chronicle;
         const story = world.storySoFar?.[chatKey];
         return story && (story.text || story.rebuildIncomplete || story.rebuildRestartPending) ? [story] : [];
     }
@@ -78,10 +82,24 @@ function entry(category, item, index) {
         add(fields, 'Tone / conditions', item.mood);
         addTemporal(fields, item);
     } else if (category === 'story') {
+        if (Number.isFinite(Number(item.level))) {
+            const level = Number(item.level) || 0;
+            title = `C${level} · ${item.title || 'Chronicle entry'}`;
+            add(fields, 'Layer', `C${level}`);
+            add(fields, 'Covered chat range', rangeLabel(item));
+            add(fields, 'Story time', item.storyTime);
+            add(fields, 'Narrative', item.text || item.summary);
+            add(fields, 'Turning points', item.turningPoints);
+            add(fields, 'Overall progression', item.emotionalArc);
+            add(fields, 'Closing state', item.closingState);
+            add(fields, 'Still open', item.openThreads);
+            add(fields, 'Direct source nodes', item.childIds);
+            add(fields, 'Canonical L1 sources', item.capsuleIds);
+        } else {
         const coveredRange = item.rebuildRestartPending ? '' : rangeLabel(item);
         const through = Number(item.to);
         const hasBoundary = Number.isFinite(through) && through >= 0 && !item.rebuildRestartPending;
-        title = `Story so far${item.rebuildRestartPending ? ' (rebuild pending)' : hasBoundary ? ` (through message ${through})` : ''}`;
+        title = `Legacy story snapshot${item.rebuildRestartPending ? ' (rebuild pending)' : hasBoundary ? ` (through message ${through})` : ''}`;
         add(fields, 'Covered chat range', coveredRange);
         add(fields, 'Stored through', hasBoundary ? `Message ${through}` : '');
         add(fields, 'Build state', item.rebuildRestartPending
@@ -96,6 +114,7 @@ function entry(category, item, index) {
         add(fields, 'Narrative', item.text);
         add(fields, 'Source', item.sourceMode === 'l1' ? 'Completed L1 summaries only' : 'Raw chat');
         add(fields, 'Last updated', item.updatedAt);
+        }
     } else if (category === 'entities') {
         add(fields, 'Type', item.type);
         add(fields, 'Aliases', item.aliases);
@@ -175,7 +194,7 @@ function entry(category, item, index) {
 
 export function memoryViewerPage(world, category = 'l1', query = '', page = 0, pageSize = 30, chatKey = '') {
     const known = MEMORY_VIEW_CATEGORIES.some(item => item.key === category) ? category : 'l1';
-    const chronological = ['l1', 'l2', 'l3', 'events'].includes(known);
+    const chronological = ['story', 'l1', 'l2', 'l3', 'events'].includes(known);
     let entries = categoryItems(world, known, chatKey).map((item, index) => entry(known, item, index));
     entries.sort((a, b) => chronological
         ? (Number.isFinite(a.from) ? a.from : Number.MAX_SAFE_INTEGER) - (Number.isFinite(b.from) ? b.from : Number.MAX_SAFE_INTEGER)

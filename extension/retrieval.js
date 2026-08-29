@@ -20,6 +20,7 @@ import { isFreshActiveState, latestSourceInRawTail, latestSourceRange, sourcedWh
 import { anchoredRelativeText, anchoredStoryTime } from './temporal-anchors.js';
 import { retrievalMessageText } from './retrieval-query.js';
 import { formatEntityProfile } from './entity-profile.js';
+import { renderChronicleFrontier } from './chronicle.js';
 
 function plain(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -1345,9 +1346,23 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     };
 
     let storyBlock = '';
+    const chronicleKeys = [...new Set([world.continuation?.inheritedChatKey, chatKey].filter(Boolean))]
+        .filter(key => (world.chronicle || []).some(item => item.chatKey === key));
+    const hasChronicle = chronicleKeys.length > 0;
     if (options.includeStorySoFar !== false) {
-        const story = plain(world.storySoFar?.[chatKey]?.text);
-        const storyHeader = '\nStory so far:\n';
+        const configuredChronicleTokens = Number(options.storySoFarTokens);
+        const chronicleTokensPerKey = Number.isFinite(configuredChronicleTokens)
+            ? Math.max(1, Math.floor(configuredChronicleTokens / Math.max(1, chronicleKeys.length)))
+            : undefined;
+        const story = hasChronicle
+            ? chronicleKeys.map(key => renderChronicleFrontier(
+                world,
+                key,
+                item => sourceIsCurrent(item) && !whollyRaw(item),
+                chronicleTokensPerKey,
+            )).filter(Boolean).join('\n\n')
+            : plain(world.storySoFar?.[chatKey]?.text);
+        const storyHeader = hasChronicle ? '\nRecursive Chronicle layers (complete active frontier):\n' : '\nStory so far:\n';
         // Story generation owns its configured allowance. Never prefix-clip the
         // saved continuity spine here: doing so preferentially removed the final
         // boundaryState and openMatters sections, even when a larger Story budget
@@ -1404,7 +1419,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     addSection('Established character knowledge', establishedKnowledge.map(({ item }) =>
         `- ${plain(item.subject)} — ${plain(item.predicate)}: ${anchoredRelativeText(item.value, item)}`));
 
-    const selectedEras = takeMatches('L3 continuity', 'era', (world.eras || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)), 2);
+    const selectedEras = takeMatches('L3 continuity', 'era', hasChronicle ? [] : (world.eras || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)), 2);
     const eraRows = selectedEras
         .map(({ item }) => {
             const storyTime = anchoredStoryTime(item);
@@ -1418,7 +1433,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     addSection('L3 continuity', eraRows);
 
     const coveredArcIds = new Set(selectedEras.flatMap(({ item }) => item.arcIds || []));
-    const selectedArcs = takeMatches('L2 continuity', 'arc', (world.arcs || []).filter(item => sourceIsCurrent(item) && !coveredArcIds.has(item.id) && !whollyRaw(item)), 2);
+    const selectedArcs = takeMatches('L2 continuity', 'arc', hasChronicle ? [] : (world.arcs || []).filter(item => sourceIsCurrent(item) && !coveredArcIds.has(item.id) && !whollyRaw(item)), 2);
     const arcRows = selectedArcs
         .map(({ item }) => {
             const storyTime = anchoredStoryTime(item);
@@ -1437,13 +1452,13 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
     });
     const currentChronology = chatKey ? chronological.filter(item => item.chatKey === chatKey) : chronological;
-    const latest = currentChronology.slice(-3);
+    const latest = hasChronicle ? [] : currentChronology.slice(-3);
     const latestIds = new Set(latest.map(item => item.id));
     const coveredCapsuleIds = new Set([
         ...selectedEras.flatMap(({ item }) => item.capsuleIds || []),
         ...selectedArcs.flatMap(({ item }) => item.capsuleIds || []),
     ]);
-    const relevant = takeMatches('Recent continuity', 'capsule', chronological.filter(item => !latestIds.has(item.id) && !coveredCapsuleIds.has(item.id)), 2)
+    const relevant = takeMatches('Recent continuity', 'capsule', (hasChronicle ? [] : chronological).filter(item => !latestIds.has(item.id) && !coveredCapsuleIds.has(item.id)), 2)
         .map(({ item }) => item);
     recordSelections('Recent continuity', 'capsule', latest, 'latest L1');
     const selectedCapsules = [...relevant, ...latest]
@@ -1583,9 +1598,9 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         ...((world.states || []).filter(item => sourceIsCurrent(item) && isFreshActiveState(world, item, chatKey) && !latestIsRaw(item)).map(item => ({ category: 'state', item }))),
         ...((world.relationships || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)).map(item => ({ category: 'relationship', item }))),
         ...((world.events || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)).map(item => ({ category: 'event', item }))),
-        ...(chronological.map(item => ({ category: 'capsule', item }))),
-        ...((world.arcs || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)).map(item => ({ category: 'arc', item }))),
-        ...((world.eras || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)).map(item => ({ category: 'era', item }))),
+        ...((hasChronicle ? [] : chronological).map(item => ({ category: 'capsule', item }))),
+        ...((hasChronicle ? [] : (world.arcs || [])).filter(item => sourceIsCurrent(item) && !whollyRaw(item)).map(item => ({ category: 'arc', item }))),
+        ...((hasChronicle ? [] : (world.eras || [])).filter(item => sourceIsCurrent(item) && !whollyRaw(item)).map(item => ({ category: 'era', item }))),
         ...((world.threads || []).filter(item => sourceIsCurrent(item) && item.status === 'open' && !latestIsRaw(item)).map(item => ({ category: 'thread', item }))),
         ...((world.backgrounds || []).filter(item => sourceIsCurrent(item) && !latestIsRaw(item)).map(item => ({ category: 'background', item }))),
     ].filter(candidate => candidate.item?.id && !selectedIds.has(candidate.item.id));
@@ -1742,7 +1757,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.14.0-standalone.302';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.1';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';

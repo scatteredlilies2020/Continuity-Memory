@@ -4,15 +4,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrateLegacyBeliefs } from '../extension/attributed-beliefs.js';
 import { discardLegacyStorySnapshots } from '../extension/story-source.js';
+import { syncChronicleBase } from '../extension/chronicle.js';
 import { cancelDetachedJob, createDetachedJob, getDetachedJob, listDetachedJobs } from './detached-jobs.js';
 import { registerVectorRoutes } from './vector-store.js';
 
 const PLUGIN = 'continuity-memory';
-const VERSION = '0.14.0-standalone.304';
-const SCHEMA_VERSION = 11;
+const VERSION = '0.15.0-testing.1';
+const SCHEMA_VERSION = 12;
 const STORAGE_VERSION = 2;
 const SHARD_CHUNK_SIZE = 128;
-const ARRAY_SHARDS = ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds', 'corrections'];
+const ARRAY_SHARDS = ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'chronicle', 'extractions', 'threads', 'backgrounds', 'corrections'];
 const LEGACY_ARRAY_SHARDS = ['beliefs'];
 const SINGLE_SHARDS = ['scene', 'sources', 'continuation', 'storySoFar'];
 const ALL_SHARDS = [...SINGLE_SHARDS, ...ARRAY_SHARDS];
@@ -184,6 +185,7 @@ function emptyWorld(id, name) {
         capsules: [],
         arcs: [],
         eras: [],
+        chronicle: [],
         extractions: [],
         threads: [],
         backgrounds: [],
@@ -216,6 +218,7 @@ function normalizeWorld(input, expectedId) {
         ? input.storySoFar
         : {};
     discardLegacyStorySnapshots(base);
+    syncChronicleBase(base);
     base.createdAt = input.createdAt || base.createdAt;
     base.updatedAt = now();
     base.revision = Math.max(0, Number(input.revision) || 0) + 1;
@@ -267,6 +270,7 @@ async function materializeStoredWorld(dirs, id, stored) {
     if (!isShardManifest(stored)) {
         migrateLegacyBeliefs(stored);
         discardLegacyStorySnapshots(stored);
+        syncChronicleBase(stored);
         return stored;
     }
     if (stored.id !== id) throw new Error(`Stored memory ID does not match its manifest (${id})`);
@@ -293,6 +297,7 @@ async function materializeStoredWorld(dirs, id, stored) {
     }
     migrateLegacyBeliefs(world);
     discardLegacyStorySnapshots(world);
+    syncChronicleBase(world);
     return world;
 }
 

@@ -1,6 +1,7 @@
 import { randomUuid } from './uuid.js';
 import { addressFactIdentity } from './reconciliation-policy.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
+import { syncChronicleBase } from './chronicle.js';
 
 const COLLECTIONS = Object.freeze({
     entities: ['name', 'type', 'aliases', 'description', 'importance'],
@@ -270,6 +271,11 @@ export function applyCorrectionProposal(world, proposal) {
     world.corrections ||= [];
     world.arcs ||= [];
     world.eras ||= [];
+    world.chronicle ||= [];
+    const previousDerivedChronicle = world.chronicle
+        .filter(item => Number(item.level) > 0)
+        .map(item => structuredClone(item));
+    const previousDerivedChronicleIds = new Set(previousDerivedChronicle.map(item => item.id));
     const correctionId = `correction_${randomUuid()}`;
     const timestamp = new Date().toISOString();
     const affectedRanges = [];
@@ -301,6 +307,7 @@ export function applyCorrectionProposal(world, proposal) {
             if (before?.chatKey) after.chatKey = before.chatKey;
             if (Number.isFinite(Number(before?.from))) after.from = Number(before.from);
             if (Number.isFinite(Number(before?.to))) after.to = Number(before.to);
+            if (operation.category === 'capsules') after.chronicleText = '';
             if (index >= 0) collection[index] = after;
             else collection.push(after);
             if (operation.category === 'capsules' && !before) {
@@ -338,6 +345,10 @@ export function applyCorrectionProposal(world, proposal) {
     world.eras = world.eras.filter(era =>
         !(era.arcIds || []).some(id => removedArcIds.has(id))
         && !(era.capsuleIds || []).some(id => affectedCapsuleIds.has(id)));
+    syncChronicleBase(world);
+    const currentChronicleIds = new Set(world.chronicle.map(item => item.id));
+    const invalidatedChronicle = [...previousDerivedChronicleIds].filter(id => !currentChronicleIds.has(id)).length;
+    const invalidatedChronicleRecords = previousDerivedChronicle.filter(item => !currentChronicleIds.has(item.id));
     const correction = {
         id: correctionId,
         instruction: proposal.instruction,
@@ -352,6 +363,8 @@ export function applyCorrectionProposal(world, proposal) {
         changed: storedOperations.length,
         invalidatedArcs: oldArcCount - world.arcs.length,
         invalidatedEras: oldEraCount - world.eras.length,
+        invalidatedChronicle,
+        invalidatedChronicleRecords,
         affectedCapsules: affectedCapsuleIds.size,
         invalidatedArcRecords,
         invalidatedEraRecords,

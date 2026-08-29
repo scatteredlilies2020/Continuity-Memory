@@ -1556,7 +1556,7 @@ test('retrieval reserves room for every populated memory category', () => {
     const result = buildMemoryPrompt(target, [{ name: 'User', mes: 'Yui and Mio continue their music practice, friendship, cake, and weekend performance plans.' }], 1000, 'chat');
     for (const heading of [
         'Checkpoint',
-        'Recent continuity',
+        'Recursive Chronicle layers (complete active frontier)',
         'Open matters',
         'Entities',
         'Current state',
@@ -1605,7 +1605,7 @@ test('retrieval does not fill category space with unrelated memories', () => {
     mergeExtraction(target, extraction(), { chatKey: 'chat', from: 0, to: 4, allowStateUpdates: true });
     const result = buildMemoryPrompt(target, [{ name: 'User', mes: 'A distant storm approaches the harbor.' }], 3000, 'chat');
     assert.match(result.prompt, /Checkpoint:/);
-    assert.match(result.prompt, /Recent continuity:/);
+    assert.match(result.prompt, /Recursive Chronicle layers/);
     assert.doesNotMatch(result.prompt, /Facts:/);
     assert.doesNotMatch(result.prompt, /Past events:/);
     assert.doesNotMatch(result.prompt, /favorite snack/);
@@ -1675,7 +1675,7 @@ test('retrieval omits a stale scene checkpoint while preserving durable memory',
     );
     assert.doesNotMatch(result.prompt, /Checkpoint:/);
     assert.match(result.prompt, /favorite snack/);
-    assert.match(result.prompt, /Recent continuity:/);
+    assert.match(result.prompt, /Recursive Chronicle layers/);
 });
 
 test('retrieval suppresses records from invalid extraction ranges before repair completes', () => {
@@ -1907,6 +1907,8 @@ test('L2 preserves a complete generated summary through storage and retrieval', 
     assert.ok(!arc.summary.endsWith('…'));
     assert.ok(!arc.emotionalArc.endsWith('…'));
     assert.ok(!arc.closingState.endsWith('…'));
+    target.chronicle = [];
+    target.storySoFar = {};
     const prompt = buildMemoryPrompt(target, [{ name: 'User', mes: 'Continue the alpha history.' }], 12000, chatKey);
     assert.match(prompt.prompt, /FINAL_L2_SENTENCE\./);
     assert.match(prompt.prompt, /FINAL_L2_CLOSING\./);
@@ -1969,6 +1971,8 @@ test('L3 records retain L2 and L1 sources and invalidate when a source changes',
     assert.deepEqual(target.eras[0].capsuleIds, [capsule.id]);
     assert.equal(target.arcs.length, 1);
     assert.equal(target.capsules.length, 1);
+    target.chronicle = [];
+    target.storySoFar = {};
     const prompt = buildMemoryPrompt(target, [{ name: 'User', mes: 'Remember the music club foundation era and first concert.' }], 3000, 'chat');
     assert.match(prompt.prompt, /L3 continuity:/);
     assert.match(prompt.prompt, /The club foundation era/);
@@ -2016,6 +2020,8 @@ test('L3 preserves a complete generated summary through storage and retrieval', 
     assert.ok(!era.summary.endsWith('…'));
     assert.ok(!era.emotionalArc.endsWith('…'));
     assert.ok(!era.closingState.endsWith('…'));
+    target.chronicle = [];
+    target.storySoFar = {};
     const prompt = buildMemoryPrompt(target, [{ name: 'User', mes: 'Continue the omega era.' }], 12000, chatKey);
     assert.match(prompt.prompt, /FINAL_L3_SENTENCE\./);
     assert.match(prompt.prompt, /FINAL_L3_CLOSING\./);

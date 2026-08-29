@@ -1,14 +1,15 @@
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { discardLegacyStorySnapshots } from './story-source.js';
+import { syncChronicleBase } from './chronicle.js';
 
-const SCHEMA_VERSION = 11;
+const SCHEMA_VERSION = 12;
 const STORAGE_VERSION = 2;
 const SHARD_CHUNK_SIZE = 128;
 const INDEX_FILES = ['continuity-memory-index.json', 'continuity-memory-index-redundant.json'];
 const LEGACY_INDEX_FILE = 'continuity-memory-index-backup.json';
 const WORLD_ID_RE = /^[a-z0-9][a-z0-9_-]{0,79}$/;
 const FILE_RE = /^[a-z0-9][a-z0-9_.-]{0,220}\.json$/i;
-const ARRAY_SHARDS = ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds', 'corrections'];
+const ARRAY_SHARDS = ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'chronicle', 'extractions', 'threads', 'backgrounds', 'corrections'];
 const LEGACY_ARRAY_SHARDS = ['beliefs'];
 const SINGLE_SHARDS = ['scene', 'sources', 'continuation', 'storySoFar'];
 const ALL_SHARDS = [...SINGLE_SHARDS, ...ARRAY_SHARDS];
@@ -71,6 +72,7 @@ function emptyWorld(id, name) {
         capsules: [],
         arcs: [],
         eras: [],
+        chronicle: [],
         extractions: [],
         threads: [],
         backgrounds: [],
@@ -94,6 +96,7 @@ function normalizeWorld(input, expectedId) {
     base.continuation = input.continuation && typeof input.continuation === 'object' && !Array.isArray(input.continuation) ? input.continuation : null;
     base.storySoFar = input.storySoFar && typeof input.storySoFar === 'object' && !Array.isArray(input.storySoFar) ? input.storySoFar : {};
     discardLegacyStorySnapshots(base);
+    syncChronicleBase(base);
     base.createdAt = input.createdAt || base.createdAt;
     base.updatedAt = now();
     base.revision = Math.max(0, Number(input.revision) || 0) + 1;
@@ -110,6 +113,7 @@ function counts(world) {
         narrativeCapsules: world.capsules?.length || 0,
         l2Arcs: world.arcs?.length || 0,
         l3Eras: world.eras?.length || 0,
+        chronicleNodes: world.chronicle?.length || 0,
         retryableL1: world.extractions?.length || 0,
         threads: world.threads?.length || 0,
         backgrounds: world.backgrounds?.length || 0,
@@ -294,6 +298,7 @@ export function createFileStorageApi({ fetchFn = globalThis.fetch, requestHeader
         if (!isShardManifest(stored)) {
             migrateLegacyBeliefs(stored);
             discardLegacyStorySnapshots(stored);
+            syncChronicleBase(stored);
             return stored;
         }
         if (stored.id !== expectedId) throw storageError(`Stored memory ID does not match its manifest (${expectedId})`);
@@ -322,6 +327,7 @@ export function createFileStorageApi({ fetchFn = globalThis.fetch, requestHeader
         }
         migrateLegacyBeliefs(world);
         discardLegacyStorySnapshots(world);
+        syncChronicleBase(world);
         return world;
     }
 

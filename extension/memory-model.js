@@ -8,7 +8,7 @@ import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { formatEntityProfile, mergeEntityProfiles } from './entity-profile.js';
 import { thirdPersonOnlyProse } from './canonical-prose.js';
 import { compileRollingStorySnapshot } from './story-snapshot.js';
-import { isMergedL1StorySnapshot, STORY_FORMAT_MERGED_L1, STORY_SOURCE_L1, STORY_SOURCE_POLICY_VERSION } from './story-source.js';
+import { addChroniclePromotion, removeChronicleChat, syncChronicleBase } from './chronicle.js';
 
 function text(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -1212,6 +1212,7 @@ export function mergeExtraction(world, result, meta) {
     world.corrections ||= [];
     world.sources ||= {};
     world.storySoFar ||= {};
+    world.chronicle ||= [];
     compactRepeatedEntityDescriptions(world);
     // Extraction-time attribution checks have already removed unsafe
     // relationships. Let the accepted canonical relationship restore a role
@@ -1377,6 +1378,7 @@ export function mergeExtraction(world, result, meta) {
             closing: clipped(raw.closing, 320),
             coverageWarnings: cleanList(raw.coverageWarnings, 8).map(item => clipped(item, 440)),
             importance: clampImportance(raw.importance),
+            chronicleText: clipped(result.chronicleEntry || compileRollingStorySnapshot(result.storySoFar), 2400),
             chatKey: meta.chatKey,
             from: meta.from,
             to: meta.to,
@@ -1437,25 +1439,9 @@ export function mergeExtraction(world, result, meta) {
 
     compactDuplicateMemoryRecords(world);
 
-    // L1 extraction and the rolling narrative snapshot are one model response.
-    // Keep the newest complete snapshot available for prompt injection; replay
-    // can restore it in chronological order without a second Story request.
-    const storyText = compileRollingStorySnapshot(result.storySoFar);
-    if (storyText && meta.chatKey) {
-        const previous = world.storySoFar[meta.chatKey];
-        if (!previous || Number(meta.to) >= Number(previous.to ?? -1)) {
-            world.storySoFar[meta.chatKey] = {
-                text: storyText,
-                from: isMergedL1StorySnapshot(previous) ? Number(previous.from ?? meta.from) : Number(meta.from),
-                to: Number(meta.to),
-                updatedAt: new Date().toISOString(),
-                sourceMode: STORY_SOURCE_L1,
-                sourcePolicyVersion: STORY_SOURCE_POLICY_VERSION,
-                storyFormat: STORY_FORMAT_MERGED_L1,
-                rebuiltFromRawChat: false,
-            };
-        }
-    }
+    // Chronicle C0 is derived from this immutable L1 range. Its active
+    // recursive frontier materializes the compatibility `storySoFar` view.
+    syncChronicleBase(world, meta.chatKey);
 
     return world;
 }
@@ -1507,7 +1493,7 @@ export function removeChatContributions(world, chatKey) {
         world.scene = sources.length ? { ...world.scene, sources } : null;
     }
     if (world.sources) delete world.sources[chatKey];
-    if (world.storySoFar) delete world.storySoFar[chatKey];
+    removeChronicleChat(world, chatKey);
     return world;
 }
 
@@ -1696,6 +1682,7 @@ export function resetWorldMemory(world, { preserveCorrections = false } = {}) {
     }
     world.sources = {};
     world.storySoFar = {};
+    world.chronicle = [];
     world.continuation = null;
     return world;
 }
@@ -1708,6 +1695,7 @@ export function freshResetResiduals(world, { allowCorrections = false } = {}) {
     if (world?.scene) residuals.push('scene');
     if (world?.continuation) residuals.push('continuation');
     if (Object.keys(world?.storySoFar || {}).length) residuals.push('storySoFar');
+    if ((world?.chronicle || []).length) residuals.push(`chronicle:${world.chronicle.length}`);
     if (Object.keys(world?.sources || {}).length) residuals.push('sources');
     if (!allowCorrections && (world?.corrections || []).length) residuals.push(`corrections:${world.corrections.length}`);
     for (const category of ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'extractions', 'threads', 'backgrounds']) {
@@ -1720,7 +1708,13 @@ export function freshResetResiduals(world, { allowCorrections = false } = {}) {
 export function resetWorldHierarchy(world) {
     world.arcs = [];
     world.eras = [];
+    world.chronicle = (world.chronicle || []).filter(item => Number(item.level) === 0);
+    for (const chatKey of new Set(world.chronicle.map(item => item.chatKey))) syncChronicleBase(world, chatKey);
     return world;
+}
+
+export function addDerivedChronicle(world, result, nodes) {
+    return addChroniclePromotion(world, result, nodes);
 }
 
 export function addDerivedArc(world, result, capsules) {

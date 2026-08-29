@@ -5,7 +5,7 @@ export const CONTINUATION_PACKAGE_VERSION = 1;
 
 const INHERITED_COLLECTIONS = Object.freeze([
     'entities', 'facts', 'states', 'relationships', 'events',
-    'capsules', 'arcs', 'eras', 'threads', 'backgrounds', 'corrections',
+    'capsules', 'arcs', 'eras', 'chronicle', 'threads', 'backgrounds', 'corrections',
 ]);
 
 function clone(value) {

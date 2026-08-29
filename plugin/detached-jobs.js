@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { isRateLimitError, isTransientApiError } from '../extension/errors.js';
 import { isRecoverableExtractionOutputError } from '../extension/extraction-recovery.js';
 import { fingerprintMessage } from '../extension/message-digest.js';
-import { addDerivedArc, addDerivedEra, mergeExtraction } from '../extension/memory-model.js';
+import { addDerivedArc, addDerivedChronicle, addDerivedEra, mergeExtraction } from '../extension/memory-model.js';
 import { isCurrentStorySnapshot } from '../extension/story-source.js';
 import { migrateLegacyBeliefs } from '../extension/attributed-beliefs.js';
 import { nextArcCapsules } from '../extension/hierarchy-policy.js';
@@ -11,6 +11,7 @@ import { normalizeHierarchyResult } from '../extension/hierarchy-result.js';
 import { renderPromptTemplate } from '../extension/prompts.js';
 import { sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
 import { isMandatoryThinkingError, isThinkingControlError } from '../extension/thinking-policy.js';
+import { nextChroniclePromotion } from '../extension/chronicle.js';
 
 const jobs = new Map();
 const activeByWorld = new Map();
@@ -53,6 +54,7 @@ function publicJob(job) {
         phase: job.phase,
         l2: job.l2,
         l3: job.l3,
+        chronicle: job.chronicle,
         hierarchyError: job.hierarchyError || '',
         pendingTasks: job.tasks.length,
     };
@@ -181,6 +183,18 @@ function formatArcs(arcs) {
     })).join('\n');
 }
 
+function formatChronicleNodes(nodes) {
+    return nodes.map((node, index) => JSON.stringify({
+        sequence: index + 1,
+        layer: `C${Number(node.level) || 0}`,
+        storyTime: node.storyTime,
+        text: node.text || node.summary,
+        turningPoints: node.turningPoints || [],
+        closingState: node.closingState || '',
+        openThreads: node.openThreads || [],
+    })).join('\n');
+}
+
 function nextEraArcs(world, settings = {}) {
     if (settings.hierarchyMode !== 'l3') return null;
     const groupSize = Math.max(3, Math.min(16, Math.round(Number(settings.eraGroupSize) || 6)));
@@ -213,7 +227,9 @@ function hierarchyPrompt(layer, records, withSchema) {
         ? 'Return one schema-valid JSON object with all required keys.'
         : `Return one JSON object with this exact shape and all keys:\n${layer.shapeExample}`;
     return renderPromptTemplate(source, {
-        [layer.valueKey]: layer.valueKey === 'capsules' ? formatCapsules(records) : formatArcs(records),
+        [layer.valueKey]: layer.valueKey === 'capsules' ? formatCapsules(records)
+            : layer.valueKey === 'nodes' ? formatChronicleNodes(records)
+                : formatArcs(records),
         format,
         schema: layer.shapeExample,
     }, [usesFormatPlaceholder ? 'format' : 'schema', layer.valueKey]);
@@ -276,8 +292,40 @@ async function saveHierarchyResult(job, result, sourceRecords, layer) {
     return false;
 }
 
+async function saveChronicleResult(job, result, sourceRecords) {
+    for (let attempt = 0; attempt < 4; attempt++) {
+        const world = await job.loadWorld();
+        const current = sourceRecords.map(source => (world.chronicle || []).find(item => item.id === source.id)).filter(Boolean);
+        if (current.length !== sourceRecords.length) throw new Error('Chronicle sources changed while detached promotion was being built.');
+        const before = (world.chronicle || []).length;
+        addDerivedChronicle(world, result, current);
+        if ((world.chronicle || []).length === before) return false;
+        try {
+            await job.saveWorld(world);
+            return true;
+        } catch (error) {
+            if (error.status !== 409 || attempt === 3) throw error;
+        }
+    }
+    return false;
+}
+
 async function runHierarchy(job) {
     const plan = job.hierarchy;
+    if (plan?.chronicle) {
+        job.phase = 'chronicle';
+        while (!job.cancelled) {
+            const world = await job.loadWorld();
+            const nodes = nextChroniclePromotion(world, plan.settings);
+            if (!nodes) break;
+            const destination = (Number(nodes[0].level) || 0) + 1;
+            job.validation = `Promoting ${nodes.length} Chronicle C${nodes[0].level} nodes into C${destination}…`;
+            const result = await requestHierarchy(job, plan.chronicle, nodes, `C${destination}`);
+            if (job.cancelled) throw new Error('Detached processing was cancelled.');
+            if (await saveChronicleResult(job, result, nodes)) job.chronicle++;
+        }
+        return;
+    }
     if (!plan?.l2) return;
     job.phase = 'l2';
     while (!job.cancelled) {
@@ -504,8 +552,8 @@ async function run(job) {
         }
         job.phase = 'complete';
         job.validation = job.hierarchyError
-            ? `L1 complete; L2/L3 hierarchy deferred: ${job.hierarchyError}`
-            : `Detached build complete: L1 ${job.chunks}, L2 ${job.l2}, L3 ${job.l3}.`;
+            ? `L1 complete; Chronicle promotion deferred: ${job.hierarchyError}`
+            : `Detached build complete: L1 ${job.chunks}, Chronicle promotions ${job.chronicle}.`;
         job.status = 'complete';
     } catch (error) {
         job.status = job.cancelled ? 'cancelled' : 'error';
@@ -582,6 +630,7 @@ export function createDetachedJob(req, payload, storage, {
         phase: 'l1',
         l2: 0,
         l3: 0,
+        chronicle: 0,
         hierarchyError: '',
         error: '',
         validation: '',

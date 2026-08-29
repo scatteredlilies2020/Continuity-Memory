@@ -4,10 +4,10 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextArc, buildNextEra, buildRollingStory, rebuildRollingStory, commitMemoryCorrection, continueQueue, deleteRollingStory, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.14.0-standalone.302';
+import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.15.0-testing.1';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.14.0-standalone.302';
+import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.1';
 import { clearRetrievalExpansionCache } from './semantic-retrieval.js';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
@@ -15,24 +15,23 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.14.0-standalone.302';
-import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.14.0-standalone.302';
-import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.14.0-standalone.302';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.15.0-testing.1';
+import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.15.0-testing.1';
+import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.1';
 import { completeL1MessageCount, latestCompleteL1MessageIndex, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.14.0-standalone.302';
-import { embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.14.0-standalone.302';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.14.0-standalone.302';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.1';
+import { embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.1';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.1';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.14.0-standalone.302';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.14.0-standalone.302';
-import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.14.0-standalone.302';
-import { resolveStoryBudget } from './story-budget.js?v=0.14.0-standalone.302';
-import { stableStoryMessages } from './story-cadence.js?v=0.14.0-standalone.302';
-import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.14.0-standalone.302';
+import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.1';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.1';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.15.0-testing.1';
+import { resolveStoryBudget } from './story-budget.js?v=0.15.0-testing.1';
+import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.15.0-testing.1';
 import { createRenderScheduler } from './render-scheduler.js';
-import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.14.0-standalone.302';
-import { connectionProfileHasModel } from './profile-request-policy.js?v=0.14.0-standalone.302';
+import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.1';
+import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.1';
 import { isTransientApiError } from './errors.js';
 
 let worlds = [];
@@ -1108,14 +1107,8 @@ function renderMemoryViewer(force = false) {
     const checkpointStatus = result.category === 'scene' && coverage.pending
         ? ` · ${coverage.pending} newer or changed message(s) pending; this checkpoint is not injected as current state`
         : '';
-    const story = result.category === 'story' ? world?.storySoFar?.[getChatKey()] : null;
-    const storyEligible = story ? stableStoryMessages(collectMemoryEligibleMessages(getContext().chat || [])) : [];
-    const storyFrom = Number(story?.from);
-    const storyTo = Number(story?.to);
-    const storyCovered = storyEligible.filter(message => message.index >= storyFrom && message.index <= storyTo).length;
-    const storyPending = storyEligible.filter(message => message.index > storyTo).length;
-    const storyCoverageStatus = story
-        ? ` · ${storyCovered} eligible raw message(s) included${storyPending ? ` · ${storyPending} eligible message(s) pending` : ' · already current at the eligible boundary'}`
+    const storyCoverageStatus = result.category === 'story' && result.total
+        ? ' · showing the complete active Chronicle frontier; source layers remain retained'
         : '';
     $('#continuity_viewer_status').text(world
         ? `${result.total} ${MEMORY_VIEW_CATEGORIES.find(item => item.key === result.category)?.label || 'memory'} record(s)${viewerSearch ? ' matching search' : ''} · page ${result.page + 1}/${result.pages}${checkpointStatus}${storyCoverageStatus}`
@@ -1164,15 +1157,14 @@ export function renderRuntime(refreshSettings = true) {
     }
     const rollingStory = runtime.world?.storySoFar?.[getChatKey()];
     const resolvedStoryAllowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext);
-    const stableMessages = stableStoryMessages(collectMemoryEligibleMessages(getContext().chat || []));
     const storyTo = Number(rollingStory?.to ?? -1);
-    const storyPending = rollingStory?.text ? stableMessages.filter(message => Number(message.index) > storyTo).length : stableMessages.length;
-    $('#continuity_story_build, #continuity_story_rebuild, #continuity_story_delete').prop('disabled', Boolean(runtime.storyProcessing));
-    $('#continuity_story_delete').prop('disabled', Boolean(runtime.storyProcessing) || !rollingStory);
-    $('#continuity_story_progress').removeClass('continuity-error').text('Story So Far is updated together with L1 extraction. Manual actions are for recovery or a full rebuild.');
+    const chatKey = getChatKey();
+    const chronicleNodes = (runtime.world?.chronicle || []).filter(node => node.chatKey === chatKey);
+    const activeNodes = rollingStory?.sourceMode === 'chronicle' ? (rollingStory.nodeIds || []).length : 0;
+    $('#continuity_story_progress').removeClass('continuity-error').text('Every completed L1 creates a source-linked C0 entry. Eligible older entries are promoted recursively without deleting their sources.');
     $('#continuity_story_status').text(rollingStory?.text
-        ? `Stored through message ${storyTo + 1}; ${storyPending} eligible message(s) pending L1 extraction. Approximately ${Math.ceil(String(rollingStory.text).length / 4)} tokens before injection clipping. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`
-        : `No Story So Far is stored for this chat yet. Build memory to create it with L1. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`);
+        ? `Chronicle stored through message ${storyTo + 1}: ${chronicleNodes.length} retained node(s), ${activeNodes} on the active frontier. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`
+        : `No Chronicle is stored for this chat yet. Build memory to create C0 entries with L1. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`);
     const embedding = runtime.embeddingIndex;
     const embeddingTotal = Math.max(0, Number(embedding?.total) || 0);
     const embeddingIndexed = Math.min(embeddingTotal, Math.max(0, Number(embedding?.indexed) || 0));
@@ -1244,9 +1236,8 @@ export function renderRuntime(refreshSettings = true) {
         $('#continuity_chunk').val(settings.extractionChunkTokens);
         $('#continuity_correction_tokens').val(resolveCorrectionResponseTokens(settings.correctionResponseTokens));
         $('#continuity_hierarchy_mode').val(settings.hierarchyMode);
-        $('#continuity_arc_group').val(settings.arcGroupSize);
-        $('#continuity_era_start').val(settings.eraStartArcs);
-        $('#continuity_era_group').val(settings.eraGroupSize);
+        $('#continuity_chronicle_capacity').val(settings.chronicleLayerCapacity);
+        $('#continuity_chronicle_fan_in').val(settings.chroniclePromotionSize);
         $('#continuity_thinking').val(settings.thinkingMode);
         $('.continuity-ai-retrieval-setting').toggle(settings.retrievalMode === 'ai-expanded');
         for (const kind of DIRECT_KINDS) renderDirectCategory(settings, kind);
@@ -1258,10 +1249,8 @@ export function renderRuntime(refreshSettings = true) {
         setControlValue('#continuity_retrieval_prompt', settings.retrievalSystemPrompt);
         setControlValue('#continuity_retrieval_template', settings.retrievalQueryTemplate);
         setControlValue('#continuity_injection_prompt', settings.injectionInstruction);
-        setControlValue('#continuity_arc_prompt', settings.arcSystemPrompt);
-        setControlValue('#continuity_arc_template', settings.arcTaskTemplate);
-        setControlValue('#continuity_era_prompt', settings.eraSystemPrompt);
-        setControlValue('#continuity_era_template', settings.eraTaskTemplate);
+        setControlValue('#continuity_chronicle_prompt', settings.chronicleSystemPrompt);
+        setControlValue('#continuity_chronicle_template', settings.chronicleTaskTemplate);
     }
     $('#continuity_memory_name').text(runtime.world?.name || (getChatKey() ? 'No stored memory yet; it will be created when processing begins.' : 'Open a chat to begin.'));
     const attachment = runtime.world?.continuation;
@@ -1284,7 +1273,7 @@ export function renderRuntime(refreshSettings = true) {
         : runtime.lastError ? `Last error: ${runtime.lastError}` : runtime.lastCompletedAt ? `Last completed: ${new Date(runtime.lastCompletedAt).toLocaleString()}` : 'Idle');
     const extractionReview = runtime.pendingExtractionReview;
     syncExtractionReviewPopup(extractionReview);
-    $('#continuity_arc_status').text(runtime.arcError ? `Hierarchy deferred: ${runtime.arcError}` : runtime.arcStatus || 'L2 and L3 are derived non-destructively when eligible.');
+    $('#continuity_arc_status').text(runtime.arcError ? `Chronicle promotion deferred: ${runtime.arcError}` : runtime.arcStatus || 'Chronicle parents are derived non-destructively when a layer exceeds its capacity.');
     $('#continuity_retry_status').text(runtime.retryStatus || 'No manual build running.');
     const coverage = getProcessingCoverage();
     $('#continuity_coverage').text(!runtime.world
@@ -1448,7 +1437,7 @@ async function importWorld(file) {
 async function startContinuationArc(file) {
     const chatKey = getChatKey();
     if (!chatKey) throw new Error('Open the destination chat before starting a continuation arc.');
-    if (runtime.processing || runtime.queue.length || runtime.storyProcessing) throw new Error('Stop or finish current memory and Story processing first.');
+    if (runtime.processing || runtime.queue.length || runtime.storyProcessing) throw new Error('Stop or finish current memory processing first.');
     const parsed = JSON.parse(await file.text());
     if (parsed?.source?.worldId && parsed.source.worldId === getBoundWorldId()) {
         throw new Error('This is still the source chat. Open or create the new destination chat, then select Start continuation arc there.');
@@ -1461,7 +1450,7 @@ async function startContinuationArc(file) {
     const warning = getBoundWorldId()
         ? '\n\nThis destination chat already has Continuity memory. Starting the arc will replace that destination memory after importing the continuation.'
         : '';
-    if (!window.confirm(`Start a new continuation arc from “${prepared.continuation.originName}”?\n\n${inherited} structured record(s), plus its L1/L2/L3 chronology, will be inherited. Old source messages will not be treated as messages in this new chat.${warning}`)) return null;
+    if (!window.confirm(`Start a new continuation arc from “${prepared.continuation.originName}”?\n\n${inherited} structured record(s), plus its Recursive Chronicle, will be inherited. Old source messages will not be treated as messages in this new chat.${warning}`)) return null;
 
     const previousWorldId = getBoundWorldId();
     const previousAttached = previousWorldId && runtime.world?.id === previousWorldId && Boolean(runtime.world?.continuation);
@@ -1565,7 +1554,7 @@ async function continueFailedL1() {
     // serves as Resume after Stop, Pause, or an automatic rate-limit pause.
     if (runtime.paused) resumeRuntime();
     let confirmed = false;
-    const completed = { continued: 0, chunks: 0, pendingMessages: 0, arcs: 0, eras: 0, pendingTail: 0, bufferedMessages: 0 };
+    const completed = { continued: 0, chunks: 0, pendingMessages: 0, chroniclePromotions: 0, pendingTail: 0, bufferedMessages: 0 };
     while (true) {
         if (runtime.processing) throw new Error('Wait for current processing to finish.');
         const coverage = getProcessingCoverage();
@@ -1590,8 +1579,7 @@ async function continueFailedL1() {
         completed.chunks += Number(result.chunks) || 0;
         completed.continued += Number(result.chunks) || (Number(result.messages) > 0 ? 1 : 0);
         completed.pendingMessages += Number(result.messages) || 0;
-        completed.arcs += Number(result.arcs) || 0;
-        completed.eras += Number(result.eras) || 0;
+        completed.chroniclePromotions += Number(result.chroniclePromotions) || 0;
         if (remaining >= eligible) {
             throw new Error(`L1 processing made no progress; ${remaining} eligible message(s) remain pending.`);
         }
@@ -1627,25 +1615,15 @@ async function waitForExistingMemoryWork(stopSequence) {
 }
 
 async function finishHierarchy(l1, clearRetrieval = false, rebuildVectors = false) {
-    let arcs = Number(l1.arcs) || 0;
-    let eras = Number(l1.eras) || 0;
+    let chroniclePromotions = Number(l1.chroniclePromotions) || 0;
     const epoch = runtime.generation;
-    updateRuntime({ processing: true, status: 'building', retryStatus: 'L1 complete. Building eligible L2 and L3 records…' });
+    updateRuntime({ processing: true, status: 'building', retryStatus: 'L1 complete. Promoting eligible Recursive Chronicle layers…' });
     try {
-        while (true) {
-            const arc = await buildNextArc(undefined, epoch);
-            if (!arc) break;
-            arcs++;
-        }
-        while (true) {
-            const era = await buildNextEra(undefined, epoch);
-            if (!era) break;
-            eras++;
-        }
+        while (await buildNextChronicle(undefined, epoch)) chroniclePromotions++;
         const cacheEntries = clearRetrieval ? clearRetrievalExpansionCache() : 0;
         let vectors = null;
         if (rebuildVectors && runtime.world?.id) {
-            updateRuntime({ retryStatus: 'Fresh L1/L2/L3 complete. Rebuilding the vector index from scratch…' });
+            updateRuntime({ retryStatus: 'Fresh L1 and Recursive Chronicle complete. Rebuilding the vector index from scratch…' });
             if (getSettings().retrievalMode === 'embedding-hybrid') {
                 vectors = await rebuildEmbeddingIndex(runtime.world);
             } else {
@@ -1653,12 +1631,12 @@ async function finishHierarchy(l1, clearRetrieval = false, rebuildVectors = fals
                 vectors = { status: 'empty', total: 0 };
             }
         }
-        updateRuntime({ status: 'idle', retryStatus: `Build complete: L1 ${l1.continued || l1.chunks || 0}, L2 ${arcs}, L3 ${eras}${l1.pendingTail ? `; ${l1.pendingTail} recent message(s) remain raw (${l1.bufferedMessages || 0} protected by the stability buffer)` : ''}${clearRetrieval ? `, retrieval cache ${cacheEntries} cleared` : ''}${rebuildVectors ? `, vectors ${vectors?.total || 0}` : ''}.` });
-        return { ...l1, arcs, eras, cacheEntries, vectors };
+        updateRuntime({ status: 'idle', retryStatus: `Build complete: L1 ${l1.continued || l1.chunks || 0}, Chronicle promotions ${chroniclePromotions}${l1.pendingTail ? `; ${l1.pendingTail} recent message(s) remain raw (${l1.bufferedMessages || 0} protected by the stability buffer)` : ''}${clearRetrieval ? `, retrieval cache ${cacheEntries} cleared` : ''}${rebuildVectors ? `, vectors ${vectors?.total || 0}` : ''}.` });
+        return { ...l1, chroniclePromotions, cacheEntries, vectors };
     } catch (error) {
         if (runtime.paused && isRuntimeCancellation(error)) {
             updateRuntime({ status: 'paused', lastError: '', retryStatus: runtime.retryStatus || 'Processing paused safely.' });
-            return { ...l1, cancelled: true, arcs, eras };
+            return { ...l1, cancelled: true, chroniclePromotions };
         }
         updateRuntime({ status: 'error', retryStatus: `Build stopped safely: ${error.message}` });
         throw error;
@@ -1802,7 +1780,7 @@ async function restartBuild() {
         : attached
             ? '\n\nSHARED MEMORY: the shared world will be detached and retained unchanged. Only this chat’s messages will be rebuilt into a new owned memory.'
             : '';
-    if (!window.confirm(`Rebuild Continuity from the beginning for all ${messageCount} chat messages? Delete All and Start Over use the same verified-empty purge; Start Over then rebuilds L1/L2/L3 and Story so far automatically. Reviewed corrections, Story so far, extraction records, retrieval cache, and vectors belonging to this chat are cleared.${attachmentNotice}`)) return { cancelled: true };
+    if (!window.confirm(`Rebuild Continuity from the beginning for all ${messageCount} chat messages? Delete All and Start Over use the same verified-empty purge; Start Over then rebuilds L1 and Recursive Chronicle automatically. Reviewed corrections, Chronicle nodes, extraction records, retrieval cache, and vectors belonging to this chat are cleared.${attachmentNotice}`)) return { cancelled: true };
     stopEmbeddingIndexing();
     clearRetrievalExpansionCache();
     if (attached) {
@@ -1819,12 +1797,12 @@ async function rebuildHierarchy() {
     if (restorePendingExtractionReview()) return { cancelled: true, reviewPending: true };
     await ensureCurrentChatMemory(true);
     const l1Count = runtime.world?.capsules?.length || 0;
-    if (!l1Count) throw new Error('There are no L1 records to build L2/L3 from. Use Build or erase everything and start over.');
-    if (!window.confirm(`Delete and regenerate L2 and L3 from the ${l1Count} existing L1 record(s)? L1, extracted base memory, and extraction records will remain untouched. L3 will be rebuilt only after the new L2 is complete.`)) return { cancelled: true };
+    if (!l1Count) throw new Error('There are no L1 records to build Chronicle parents from. Use Build or erase everything and start over.');
+    if (!window.confirm(`Delete and regenerate Recursive Chronicle parent layers from the ${l1Count} existing L1 record(s)? C0, L1, structured memory books, and extraction records will remain untouched.`)) return { cancelled: true };
     stopEmbeddingIndexing();
     clearRetrievalExpansionCache();
     try { await purgeEmbeddingIndex(runtime.world.id); }
-    catch (error) { console.warn('[Continuity] Could not purge the old derived embedding index before rebuilding L2/L3.', error); }
+    catch (error) { console.warn('[Continuity] Could not purge the old derived embedding index before rebuilding Chronicle layers.', error); }
     const reset = await restartHierarchyFromL1();
     return finishHierarchy(reset, true, true);
 }
@@ -1851,7 +1829,7 @@ async function applyReviewedCorrection() {
     $('#continuity_correction_preview_panel').prop('hidden', true);
     $('#continuity_correction_status').text(result.hierarchyError
         ? `Correction saved, but hierarchy rebuilding stopped: ${result.hierarchyError}`
-        : `Applied ${result.changed} change(s); rebuilt ${result.arcs || 0} L2 and ${result.eras || 0} L3 record(s).`);
+        : `Applied ${result.changed} change(s); created ${result.chroniclePromotions || 0} replacement Chronicle parent(s).`);
     clearRetrievalExpansionCache();
     scheduleEmbeddingIndexSync(result.world, 0);
     renderMemoryViewer(true);
@@ -1895,43 +1873,6 @@ export function initUI() {
     setSetting('#continuity_story_so_far_tokens', 'storySoFarTokens', value => Math.min(12000, Math.max(0, Number(value) || 0)));
     setSetting('#continuity_retrieval_thinking', 'retrievalThinkingMode');
     setSetting('#continuity_summary_thinking', 'summaryThinkingMode');
-    $('#continuity_story_build').on('click', async () => {
-        const action = runtime.world?.storySoFar?.[getChatKey()]?.text ? 'Continue' : 'Build';
-        if (!window.confirm(`${action} Story So Far from the completed L1 summaries? This may make explicit Story requests; structured memory is unchanged.`)) return;
-        try {
-            const result = await buildRollingStory();
-            const verb = action === 'Continue' ? 'continued' : 'built';
-            toast(result.caughtUp ? 'info' : 'success', result.caughtUp
-                ? 'Story so far is already current through the completed L1 summaries.'
-                : result.waitingL1 && !result.messages
-                    ? 'Story is waiting for the required L1 extraction.'
-                    : `Story so far ${verb} through ${result.messages} eligible message(s).`);
-        } catch (error) {
-            if (!isRuntimeCancellation(error)) toast('error', error.message);
-        }
-    });
-    $('#continuity_story_rebuild').on('click', async () => {
-        const messageCount = stableStoryMessages(collectMemoryEligibleMessages(getContext().chat || [])).length;
-        if (!messageCount) return toast('error', 'This chat has no eligible raw messages to summarize.');
-        if (!window.confirm(`Delete the current Story so far, then rebuild it from the completed L1 summaries across ${messageCount} eligible messages? Structured memory is unchanged.`)) return;
-        try {
-            const result = await rebuildRollingStory();
-            toast(result.waitingL1 ? 'info' : 'success', result.waitingL1
-                ? `Story rebuild processed available L1 history and is waiting for the next required L1 after ${result.messages} eligible message(s).`
-                : `Rebuild complete through ${result.messages} eligible message(s).`);
-        } catch (error) {
-            if (!isRuntimeCancellation(error)) toast('error', error.message);
-        }
-    });
-    $('#continuity_story_delete').on('click', async () => {
-        if (!window.confirm('Delete only this chat’s Story so far? Structured recall, L1/L2/L3, facts, state, and chat messages will remain unchanged.')) return;
-        try {
-            await deleteRollingStory();
-            toast('success', 'Story so far deleted; structured recall was unchanged.');
-        } catch (error) {
-            toast('error', error.message);
-        }
-    });
     $('#continuity_retrieval_mode').on('change', () => {
         if (getSettings().retrievalMode === 'embedding-hybrid' && runtime.world) scheduleEmbeddingIndexSync(runtime.world, 0);
     });
@@ -2010,10 +1951,12 @@ export function initUI() {
     });
     setSetting('#continuity_chunk', 'extractionChunkTokens', value => Math.min(50000, Math.max(0, Number(value) || 0)));
     setSetting('#continuity_correction_tokens', 'correctionResponseTokens', resolveCorrectionResponseTokens);
-    setSetting('#continuity_hierarchy_mode', 'hierarchyMode', value => ['off', 'l2', 'l3'].includes(value) ? value : 'l3');
-    setSetting('#continuity_arc_group', 'arcGroupSize', value => Math.min(200, Math.max(4, Number(value) || 24)));
-    setSetting('#continuity_era_start', 'eraStartArcs', value => Math.min(100, Math.max(8, Number(value) || 12)));
-    setSetting('#continuity_era_group', 'eraGroupSize', value => Math.min(16, Math.max(3, Number(value) || 6)));
+    setSetting('#continuity_hierarchy_mode', 'hierarchyMode', value => value === 'off' ? 'off' : 'l3');
+    setSetting('#continuity_chronicle_capacity', 'chronicleLayerCapacity', value => Math.min(100, Math.max(8, Number(value) || 24)));
+    setSetting('#continuity_chronicle_fan_in', 'chroniclePromotionSize', value => {
+        const capacity = Math.min(100, Math.max(8, Number(getSettings().chronicleLayerCapacity) || 24));
+        return Math.min(capacity, Math.max(3, Number(value) || 10));
+    });
     setSetting('#continuity_thinking', 'thinkingMode');
     for (const kind of DIRECT_KINDS) {
         bindModelProfileSelector(kind);
@@ -2057,10 +2000,8 @@ export function initUI() {
     setSetting('#continuity_retrieval_prompt', 'retrievalSystemPrompt', String);
     setSetting('#continuity_retrieval_template', 'retrievalQueryTemplate', String);
     setSetting('#continuity_injection_prompt', 'injectionInstruction', String);
-    setSetting('#continuity_arc_prompt', 'arcSystemPrompt', String);
-    setSetting('#continuity_arc_template', 'arcTaskTemplate', String);
-    setSetting('#continuity_era_prompt', 'eraSystemPrompt', String);
-    setSetting('#continuity_era_template', 'eraTaskTemplate', String);
+    setSetting('#continuity_chronicle_prompt', 'chronicleSystemPrompt', String);
+    setSetting('#continuity_chronicle_template', 'chronicleTaskTemplate', String);
 
     $('#continuity_reset_prompts').on('click', () => {
         if (!window.confirm('Reset all Continuity prompt instructions to their built-in defaults?')) return;
@@ -2074,16 +2015,15 @@ export function initUI() {
         .then(result => !result.cancelled && toast('success', 'Attached memory retained unchanged and detached from this chat.'))
         .catch(error => toast('error', error.message)));
     $('#continuity_stop').on('click', () => {
-        const storyContinues = runtime.storyProcessing;
         stopEmbeddingIndexing();
         stopRuntime();
-        toast('info', storyContinues ? 'Memory processing stopped and its queue was cleared. Story continues independently.' : 'Memory processing stopped and its queue was cleared.');
+        toast('info', 'Memory processing stopped and its queue was cleared. Saved Chronicle progress was kept.');
     });
         $('#continuity_build').on('click', () => buildMemoryWithRestart()
             .then(result => {
                 if (result.cancelled) return;
-                const changed = Boolean(result.continued || result.arcs || result.eras || result.vectors);
-                toast(changed ? 'success' : 'info', changed ? 'Memory build completed; L1 also updated Story so far.' : 'Memory and Story are already up to date.');
+                const changed = Boolean(result.continued || result.chroniclePromotions || result.vectors);
+                toast(changed ? 'success' : 'info', changed ? 'Memory build completed; L1 also updated the Recursive Chronicle.' : 'Memory and Chronicle are already up to date.');
             })
         .catch(error => toast('error', error.message)));
     $('#continuity_undo_latest_l1').on('click', () => undoLatestL1Memory()
@@ -2093,10 +2033,10 @@ export function initUI() {
         .then(result => !result.cancelled && toast('success', `Rollback repaired: removed memory from ${result.removedMessages || 0} deleted message(s).`))
         .catch(error => toast('error', error.message)));
         $('#continuity_restart_build').on('click', () => restartBuild()
-            .then(result => !result.cancelled && toast('success', `Fresh build complete: ${result.messages || 0} structured-memory messages${result.arcs !== undefined ? `, ${result.arcs} L2 records` : ''}; Story so far was updated by L1.`))
+            .then(result => !result.cancelled && toast('success', `Fresh build complete: ${result.messages || 0} structured-memory messages, ${result.chroniclePromotions || 0} Chronicle promotion(s).`))
             .catch(error => toast('error', error.message)));
     $('#continuity_rebuild_hierarchy').on('click', () => rebuildHierarchy()
-        .then(result => !result.cancelled && toast('success', `Hierarchy rebuilt: ${result.arcs || 0} L2 and ${result.eras || 0} L3 records.`))
+        .then(result => !result.cancelled && toast('success', `Chronicle rebuilt: ${result.chroniclePromotions || 0} parent promotion(s).`))
         .catch(error => toast('error', error.message)));
     $('#continuity_correction_review').on('click', () => reviewCorrection()
         .catch(error => { $('#continuity_correction_status').text(error.message); toast('error', error.message); }));

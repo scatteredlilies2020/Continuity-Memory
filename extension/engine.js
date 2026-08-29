@@ -6,39 +6,40 @@ import { oai_settings, openai_setting_names, openai_settings, proxies } from '/s
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError, isTransientApiError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.14.0-standalone.302';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.1';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { nextArcCapsules } from './hierarchy-policy.js';
 import { normalizeHierarchyResult } from './hierarchy-result.js';
 import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.14.0-standalone.302';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.1';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
-import { addDerivedArc, addDerivedEra, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
+import { addDerivedArc, addDerivedChronicle, addDerivedEra, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens, storyResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.14.0-standalone.302';
-import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.14.0-standalone.302';
+import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.1';
+import { formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.1';
 import { embedWorldInChat } from './portable.js';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.14.0-standalone.302';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_QUALITY_RULE, ROLLING_STORY_QUALITY_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, ROLLING_STORY_VERIFY_RULE, ROLLING_STORY_VERIFY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.14.0-standalone.302';
-import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.14.0-standalone.302';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.14.0-standalone.302';
-import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.14.0-standalone.302';
-import { isRuntimeCancellation, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.14.0-standalone.302';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.14.0-standalone.302';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.1';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_ARC_SYSTEM_PROMPT, DEFAULT_ARC_TASK_TEMPLATE, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_ERA_SYSTEM_PROMPT, DEFAULT_ERA_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_QUALITY_RULE, ROLLING_STORY_QUALITY_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, ROLLING_STORY_VERIFY_RULE, ROLLING_STORY_VERIFY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.1';
+import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.1';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.1';
+import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.1';
+import { isRuntimeCancellation, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.1';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.1';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { dynamicStoryRefineSourceChunk, dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.14.0-standalone.302';
-import { storyCompressionTarget, storyGenerationTargets } from './story-output-policy.js?v=0.14.0-standalone.302';
-import { resolveStoryRequestProfile } from './story-profile.js?v=0.14.0-standalone.302';
-import { resolveProfileThinkingMode } from './story-thinking.js?v=0.14.0-standalone.302';
-import { alignStoryRebuildTarget, completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, stableStoryMessages, storyChunkMessageLimit } from './story-cadence.js?v=0.14.0-standalone.302';
-import { compileRollingStorySnapshot, ROLLING_STORY_SNAPSHOT_EXAMPLE, ROLLING_STORY_SNAPSHOT_SCHEMA } from './story-snapshot.js?v=0.14.0-standalone.302';
-import { planStoryMutationRecovery, withStoryCheckpoint } from './story-checkpoints.js?v=0.14.0-standalone.302';
-import { buildStorySourceUnits, isCurrentStorySnapshot, resolveStorySourceMode, storedStorySourceMode, storySourceModeLabel, storySourcePolicyIsCurrent, STORY_FORMAT_MANUAL, STORY_SOURCE_L1, STORY_SOURCE_POLICY_VERSION } from './story-source.js?v=0.14.0-standalone.302';
-import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.14.0-standalone.302';
+import { dynamicStoryRefineSourceChunk, dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.15.0-testing.1';
+import { storyCompressionTarget, storyGenerationTargets } from './story-output-policy.js?v=0.15.0-testing.1';
+import { resolveStoryRequestProfile } from './story-profile.js?v=0.15.0-testing.1';
+import { resolveProfileThinkingMode } from './story-thinking.js?v=0.15.0-testing.1';
+import { alignStoryRebuildTarget, completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, stableStoryMessages, storyChunkMessageLimit } from './story-cadence.js?v=0.15.0-testing.1';
+import { compileRollingStorySnapshot, ROLLING_STORY_SNAPSHOT_EXAMPLE, ROLLING_STORY_SNAPSHOT_SCHEMA } from './story-snapshot.js?v=0.15.0-testing.1';
+import { planStoryMutationRecovery, withStoryCheckpoint } from './story-checkpoints.js?v=0.15.0-testing.1';
+import { buildStorySourceUnits, isCurrentStorySnapshot, resolveStorySourceMode, storedStorySourceMode, storySourceModeLabel, storySourcePolicyIsCurrent, STORY_FORMAT_MANUAL, STORY_SOURCE_L1, STORY_SOURCE_POLICY_VERSION } from './story-source.js?v=0.15.0-testing.1';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.1';
+import { nextChroniclePromotion } from './chronicle.js';
 
 const temporalRelationSchema = {
     type: 'object',
@@ -55,7 +56,7 @@ const temporalRelationSchema = {
 const extractionSchema = {
     type: 'object',
     additionalProperties: false,
-    required: ['scene', 'sceneCapsule', 'entities', 'identityResolutions', 'recordMerges', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds', 'storySoFar'],
+    required: ['scene', 'sceneCapsule', 'entities', 'identityResolutions', 'recordMerges', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds', 'chronicleEntry'],
     properties: {
         scene: {
             type: 'object', additionalProperties: false,
@@ -186,7 +187,7 @@ const extractionSchema = {
                 },
             },
         },
-        storySoFar: ROLLING_STORY_SNAPSHOT_SCHEMA,
+        chronicleEntry: { type: 'string' },
     },
 };
 
@@ -312,7 +313,7 @@ const JSON_SHAPE_EXAMPLE = JSON.stringify({
     events: [{ title: '', summary: '', participants: [], location: '', storyTime: '', consequences: '', importance: 3, temporal: { frame: 'main narrative', relation: 'same-period', elapsed: '', certainty: 'implicit' } }],
     threads: [{ targetId: '', title: '', detail: '', status: 'open', participants: [], importance: 3 }],
     backgrounds: [{ targetId: '', topic: '', summary: '', status: 'active', certainty: 'reported', participants: [], importance: 2 }],
-    storySoFar: { premise: [], majorDevelopments: [], boundaryState: [], openMatters: [] },
+    chronicleEntry: '',
 });
 
 let activeExtractionThinkingMode = null;
@@ -411,11 +412,11 @@ function validateResult(result, world, messages) {
     for (const key of ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds']) {
         if (!Array.isArray(result[key])) throw new Error(`Extractor field "${key}" is not an array.`);
     }
-    if (!result.storySoFar || typeof result.storySoFar !== 'object' || Array.isArray(result.storySoFar)) {
-        throw new Error('Extractor field "storySoFar" is not a valid four-section snapshot.');
-    }
-    for (const key of ['premise', 'majorDevelopments', 'boundaryState', 'openMatters']) {
-        if (!Array.isArray(result.storySoFar[key])) throw new Error(`Extractor Story field "${key}" is not an array.`);
+    if (typeof result.chronicleEntry !== 'string') {
+        // Stored pre-Chronicle responses and in-flight detached jobs remain
+        // replayable; new structured requests require this field explicitly.
+        result.chronicleEntry = compileRollingStorySnapshot(result.storySoFar)
+            || [result.sceneCapsule.opening, ...(result.sceneCapsule.beats || []), result.sceneCapsule.closing].filter(Boolean).join(' ');
     }
     const validation = sanitizeReconciliationMetadata(result, world, messages);
     return { result, validation };
@@ -531,12 +532,6 @@ async function extractChunk(messages, world = runtime.world) {
             updateRuntime({ lastRawResponse: String(raw).slice(0, 30000) });
             const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
             const { result, validation } = validateResult(parsed, world, messages);
-            const storyAllowance = prepared.storyAllowance;
-            const compiledStory = compileRollingStorySnapshot(result.storySoFar);
-            const measuredStoryTokens = Math.max(1, Number(await getTokenCountAsync(compiledStory)) || Math.ceil([...compiledStory].length / 4));
-            if (!storyWithinAllowance(measuredStoryTokens, storyAllowance)) {
-                throw new Error(`Extractor Story exceeded its ${storyAllowance}-token allowance (${measuredStoryTokens} tokens).`);
-            }
             const failedClosedRecords = applySourceAttributionFailClosed(result, [
                 ...(validation.sourceAttributionConflicts || []),
                 ...(validation.relationshipEndpointConflicts || []),
@@ -574,8 +569,6 @@ async function extractChunk(messages, world = runtime.world) {
 
 function prepareExtractionPrompts(messages, world = runtime.world) {
     const settings = getSettings();
-    const storyAllowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext).tokens;
-    const storyTargets = storyGenerationTargets(storyAllowance);
     const detail = settings.detail;
     const detailInstruction = detail === 'light'
         ? 'Capture only details likely to matter again.'
@@ -589,12 +582,10 @@ function prepareExtractionPrompts(messages, world = runtime.world) {
     const taskValues = {
         detail: detailInstruction,
         messages: formatExtractionMessages(messages, attributionContext),
-        story_constraints: `STORYSOFAR CONSTRAINT: Rewrite the complete snapshot within the configured ${storyAllowance}-token allowance. For substantial history, aim for approximately ${storyTargets.targetMinimum}–${storyTargets.targetMaximum} tokens and remain below approximately ${storyTargets.characterBudget} characters so tokenizer differences cannot cause overflow. These are whole-snapshot targets, not per-section quotas. Return complete thoughts; never clip, truncate, use an ellipsis, or add padding to fit.`,
-        story_so_far: `PRIOR ROLLING STORY SNAPSHOT — IMPORTANT EDITABLE REFERENCE (preserve load-bearing continuity unless the new excerpt corrects, resolves, supersedes, or makes it obsolete; this is not protected or append-only):\n${isCurrentStorySnapshot(world?.storySoFar?.[getChatKey()]) ? String(world.storySoFar[getChatKey()].text).trim() : '(No prior Story snapshot.)'}`,
         active_states: extractionStateContext(world, messages),
         temporal_context: extractionTemporalContext(world),
     };
-    const requiredPayloads = ['messages', 'active_states', 'temporal_context', 'story_so_far', 'story_constraints'];
+    const requiredPayloads = ['messages', 'active_states', 'temporal_context'];
     const prompt = renderStructuredTaskPrompt(taskTemplate, DEFAULT_EXTRACTION_TASK_TEMPLATE, taskValues, JSON_SHAPE_EXAMPLE, usesStructuredSchema, requiredPayloads);
     const fallbackPrompt = usesStructuredSchema
         ? renderStructuredTaskPrompt(taskTemplate, DEFAULT_EXTRACTION_TASK_TEMPLATE, taskValues, JSON_SHAPE_EXAMPLE, false, requiredPayloads)
@@ -604,7 +595,6 @@ function prepareExtractionPrompts(messages, world = runtime.world) {
         fallbackPrompt,
         systemPrompt: buildExtractionSystemPrompt(settings.extractionSystemPrompt, settings.jbEnabled, settings.jbPrompt),
         usesStructuredSchema,
-        storyAllowance,
     };
 }
 
@@ -729,6 +719,10 @@ async function requestDirectStructured(prompt, systemPrompt, jsonSchema, respons
 
 function reviewStatus(review) {
     if (review.layer === 'L1') return `Review L1 extracted memory for messages ${review.from}–${review.to} before it is saved.`;
+    if (/^C\d+$/.test(review.layer)) {
+        const sourceLayer = `C${Math.max(0, Number(review.layer.slice(1)) - 1)}`;
+        return `Review ${review.layer} Chronicle parent from ${review.sourceCount} ${sourceLayer} node(s) before it is saved.`;
+    }
     const sourceLayer = review.layer === 'L3' ? 'L2' : 'L1';
     return `Review ${review.layer} summary from ${review.sourceCount} ${sourceLayer} record(s) before it is saved.`;
 }
@@ -1243,7 +1237,8 @@ function prepareDetachedTask(messages, world) {
 
 function prepareDetachedHierarchyLayer(layer) {
     const settings = getSettings();
-    const l2 = layer === 'l2';
+    const chronicle = layer === 'chronicle';
+    const l2 = layer === 'l2' || chronicle;
     const profileId = settings.arcProfileId || settings.memoryProfileId;
     const directKind = settings.arcProfileId === DIRECT_PROFILE_ID ? 'summary' : 'extraction';
     const jsonSchema = l2 ? arcJsonSchema : eraJsonSchema;
@@ -1253,7 +1248,9 @@ function prepareDetachedHierarchyLayer(layer) {
     const requests = detachedRequestBodies({
         prompt: placeholder,
         fallbackPrompt: placeholder,
-        systemPrompt: buildHierarchySystemPrompt(l2
+        systemPrompt: buildHierarchySystemPrompt(chronicle
+            ? settings.chronicleSystemPrompt ?? DEFAULT_CHRONICLE_SYSTEM_PROMPT
+            : l2
             ? settings.arcSystemPrompt ?? DEFAULT_ARC_SYSTEM_PROMPT
             : settings.eraSystemPrompt ?? DEFAULT_ERA_SYSTEM_PROMPT),
         usesStructuredSchema,
@@ -1263,11 +1260,13 @@ function prepareDetachedHierarchyLayer(layer) {
         ...requests,
         placeholder,
         usesStructuredSchema,
-        taskTemplate: l2
+        taskTemplate: chronicle
+            ? settings.chronicleTaskTemplate ?? DEFAULT_CHRONICLE_TASK_TEMPLATE
+            : l2
             ? settings.arcTaskTemplate ?? DEFAULT_ARC_TASK_TEMPLATE
             : settings.eraTaskTemplate ?? DEFAULT_ERA_TASK_TEMPLATE,
         shapeExample: ARC_JSON_SHAPE_EXAMPLE,
-        valueKey: l2 ? 'capsules' : 'arcs',
+        valueKey: chronicle ? 'nodes' : l2 ? 'capsules' : 'arcs',
     };
 }
 
@@ -1275,21 +1274,18 @@ function prepareDetachedHierarchyPlan() {
     const settings = getSettings();
     if (!['l2', 'l3'].includes(settings.hierarchyMode)) return null;
     try {
-        const l2 = prepareDetachedHierarchyLayer('l2');
-        const l3 = settings.hierarchyMode === 'l3' ? prepareDetachedHierarchyLayer('l3') : null;
-        if (!l2 || (settings.hierarchyMode === 'l3' && !l3)) return null;
+        const chronicle = prepareDetachedHierarchyLayer('chronicle');
+        if (!chronicle) return null;
         return {
             settings: {
                 hierarchyMode: settings.hierarchyMode,
-                arcGroupSize: settings.arcGroupSize,
-                eraGroupSize: settings.eraGroupSize,
-                eraStartArcs: settings.eraStartArcs,
+                chronicleLayerCapacity: settings.chronicleLayerCapacity,
+                chroniclePromotionSize: settings.chroniclePromotionSize,
             },
-            l2,
-            l3,
+            chronicle,
         };
     } catch (error) {
-        console.warn('[Continuity] Detached L2/L3 could not be prepared; detached L1 will continue safely.', error);
+        console.warn('[Continuity] Detached Chronicle promotion could not be prepared; detached L1 will continue safely.', error);
         return null;
     }
 }
@@ -1298,7 +1294,7 @@ async function waitForDetachedJob(id, worldId = '') {
     let syncedChunks = 0;
     while (true) {
         const { job } = await api.getExtractionJob(id);
-        const hierarchyPhase = job.phase === 'l2' || job.phase === 'l3';
+        const hierarchyPhase = job.phase === 'chronicle' || job.phase === 'l2' || job.phase === 'l3';
         updateRuntime({
             status: job.status === 'complete' ? 'processing' : job.status,
             progress: hierarchyPhase ? null : {
@@ -1309,7 +1305,9 @@ async function waitForDetachedJob(id, worldId = '') {
                 inputTokens: job.inputTokens,
             },
             ...(hierarchyPhase ? {
-                arcStatus: `${job.phase === 'l2' ? 'Building eligible L2' : 'Building eligible L3'}… created L2 ${job.l2 || 0}, L3 ${job.l3 || 0}.`,
+                arcStatus: job.phase === 'chronicle'
+                    ? `Promoting Recursive Chronicle layers… created ${job.chronicle || 0} parent node(s).`
+                    : `${job.phase === 'l2' ? 'Building eligible L2' : 'Building eligible L3'}… created L2 ${job.l2 || 0}, L3 ${job.l3 || 0}.`,
             } : {}),
             lastValidation: job.validation || 'Detached extraction is running in SillyTavern; this tab may be closed.',
         });
@@ -1357,8 +1355,8 @@ async function reconnectDetachedExtraction(worldId, chatKey) {
                 status: 'idle',
                 progress: null,
                 arcStatus: completed.hierarchyError
-                    ? 'L2/L3 hierarchy deferred; saved L1 remains intact.'
-                    : `Detached hierarchy complete: L2 ${completed.l2 || 0}, L3 ${completed.l3 || 0}.`,
+                    ? 'Chronicle promotion deferred; saved C0 and structured memory remain intact.'
+                    : `Recursive Chronicle complete: ${completed.chronicle || 0} parent node(s) created.`,
                 arcError: completed.hierarchyError || '',
                 lastValidation: completed.validation || `Detached extraction saved ${completed.messages || 0} message(s).`,
                 lastCompletedAt: completed.completedAt || new Date().toISOString(),
@@ -1380,8 +1378,8 @@ async function reconnectDetachedExtraction(worldId, chatKey) {
             status: 'idle',
             progress: null,
             arcStatus: completed.hierarchyError
-                ? 'L2/L3 hierarchy deferred; saved L1 remains intact.'
-                : `Detached hierarchy complete: L2 ${completed.l2 || 0}, L3 ${completed.l3 || 0}.`,
+                ? 'Chronicle promotion deferred; saved C0 and structured memory remain intact.'
+                : `Recursive Chronicle complete: ${completed.chronicle || 0} parent node(s) created.`,
             arcError: completed.hierarchyError || '',
             lastCompletedAt: new Date().toISOString(),
         });
@@ -1434,8 +1432,8 @@ async function processDetachedRange(job, chunks, currentWorld) {
         updateRuntime({
             world,
             arcStatus: completed.hierarchyError
-                ? 'L2/L3 hierarchy deferred; saved L1 remains intact.'
-                : `Detached hierarchy complete: L2 ${completed.l2 || 0}, L3 ${completed.l3 || 0}.`,
+                ? 'Chronicle promotion deferred; saved C0 and structured memory remain intact.'
+                : `Recursive Chronicle complete: ${completed.chronicle || 0} parent node(s) created.`,
             arcError: completed.hierarchyError || '',
             lastValidation: completed.validation || `Detached extraction saved ${completed.messages} message(s).`,
         });
@@ -1447,6 +1445,7 @@ async function processDetachedRange(job, chunks, currentWorld) {
             skipped: 0,
             arcs: completed.l2 || 0,
             eras: completed.l3 || 0,
+            chroniclePromotions: completed.chronicle || 0,
             hierarchyError: completed.hierarchyError || '',
         };
     } finally {
@@ -1501,46 +1500,28 @@ export async function reviewMemoryCorrection(instruction) {
 
 async function rebuildCorrectionHierarchy(result, expectedEpoch) {
     const hierarchyMode = getSettings().hierarchyMode;
-    if (!['l2', 'l3'].includes(hierarchyMode)) return { arcs: 0, eras: 0, world: runtime.world };
+    if (!['l2', 'l3'].includes(hierarchyMode)) return { chroniclePromotions: 0, world: runtime.world };
     let world = runtime.world;
-    const rebuiltArcIds = new Map();
-    let arcs = 0;
-    let eras = 0;
-    const rebuildGroups = [...(result.invalidatedArcRecords || []).map(item => ({ previous: item, capsuleIds: item.capsuleIds || [] }))];
-    const alreadyGrouped = new Set(rebuildGroups.flatMap(item => item.capsuleIds));
-    for (const capsuleId of result.addedCapsuleIds || []) {
-        if (!alreadyGrouped.has(capsuleId)) rebuildGroups.push({ previous: null, capsuleIds: [capsuleId] });
-    }
-    for (let index = 0; index < rebuildGroups.length; index++) {
-        const group = rebuildGroups[index];
-        const capsules = group.capsuleIds.map(id => (world.capsules || []).find(item => item.id === id)).filter(Boolean);
-        if (!capsules.length || capsules.length !== group.capsuleIds.length) continue;
-        updateRuntime({ retryStatus: `Correction saved. Rebuilding affected L2 ${index + 1}/${rebuildGroups.length}…` });
-        const generated = await generateArc(capsules);
-        if (runtime.generation !== expectedEpoch) throw new Error('Correction hierarchy rebuild was stopped.');
-        const arc = await saveDerivedArc(structuredClone(world), generated, capsules);
-        if (group.previous?.id) rebuiltArcIds.set(group.previous.id, arc.id);
+    let chroniclePromotions = 0;
+    const rebuiltIds = new Map();
+    const previousParents = (result.invalidatedChronicleRecords || [])
+        .slice()
+        .sort((left, right) => Number(left.level) - Number(right.level));
+    for (let index = 0; index < previousParents.length; index++) {
+        const previous = previousParents[index];
+        const childIds = (previous.childIds || []).map(id => rebuiltIds.get(id) || id);
+        const children = childIds.map(id => (world.chronicle || []).find(item => item.id === id)).filter(Boolean);
+        if (!children.length || children.length !== childIds.length) continue;
+        updateRuntime({ retryStatus: `Correction saved. Rebuilding affected Chronicle parent ${index + 1}/${previousParents.length}…` });
+        const generated = await generateChroniclePromotion(children);
+        if (runtime.generation !== expectedEpoch) throw new Error('Correction Chronicle rebuild was stopped.');
+        const parent = await saveChroniclePromotion(structuredClone(world), generated, children);
+        rebuiltIds.set(previous.id, parent.id);
         world = runtime.world;
-        arcs++;
+        chroniclePromotions++;
     }
-    if (hierarchyMode === 'l3') {
-        const eraGroups = result.invalidatedEraRecords || [];
-        for (let index = 0; index < eraGroups.length; index++) {
-            const previous = eraGroups[index];
-            const sourceArcs = (previous.arcIds || []).map(id => {
-                const currentId = rebuiltArcIds.get(id) || id;
-                return (world.arcs || []).find(item => item.id === currentId);
-            }).filter(Boolean);
-            if (!sourceArcs.length || sourceArcs.length !== (previous.arcIds || []).length) continue;
-            updateRuntime({ retryStatus: `Correction saved. Rebuilding affected L3 ${index + 1}/${eraGroups.length}…` });
-            const generated = await generateEra(sourceArcs);
-            if (runtime.generation !== expectedEpoch) throw new Error('Correction hierarchy rebuild was stopped.');
-            await saveDerivedEra(structuredClone(world), generated, sourceArcs);
-            world = runtime.world;
-            eras++;
-        }
-    }
-    return { arcs, eras, world };
+    while (await buildNextChronicle(undefined, expectedEpoch)) chroniclePromotions++;
+    return { chroniclePromotions, world: runtime.world || world };
 }
 
 export async function commitMemoryCorrection(proposal) {
@@ -1556,9 +1537,9 @@ export async function commitMemoryCorrection(proposal) {
         const result = applyCorrectionProposal(world, proposal);
         world = (await api.saveWorld(world)).world;
         canonicalSaved = true;
-        updateRuntime({ world, retryStatus: `Correction saved. Rebuilding ${result.invalidatedArcs} affected L2 and ${result.invalidatedEras} affected L3 record(s)…` });
+        updateRuntime({ world, retryStatus: `Correction saved. Rebuilding ${result.invalidatedChronicle || 0} affected Chronicle parent node(s)…` });
         await embedWorldInChat(world);
-        let hierarchy = { arcs: 0, eras: 0, world };
+        let hierarchy = { chroniclePromotions: 0, world };
         let hierarchyError = '';
         try {
             hierarchy = await rebuildCorrectionHierarchy(result, epoch);
@@ -1569,7 +1550,7 @@ export async function commitMemoryCorrection(proposal) {
         const status = hierarchyError ? 'error' : 'idle';
         const retryStatus = hierarchyError
             ? `Correction was saved, but its hierarchy rebuild stopped: ${hierarchyError}`
-            : `Applied ${result.changed} correction change(s); rebuilt ${hierarchy.arcs} L2 and ${hierarchy.eras} L3 record(s).`;
+            : `Applied ${result.changed} correction change(s); created ${hierarchy.chroniclePromotions} replacement Chronicle parent node(s).`;
         updateRuntime({ world, status, lastError: hierarchyError, retryStatus });
         return { ...result, ...hierarchy, world, hierarchyError };
     } catch (error) {
@@ -1708,6 +1689,69 @@ async function generateArc(capsules) {
     const raw = await requestStructured(prompt, buildHierarchySystemPrompt(settings.arcSystemPrompt ?? DEFAULT_ARC_SYSTEM_PROMPT), arcJsonSchema, memoryResponseTokens('l2'), profileId, directKind, fallbackPrompt, thinkingMode);
     updateRuntime({ lastArcResponse: String(raw).slice(0, 20000) });
     return validateArcResult(typeof raw === 'string' ? parseJsonResponse(raw) : raw, 'L2');
+}
+
+function formatChronicleNodes(nodes) {
+    return nodes.map((node, index) => JSON.stringify({
+        sequence: index + 1,
+        layer: `C${Number(node.level) || 0}`,
+        storyTime: node.storyTime,
+        text: node.text || node.summary,
+        turningPoints: node.turningPoints || [],
+        closingState: node.closingState || '',
+        openThreads: node.openThreads || [],
+    })).join('\n');
+}
+
+async function generateChroniclePromotion(nodes) {
+    const settings = getSettings();
+    const profileId = settings.arcProfileId || settings.memoryProfileId;
+    const directKind = settings.arcProfileId === DIRECT_PROFILE_ID ? 'summary' : 'extraction';
+    const thinkingMode = settings.summaryThinkingMode;
+    const usesStructuredSchema = requestSupportsStructuredSchema(arcJsonSchema, profileId, directKind, thinkingMode);
+    const task = settings.chronicleTaskTemplate ?? DEFAULT_CHRONICLE_TASK_TEMPLATE;
+    const values = { nodes: formatChronicleNodes(nodes) };
+    const prompt = renderStructuredTaskPrompt(task, task, values, ARC_JSON_SHAPE_EXAMPLE, usesStructuredSchema, ['nodes']);
+    const fallbackPrompt = usesStructuredSchema
+        ? renderStructuredTaskPrompt(task, task, values, ARC_JSON_SHAPE_EXAMPLE, false, ['nodes'])
+        : prompt;
+    const raw = await requestStructured(prompt, buildHierarchySystemPrompt(settings.chronicleSystemPrompt ?? DEFAULT_CHRONICLE_SYSTEM_PROMPT), arcJsonSchema, memoryResponseTokens('l2'), profileId, directKind, fallbackPrompt, thinkingMode);
+    updateRuntime({ lastArcResponse: String(raw).slice(0, 20000) });
+    return validateArcResult(typeof raw === 'string' ? parseJsonResponse(raw) : raw, `C${(Number(nodes[0]?.level) || 0) + 1}`);
+}
+
+async function saveChroniclePromotion(world, result, nodes, embed = true) {
+    const worldId = world.id;
+    let created;
+    for (let attempt = 0; attempt < 4; attempt++) {
+        if (attempt) world = (await api.getWorld(worldId)).world;
+        const current = nodes.map(source => (world.chronicle || []).find(item => item.id === source.id)).filter(Boolean);
+        if (current.length !== nodes.length) throw new Error('Chronicle sources changed while promotion was being built; retry later.');
+        created = addDerivedChronicle(world, result, current);
+        try {
+            world = (await api.saveWorld(world)).world;
+            break;
+        } catch (error) {
+            if (error.status !== 409 || attempt === 3) throw error;
+        }
+    }
+    updateRuntime({ world, arcStatus: `Created Chronicle C${created.level} “${created.title}”.`, arcError: '' });
+    if (embed) await embedWorldInChat(world);
+    return created;
+}
+
+export async function buildNextChronicle(worldId = getBoundWorldId(), expectedEpoch = null, { embed = true } = {}) {
+    if (!worldId) throw new Error('Open a chat and prepare its memory first.');
+    let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
+    const nodes = nextChroniclePromotion(world, getSettings());
+    if (!nodes) return null;
+    const destination = (Number(nodes[0].level) || 0) + 1;
+    updateRuntime({ arcStatus: `Promoting ${nodes.length} C${nodes[0].level} nodes into Chronicle C${destination}…`, arcError: '' });
+    let result = await generateChroniclePromotion(nodes);
+    if (expectedEpoch !== null && runtime.generation !== expectedEpoch) throw new Error('Processing stopped; pending Chronicle result was discarded.');
+    result = await reviewHierarchyBeforeSave(result, `C${destination}`, nodes, 'hierarchy', () => generateChroniclePromotion(nodes));
+    if (expectedEpoch !== null && runtime.generation !== expectedEpoch) throw new Error('Processing stopped; pending Chronicle result was discarded.');
+    return saveChroniclePromotion(world, result, nodes, embed);
 }
 
 async function saveDerivedArc(world, result, capsules, embed = true) {
@@ -2610,12 +2654,12 @@ export async function restartHierarchyFromL1() {
     await requireRetryStorage();
     runtime.generation++;
     const queued = runtime.queue.splice(0);
-    for (const job of queued) job.reject?.(new Error('L2/L3 rebuild cleared the processing queue.'));
-    updateRuntime({ processing: true, paused: false, status: 'restarting', progress: null, lastError: '', retryStatus: 'Deleting existing L2 and L3 while preserving L1…' });
+    for (const job of queued) job.reject?.(new Error('Chronicle rebuild cleared the processing queue.'));
+    updateRuntime({ processing: true, paused: false, status: 'restarting', progress: null, lastError: '', retryStatus: 'Deleting existing Chronicle parents while preserving L1 and C0…' });
     try {
         const clear = world => resetWorldHierarchy(world);
         let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
-        if (!(world.capsules || []).length) throw new Error('There are no L1 records to build L2/L3 from. Use Build or erase everything and start over.');
+        if (!(world.capsules || []).length) throw new Error('There are no L1 records to build Chronicle parents from. Use Build or erase everything and start over.');
         const l1Kept = world.capsules.length;
         clear(world);
         try {
@@ -2623,15 +2667,15 @@ export async function restartHierarchyFromL1() {
         } catch (error) {
             if (error.status !== 409) throw error;
             world = (await api.getWorld(worldId)).world;
-            if (!(world.capsules || []).length) throw new Error('There are no L1 records to build L2/L3 from. Use Build or erase everything and start over.');
+            if (!(world.capsules || []).length) throw new Error('There are no L1 records to build Chronicle parents from. Use Build or erase everything and start over.');
             clear(world);
             world = (await api.saveWorld(world)).world;
         }
-        updateRuntime({ world, status: 'idle', retryStatus: `Deleted old L2/L3. Rebuilding them from ${l1Kept} preserved L1 record(s)…` });
+        updateRuntime({ world, status: 'idle', retryStatus: `Deleted old Chronicle parents. Rebuilding from ${l1Kept} preserved C0/L1 record(s)…` });
         await embedWorldInChat(world);
         return { l1Kept, continued: 0 };
     } catch (error) {
-        updateRuntime({ status: 'error', progress: null, lastError: error.message, retryStatus: `L2/L3 reset failed: ${error.message}` });
+        updateRuntime({ status: 'error', progress: null, lastError: error.message, retryStatus: `Chronicle reset failed: ${error.message}` });
         throw error;
     } finally {
         updateRuntime({ processing: false });
@@ -2727,11 +2771,10 @@ async function processRange(job, epoch) {
         updateRuntime({ retryStatus: `Adaptive extraction recovered ${adaptive.splits} incomplete section${adaptive.splits === 1 ? '' : 's'} as ${adaptive.completed} validated L1 parts.` });
     }
     try {
-        while (await buildNextArc(job.worldId, epoch, { embed: false })) { /* drain eligible L2 */ }
-        while (await buildNextEra(job.worldId, epoch, { embed: false })) { /* drain eligible L3 */ }
+        while (await buildNextChronicle(job.worldId, epoch, { embed: false })) { /* drain recursive Chronicle */ }
     } catch (error) {
         console.warn('[Continuity] Non-destructive hierarchy generation was deferred.', error);
-        updateRuntime({ arcStatus: 'L2/L3 hierarchy deferred; lower-level memory is safe.', arcError: error.message });
+        updateRuntime({ arcStatus: 'Chronicle promotion deferred; C0 and structured memory are safe.', arcError: error.message });
     }
     // Publish one portable snapshot after the batch rather than rewriting the
     // entire chat metadata after every successfully saved L1 chunk.

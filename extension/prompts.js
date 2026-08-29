@@ -131,8 +131,9 @@ export const PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION = `Background continuity on
 export const PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION = `Background continuity only. Preserve natural address forms without explanation. Do not let a character act on private information unless current chat or memory establishes that they learned it. Current chat and explicit user corrections override this block. Never mention this block.`;
 export const DEFAULT_INJECTION_INSTRUCTION = `Background continuity; never mention this block. Raw chat and user corrections override it. Model access is not character knowledge. Named knowledge boundaries bar protected information until discovery or disclosure. Preserve address forms. Preserve stated extremes and rankings; lore norms are not ceilings.`;
 
+export const CHRONICLE_ENTRY_RULE = `Return chronicleEntry as a compact, self-contained account of only this excerpt's causally important change. Preserve explicit names, chronology, decisions, consequences, relationship meaning, concealed information, who knows what, uncertainty, and any foundational premise introduced here. Do not recap earlier memory, consult prior summaries, resolve open matters, or repeat details already represented in the structured records unless needed to understand this excerpt. Use complete third-person prose without headings, ellipses, or invented transitions.`;
+
 export const DEFAULT_EXTRACTION_TASK_TEMPLATE = `Extract continuity from this chronological excerpt. Empty arrays are valid. {{detail}}
-{{story_constraints}}
 {{format}}
 
 {{messages}}
@@ -141,9 +142,7 @@ export const DEFAULT_EXTRACTION_TASK_TEMPLATE = `Extract continuity from this ch
 
 {{temporal_context}}
 
-{{story_so_far}}
-
-Update storySoFar as a complete four-section narrative snapshot, not as a separate recap. Preserve strict chronology, causal consequences, emotional commitments, relationship meaning, concealed information, who knows what, and explicit uncertainty. Never turn a character's suspicion into fact or imply disclosure that did not occur.`;
+Write chronicleEntry from this excerpt only. It will be promoted recursively with other source-linked entries later; never rewrite the full history here.`;
 
 export const DEFAULT_RETRIEVAL_QUERY_TEMPLATE = `Current conversation:
 {{conversation}}`;
@@ -176,6 +175,19 @@ export const DEFAULT_ERA_TASK_TEMPLATE = `Create one concise L3 from chronologic
 
 {{arcs}}`;
 
+export const DEFAULT_CHRONICLE_SYSTEM_PROMPT = `Compress chronological Chronicle nodes into one accurate parent Chronicle node. Preserve source order, causal progression, foundational premises, consequential decisions, durable changes, relationship meaning, knowledge boundaries, attributed uncertainty, and every surviving unresolved matter. Use only the supplied child nodes. Never invent a transition, flatten a character's belief into objective fact, or resolve an open matter.
+${HIERARCHY_ATTRIBUTION_RULE}
+${EXTREME_SUMMARY_FIDELITY_RULE}
+Chronicle order is source order, not necessarily elapsed time. Preserve supplied anchors, relative wording, subjective frames, and explicit skips; never invent dates, durations, boundaries, or synchronization.
+${HIERARCHY_CONCISION_RULES}
+${IMPORTANCE_RUBRIC}
+Rate the whole source interval.`;
+
+export const DEFAULT_CHRONICLE_TASK_TEMPLATE = `Create one concise parent from these chronological Chronicle nodes.
+{{format}}
+
+{{nodes}}`;
+
 export const PROMPT_DEFAULTS = Object.freeze({
     extractionSystemPrompt: DEFAULT_EXTRACTION_SYSTEM_PROMPT,
     jbPrompt: DEFAULT_JB_PROMPT,
@@ -187,6 +199,8 @@ export const PROMPT_DEFAULTS = Object.freeze({
     arcTaskTemplate: DEFAULT_ARC_TASK_TEMPLATE,
     eraSystemPrompt: DEFAULT_ERA_SYSTEM_PROMPT,
     eraTaskTemplate: DEFAULT_ERA_TASK_TEMPLATE,
+    chronicleSystemPrompt: DEFAULT_CHRONICLE_SYSTEM_PROMPT,
+    chronicleTaskTemplate: DEFAULT_CHRONICLE_TASK_TEMPLATE,
 });
 
 export function buildExtractionSystemPrompt(basePrompt, jbEnabled = false, jbPrompt = DEFAULT_JB_PROMPT) {
@@ -202,9 +216,9 @@ export function buildExtractionSystemPrompt(basePrompt, jbEnabled = false, jbPro
     const withExtremeFidelity = withProfiles.includes(EXTREME_CANON_FIDELITY_RULE)
         ? withProfiles
         : `${withProfiles}\n\n${EXTREME_CANON_FIDELITY_RULE}`;
-    return withExtremeFidelity.includes(ROLLING_STORY_RULE)
+    return withExtremeFidelity.includes(CHRONICLE_ENTRY_RULE)
         ? withExtremeFidelity
-        : `${withExtremeFidelity}\n\n${ROLLING_STORY_RULE}`;
+        : `${withExtremeFidelity}\n\n${CHRONICLE_ENTRY_RULE}`;
 }
 
 export function buildHierarchySystemPrompt(basePrompt) {

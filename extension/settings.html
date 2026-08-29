@@ -222,19 +222,14 @@
                     </details>
                     <small>Vectors are derived from the current structured memory and stored separately. They are never added to exports or portable chat memory. Continuity owns this configuration and does not read another extension's settings.</small>
                 </div>
-                <label class="checkbox_label"><input id="continuity_story_so_far" type="checkbox"><span>Include compact story so far (default)</span></label>
-                <small>Story So Far is generated in the same L1 extraction response. It is stored as the chronological continuity spine and injected when enabled; there is no separate Story model call or raw-chat Story mode.</small>
-                <label>Story-so-far allowance
+                <label class="checkbox_label"><input id="continuity_story_so_far" type="checkbox"><span>Include Recursive Chronicle layers (default)</span></label>
+                <small>Each L1 creates one source-linked C0 entry. Older entries are periodically promoted into compact C1, C2, and higher layers without deleting their sources. Structured memory books remain separate and unchanged.</small>
+                <label>Chronicle allowance
                     <input id="continuity_story_so_far_tokens" class="text_pole" type="number" min="0" max="12000" step="32">
-                    <small>Maximum tokens reserved when the stored Story So Far is injected. 0 uses the automatic context-based allowance.</small>
+                    <small>Maximum tokens reserved when the active Chronicle frontier is injected. 0 uses the automatic context-based allowance.</small>
                 </label>
-                <div class="continuity-button-row">
-                    <button id="continuity_story_build" class="menu_button"><i class="fa-solid fa-hammer"></i> Build / Continue</button>
-                    <button id="continuity_story_rebuild" class="menu_button"><i class="fa-solid fa-rotate"></i> Rebuild</button>
-                    <button id="continuity_story_delete" class="menu_button redWarningBG"><i class="fa-solid fa-trash"></i> Delete story so far</button>
-                </div>
-                <div id="continuity_story_progress" class="continuity-progress">Story So Far is updated with L1 extraction. Manual actions are for recovery or a full rebuild.</div>
-                <small id="continuity_story_status">No rolling story is stored for this chat yet.</small>
+                <div id="continuity_story_progress" class="continuity-progress">C0 is updated with L1 extraction; parent layers are promoted only when a layer exceeds capacity.</div>
+                <small id="continuity_story_status">No Chronicle is stored for this chat yet.</small>
                 <label class="continuity-ai-retrieval-setting">AI retrieval model
                     <select id="continuity_retrieval_profile" class="text_pole">
                         <option value="">Same as extraction model</option>
@@ -292,7 +287,7 @@
                     <div class="continuity-grid">
                         <label>Recall allowance
                             <input id="continuity_budget" class="text_pole" type="number" min="0" max="100000" step="250">
-                            <small>structured recall tokens; 0 = automatic 20% of model context. Fixed overrides may range from 128 to 100,000. Story so far is additional.</small>
+                            <small>structured recall tokens; 0 = automatic 20% of model context. Fixed overrides may range from 128 to 100,000. The Chronicle allowance is additional.</small>
                         </label>
                         <label>Injection position
                         <select id="continuity_injection_position" class="text_pole">
@@ -338,16 +333,16 @@
                         <textarea id="continuity_injection_prompt" class="text_pole continuity-prompt-editor" rows="4"></textarea>
                     </label>
                 </details>
-                <h4>Summarization</h4>
-                <label>L2/L3 summarization model
+                <h4>Recursive Chronicle</h4>
+                <label>Chronicle promotion model
                     <select id="continuity_arc_profile" class="text_pole">
                         <option value="">Same as extraction model</option>
                         <option value="__direct_custom__">Direct OpenAI-compatible / proxy</option>
                         <option value="__direct_openrouter__">Direct OpenRouter</option>
                     </select>
                 </label>
-                <small>Creates the higher-level L2 and L3 summaries. Leave unchanged to share the extraction model. Connection profiles supply only the endpoint, model, and authentication; their presets, instruct templates, and custom prompt processing are excluded.</small>
-                <label>Summarization reasoning / thinking
+                <small>Creates C1 and higher parent nodes only when needed. Leave unchanged to share the extraction model. Source C0 entries and structured memory books never depend on a promotion succeeding.</small>
+                <label>Promotion reasoning / thinking
                     <select id="continuity_summary_thinking" class="text_pole">
                         <option value="auto">Auto (selected profile)</option>
                         <option value="off">Off</option>
@@ -358,9 +353,9 @@
                         <option value="max">Maximum</option>
                     </select>
                 </label>
-                <small>Applies to L2/L3 summarization. Auto inherits the selected summarizer profile's reasoning effort, then SillyTavern's active setting. Forced-reasoning models are enabled automatically when required.</small>
+                <small>Applies only to Chronicle promotions. Auto inherits the selected profile's reasoning effort, then SillyTavern's active setting.</small>
                 <div class="continuity-summary-direct-setting continuity-card-inset">
-                    <b>Direct L2/L3 summarizer API</b>
+                    <b>Direct Chronicle promotion API</b>
                     <label>Provider
                         <select id="continuity_summary_direct_provider" class="text_pole">
                             <option value="custom">Custom / OpenAI-compatible / proxy</option>
@@ -387,46 +382,34 @@
                 <details>
                     <summary>Advanced summarization options</summary>
                     <div class="continuity-grid">
-                        <label>Memory hierarchy
+                        <label>Chronicle layers
                             <select id="continuity_hierarchy_mode" class="text_pole">
-                                <option value="l3">L1 + L2 + L3 (default)</option>
-                                <option value="l2">L1 + L2 only</option>
-                                <option value="off">L1 only</option>
+                                <option value="l3">Recursive promotion (default)</option>
+                                <option value="off">C0 entries only</option>
                             </select>
                         </label>
-                        <label>L1 records per L2
-                            <input id="continuity_arc_group" class="text_pole" type="number" min="4" max="200" step="1">
-                            <small>default 24; one L2 is created for each complete group</small>
+                        <label>Nodes allowed per layer
+                            <input id="continuity_chronicle_capacity" class="text_pole" type="number" min="8" max="100" step="1">
+                            <small>default 24; promotion begins only after a layer exceeds this capacity</small>
                         </label>
                     </div>
-                    <div class="continuity-grid">
-                        <label>Start L3 after
-                            <input id="continuity_era_start" class="text_pole" type="number" min="8" max="100" step="1">
-                            <small>L2 records; default 12</small>
-                        </label>
-                        <label>L2 records per L3
-                            <input id="continuity_era_group" class="text_pole" type="number" min="3" max="16" step="1">
-                            <small>default 6; effective start is at least two groups</small>
+                    <div class="continuity-grid two">
+                        <label>Child nodes per promotion
+                            <input id="continuity_chronicle_fan_in" class="text_pole" type="number" min="3" max="100" step="1">
+                            <small>default 10; one promotion call covers this many same-layer nodes</small>
                         </label>
                     </div>
-                    <small>L2 and L3 each use one additional request per completed group. Every L1 and L2 record is retained; higher levels never replace their sources.</small>
+                    <small>Every parent records its exact child IDs. All C0 and child nodes are retained; only the compact active frontier is injected.</small>
                 </details>
                 <details>
-                    <summary>Advanced summarization prompts</summary>
-                    <small>These instructions apply only to the selected L2/L3 summarization model.</small>
-                    <label>L2 instructions
-                        <textarea id="continuity_arc_prompt" class="text_pole continuity-prompt-editor" rows="7"></textarea>
+                    <summary>Advanced Chronicle prompts</summary>
+                    <small>These instructions apply only to recursive parent-node promotion.</small>
+                    <label>Promotion instructions
+                        <textarea id="continuity_chronicle_prompt" class="text_pole continuity-prompt-editor" rows="7"></textarea>
                     </label>
-                    <label>L2 request template
-                        <textarea id="continuity_arc_template" class="text_pole continuity-prompt-editor" rows="6"></textarea>
-                        <small>Internal source placeholders: <code>{{schema}}</code>, <code>{{capsules}}</code>. Both are appended automatically if omitted.</small>
-                    </label>
-                    <label>L3 instructions
-                        <textarea id="continuity_era_prompt" class="text_pole continuity-prompt-editor" rows="7"></textarea>
-                    </label>
-                    <label>L3 request template
-                        <textarea id="continuity_era_template" class="text_pole continuity-prompt-editor" rows="6"></textarea>
-                        <small>Internal source placeholders: <code>{{schema}}</code>, <code>{{arcs}}</code>. Both are appended automatically if omitted.</small>
+                    <label>Promotion request template
+                        <textarea id="continuity_chronicle_template" class="text_pole continuity-prompt-editor" rows="6"></textarea>
+                        <small>Internal source placeholders: <code>{{schema}}</code>, <code>{{nodes}}</code>. Both are appended automatically if omitted.</small>
                     </label>
                     <button id="continuity_reset_prompts" class="menu_button"><i class="fa-solid fa-rotate-left"></i> Reset prompts to defaults</button>
                 </details>
@@ -463,18 +446,18 @@
                     <button id="continuity_stop" class="menu_button redWarningBG"><i class="fa-solid fa-stop"></i> Stop & clear queue</button>
                     <button id="continuity_undo_latest_l1" class="menu_button"><i class="fa-solid fa-rotate-left"></i> Undo latest L1</button>
                 </div>
-                <small>Build creates all missing structured memory and Story so far side by side, and resumes interrupted work without redoing completed chunks.</small>
+                <small>Build creates missing structured memory and Chronicle C0 entries side by side, then promotes eligible Chronicle layers without redoing completed chunks.</small>
                 <div id="continuity_coverage" class="continuity-progress">Checking chat coverage…</div>
                 <div id="continuity_progress" class="continuity-progress"></div>
                 <div id="continuity_arc_status" class="continuity-progress"></div>
                 <div id="continuity_retry_status" class="continuity-progress"></div>
                 <details>
                     <summary>Start over from scratch…</summary>
-                    <button id="continuity_rebuild_hierarchy" class="menu_button"><i class="fa-solid fa-layer-group"></i> Rebuild L2 & L3 only</button>
-                    <small>Keeps L1, extracted base memory, and extraction records. Deletes L2 and L3 together, rebuilds L2 from the existing L1, then rebuilds L3 from the new L2.</small>
+                    <button id="continuity_rebuild_hierarchy" class="menu_button"><i class="fa-solid fa-layer-group"></i> Rebuild Chronicle parents only</button>
+                    <small>Keeps L1, C0, structured memory, and extraction records. Deletes only derived Chronicle parents, then rebuilds eligible recursive layers.</small>
                     <hr>
                     <button id="continuity_restart_build" class="menu_button redWarningBG"><i class="fa-solid fa-radiation"></i> Erase everything & start over</button>
-                    <small>Immediately erases all Continuity memory for this world, including Story so far, reviewed corrections, corrected records, L1/L2/L3, extraction records, retrieval cache, and vectors, then rebuilds structured memory and Story so far from the first message. Each completed chunk is saved. No backup is saved.</small>
+                    <small>Immediately erases all Continuity memory for this world, including Chronicle layers, reviewed corrections, structured books, L1, extraction records, retrieval cache, and vectors, then rebuilds from the first message. Each completed chunk is saved. No backup is saved.</small>
                 </details>
             </div>
 
@@ -486,7 +469,7 @@
                     <div class="continuity-viewer-controls">
                         <select id="continuity_viewer_category" class="text_pole">
                             <option value="scene">Latest extracted checkpoint</option>
-                            <option value="story">Story so far</option>
+                            <option value="story">Recursive Chronicle frontier</option>
                             <option value="entities">Entities</option>
                             <option value="facts">Facts</option>
                             <option value="states">States</option>
