@@ -16,30 +16,6 @@ function clipped(value, maximum) {
     return (boundary >= Math.floor(maximum * 0.6) ? cut.slice(0, boundary + 1) : cut.slice(0, maximum)).trim();
 }
 
-function estimatedTokens(value) {
-    let ascii = 0;
-    let wide = 0;
-    for (const character of String(value ?? '')) {
-        if (character.codePointAt(0) > 0x7f) wide++;
-        else ascii++;
-    }
-    return Math.ceil(wide + ascii / 4);
-}
-
-function clippedTokens(value, maximum) {
-    const source = clean(value);
-    const limit = Math.max(0, Math.floor(Number(maximum) || 0));
-    if (!source || !limit) return '';
-    if (estimatedTokens(source) <= limit) return source;
-    let output = '';
-    for (const character of source) {
-        if (estimatedTokens(output + character) > limit) break;
-        output += character;
-    }
-    const boundary = Math.max(output.lastIndexOf('. '), output.lastIndexOf('! '), output.lastIndexOf('? '), output.lastIndexOf('; '));
-    return (boundary >= Math.floor(output.length * 0.6) ? output.slice(0, boundary + 1) : output).trim();
-}
-
 function unique(values) {
     return [...new Set((values || []).filter(Boolean))];
 }
@@ -186,12 +162,12 @@ export function addChroniclePromotion(world, result, children) {
         level: levels[0] + 1,
         title: clipped(result.title, 160) || `Chronicle C${levels[0] + 1}`,
         storyTime: clipped(result.storyTime, 160),
-        text: clipped(summary, 3000),
-        summary: clipped(summary, 3000),
-        turningPoints: (result.turningPoints || []).map(item => clipped(item, 420)).filter(Boolean).slice(0, 10),
-        emotionalArc: clipped(result.emotionalArc, 600),
-        closingState: clipped(result.closingState, 800),
-        openThreads: (result.openThreads || []).map(item => clipped(item, 420)).filter(Boolean).slice(0, 10),
+        text: summary,
+        summary,
+        turningPoints: (result.turningPoints || []).map(clean).filter(Boolean),
+        emotionalArc: clean(result.emotionalArc),
+        closingState: clean(result.closingState),
+        openThreads: (result.openThreads || []).map(clean).filter(Boolean),
         importance: Math.max(1, Math.min(5, Number(result.importance) || 3)),
         participants: unique((result.participants || []).map(clean)),
         childIds,
@@ -222,35 +198,11 @@ export function renderChronicleFrontier(world, chatKey, include = () => true, ma
         ].map(clean).filter(Boolean);
         return `[${label}] ${[heading, body, ...details].filter(Boolean).join('\n')}`;
     }).join('\n\n');
-    const limit = Number(maximumTokens);
-    if (!Number.isFinite(limit) || estimatedTokens(full) <= limit) return full;
-
-    // The configured Story allowance is additive to structured recall. When a
-    // large frontier exceeds it, retain a visible row for every chronological
-    // span and distribute the remaining allowance across their narratives.
-    const tokenLimit = Math.max(1, Math.floor(limit));
-    const rows = nodes.map(node => {
-        const from = Number(node.from);
-        const to = Number(node.to);
-        const range = Number.isFinite(from) && Number.isFinite(to) ? ` ${from}${from === to ? '' : `–${to}`}` : '';
-        const prefix = `[C${Number(node.level) || 0}${range}]`;
-        const payload = [
-            [clean(node.title), clean(node.storyTime)].filter(Boolean).join(' — '),
-            clean(node.text || node.summary),
-            ...(node.openThreads || []).map(item => `Open: ${clean(item)}`),
-        ].filter(Boolean).join(' ');
-        return { prefix, payload };
-    });
-    const separators = Math.max(0, rows.length - 1) * estimatedTokens('\n');
-    const fixed = rows.reduce((sum, row) => sum + estimatedTokens(row.prefix), separators);
-    let remaining = Math.max(0, tokenLimit - fixed);
-    return rows.map((row, index) => {
-        const rowsLeft = rows.length - index;
-        const share = Math.floor(remaining / rowsLeft);
-        const payload = clippedTokens(row.payload, share);
-        remaining -= estimatedTokens(payload);
-        return payload ? `${row.prefix} ${payload}` : row.prefix;
-    }).join('\n');
+    // The configured allowance is a planning target, never permission to alter
+    // canonical Chronicle prose. SillyTavern may manage the surrounding context,
+    // but every active Chronicle node is injected whole and in source order.
+    void maximumTokens;
+    return full;
 }
 
 export function refreshChronicleStory(world, chatKey) {

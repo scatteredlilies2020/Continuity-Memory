@@ -113,7 +113,7 @@ test('frontier rendering can exclude raw-tail or invalid nodes without deleting 
     assert.equal(value.chronicle.length, 3);
 });
 
-test('frontier rendering honors its injection allowance while retaining every active range', () => {
+test('frontier rendering soft-overflows its allowance without clipping Chronicle nodes', () => {
     const world = { chronicle: [] };
     for (let index = 0; index < 24; index++) {
         world.chronicle.push({
@@ -125,6 +125,27 @@ test('frontier rendering honors its injection allowance while retaining every ac
         });
     }
     const rendered = renderChronicleFrontier(world, 'chat', () => true, 1500);
-    assert.ok(rendered.length <= 6000);
-    for (let index = 0; index < 24; index++) assert.match(rendered, new RegExp(`\\[C0 ${index * 10}–${index * 10 + 9}\\]`));
+    assert.ok(rendered.length > 6000);
+    for (let index = 0; index < 24; index++) {
+        assert.match(rendered, new RegExp(`\\[C0\\] Chronicle interval ${index}\\n(?:Important development ${index}\\. ){39}Important development ${index}\\.`));
+    }
+});
+
+test('Chronicle promotion stores complete model output without character caps', () => {
+    const value = world(3);
+    const summary = `${'A complete consequential development. '.repeat(120)}Final consequence remains intact.`;
+    const parent = addChroniclePromotion(value, {
+        title: 'Long complete parent',
+        summary,
+        turningPoints: ['A'.repeat(500)],
+        emotionalArc: 'B'.repeat(700),
+        closingState: 'C'.repeat(900),
+        openThreads: ['D'.repeat(500)],
+    }, value.chronicle.slice(0, 3));
+    assert.equal(parent.text, summary.trim());
+    assert.equal(parent.summary, summary.trim());
+    assert.equal(parent.turningPoints[0].length, 500);
+    assert.equal(parent.emotionalArc.length, 700);
+    assert.equal(parent.closingState.length, 900);
+    assert.equal(parent.openThreads[0].length, 500);
 });
