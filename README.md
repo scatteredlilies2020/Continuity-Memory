@@ -19,8 +19,8 @@ Continuity combines several forms of memory instead:
 
 - Recent messages remain in their original form.
 - Structured records preserve facts, relationships, states, events, and compact background developments.
-- L1, L2, and L3 records maintain a chronological history.
-- A compact story-so-far spine keeps the whole covered narrative, from its beginning through its independently stored raw-chat boundary, in working context by default.
+- L1 records retain detailed source-linked scene history.
+- Recursive Chronicle nodes keep the covered narrative compact across C0, C1, C2, and higher layers.
 - Retrieval selects relevant older memories for each response.
 - Relevant events and open threads receive full detail, while a small always-present continuity ledger retains strong completed-event and unresolved-thread titles through unrelated scenes.
 - Reviewed corrections remain authoritative when extraction gets something wrong.
@@ -41,7 +41,7 @@ Continuity maintains structured records for:
 - events
 - open threads
 - background developments outside the current focus
-- chronological L1, L2, and L3 history
+- chronological L1 and Recursive Chronicle history
 
 The built-in memory viewer lets you search and inspect these records, including the message ranges from which they were created.
 
@@ -53,7 +53,7 @@ Memory extraction is not treated as infallible.
 
 The **Correct memory** box accepts an OOC correction and proposes the smallest matching changes to structured memory. You see an exact before-and-after preview before anything is saved.
 
-Applied corrections are recorded as authoritative revisions. If a historical event changes, Continuity updates the affected L1 chronology and rebuilds only the L2 and L3 records that depended on it. Corrected records are also protected from stale extraction replay.
+Applied corrections are recorded as authoritative revisions. If a historical event changes, Continuity updates the affected L1 chronology and rebuilds only the Chronicle nodes that depended on it. Corrected records are also protected from stale extraction replay.
 
 Continuity detects edits, deletions, swipes, and branch changes. A checkpoint is withheld whenever newer or changed messages are waiting to be processed, which keeps the recent raw chat authoritative.
 
@@ -69,7 +69,7 @@ Relevant existing mutable records are supplied to each extraction with stable ID
 
 Continuity retains three retrieval configurations. Visible roleplay generation always uses latency-safe local matching, so an LLM or vector provider can never hold the reply open. Automatic embedding updates are triggered only by actual structured-memory revisions, not by every visible reply.
 
-Retrieval supplements the default story-so-far overview rather than replacing it. Story So Far is persisted as the chronological narrative spine and is returned inside the same L1 extraction response as the structured memory, so normal processing does not make a second Story request. It is built from completed L1 scene summaries and keeps premise, chronology, durable state, unresolved matters, and knowledge boundaries within the configured allowance. Build / Continue and Rebuild remain available as explicit manual recovery actions; Delete removes only Story So Far. Story never reads L2, L3, retrieved records, or other recall output. The main Build action also advances Story through the same L1 processing queue, and Erase everything & start over reconstructs it after structured memory.
+Retrieval supplements the active Recursive Chronicle frontier rather than replacing it. Each L1 extraction returns a source-linked C0 Chronicle entry in the same response as structured memory, so normal processing does not need a second request for that entry. Older nodes are recursively promoted into compact parents while their source-linked children remain available for inspection. The active frontier keeps chronological continuity in working context within its separate configured allowance.
 
 ### Local matching
 
@@ -81,7 +81,7 @@ This configuration is retained for memory tooling and future enhanced retrieval.
 
 ### Embedding hybrid
 
-The optional vector index is retained for memory tooling and future enhanced retrieval. Vector queries are not called on the visible roleplay path. When auto-sync is enabled, changed memory records are embedded after an L1/L2/L3 revision; unchanged replies do not request or retry embeddings.
+The optional vector index is retained for memory tooling and future enhanced retrieval. Vector queries are not called on the visible roleplay path. When auto-sync is enabled, changed structured or Chronicle records are embedded after a memory revision; unchanged replies do not request or retry embeddings.
 
 Embeddings are optional. The vector index is derived from canonical Continuity memory, stored separately, and never included in memory exports or portable chat snapshots. It can be deleted or rebuilt at any time. Indexing failures never affect visible roleplay, which already uses local matching.
 
@@ -93,21 +93,17 @@ Background developments are retrieved only when the current conversation matches
 
 ## Chronological memory
 
-Continuity builds three levels of chronological memory:
+Continuity builds chronological memory from detailed **L1** records and a **Recursive Chronicle**. Each L1 creates one source-linked C0 node. When a Chronicle layer exceeds its configured capacity (24 by default), the oldest eligible nodes are summarized into a parent at the next level; groups of 10 are promoted by default. The same rule recursively creates C1, C2, C3, and higher layers without a fixed maximum depth or deletion of their sources.
 
-- **L1** records detailed events and scene developments.
-- **L2** condenses groups of L1 records into larger arcs.
-- **L3** preserves long-running eras and developments.
-
-By default, Continuity creates one L1 from each complete group of 8 messages, one L2 from 24 L1 records, and one L3 from 6 L2 records. A smaller recent message tail stays raw until the next L1 group is complete. The newest AI reply remains provisional raw chat and is excluded from every CM extraction, backlog count, and catch-up calculation until a later message confirms it was kept, so an immediate swipe or regeneration never enters memory.
+By default, Continuity creates one L1 from each complete group of 8 messages. A smaller recent message tail stays raw until the next L1 group is complete. The newest AI reply remains provisional raw chat and is excluded from every CM extraction, backlog count, and catch-up calculation until a later message confirms it was kept, so an immediate swipe or regeneration never enters memory.
 
 Once a complete L1 group accumulates, Continuity starts extracting it in the background. When the optional Continuity server plugin is active, an accepted L1 job runs and saves on the SillyTavern server even if the browser tab is discarded. Reopening the chat reconnects to any active job. Hung model requests time out, and temporary connection or rate-limit failures retry in the background with capped exponential backoff until they succeed or you explicitly stop processing. CM extraction jobs are isolated from ordinary roleplay generation; they use a separate queue and never create or replace chat replies.
 
-Generated L1, L2, and L3 review is off by default. Enable it in extension settings to inspect each result in a centered popup before it is saved. The memory pipeline waits while the popup is open. You can unlock manual editing, regenerate temporary swipe candidates from the same source, revert a draft, or save the selected candidate and continue. Discarding stops processing without saving the candidate; the source messages or lower-level records remain available for a later build.
+Generated L1 and Chronicle review is off by default. Enable it in extension settings to inspect each result in a centered popup before it is saved. The memory pipeline waits while the popup is open. You can unlock manual editing, regenerate temporary swipe candidates from the same source, revert a draft, or save the selected candidate and continue. Discarding stops processing without saving the candidate; the source messages or lower-level records remain available for a later build.
 
 Roleplay can continue with up to one additional group of uncovered messages because every uncovered message remains verbatim in the prompt. If the uncovered backlog reaches two complete groups (16 messages by default), Continuity catches up before starting the next roleplay response. An extraction request already using the active SillyTavern connection is also allowed to settle first so its temporary request settings cannot leak into roleplay.
 
-Relevant chronology is retrieved alongside structured facts and current state. Overlapping records from different levels are de-duplicated before they are added to the prompt.
+The complete active Chronicle frontier is injected alongside retrieved structured facts and current state. Covered child nodes remain stored but are not duplicated in the active prompt.
 
 This preserves broad narrative continuity without injecting the entire history on every turn.
 
@@ -115,7 +111,7 @@ This preserves broad narrative continuity without injecting the entire history o
 
 Message counts and L1 boundaries record source order, never elapsed story time. Every new L1 receives an immutable temporal anchor and links only to the preceding anchor in the same subjective time frame. Explicit time skips are retained; unstated dates, durations, day boundaries, and synchronization between dreams, flashbacks, alternate timelines, or other local clocks are never inferred.
 
-Relative wording such as “yesterday,” “tomorrow,” “last year,” and “the last 300 days” is preserved and bound to the anchor where it was stated. When one of those memories is retrieved later, Continuity adds its short anchor reference so the phrase cannot silently drift with the current scene. Ordinary non-relative memories carry no extra prompt text, and L2/L3 summaries retain compact anchor spans rather than copying every timestamp.
+Relative wording such as “yesterday,” “tomorrow,” “last year,” and “the last 300 days” is preserved and bound to the anchor where it was stated. When one of those memories is retrieved later, Continuity adds its short anchor reference so the phrase cannot silently drift with the current scene. Ordinary non-relative memories carry no extra prompt text, and promoted Chronicle nodes retain compact anchor spans rather than copying every timestamp.
 
 ## Context handling
 
@@ -129,7 +125,7 @@ Roleplay never waits for extraction, hierarchy building, embedding synchronizati
 
 ## Models and connections
 
-L1 extraction (including Story So Far), optional retrieval expansion, correction review, and L2/L3 summarization can each independently use:
+L1 extraction, optional retrieval expansion, correction review, and Chronicle promotion can each independently use:
 
 - the active SillyTavern connection
 - a SillyTavern Connection Profile
@@ -138,7 +134,7 @@ L1 extraction (including Story So Far), optional retrieval expansion, correction
 
 Each category has its own direct provider, endpoint, credential, and model settings. Leaving a category on “Same as extraction model” still inherits Extraction. Embeddings retain their separate proxy/OpenRouter configuration. This allows each memory task to use an appropriate model without changing the main roleplay connection.
 
-Reasoning controls are translated independently for each selected provider. Story So Far follows the L1 extraction request, while AI retrieval keeps its own selector. OpenRouter Auto explicitly preserves reasoning so endpoints that require it are not accidentally disabled by SillyTavern's missing-value fallback; if an endpoint reports that reasoning is mandatory, Continuity retries with reasoning enabled rather than removing the control.
+Reasoning controls are translated independently for each selected provider. Chronicle entry creation follows the L1 extraction request, while promotion and AI retrieval keep their own selectors. OpenRouter Auto explicitly preserves reasoning so endpoints that require it are not accidentally disabled by SillyTavern's missing-value fallback; if an endpoint reports that reasoning is mandatory, Continuity retries with reasoning enabled rather than removing the control.
 
 ## Storage and portability
 
