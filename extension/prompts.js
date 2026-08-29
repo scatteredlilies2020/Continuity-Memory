@@ -147,7 +147,7 @@ Write chronicleEntry from this excerpt only. It will be promoted recursively wit
 export const DEFAULT_RETRIEVAL_QUERY_TEMPLATE = `Current conversation:
 {{conversation}}`;
 
-export const HIERARCHY_CONCISION_RULES = `Keep hierarchy fields concise, complete, and non-redundant. Store each detail once in its most specific field; never repeat a sentence across summary, turningPoints, emotionalArc, closingState, or openThreads. title and storyTime are compact labels; summary holds only causal continuity; turningPoints and openThreads items are one concise sentence; emotionalArc and closingState are at most one short paragraph. Finish fields cleanly without omission ellipses.`;
+export const HIERARCHY_CONCISION_RULES = `Keep hierarchy fields clear, complete, and non-redundant. Compact means remove repetition, never information; a parent need not be shorter than its children. Use all space needed for fidelity. Store each detail once in its most specific field; never repeat a sentence across fields. title and storyTime are labels; summary holds causal continuity; other fields may be as long as fidelity requires. Finish cleanly without omission ellipses.`;
 
 export const DEFAULT_CHRONICLE_SYSTEM_PROMPT = `Compress chronological Chronicle nodes into one accurate parent Chronicle node. Preserve source order, causal progression, foundational premises, consequential decisions, durable changes, relationship meaning, knowledge boundaries, attributed uncertainty, and every surviving unresolved matter. Use only the supplied child nodes. Never invent a transition, flatten a character's belief into objective fact, or resolve an open matter.
 ${HIERARCHY_ATTRIBUTION_RULE}
