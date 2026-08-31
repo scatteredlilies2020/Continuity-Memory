@@ -1158,8 +1158,8 @@ export function orderEventsChronologically(items, chatKey = '', capsules = []) {
                 || left.selectionIndex - right.selectionIndex;
         });
     ordered.forEach((entry, sourceIndex) => { entry.sourceIndex = sourceIndex; });
-    // The extractor already records each event relative to its containing L1,
-    // and each L1 relative to the previous anchor. Use that partial order for
+    // The extractor already records each event relative to its containing Digest,
+    // and each Digest relative to the previous anchor. Use that partial order for
     // undated events; unknown, detached, and contradictory relations retain
     // their source-message order.
     const undatedSlots = ordered.map((entry, index) => entry.date ? null : index).filter(index => index !== null);
@@ -1429,7 +1429,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     const latestIds = new Set(latest.map(item => item.id));
     const relevant = takeMatches('Recent continuity', 'capsule', (hasChronicle ? [] : chronological).filter(item => !latestIds.has(item.id)), 2)
         .map(({ item }) => item);
-    recordSelections('Recent continuity', 'capsule', latest, 'latest L1');
+    recordSelections('Recent continuity', 'capsule', latest, 'latest Digest');
     const selectedCapsules = [...relevant, ...latest]
         .filter((item, index, all) => all.findIndex(other => other.id === item.id) === index)
         .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')) || Number(a.from ?? 0) - Number(b.from ?? 0));
@@ -1577,8 +1577,8 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     // user budgets adjust depth gradually instead of switching policies.
     const supportDepthScale = Math.min(1.5, Math.max(0.75, Math.sqrt(budget / 10000)));
     const primarySupportSeeds = selectedMemoryRecords
-        .filter(selection => selection.category !== 'entity' && selection.reason !== 'latest L1')
-        // L1 records already carry their own condensed history. Expanding
+        .filter(selection => selection.category !== 'entity' && selection.reason !== 'latest Digest')
+        // Digest records already carry their own condensed history. Expanding
         // them again tends to recover a whole old interval instead of useful
         // prerequisites for the current query.
         .filter(selection => selection.category !== 'capsule')
@@ -1702,7 +1702,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         if (category === 'capsule') {
             const storyTime = anchoredStoryTime(item);
             const sequence = [item.opening, ...(item.beats || []), item.closing].map(plain).filter(Boolean).join(' → ');
-            return `- [L1] ${storyTime ? `[${storyTime}] ` : ''}${anchoredRelativeText(`${item.title}: ${sequence}${item.emotionalArc ? ` Overall movement: ${plain(item.emotionalArc)}` : ''}`, item)}`;
+            return `- [Digest] ${storyTime ? `[${storyTime}] ` : ''}${anchoredRelativeText(`${item.title}: ${sequence}${item.emotionalArc ? ` Overall movement: ${plain(item.emotionalArc)}` : ''}`, item)}`;
         }
         return '';
     };
@@ -1721,7 +1721,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.3';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.4';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';

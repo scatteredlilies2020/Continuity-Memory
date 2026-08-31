@@ -13,12 +13,12 @@ const world = {
     backgrounds: [{ id: 'background', topic: 'Qing White Lotus suppression', summary: 'Militia reliance is increasing.', status: 'active', certainty: 'reported', participants: ['Qing China'], importance: 2, sources: [{ from: 12, to: 16 }] }],
     capsules: [
         { id: 'late', title: 'Later', opening: 'Second', from: 20, to: 29 },
-        { id: 'early', title: 'Early', opening: 'First', coverageWarnings: ['A durable vow remains only in L1.'], from: 0, to: 9 },
+        { id: 'early', title: 'Early', opening: 'First', coverageWarnings: ['A durable vow remains only in Digest.'], from: 0, to: 9 },
     ],
 };
 
-test('viewer exposes L1 and Recursive Chronicle categories', () => {
-    assert.deepEqual(MEMORY_VIEW_CATEGORIES.slice(-2).map(item => item.label), ['L1', 'Chronicle']);
+test('viewer exposes Digest and Recursive Chronicle categories', () => {
+    assert.deepEqual(MEMORY_VIEW_CATEGORIES.slice(-2).map(item => item.label), ['Digest', 'Chronicle']);
 });
 
 test('viewer labels the scene as an extracted checkpoint with its latest source message', () => {
@@ -50,7 +50,7 @@ test('viewer exposes a rebuild that failed before its first replacement checkpoi
 });
 
 test('viewer orders hierarchy records chronologically and exposes message ranges', () => {
-    const page = memoryViewerPage(world, 'l1');
+    const page = memoryViewerPage(world, 'digest');
     assert.deepEqual(page.items.map(item => item.title), ['Early', 'Later']);
     assert.deepEqual(page.items[0].sources, ['Messages 0–9']);
     assert.ok(!page.items[0].fields.some(field => field.label === 'Coverage warnings'));

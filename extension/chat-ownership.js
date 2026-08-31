@@ -45,10 +45,10 @@ export function resolveMissingWorldBinding(worlds, boundWorldId, { characterName
 export function rankSuperiorSyncedWorlds(worlds, currentWorld, { characterName, chatId } = {}) {
     if (!currentWorld?.id) return [];
     const expectedName = `${String(characterName || 'Chat')} · ${String(chatId || 'Memory')}`;
-    const currentL1 = Array.isArray(currentWorld.extractions) ? currentWorld.extractions.length : 0;
+    const currentDigest = Array.isArray(currentWorld.extractions) ? currentWorld.extractions.length : 0;
     return (Array.isArray(worlds) ? worlds : [])
         .filter(world => world?.id && world.id !== currentWorld.id && world.name === expectedName)
-        .filter(world => Math.max(0, Number(world.counts?.retryableL1) || 0) > currentL1)
-        .sort((left, right) => (Number(right.counts?.retryableL1) || 0) - (Number(left.counts?.retryableL1) || 0)
+        .filter(world => Math.max(0, Number(world.counts?.retryableDigest) || 0) > currentDigest)
+        .sort((left, right) => (Number(right.counts?.retryableDigest) || 0) - (Number(left.counts?.retryableDigest) || 0)
             || Number(right.revision || 0) - Number(left.revision || 0));
 }

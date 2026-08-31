@@ -111,7 +111,7 @@ test('does not force unsupported controls on older or unversioned Gemini models'
     }
 });
 
-test('Gemini omits only the oversized L1 schema and retains smaller structured schemas', () => {
+test('Gemini omits only the oversized Digest schema and retains smaller structured schemas', () => {
     const result = buildThinkingRequest({ mode: 'default', source: 'makersuite', model: 'gemini-3.1-pro-preview' });
     assert.equal(result.adapter, 'gemini-provider-default');
     assert.deepEqual(result.payload, {});

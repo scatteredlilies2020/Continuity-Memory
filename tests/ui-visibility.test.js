@@ -65,7 +65,7 @@ test('manual memory Build restarts failures, completes vectors, and obeys Stop p
     assert.match(source, /if \(!buildFailureCanRetry\(error\)\)/u);
 });
 
-test('manual Build adopts queued automatic L1 and drains remaining complete groups', async () => {
+test('manual Build adopts queued automatic Digest and drains remaining complete groups', async () => {
     const engine = await readFile(new URL('../extension/engine.js', import.meta.url), 'utf8');
     const ui = await readFile(new URL('../extension/ui.js', import.meta.url), 'utf8');
     assert.match(engine, /const queuedAutomaticJob = runtime\.queue\.find/u);
@@ -73,7 +73,7 @@ test('manual Build adopts queued automatic L1 and drains remaining complete grou
     assert.match(engine, /promise,\s*\}\);\s*updateRuntime/u);
     assert.match(ui, /while \(true\)[\s\S]*const result = await maybeAutoExtract\(true\)/u);
     assert.match(ui, /await waitForExistingMemoryWork\(stopSequence\)/u);
-    assert.doesNotMatch(ui, /No pending L1 messages could be started/u);
+    assert.doesNotMatch(ui, /No pending Digest messages could be started/u);
 });
 
 test('embedding settings appear directly after retrieval mode and before Story so far', async () => {

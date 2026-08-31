@@ -54,7 +54,7 @@ test('server plugin creates, saves, and explicitly deletes worlds', async t => {
     assert.equal(saved.payload.counts.beliefs, undefined);
     assert.equal(saved.payload.world.facts.some(item => item.id === 'belief-1' && item.category === 'character belief'), true);
     assert.equal(saved.payload.counts.chronicleNodes, 0);
-    assert.equal(saved.payload.counts.retryableL1, 1);
+    assert.equal(saved.payload.counts.retryableDigest, 1);
     assert.equal(saved.payload.world.arcs[0].title, 'First arc');
     assert.equal(saved.payload.world.eras[0].title, 'First era');
     assert.equal(saved.payload.world.continuation.originWorldId, 'origin-world');
@@ -83,15 +83,15 @@ test('server load replaces obsolete Story snapshots with a source-linked Chronic
     await init(router, { syncExtension: false });
     const created = await call(router.routes.get('POST /worlds'), root, { body: { name: 'Story migration' } });
     const world = created.payload.world;
-    world.storySoFar.chat = { text: 'Obsolete Story', sourceMode: 'l1', sourcePolicyVersion: 2 };
-    world.capsules.push({ id: 'l1', chatKey: 'chat', from: 0, to: 1 });
-    world.arcs.push({ id: 'legacy-arc', capsuleIds: ['l1'] });
+    world.storySoFar.chat = { text: 'Obsolete Story', sourceMode: 'digest', sourcePolicyVersion: 2 };
+    world.capsules.push({ id: 'digest', chatKey: 'chat', from: 0, to: 1 });
+    world.arcs.push({ id: 'legacy-arc', capsuleIds: ['digest'] });
     world.eras.push({ id: 'legacy-era', arcIds: ['legacy-arc'] });
     const saved = await call(router.routes.get('PUT /worlds/:id'), root, { params: { id: world.id }, body: world });
     assert.equal(saved.payload.world.storySoFar.chat.sourceMode, 'chronicle');
     const loaded = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: world.id } });
     assert.equal(loaded.payload.world.storySoFar.chat.sourceMode, 'chronicle');
-    assert.deepEqual(loaded.payload.world.storySoFar.chat.nodeIds, ['chronicle_l1']);
+    assert.deepEqual(loaded.payload.world.storySoFar.chat.nodeIds, ['chronicle_digest']);
     assert.equal(loaded.payload.world.capsules.length, 1);
     assert.equal(loaded.payload.world.arcs.length, 1);
     assert.equal(loaded.payload.world.eras.length, 1);
@@ -161,7 +161,7 @@ test('server migration preserves a file-backed world identity and revision', asy
     assert.equal(repeated.payload.world.revision, 27);
 });
 
-test('detached extraction jobs remain separate from roleplay generation and save L1 without a browser', async t => {
+test('detached extraction jobs remain separate from roleplay generation and save Digest without a browser', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-detached-test-'));
     t.after(() => fs.rm(root, { recursive: true, force: true }));
     const extracted = {

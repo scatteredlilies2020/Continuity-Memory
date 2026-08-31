@@ -1,9 +1,9 @@
-import { partitionL1StabilityBuffer } from './l1-policy.js';
+import { partitionDigestStabilityBuffer } from './digest-policy.js';
 
 export const DEFAULT_STORY_BATCH_MESSAGES = 8;
 
 export function stableStoryMessages(messages) {
-    return partitionL1StabilityBuffer(Array.isArray(messages) ? messages : []).extractable;
+    return partitionDigestStabilityBuffer(Array.isArray(messages) ? messages : []).extractable;
 }
 
 export function resolveStoryBatchMessages(value) {
@@ -66,10 +66,10 @@ export function rollingStoryBuildPlan(messages, previous) {
 
 export function alignStoryRebuildTarget(previous, sourceMode, availableThrough) {
     const stored = Number(previous?.rebuildTargetTo);
-    if (!Number.isFinite(stored) || sourceMode !== 'l1') return stored;
+    if (!Number.isFinite(stored) || sourceMode !== 'digest') return stored;
     const completed = Number(availableThrough);
-    // L1 summaries are atomic. A mutation can regroup the repaired tail so an
-    // old raw-message target lands inside a new L1 capsule; never cut it off.
+    // Digest summaries are atomic. A mutation can regroup the repaired tail so an
+    // old raw-message target lands inside a new Digest capsule; never cut it off.
     return Number.isFinite(completed) ? Math.max(stored, completed) : stored;
 }
 

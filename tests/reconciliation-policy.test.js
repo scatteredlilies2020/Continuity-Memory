@@ -9,7 +9,7 @@ function extraction() {
     };
 }
 
-test('L1 capsule deterministically retains a concealed-identity knowledge boundary', () => {
+test('Digest capsule deterministically retains a concealed-identity knowledge boundary', () => {
     const result = extraction();
     result.sceneCapsule = {
         opening: 'Lucas discusses Caelen Veyr’s former apprentice with Toska.',
@@ -32,7 +32,7 @@ test('L1 capsule deterministically retains a concealed-identity knowledge bounda
     assert.equal(ensureSceneCapsuleEpistemicCoverage(result), 0);
 });
 
-test('L1 epistemic repair reserves space instead of allowing a boundary to be trimmed', () => {
+test('Digest epistemic repair reserves space instead of allowing a boundary to be trimmed', () => {
     const result = extraction();
     result.sceneCapsule = { beats: Array.from({ length: 10 }, (_, index) => `Development ${index + 1}.`) };
     result.facts.push({
@@ -539,11 +539,11 @@ test('stored malformed address placeholders are also removed from replay history
 test('stored generic address duplicates are removed from canonical and replay memory', () => {
     const directional = {
         subject: 'Setsuko Uchiha', predicate: 'calls Sakura Haruno', value: 'Pinky', category: 'form of address',
-        temporalAnchorId: 'L1-test-16-23', sources: [{ chatKey: 'chat', from: 16, to: 23 }],
+        temporalAnchorId: 'Digest-test-16-23', sources: [{ chatKey: 'chat', from: 16, to: 23 }],
     };
     const generic = {
         subject: 'Setsuko Uchiha', predicate: 'uses the address', value: 'Pinky', category: 'social address',
-        temporalAnchorId: 'L1-test-16-23', sources: [{ chatKey: 'chat', from: 16, to: 23 }],
+        temporalAnchorId: 'Digest-test-16-23', sources: [{ chatKey: 'chat', from: 16, to: 23 }],
     };
     const world = {
         entities: [], facts: [structuredClone(directional), structuredClone(generic)],
@@ -715,7 +715,7 @@ test('stored reversed address facts are repaired from their anchored source rang
         ],
         facts: [{
             id: 'fact_idiot', subject: 'Naruto Uzumaki', predicate: 'calls Setsuko Uchiha', value: 'idiot',
-            category: 'form of address', temporalAnchorId: 'L1-0399d9d5-224-231',
+            category: 'form of address', temporalAnchorId: 'Digest-0399d9d5-224-231',
         }],
         extractions: [], corrections: [], states: [], relationships: [], threads: [], backgrounds: [],
     };
@@ -728,7 +728,7 @@ test('stored reversed address facts are repaired from their anchored source rang
     assert.equal(changed, 1);
     assert.deepEqual(world.facts[0], {
         id: 'fact_idiot', subject: 'Setsuko Uchiha', predicate: 'calls Naruto Uzumaki', value: 'idiot',
-        category: 'form of address', temporalAnchorId: 'L1-0399d9d5-224-231',
+        category: 'form of address', temporalAnchorId: 'Digest-0399d9d5-224-231',
     });
 });
 
@@ -740,7 +740,7 @@ test('stored address records recover supported alternate forms retained in repla
         ],
         facts: [{
             id: 'fact_address', subject: 'Alice Carter', predicate: 'calls Bob Evans', value: 'Show-off',
-            category: 'form of address', temporalAnchorId: 'L1-test-8-15',
+            category: 'form of address', temporalAnchorId: 'Digest-test-8-15',
         }],
         extractions: [
             { from: 0, to: 7, result: { facts: [{ subject: 'Alice Carter', predicate: 'calls Bob Evans', value: 'Captain', category: 'form of address' }] } },
@@ -1320,7 +1320,7 @@ test('corroborated explicit aliases are recovered without another model call', (
     assert.deepEqual(result.entities[0].aliases, ['Copy Ninja']);
 });
 
-test('source-supported durable L1 commitments become open threads without another model call', () => {
+test('source-supported durable Digest commitments become open threads without another model call', () => {
     const result = extraction();
     result.sceneCapsule = { beats: ['Alice vows to protect the northern bridge permanently.'] };
     const messages = [{ name: 'Alice', text: 'I vow to protect the northern bridge permanently.' }];
@@ -2863,7 +2863,7 @@ test('a non-meta character role assertion is not promoted into a durable identit
     }, [{ name: 'Alice', text: 'I served as captain of the northern guard.' }]);
 
     assert.equal(validation.recoveredCoverage, 0);
-    assert.deepEqual(validation.warnings, ['Potential durable detail remains only in L1: Alice served as captain of the northern guard.']);
+    assert.deepEqual(validation.warnings, ['Potential durable detail remains only in Digest: Alice served as captain of the northern guard.']);
     assert.deepEqual(result.facts, []);
 });
 
@@ -4245,7 +4245,7 @@ test('source-supported durable limitations become atomic facts', () => {
     assert.match(result.facts[0].value, /high outside line/);
 });
 
-test('a descriptive L1 limitation that conflicts with raw chat remains only a warning', () => {
+test('a descriptive Digest limitation that conflicts with raw chat remains only a warning', () => {
     const result = extraction();
     result.entities.push({ name: 'Toska', type: 'person', aliases: [] });
     result.sceneCapsule = { beats: ['Toska reveals a recurring vulnerability on the high outside line.'] };

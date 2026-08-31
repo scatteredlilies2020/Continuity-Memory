@@ -164,7 +164,7 @@ export function validateCorrectionProposal(world, proposal, instruction = '') {
         const category = CORRECTABLE_CATEGORIES.includes(raw?.category) ? raw.category : '';
         const targetId = text(raw?.targetId, 200);
         if (!action || !category) throw new Error('The correction model returned an unsupported action or category.');
-        if (action === 'add' && category === 'capsules') throw new Error('Corrections may update or remove L1 records, but cannot invent a new L1 source range.');
+        if (action === 'add' && category === 'capsules') throw new Error('Corrections may update or remove Digest records, but cannot invent a new Digest source range.');
         const target = action === 'add' ? null : (world?.[category] || []).find(item => String(item.id) === targetId);
         if (action !== 'add' && !target) throw new Error(`The correction model targeted a missing ${category} record.`);
         const dedupe = `${action}|${category}|${targetId}`;
@@ -242,13 +242,13 @@ export function augmentCorrectionChronology(world, proposal) {
             }
             operations.push({
                 action: 'update', category: 'capsules', targetId: String(closest.id),
-                reason: 'Propagate the authoritative event into its closest matching L1 chronology.',
+                reason: 'Propagate the authoritative event into its closest matching Digest chronology.',
                 before: publicRecord('capsules', closest), replacement,
             });
         } else {
             operations.push({
                 action: 'add', category: 'capsules', targetId: '',
-                reason: 'Create an authoritative L1 chronology record because no matching source capsule exists.',
+                reason: 'Create an authoritative Digest chronology record because no matching source capsule exists.',
                 before: null, replacement: eventCapsuleRecord(operation.replacement),
             });
         }

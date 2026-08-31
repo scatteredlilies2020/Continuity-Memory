@@ -4,10 +4,10 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestL1UndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromL1, restartL1FromScratch, reviewMemoryCorrection, testExtractor, undoLatestL1 } from './engine.js?v=0.15.0-testing.3';
+import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.4';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.3';
+import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.4';
 import { clearRetrievalExpansionCache } from './semantic-retrieval.js';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
@@ -15,30 +15,30 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.15.0-testing.3';
-import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.15.0-testing.3';
-import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.3';
-import { completeL1MessageCount, latestCompleteL1MessageIndex, resolveL1GroupSize, validateL1GroupSize } from './l1-policy.js';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.15.0-testing.4';
+import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.15.0-testing.4';
+import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.4';
+import { completeDigestMessageCount, latestCompleteDigestMessageIndex, resolveDigestGroupSize, validateDigestGroupSize } from './digest-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.3';
-import { embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.3';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.3';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.4';
+import { embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.4';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.4';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.3';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.3';
-import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.15.0-testing.3';
-import { resolveStoryBudget } from './story-budget.js?v=0.15.0-testing.3';
-import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.15.0-testing.3';
+import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.4';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.4';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.15.0-testing.4';
+import { resolveStoryBudget } from './story-budget.js?v=0.15.0-testing.4';
+import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.15.0-testing.4';
 import { createRenderScheduler } from './render-scheduler.js';
-import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.3';
-import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.3';
+import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.4';
+import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.4';
 import { isTransientApiError } from './errors.js';
 
 let worlds = [];
 let creatingChatMemory = null;
 let loadingBoundWorld = null;
 let pendingCorrection = null;
-let viewerCategory = 'l1';
+let viewerCategory = 'digest';
 let viewerSearch = '';
 let viewerPage = 0;
 let viewerSignature = '';
@@ -148,14 +148,14 @@ function toast(type, message) {
 function extractionReviewTitle(review) {
     const sourceLevel = Number(String(review.layer || '').match(/^C(\d+)$/)?.[1]);
     const sourceLayer = Number.isFinite(sourceLevel) ? `C${Math.max(0, sourceLevel - 1)}` : 'source';
-    return review.layer === 'L1'
-        ? `Review L1 · messages ${review.from}–${review.to}`
+    return review.layer === 'Digest'
+        ? `Review Digest · messages ${review.from}–${review.to}`
         : `Review ${review.layer} · ${review.sourceCount} ${sourceLayer} record(s)`;
 }
 
 function extractionReviewStopMessage(review) {
-    if (review.layer === 'L1') {
-        return 'Generation stopped because the reviewed L1 candidate was discarded instead of saved. Its source messages remain pending and can be generated again later.';
+    if (review.layer === 'Digest') {
+        return 'Generation stopped because the reviewed Digest candidate was discarded instead of saved. Its source messages remain pending and can be generated again later.';
     }
     const sourceLevel = Number(String(review.layer || '').match(/^C(\d+)$/)?.[1]);
     const sourceLayer = Number.isFinite(sourceLevel) ? `C${Math.max(0, sourceLevel - 1)}` : 'source';
@@ -752,7 +752,7 @@ async function recoverSuperiorSyncedWorld(world) {
     bindCurrentChat(saved.id);
     updateRuntime({ world: saved, lastError: '' });
     await embedWorldInChat(saved, { force: true });
-    toast('info', `Recovered ${best.alignment.matched} verified processed message(s) from the most complete synced memory copy; unnecessary L1 rescanning was avoided.`);
+    toast('info', `Recovered ${best.alignment.matched} verified processed message(s) from the most complete synced memory copy; unnecessary Digest rescanning was avoided.`);
     return saved;
 }
 
@@ -886,7 +886,7 @@ export async function ensureCurrentChatMemory(createIfMissing = false, recoverSt
                 toast('success', alignment.message);
                 return imported.world;
             } catch (error) {
-                console.warn('[Continuity] Could not reuse the parent branch’s verified L1 prefix.', error);
+                console.warn('[Continuity] Could not reuse the parent branch’s verified Digest prefix.', error);
             }
         }
         if (!createIfMissing) return null;
@@ -1163,10 +1163,10 @@ export function renderRuntime(refreshSettings = true) {
     const chatKey = getChatKey();
     const chronicleNodes = (runtime.world?.chronicle || []).filter(node => node.chatKey === chatKey);
     const activeNodes = rollingStory?.sourceMode === 'chronicle' ? (rollingStory.nodeIds || []).length : 0;
-    $('#continuity_story_progress').removeClass('continuity-error').text('Every completed L1 creates a source-linked C0 entry. Eligible older entries are promoted recursively without deleting their sources.');
+    $('#continuity_story_progress').removeClass('continuity-error').text('Every completed Digest creates a source-linked C0 entry. Eligible older entries are promoted recursively without deleting their sources.');
     $('#continuity_story_status').text(rollingStory?.text
         ? `Chronicle stored through message ${storyTo + 1}: ${chronicleNodes.length} retained node(s), ${activeNodes} on the active frontier. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`
-        : `No Chronicle is stored for this chat yet. Build memory to create C0 entries with L1. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`);
+        : `No Chronicle is stored for this chat yet. Build memory to create C0 entries with Digest. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`);
     const embedding = runtime.embeddingIndex;
     const embeddingTotal = Math.max(0, Number(embedding?.total) || 0);
     const embeddingIndexed = Math.min(embeddingTotal, Math.max(0, Number(embedding?.indexed) || 0));
@@ -1214,14 +1214,14 @@ export function renderRuntime(refreshSettings = true) {
     $('#continuity_repair_rollback')
         .toggle(rollback.detected)
         .html(`<i class="fa-solid fa-clock-rotate-left"></i> Repair rollback${rollback.detected ? ` (${rollback.removedMessages})` : ''}`);
-    const latestL1 = getLatestL1UndoStatus();
-    $('#continuity_undo_latest_l1')
-        .prop('disabled', runtime.processing || !latestL1.available || !latestL1.replayable)
-        .attr('title', !latestL1.available
-            ? 'There is no saved L1 memory to undo for this chat.'
-            : !latestL1.replayable
-                ? 'This older memory cannot safely replay retained L1 records. Rebuild it from scratch first.'
-                : `Undo L1 messages ${latestL1.from}–${latestL1.to}; chat messages will remain.`);
+    const latestDigest = getLatestDigestUndoStatus();
+    $('#continuity_undo_latest_digest')
+        .prop('disabled', runtime.processing || !latestDigest.available || !latestDigest.replayable)
+        .attr('title', !latestDigest.available
+            ? 'There is no saved Digest memory to undo for this chat.'
+            : !latestDigest.replayable
+                ? 'This older memory cannot safely replay retained Digest records. Rebuild it from scratch first.'
+                : `Undo Digest messages ${latestDigest.from}–${latestDigest.to}; chat messages will remain.`);
     if (refreshSettings) {
         $('#continuity_embed_chat').prop('checked', settings.embedMemoryInChat);
         $('#continuity_context_reduction').prop('checked', settings.contextReductionEnabled);
@@ -1549,8 +1549,8 @@ async function deleteScope() {
     return result;
 }
 
-async function continueFailedL1() {
-    const groupSize = resolveL1GroupSize(getSettings().extractionBatchMessages);
+async function continueFailedDigest() {
+    const groupSize = resolveDigestGroupSize(getSettings().extractionBatchMessages);
     if (!getSettings().enabled) throw new Error('Continuity is disabled. Enable it before building memory.');
     // Build Memory is an explicit request to process pending work, so it also
     // serves as Resume after Stop, Pause, or an automatic rate-limit pause.
@@ -1560,12 +1560,12 @@ async function continueFailedL1() {
     while (true) {
         if (runtime.processing) throw new Error('Wait for current processing to finish.');
         const coverage = getProcessingCoverage();
-        const eligible = completeL1MessageCount(coverage.extractable, groupSize);
+        const eligible = completeDigestMessageCount(coverage.extractable, groupSize);
         completed.pendingTail = coverage.pending - eligible;
         completed.bufferedMessages = coverage.buffered;
         if (!eligible) return completed;
         if (!confirmed && eligible > 50) {
-            if (!window.confirm(`Continue ${eligible} eligible L1 messages? This may make several extraction requests.`)) {
+            if (!window.confirm(`Continue ${eligible} eligible Digest messages? This may make several extraction requests.`)) {
                 return { ...completed, cancelled: true };
             }
             confirmed = true;
@@ -1573,17 +1573,17 @@ async function continueFailedL1() {
         const result = await maybeAutoExtract(true);
         if (result?.cancelled) return { ...completed, cancelled: true };
         const updated = getProcessingCoverage();
-        const remaining = completeL1MessageCount(updated.extractable, groupSize);
+        const remaining = completeDigestMessageCount(updated.extractable, groupSize);
         if (!result) {
             if (remaining < eligible) continue;
-            throw new Error(`The L1 scheduler is busy and ${remaining} eligible message(s) remain pending.`);
+            throw new Error(`The Digest scheduler is busy and ${remaining} eligible message(s) remain pending.`);
         }
         completed.chunks += Number(result.chunks) || 0;
         completed.continued += Number(result.chunks) || (Number(result.messages) > 0 ? 1 : 0);
         completed.pendingMessages += Number(result.messages) || 0;
         completed.chroniclePromotions += Number(result.chroniclePromotions) || 0;
         if (remaining >= eligible) {
-            throw new Error(`L1 processing made no progress; ${remaining} eligible message(s) remain pending.`);
+            throw new Error(`Digest processing made no progress; ${remaining} eligible message(s) remain pending.`);
         }
     }
 }
@@ -1616,16 +1616,16 @@ async function waitForExistingMemoryWork(stopSequence) {
     });
 }
 
-async function finishHierarchy(l1, clearRetrieval = false, rebuildVectors = false) {
-    let chroniclePromotions = Number(l1.chroniclePromotions) || 0;
+async function finishHierarchy(digest, clearRetrieval = false, rebuildVectors = false) {
+    let chroniclePromotions = Number(digest.chroniclePromotions) || 0;
     const epoch = runtime.generation;
-    updateRuntime({ processing: true, status: 'building', retryStatus: 'L1 complete. Promoting eligible Recursive Chronicle layers…' });
+    updateRuntime({ processing: true, status: 'building', retryStatus: 'Digest complete. Promoting eligible Recursive Chronicle layers…' });
     try {
         while (await buildNextChronicle(undefined, epoch)) chroniclePromotions++;
         const cacheEntries = clearRetrieval ? clearRetrievalExpansionCache() : 0;
         let vectors = null;
         if (rebuildVectors && runtime.world?.id) {
-            updateRuntime({ retryStatus: 'Fresh L1 and Recursive Chronicle complete. Rebuilding the vector index from scratch…' });
+            updateRuntime({ retryStatus: 'Fresh Digest and Recursive Chronicle complete. Rebuilding the vector index from scratch…' });
             if (getSettings().retrievalMode === 'embedding-hybrid') {
                 vectors = await rebuildEmbeddingIndex(runtime.world);
             } else {
@@ -1633,12 +1633,12 @@ async function finishHierarchy(l1, clearRetrieval = false, rebuildVectors = fals
                 vectors = { status: 'empty', total: 0 };
             }
         }
-        updateRuntime({ status: 'idle', retryStatus: `Build complete: L1 ${l1.continued || l1.chunks || 0}, Chronicle promotions ${chroniclePromotions}${l1.pendingTail ? `; ${l1.pendingTail} recent message(s) remain raw (${l1.bufferedMessages || 0} protected by the stability buffer)` : ''}${clearRetrieval ? `, retrieval cache ${cacheEntries} cleared` : ''}${rebuildVectors ? `, vectors ${vectors?.total || 0}` : ''}.` });
-        return { ...l1, chroniclePromotions, cacheEntries, vectors };
+        updateRuntime({ status: 'idle', retryStatus: `Build complete: Digest ${digest.continued || digest.chunks || 0}, Chronicle promotions ${chroniclePromotions}${digest.pendingTail ? `; ${digest.pendingTail} recent message(s) remain raw (${digest.bufferedMessages || 0} protected by the stability buffer)` : ''}${clearRetrieval ? `, retrieval cache ${cacheEntries} cleared` : ''}${rebuildVectors ? `, vectors ${vectors?.total || 0}` : ''}.` });
+        return { ...digest, chroniclePromotions, cacheEntries, vectors };
     } catch (error) {
         if (runtime.paused && isRuntimeCancellation(error)) {
             updateRuntime({ status: 'paused', lastError: '', retryStatus: runtime.retryStatus || 'Processing paused safely.' });
-            return { ...l1, cancelled: true, chroniclePromotions };
+            return { ...digest, cancelled: true, chroniclePromotions };
         }
         updateRuntime({ status: 'error', retryStatus: `Build stopped safely: ${error.message}` });
         throw error;
@@ -1653,7 +1653,7 @@ async function buildMemory(stopSequence) {
     await waitForExistingMemoryWork(stopSequence);
     await ensureCurrentChatMemory(true);
     await waitForExistingMemoryWork(stopSequence);
-    // A version upgrade makes every older L1 range divergent. Remove those
+    // A version upgrade makes every older Digest range divergent. Remove those
     // contributions before the first replacement chunk is prompted, so old
     // future ranges cannot leak into earlier rebuilt ranges or donate stale IDs.
     while (true) {
@@ -1661,9 +1661,9 @@ async function buildMemory(stopSequence) {
         if (!repair.deferred) break;
         await waitForExistingMemoryWork(stopSequence);
     }
-    const l1 = await continueFailedL1();
-    if (l1.cancelled) return l1;
-    return finishHierarchy(l1, false);
+    const digest = await continueFailedDigest();
+    if (digest.cancelled) return digest;
+    return finishHierarchy(digest, false);
 }
 
 function waitForBuildRestart(delay, stopSequence) {
@@ -1751,21 +1751,21 @@ async function repairRollback() {
     if (restorePendingExtractionReview()) return { cancelled: true, reviewPending: true };
     const rollback = getTailRollbackStatus();
     if (!rollback.detected) return { cancelled: true };
-    if (!window.confirm(`Repair memory after removing ${rollback.removedMessages} tail message(s)? Unaffected L1 extraction results will be replayed locally; only a partially cut range may call the model.`)) return { cancelled: true };
+    if (!window.confirm(`Repair memory after removing ${rollback.removedMessages} tail message(s)? Unaffected Digest extraction results will be replayed locally; only a partially cut range may call the model.`)) return { cancelled: true };
     const repaired = await repairTailRollback();
     return finishHierarchy({ continued: repaired.reextracted, ...repaired }, true);
 }
 
-async function undoLatestL1Memory() {
-    const latest = getLatestL1UndoStatus();
-    if (!latest.available) throw new Error('There is no saved L1 memory to undo for this chat.');
-    if (!latest.replayable) throw new Error('This older memory cannot safely undo one L1 range. Rebuild it from scratch first.');
+async function undoLatestDigestMemory() {
+    const latest = getLatestDigestUndoStatus();
+    if (!latest.available) throw new Error('There is no saved Digest memory to undo for this chat.');
+    if (!latest.replayable) throw new Error('This older memory cannot safely undo one Digest range. Rebuild it from scratch first.');
     const dependent = [
         latest.dependentChronicle ? `${latest.dependentChronicle} dependent Chronicle node(s)` : '',
     ].filter(Boolean).join(' and ');
-    if (!window.confirm(`Undo the latest L1 for messages ${latest.from}–${latest.to}?\n\nThe chat messages will stay, but this L1, facts, states, relationships, events, threads, and backgrounds established by it${dependent ? `, plus ${dependent}` : ''} will be removed. These messages become incomplete memory and will be rebuilt before the next roleplay reply.`)) return { cancelled: true };
+    if (!window.confirm(`Undo the latest Digest for messages ${latest.from}–${latest.to}?\n\nThe chat messages will stay, but this Digest, facts, states, relationships, events, threads, and backgrounds established by it${dependent ? `, plus ${dependent}` : ''} will be removed. These messages become incomplete memory and will be rebuilt before the next roleplay reply.`)) return { cancelled: true };
     clearRetrievalExpansionCache();
-    const result = await undoLatestL1();
+    const result = await undoLatestDigest();
     scheduleEmbeddingIndexSync(result.world, 0);
     renderMemoryViewer(true);
     return result;
@@ -1781,7 +1781,7 @@ async function restartBuild() {
         : attached
             ? '\n\nSHARED MEMORY: the shared world will be detached and retained unchanged. Only this chat’s messages will be rebuilt into a new owned memory.'
             : '';
-    if (!window.confirm(`Rebuild Continuity from the beginning for all ${messageCount} chat messages? Delete All and Start Over use the same verified-empty purge; Start Over then rebuilds L1 and Recursive Chronicle automatically. Reviewed corrections, Chronicle nodes, extraction records, retrieval cache, and vectors belonging to this chat are cleared.${attachmentNotice}`)) return { cancelled: true };
+    if (!window.confirm(`Rebuild Continuity from the beginning for all ${messageCount} chat messages? Delete All and Start Over use the same verified-empty purge; Start Over then rebuilds Digest and Recursive Chronicle automatically. Reviewed corrections, Chronicle nodes, extraction records, retrieval cache, and vectors belonging to this chat are cleared.${attachmentNotice}`)) return { cancelled: true };
     stopEmbeddingIndexing();
     clearRetrievalExpansionCache();
     if (attached) {
@@ -1790,17 +1790,17 @@ async function restartBuild() {
         try { await purgeEmbeddingIndex(runtime.world?.id); }
         catch (error) { console.warn('[Continuity] Could not purge the old derived embedding index before Start Over.', error); }
     }
-    const l1 = await restartL1FromScratch();
-    return finishHierarchy(l1, true, true);
+    const digest = await restartDigestFromScratch();
+    return finishHierarchy(digest, true, true);
 }
 
 async function rebuildHierarchy() {
     if (restorePendingExtractionReview()) return { cancelled: true, reviewPending: true };
     await ensureCurrentChatMemory(true);
-    const l1Count = runtime.world?.capsules?.length || 0;
-    if (!l1Count) throw new Error('There are no L1 records to build Chronicle parents from. Use Build or erase everything and start over.');
-    if (!window.confirm(`Rebuild every Recursive Chronicle layer from the ${l1Count} existing L1 record(s)? Every C0 will be recreated locally; eligible C1+ parents will be regenerated. L1, structured memory books, and extraction records will remain untouched.`)) return { cancelled: true };
-    const reset = await restartHierarchyFromL1();
+    const digestCount = runtime.world?.capsules?.length || 0;
+    if (!digestCount) throw new Error('There are no Digest records to build Chronicle parents from. Use Build or erase everything and start over.');
+    if (!window.confirm(`Rebuild every Recursive Chronicle layer from the ${digestCount} existing Digest record(s)? Every C0 will be recreated locally; eligible C1+ parents will be regenerated. Digest, structured memory books, and extraction records will remain untouched.`)) return { cancelled: true };
+    const reset = await restartHierarchyFromDigest();
     return finishHierarchy(reset, true, true);
 }
 
@@ -1939,12 +1939,12 @@ export function initUI() {
     setSetting('#continuity_injection_depth', 'injectionDepth', value => Math.min(100, Math.max(0, Number(value) || 0)));
     setSetting('#continuity_injection_role', 'injectionRole');
     $('#continuity_batch').on('change', function () {
-        const result = validateL1GroupSize($(this).val());
+        const result = validateDigestGroupSize($(this).val());
         $(this).val(result.value);
         getSettings().extractionBatchMessages = result.value;
         saveSettings();
         renderRuntime();
-        if (!result.valid) settingWarning(`Messages per L1 must be a whole number from 2 to 50. Adjusted to ${result.value}.`);
+        if (!result.valid) settingWarning(`Messages per Digest must be a whole number from 2 to 50. Adjusted to ${result.value}.`);
     });
     setSetting('#continuity_chunk', 'extractionChunkTokens', value => Math.min(50000, Math.max(0, Number(value) || 0)));
     setSetting('#continuity_correction_tokens', 'correctionResponseTokens', resolveCorrectionResponseTokens);
@@ -2020,11 +2020,11 @@ export function initUI() {
             .then(result => {
                 if (result.cancelled) return;
                 const changed = Boolean(result.continued || result.chroniclePromotions || result.vectors);
-                toast(changed ? 'success' : 'info', changed ? 'Memory build completed; L1 also updated the Recursive Chronicle.' : 'Memory and Chronicle are already up to date.');
+                toast(changed ? 'success' : 'info', changed ? 'Memory build completed; Digest also updated the Recursive Chronicle.' : 'Memory and Chronicle are already up to date.');
             })
         .catch(error => toast('error', error.message)));
-    $('#continuity_undo_latest_l1').on('click', () => undoLatestL1Memory()
-        .then(result => !result.cancelled && toast('success', `Undid L1 messages ${result.from}–${result.to}${result.removedChronicle ? `; removed ${result.removedChronicle} dependent Chronicle node(s)` : ''}. The range will rebuild before the next reply.`))
+    $('#continuity_undo_latest_digest').on('click', () => undoLatestDigestMemory()
+        .then(result => !result.cancelled && toast('success', `Undid Digest messages ${result.from}–${result.to}${result.removedChronicle ? `; removed ${result.removedChronicle} dependent Chronicle node(s)` : ''}. The range will rebuild before the next reply.`))
         .catch(error => toast('error', error.message)));
     $('#continuity_repair_rollback').on('click', () => repairRollback()
         .then(result => !result.cancelled && toast('success', `Rollback repaired: removed memory from ${result.removedMessages || 0} deleted message(s).`))
@@ -2086,7 +2086,7 @@ export function initUI() {
     $('#continuity_export_continuation').on('click', () => exportContinuationArc().then(() => toast('success', 'Continuation-arc file downloaded. Open the destination chat and select Start continuation arc.')).catch(error => toast('error', error.message)));
     $('#continuity_import_continuation').on('change', function () { const file = this.files?.[0]; if (file) startContinuationArc(file).catch(error => toast('error', error.message)); this.value = ''; });
     $('#continuity_clean_chat').on('change', function () { const file = this.files?.[0]; if (file) cleanChatExport(file).then(count => toast('success', `Downloaded a clean chat copy with ${count} embedded Continuity block(s) removed.`)).catch(error => toast('error', error.message)); this.value = ''; });
-    $('#continuity_viewer_category').on('change', function () { viewerCategory = String($(this).val() || 'l1'); viewerPage = 0; renderMemoryViewer(true); });
+    $('#continuity_viewer_category').on('change', function () { viewerCategory = String($(this).val() || 'digest'); viewerPage = 0; renderMemoryViewer(true); });
     $('#continuity_viewer_search').on('input', function () { viewerSearch = String($(this).val() || ''); viewerPage = 0; renderMemoryViewer(true); });
     $('#continuity_viewer_previous').on('click', () => { viewerPage = Math.max(0, viewerPage - 1); renderMemoryViewer(true); });
     $('#continuity_viewer_next').on('click', () => { viewerPage++; renderMemoryViewer(true); });

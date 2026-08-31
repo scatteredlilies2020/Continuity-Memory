@@ -151,7 +151,7 @@ function validationLabel(validation, attempt) {
     const pronouns = Number(validation.discardedPronounAddresses || 0);
     const reconciled = Number(validation.reconciledAddresses || 0);
     const warnings = validation.warnings?.length || 0;
-    return `Valid detached extraction${attempt > 1 ? ' after retry' : ''}${recovered ? `; recovered ${recovered} omitted durable record(s)` : ''}${repaired ? `; repaired ${repaired} reversed address value(s)` : ''}${discarded ? `; discarded ${discarded} cross-direction address value(s)` : ''}${unsupported ? `; discarded ${unsupported} unsupported address value(s)` : ''}${pronouns ? `; discarded ${pronouns} unsupported pronoun address value(s)` : ''}${reconciled ? `; reconciled ${reconciled} duplicate address record(s)` : ''}${warnings ? `; ${warnings} L1 coverage warning(s)` : ''}`;
+    return `Valid detached extraction${attempt > 1 ? ' after retry' : ''}${recovered ? `; recovered ${recovered} omitted durable record(s)` : ''}${repaired ? `; repaired ${repaired} reversed address value(s)` : ''}${discarded ? `; discarded ${discarded} cross-direction address value(s)` : ''}${unsupported ? `; discarded ${unsupported} unsupported address value(s)` : ''}${pronouns ? `; discarded ${pronouns} unsupported pronoun address value(s)` : ''}${reconciled ? `; reconciled ${reconciled} duplicate address record(s)` : ''}${warnings ? `; ${warnings} Digest coverage warning(s)` : ''}`;
 }
 
 function formatChronicleNodes(nodes) {
@@ -465,12 +465,12 @@ async function run(job) {
         } catch (error) {
             if (job.cancelled) throw error;
             job.hierarchyError = error.message || String(error);
-            console.warn('[continuity-memory] detached hierarchy was deferred; saved L1 remains intact:', error);
+            console.warn('[continuity-memory] detached hierarchy was deferred; saved Digest remains intact:', error);
         }
         job.phase = 'complete';
         job.validation = job.hierarchyError
-            ? `L1 complete; Chronicle promotion deferred: ${job.hierarchyError}`
-            : `Detached build complete: L1 ${job.chunks}, Chronicle promotions ${job.chronicle}.`;
+            ? `Digest complete; Chronicle promotion deferred: ${job.hierarchyError}`
+            : `Detached build complete: Digest ${job.chunks}, Chronicle promotions ${job.chronicle}.`;
         job.status = 'complete';
     } catch (error) {
         job.status = job.cancelled ? 'cancelled' : 'error';
@@ -544,7 +544,7 @@ export function createDetachedJob(req, payload, storage, {
         messages: 0,
         splits: 0,
         inputTokens: null,
-        phase: 'l1',
+        phase: 'digest',
         chronicle: 0,
         hierarchyError: '',
         error: '',

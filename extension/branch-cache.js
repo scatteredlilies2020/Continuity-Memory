@@ -1,5 +1,5 @@
-import { fingerprintMessage } from './message-digest.js?v=0.15.0-testing.3';
-import { l1StabilityRepairFrom } from './l1-policy.js';
+import { fingerprintMessage } from './message-digest.js?v=0.15.0-testing.4';
+import { digestStabilityRepairFrom } from './digest-policy.js';
 import { mergeExtraction, removeChatContributions, restoreRetainedReplayRecords } from './memory-model.js';
 import { refreshChronicleStory, syncChronicleBase } from './chronicle.js';
 
@@ -70,7 +70,7 @@ function branchRepairFrom(world, messages, sourceChatKey) {
 }
 
 /**
- * Forks a copied parent memory onto a SillyTavern branch. Stored L1 results
+ * Forks a copied parent memory onto a SillyTavern branch. Stored Digest results
  * before the divergent/truncated suffix are replayed locally; no model call is
  * needed for that shared prefix.
  */
@@ -88,7 +88,7 @@ export function forkWorldToBranch(world, currentMessages, targetChatKey, sourceC
 
     const repairStarts = [
         branchRepairFrom(world, messages, sourceKey),
-        l1StabilityRepairFrom(messages, world.extractions || [], sourceKey),
+        digestStabilityRepairFrom(messages, world.extractions || [], sourceKey),
     ].filter(value => value !== null && value !== undefined).map(Number).filter(Number.isFinite);
     let repairFrom = repairStarts.length ? Math.min(...repairStarts) : Number.POSITIVE_INFINITY;
     let retained = (world.extractions || [])
@@ -96,7 +96,7 @@ export function forkWorldToBranch(world, currentMessages, targetChatKey, sourceC
         .sort((left, right) => Number(left.from) - Number(right.from));
 
     // A legacy extraction without its stored result cannot be replayed. Keep
-    // the still-replayable prefix and let normal L1 processing resume there.
+    // the still-replayable prefix and let normal Digest processing resume there.
     const firstUnreplayable = retained.find(item => !item.result || typeof item.result !== 'object'
         || !extractionFingerprints(item, stored).length);
     if (firstUnreplayable) {
@@ -144,7 +144,7 @@ export function forkWorldToBranch(world, currentMessages, targetChatKey, sourceC
     return {
         ok: true,
         code: 'branch-prefix-reused',
-        message: `Reused ${retained.length} verified L1 record(s) from the parent branch; only the divergent suffix remains pending.`,
+        message: `Reused ${retained.length} verified Digest record(s) from the parent branch; only the divergent suffix remains pending.`,
         matched: processed,
         pending: Math.max(0, messages.length - processed),
         retained: retained.length,

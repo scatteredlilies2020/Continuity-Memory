@@ -26,8 +26,8 @@ test('Chronicle rebuild commits only after every replacement parent is ready', (
     const ui = readFileSync(new URL('../extension/ui.js', import.meta.url), 'utf8');
     const engine = readFileSync(new URL('../extension/engine.js', import.meta.url), 'utf8');
     const rebuild = engine.slice(
-        engine.indexOf('export async function restartHierarchyFromL1()'),
-        engine.indexOf('async function saveExtraction(', engine.indexOf('export async function restartHierarchyFromL1()')),
+        engine.indexOf('export async function restartHierarchyFromDigest()'),
+        engine.indexOf('async function saveExtraction(', engine.indexOf('export async function restartHierarchyFromDigest()')),
     );
     const rebuildUi = ui.slice(
         ui.indexOf('async function rebuildHierarchy()'),

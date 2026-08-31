@@ -121,7 +121,7 @@ test('frontier rendering soft-overflows its allowance without clipping Chronicle
             title: `Chronicle interval ${index}`,
             text: `Important development ${index}. `.repeat(40),
             from: index * 10, to: index * 10 + 9,
-            childIds: [], capsuleIds: [`l1-${index}`],
+            childIds: [], capsuleIds: [`digest-${index}`],
         });
     }
     const rendered = renderChronicleFrontier(world, 'chat', () => true, 1500);

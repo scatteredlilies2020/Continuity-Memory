@@ -16,7 +16,7 @@ test('automatic story cadence waits for complete story batches', () => {
     assert.equal(completeStoryMessages(messages, 8, true).length, 17);
 });
 
-test('Story never runs beyond the same two-message stable boundary used by L1', () => {
+test('Story never runs beyond the same two-message stable boundary used by Digest', () => {
     const messages = Array.from({ length: 12 }, (_, index) => ({ index }));
     assert.deepEqual(stableStoryMessages(messages).map(item => item.index), Array.from({ length: 10 }, (_, index) => index));
 });
@@ -88,8 +88,8 @@ test('Story coverage distinguishes already current from eligible messages pendin
     assert.equal(rollingStoryCoverage({ text: 'Interrupted.', to: 7, rebuildIncomplete: true }, messages).current, false);
 });
 
-test('an interrupted L1 Story target expands to the repaired complete L1 boundary', () => {
-    assert.equal(alignStoryRebuildTarget({ rebuildTargetTo: 197 }, 'l1', 199), 199);
-    assert.equal(alignStoryRebuildTarget({ rebuildTargetTo: 201 }, 'l1', 199), 201);
+test('an interrupted Digest Story target expands to the repaired complete Digest boundary', () => {
+    assert.equal(alignStoryRebuildTarget({ rebuildTargetTo: 197 }, 'digest', 199), 199);
+    assert.equal(alignStoryRebuildTarget({ rebuildTargetTo: 201 }, 'digest', 199), 201);
     assert.equal(alignStoryRebuildTarget({ rebuildTargetTo: 197 }, 'raw', 199), 197);
 });

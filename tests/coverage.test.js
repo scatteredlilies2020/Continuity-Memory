@@ -43,7 +43,7 @@ test('detects processed messages removed from the chat tail', () => {
     assert.deepEqual(rollback.affectedExtractions.map(item => [item.from, item.to]), [[3, 4]]);
 });
 
-test('finds the stored L1 boundary for edits, deletions, and hidden messages', () => {
+test('finds the stored Digest boundary for edits, deletions, and hidden messages', () => {
     const current = [0, 1, 2, 3].map(index => ({ index, name: 'A', text: `message ${index}` }));
     const processed = current.map(message => ({ index: message.index, fingerprint: fingerprintMessage(message), version: EXTRACTION_VERSION }));
     const extractions = [

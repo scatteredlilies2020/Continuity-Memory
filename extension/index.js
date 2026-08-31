@@ -1,26 +1,26 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.15.0-testing.3';
+import { api } from './api.js?v=0.15.0-testing.4';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.15.0-testing.3';
-import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.15.0-testing.3';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.3';
-import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.3';
-import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.15.0-testing.3';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.3';
+import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.15.0-testing.4';
+import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.15.0-testing.4';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.4';
+import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.4';
+import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.15.0-testing.4';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.4';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.15.0-testing.3';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.3';
-import { purgeEmbeddingIndex, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.15.0-testing.3';
-import { isTransientApiError } from './errors.js?v=0.15.0-testing.3';
-import { roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.15.0-testing.3';
-import { isL1StabilityProtectedMessage, latestCompleteL1MessageIndex } from './l1-policy.js';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.15.0-testing.4';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.4';
+import { purgeEmbeddingIndex, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.15.0-testing.4';
+import { isTransientApiError } from './errors.js?v=0.15.0-testing.4';
+import { roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.15.0-testing.4';
+import { isDigestStabilityProtectedMessage, latestCompleteDigestMessageIndex } from './digest-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
-import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.15.0-testing.3';
-import { resolveStoryBudget } from './story-budget.js?v=0.15.0-testing.3';
+import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.15.0-testing.4';
+import { resolveStoryBudget } from './story-budget.js?v=0.15.0-testing.4';
 import { createBackgroundScheduler } from './background-scheduler.js';
 import { createContinuityContextBridge } from './context-bridge.js';
 
@@ -116,8 +116,8 @@ const backgroundMemoryWork = createBackgroundScheduler(async () => {
             if (!getBoundWorldId() && processableMessages >= settings.extractionBatchMessages) {
                 await ensureCurrentChatMemory(true);
             }
-            // Drain stable, complete L1 groups. The stability buffer remains
-            // protected by maybeAutoExtract/selectAutomaticL1Messages.
+            // Drain stable, complete Digest groups. The stability buffer remains
+            // protected by maybeAutoExtract/selectAutomaticDigestMessages.
             const result = await maybeAutoExtract(false);
             if (runtime.stopSequence !== stopSequence || runtime.paused) return;
             failures = 0;
@@ -451,7 +451,7 @@ function mutationTouchesProtectedTail(messageIndex) {
     const chat = getContext().chat || [];
     const allMessages = collectFingerprintMessages(chat);
     const eligibleMessages = collectMemoryEligibleMessages(chat);
-    return isL1StabilityProtectedMessage(allMessages, eligibleMessages, messageIndex);
+    return isDigestStabilityProtectedMessage(allMessages, eligibleMessages, messageIndex);
 }
 
 function scheduleMutationSync(delay = 350, requireDivergenceRepair = false) {
@@ -582,7 +582,7 @@ async function onChatRenamed(eventData) {
 }
 
 async function init() {
-    const templateResponse = await fetch(new URL('./settings.html?v=0.15.0-testing.3', import.meta.url));
+    const templateResponse = await fetch(new URL('./settings.html?v=0.15.0-testing.4', import.meta.url));
     if (!templateResponse.ok) throw new Error(`Could not load settings template: ${templateResponse.status} ${templateResponse.statusText}`);
     const html = $(await templateResponse.text());
     const container = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
@@ -633,7 +633,7 @@ async function init() {
     });
     for (const eventName of [event_types.MESSAGE_SWIPED, event_types.MESSAGE_EDITED, event_types.MESSAGE_UPDATED].filter(Boolean)) {
         eventSource.on(eventName, messageIndex => {
-            // Changes inside the stability tail cannot overlap newly queued L1
+            // Changes inside the stability tail cannot overlap newly queued Digest
             // work, so let older safe extraction finish instead of wasting it.
             const policy = sourceMutationPolicy(mutationTouchesProtectedTail(messageIndex));
             if ((runtime.processing || runtime.queue.length) && policy.invalidateActiveWork) {

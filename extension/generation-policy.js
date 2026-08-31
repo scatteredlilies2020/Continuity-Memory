@@ -1,4 +1,4 @@
-import { completeL1MessageCount, resolveL1GroupSize } from './l1-policy.js';
+import { completeDigestMessageCount, resolveDigestGroupSize } from './digest-policy.js';
 
 export const ROLEPLAY_BLOCKED_CODE = 'CONTINUITY_ROLEPLAY_BLOCKED';
 
@@ -8,16 +8,16 @@ export function shouldGateRoleplayGeneration(settings, coreChat, type) {
 }
 
 export function roleplayBacklogPolicy(pendingMessages, groupSize, requiredMessages = 0) {
-    const size = resolveL1GroupSize(groupSize);
+    const size = resolveDigestGroupSize(groupSize);
     const pending = Math.max(0, Math.round(Number(pendingMessages) || 0));
-    const eligible = completeL1MessageCount(pending, size);
+    const eligible = completeDigestMessageCount(pending, size);
     const required = Math.max(0, Math.round(Number(requiredMessages) || 0));
     const hardLimit = size * 2;
     return {
         pending,
         eligible,
         required,
-        // Required indexes are repaired by the same background L1 queue. They
+        // Required indexes are repaired by the same background Digest queue. They
         // must remain visible in diagnostics, but do not delay a reply by
         // themselves; the raw chat and protected tail remain available while
         // the repair runs. Only an oversized stable backlog gates generation.
@@ -78,7 +78,7 @@ export function roleplayWaitNotification(state, eligiblePending = 0) {
     if (!processing && !paused && !queueLength && !pending) return '';
 
     const details = [];
-    if (pending) details.push(`${pending} message${pending === 1 ? '' : 's'} awaiting L1 extraction`);
+    if (pending) details.push(`${pending} message${pending === 1 ? '' : 's'} awaiting Digest extraction`);
     if (processing && state?.progress?.from !== undefined && state?.progress?.to !== undefined) {
         details.push(`currently processing messages ${state.progress.from}–${state.progress.to}`);
     } else if (processing) {

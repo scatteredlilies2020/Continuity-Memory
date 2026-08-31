@@ -2,7 +2,7 @@ import { EXTRACTION_VERSION } from './coverage.js';
 import { isSuppressedByCorrection } from './memory-correction.js';
 import { addressFactAddressee, addressFactIdentity, enrichEntityDescriptionsFromEstablishedFacts, entityIsPersonLike, entityTypesAreCompatible, isAddressFact, mergeAddressValues, normalizeKnowledgePredicateTaxonomy, normalizeRelationalKnowledgeTopics, reconcileGenericAddressDuplicates, reconcileStoredMemoryRecords, reconciliationMergeIsCompatible, reconciliationTargetIsCompatible, reconciliationTargetWasRejected, reconciliationThreadWasAtomicallySplit, recoverRelationshipBackedEntityDescriptions, relationshipPairIdentity, removeInvalidAddressFacts } from './reconciliation-policy.js';
 import { canonicalMemorySubject, canonicalStateAttribute, stateIdentity, stateScope } from './state-lifecycle.js';
-import { buildL1TemporalAnchor, buildRelativeTemporalAnchor } from './temporal-anchors.js';
+import { buildDigestTemporalAnchor, buildRelativeTemporalAnchor } from './temporal-anchors.js';
 import { randomUuid } from './uuid.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { formatEntityProfile, mergeEntityProfiles } from './entity-profile.js';
@@ -1099,7 +1099,7 @@ function prepareKnowledgeTransitions(world, result, meta) {
     }
 }
 
-function applyActiveScene(world, result, meta, l1Temporal) {
+function applyActiveScene(world, result, meta, digestTemporal) {
     if (result.scene && typeof result.scene === 'object') {
         world.scene = common({
             ...(world.scene || {}),
@@ -1108,16 +1108,16 @@ function applyActiveScene(world, result, meta, l1Temporal) {
             participants: canonicalList(world, result.scene.participants),
             activity: text(result.scene.activity),
             mood: text(result.scene.mood),
-            temporal: l1Temporal,
+            temporal: digestTemporal,
         }, meta, 'scene');
     }
 }
 
-function applyActiveStates(world, result, meta, l1Temporal) {
+function applyActiveStates(world, result, meta, digestTemporal) {
     // Scene state is a replaceable snapshot, not historical memory. Advancing
     // the active timeline retires the previous scene snapshot automatically.
     // Ongoing state is retained for reconciliation until an explicit update
-    // or clear; retrieval still requires confirmation in the newest L1.
+    // or clear; retrieval still requires confirmation in the newest Digest.
     world.states = world.states.filter(item => item.correctionId || item.scope === 'ongoing');
     for (const raw of result.states || []) {
         if (!raw || typeof raw !== 'object') continue;
@@ -1144,7 +1144,7 @@ function applyActiveStates(world, result, meta, l1Temporal) {
             importance: clampImportance(raw.importance),
             scope: stateScope(raw.scope),
             operation: raw.operation === 'clear' ? 'clear' : 'set',
-            temporalAnchorId: l1Temporal.anchorId,
+            temporalAnchorId: digestTemporal.anchorId,
         };
         if (!normalized.subject || !normalized.attribute || isSuppressedByCorrection(world, 'states', normalized, meta)) continue;
         const identity = stateIdentity(world, normalized);
@@ -1188,9 +1188,9 @@ export function promoteStoredTailSnapshot(world, chatKey, latestCompleteIndex) {
         allowStateUpdates: true,
         replayStoredExtraction: true,
     };
-    const l1Temporal = buildL1TemporalAnchor(world, result.sceneCapsule?.temporal, meta);
-    applyActiveScene(world, result, meta, l1Temporal);
-    applyActiveStates(world, result, meta, l1Temporal);
+    const digestTemporal = buildDigestTemporalAnchor(world, result.sceneCapsule?.temporal, meta);
+    applyActiveScene(world, result, meta, digestTemporal);
+    applyActiveStates(world, result, meta, digestTemporal);
     extraction.allowStateUpdates = true;
     extraction.updatedAt = new Date().toISOString();
     return true;
@@ -1223,9 +1223,9 @@ export function mergeExtraction(world, result, meta) {
     removeInvalidAddressFacts(result);
     normalizeAddressFacts(world);
     prepareKnowledgeTransitions(world, result, meta);
-    const l1Temporal = buildL1TemporalAnchor(world, result.sceneCapsule?.temporal, meta);
+    const digestTemporal = buildDigestTemporalAnchor(world, result.sceneCapsule?.temporal, meta);
 
-    if (meta.allowStateUpdates !== false) applyActiveScene(world, result, meta, l1Temporal);
+    if (meta.allowStateUpdates !== false) applyActiveScene(world, result, meta, digestTemporal);
 
     // Historical backfill must not replace a record from another chat or
     // regress a later range, but newer ranges in the same chat must advance
@@ -1295,11 +1295,11 @@ export function mergeExtraction(world, result, meta) {
             category: address ? 'form of address' : text(item.category),
             importance: clampImportance(item.importance),
             persistence: ['temporary', 'recurring', 'persistent'].includes(item.persistence) ? item.persistence : 'persistent',
-            temporalAnchorId: l1Temporal.anchorId,
+            temporalAnchorId: digestTemporal.anchorId,
         };
     }, preserveHistoricalRecord, result);
 
-    if (meta.allowStateUpdates !== false) applyActiveStates(world, result, meta, l1Temporal);
+    if (meta.allowStateUpdates !== false) applyActiveStates(world, result, meta, digestTemporal);
 
     for (const relationship of result.relationships || []) {
         if (!relationship || typeof relationship !== 'object' || text(relationship.targetId)) continue;
@@ -1314,7 +1314,7 @@ export function mergeExtraction(world, result, meta) {
         status: text(item.status),
         dynamic: stableRelationshipDynamic(existing, item),
         importance: clampImportance(item.importance),
-        temporalAnchorId: l1Temporal.anchorId,
+        temporalAnchorId: digestTemporal.anchorId,
     }), preserveHistoricalRecord, result);
     reconcileCanonicalKnowledgeFacts(world);
 
@@ -1326,7 +1326,7 @@ export function mergeExtraction(world, result, meta) {
             participants: canonicalList(world, raw.participants),
             location: text(raw.location),
             storyTime: text(raw.storyTime),
-            temporal: buildRelativeTemporalAnchor(raw.temporal, l1Temporal),
+            temporal: buildRelativeTemporalAnchor(raw.temporal, digestTemporal),
             consequences: text(raw.consequences),
             importance: clampImportance(raw.importance),
         };
@@ -1349,7 +1349,7 @@ export function mergeExtraction(world, result, meta) {
         status: ['open', 'resolved', 'abandoned'].includes(item.status) ? item.status : 'open',
         participants: canonicalList(world, item.participants),
         importance: clampImportance(item.importance),
-        temporalAnchorId: l1Temporal.anchorId,
+        temporalAnchorId: digestTemporal.anchorId,
     }), preserveHistoricalRecord);
 
     mergeArray(world, 'backgrounds', world.backgrounds, result.backgrounds, item => key(item.topic), meta, 'background', (item, existing) => ({
@@ -1359,7 +1359,7 @@ export function mergeExtraction(world, result, meta) {
         certainty: ['confirmed', 'reported', 'rumored', 'uncertain'].includes(item.certainty) ? item.certainty : 'uncertain',
         participants: canonicalList(world, item.participants, 12),
         importance: clampImportance(item.importance),
-        temporalAnchorId: l1Temporal.anchorId,
+        temporalAnchorId: digestTemporal.anchorId,
     }), preserveHistoricalRecord);
 
     for (const merge of result.recordMerges || []) applyRecordMerge(world, merge, meta);
@@ -1369,7 +1369,7 @@ export function mergeExtraction(world, result, meta) {
         const capsule = {
             title: clipped(raw.title, 100) || `Messages ${meta.from}–${meta.to}`,
             storyTime: clipped(raw.storyTime, 120),
-            temporal: l1Temporal,
+            temporal: digestTemporal,
             location: clipped(raw.location, 160),
             participants: canonicalList(world, raw.participants),
             opening: clipped(raw.opening, 320),
@@ -1440,7 +1440,7 @@ export function mergeExtraction(world, result, meta) {
 
     compactDuplicateMemoryRecords(world);
 
-    // Chronicle C0 is derived from this immutable L1 range. Its active
+    // Chronicle C0 is derived from this immutable Digest range. Its active
     // recursive frontier materializes the compatibility `storySoFar` view.
     syncChronicleBase(world, meta.chatKey);
 
@@ -1587,7 +1587,7 @@ function orderedChatExtractions(world, chatKey) {
         .sort((a, b) => Number(a.from) - Number(b.from) || Number(a.to) - Number(b.to) || String(a.id || '').localeCompare(String(b.id || '')));
 }
 
-export function getLatestL1UndoStatus(world, chatKey) {
+export function getLatestDigestUndoStatus(world, chatKey) {
     const extractions = orderedChatExtractions(world, chatKey);
     const target = extractions.at(-1);
     if (!target) return { available: false, replayable: false, from: null, to: null, extractionId: '', dependentChronicle: 0 };
@@ -1609,12 +1609,12 @@ export function getLatestL1UndoStatus(world, chatKey) {
     };
 }
 
-export function undoLatestL1Extraction(world, chatKey, expectedExtractionId = '') {
-    const status = getLatestL1UndoStatus(world, chatKey);
-    if (!status.available) throw new Error('There is no saved L1 memory to undo for this chat.');
-    if (!status.replayable) throw new Error('This memory predates stored L1 replay data and cannot safely undo one range. Rebuild it from scratch first.');
+export function undoLatestDigestExtraction(world, chatKey, expectedExtractionId = '') {
+    const status = getLatestDigestUndoStatus(world, chatKey);
+    if (!status.available) throw new Error('There is no saved Digest memory to undo for this chat.');
+    if (!status.replayable) throw new Error('This memory predates stored Digest replay data and cannot safely undo one range. Rebuild it from scratch first.');
     if (expectedExtractionId && status.extractionId !== expectedExtractionId) {
-        throw new Error('The latest L1 changed while Undo was saving. Nothing was removed; review the latest range and try again.');
+        throw new Error('The latest Digest changed while Undo was saving. Nothing was removed; review the latest range and try again.');
     }
 
     const retained = orderedChatExtractions(world, chatKey)
@@ -1654,9 +1654,9 @@ export function undoLatestL1Extraction(world, chatKey, expectedExtractionId = ''
         from: status.from,
         to: status.to,
         extractionId: status.extractionId,
-        removedL1: 1,
+        removedDigest: 1,
         removedChronicle: [...previousChronicleIds].filter(id => !retainedChronicleIds.has(id)).length,
-        retainedL1: retained.length,
+        retainedDigest: retained.length,
     };
 }
 
@@ -1725,9 +1725,9 @@ export function worldCounts(world) {
     migrateLegacyBeliefs(world);
     const counts = Object.fromEntries(['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds']
         .map(name => [name, world[name]?.length || 0]));
-    counts.L1 = world.capsules?.length || 0;
+    counts.Digest = world.capsules?.length || 0;
     counts.Chronicle = world.chronicle?.length || 0;
-    counts['L1 source ranges'] = world.extractions?.length || 0;
+    counts['Digest source ranges'] = world.extractions?.length || 0;
     counts.corrections = world.corrections?.length || 0;
     return counts;
 }

@@ -36,7 +36,7 @@ test('memory catch-up never retries or waits on the visible roleplay path', asyn
     const preparation = source.slice(start, end);
     assert.ok(start >= 0 && end > start);
     assert.match(preparation, /Roleplay released immediately/u);
-    assert.doesNotMatch(preparation, /backgroundMemoryWork\.schedule|await maybeAutoExtract|await ensureEmbeddingCoverage|retryPendingReply|completeL1ForGeneration/u);
+    assert.doesNotMatch(preparation, /backgroundMemoryWork\.schedule|await maybeAutoExtract|await ensureEmbeddingCoverage|retryPendingReply|completeDigestForGeneration/u);
     assert.match(source, /event_types\.GENERATION_STOPPED/u);
 });
 
@@ -66,7 +66,7 @@ test('background memory captures the runtime stop sequence before processing', a
     assert.ok(worker.indexOf('const stopSequence') < worker.indexOf('runtime.stopSequence !== stopSequence'));
 });
 
-test('opening an externally updated chat drains pending L1 after mutation reconciliation', async () => {
+test('opening an externally updated chat drains pending Digest after mutation reconciliation', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
     const start = source.indexOf('function scheduleMutationSync');
     const end = source.indexOf('async function onChatChanged', start);
@@ -77,7 +77,7 @@ test('opening an externally updated chat drains pending L1 after mutation reconc
     assert.ok(reconciliation.indexOf('syncChangedExtractions()') < reconciliation.indexOf('backgroundMemoryWork.schedule(0)'));
 });
 
-test('generation defers branch repair instead of failing while background L1 owns the processing lock', async () => {
+test('generation defers branch repair instead of failing while background Digest owns the processing lock', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/engine.js', import.meta.url), 'utf8'));
     const start = source.indexOf('export async function repairDivergedBranch');
     const end = source.indexOf('export async function repairTailRollback', start);

@@ -112,7 +112,7 @@ function counts(world) {
         events: world.events?.length || 0,
         narrativeCapsules: world.capsules?.length || 0,
         chronicleNodes: world.chronicle?.length || 0,
-        retryableL1: world.extractions?.length || 0,
+        retryableDigest: world.extractions?.length || 0,
         threads: world.threads?.length || 0,
         backgrounds: world.backgrounds?.length || 0,
         corrections: world.corrections?.length || 0,

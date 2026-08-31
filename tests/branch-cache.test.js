@@ -50,7 +50,7 @@ function parentWorld() {
     return world;
 }
 
-test('a truncated branch reuses every stable parent L1 before its new tail', () => {
+test('a truncated branch reuses every stable parent Digest before its new tail', () => {
     const parent = parentWorld();
     const firstCapsuleId = parent.capsules[0].id;
     const result = forkWorldToBranch(parent, messages(18), branchKey, parentKey);
@@ -68,7 +68,7 @@ test('a truncated branch reuses every stable parent L1 before its new tail', () 
     assert.equal(result.world.capsules[0].id, firstCapsuleId);
 });
 
-test('a changed branch swipe drops its L1 and the dependent suffix only', () => {
+test('a changed branch swipe drops its Digest and the dependent suffix only', () => {
     const branch = messages(18);
     branch[9] = { ...branch[9], text: 'A different choice' };
     const result = forkWorldToBranch(parentWorld(), branch, branchKey, parentKey);

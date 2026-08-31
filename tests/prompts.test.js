@@ -18,9 +18,9 @@ import {
     EXTREME_CANON_FIDELITY_RULE,
     EXTREME_SUMMARY_FIDELITY_RULE,
     HIERARCHY_CONCISION_RULES,
-    L1_EPISTEMIC_COVERAGE_RULE,
+    DIGEST_EPISTEMIC_COVERAGE_RULE,
     OOC_META_AUTHORITY_RULE,
-    PRE_ATOMIC_IDENTITY_L1_EPISTEMIC_COVERAGE_RULE,
+    PRE_ATOMIC_IDENTITY_DIGEST_EPISTEMIC_COVERAGE_RULE,
     RELATIONSHIP_DESCRIPTION_RULE,
     ROLLING_STORY_QUALITY_RULE,
     ROLLING_STORY_QUALITY_TASK_TEMPLATE,
@@ -146,8 +146,8 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /separates objective truth from each focal holder's knowledge/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Identity links are atomic/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /still does not know each consequential hidden link/);
-    assert.ok(!DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(PRE_ATOMIC_IDENTITY_L1_EPISTEMIC_COVERAGE_RULE));
-    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(L1_EPISTEMIC_COVERAGE_RULE));
+    assert.ok(!DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(PRE_ATOMIC_IDENTITY_DIGEST_EPISTEMIC_COVERAGE_RULE));
+    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(DIGEST_EPISTEMIC_COVERAGE_RULE));
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Mere solitary discovery does not require a thread/);
     assert.match(DEFAULT_RETRIEVAL_SYSTEM_PROMPT, /roleplay or simulation/);
     assert.match(DEFAULT_RETRIEVAL_SYSTEM_PROMPT, /immediate next response/);
@@ -162,9 +162,9 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
 
 test('rolling snapshot is bounded, chronological, and sourced only from supplied Story material', () => {
     assert.match(ROLLING_STORY_RULE, /prior snapshot plus new chronological source material only/i);
-    assert.match(ROLLING_STORY_RULE, /raw chat or explicitly labeled L1 scene summaries/i);
+    assert.match(ROLLING_STORY_RULE, /raw chat or explicitly labeled Digest scene summaries/i);
     assert.match(ROLLING_STORY_RULE, /never consult derived hierarchy, retrieval results, or other memory/i);
-    assert.match(ROLLING_STORY_RULE, /Do not cite or name L1, Chronicle nodes/i);
+    assert.match(ROLLING_STORY_RULE, /Do not cite or name Digest, Chronicle nodes/i);
     assert.match(ROLLING_STORY_RULE, /Record only what has already occurred/i);
     assert.match(ROLLING_STORY_RULE, /do not write current, currently, present, latest, ongoing, now, or at present/i);
     assert.match(ROLLING_STORY_RULE, /plans and expectations belong only in openMatters and remain explicitly unresolved/i);

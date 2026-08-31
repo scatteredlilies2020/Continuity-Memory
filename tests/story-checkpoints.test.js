@@ -30,19 +30,19 @@ test('Story checkpoints are periodic, fingerprinted, and bounded', () => {
     assert.equal(story.checkpoints.at(-1).to, 479);
 });
 
-test('L1 Story source survives checkpoints and mutation recovery', () => {
+test('Digest Story source survives checkpoints and mutation recovery', () => {
     const source = messages(64);
     const story = withStoryCheckpoint(null, {
-        text: 'L1-backed story', from: 0, to: 63, updatedAt: 'saved', sourceMode: 'l1',
+        text: 'Digest-backed story', from: 0, to: 63, updatedAt: 'saved', sourceMode: 'digest',
         rebuiltFromRawChat: false, rebuildIncomplete: false, rebuildRestartPending: false,
     }, source, fingerprint, { interval: 1 });
-    assert.equal(story.sourceMode, 'l1');
-    assert.equal(story.checkpoints[0].sourceMode, 'l1');
+    assert.equal(story.sourceMode, 'digest');
+    assert.equal(story.checkpoints[0].sourceMode, 'digest');
     assert.equal(story.checkpoints[0].sourcePolicyVersion, 0);
     const changed = messages(64);
     changed[40].text = 'changed';
     const recovery = planStoryMutationRecovery(story, fingerprinted(changed), { mutationObserved: true });
-    assert.equal(recovery.story.sourceMode, 'l1');
+    assert.equal(recovery.story.sourceMode, 'digest');
     assert.equal(recovery.story.rebuiltFromRawChat, false);
 });
 

@@ -30,7 +30,7 @@ test('completed detached reconciliation ignores an already current or unrelated 
     ), false);
 });
 
-test('detached polling refreshes whenever another L1 chunk has been saved', () => {
+test('detached polling refreshes whenever another Digest chunk has been saved', () => {
     assert.equal(detachedProgressNeedsRefresh(0, { status: 'processing', chunks: 0 }), false);
     assert.equal(detachedProgressNeedsRefresh(0, { status: 'processing', chunks: 1 }), true);
     assert.equal(detachedProgressNeedsRefresh(1, { status: 'processing', chunks: 1 }), false);

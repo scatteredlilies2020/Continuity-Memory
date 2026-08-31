@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { addDerivedChronicle, mergeExtraction } from '../extension/memory-model.js';
 import { buildMemoryPrompt } from '../extension/retrieval.js';
-import { anchoredRelativeText, anchoredStoryTime, l1AnchorId } from '../extension/temporal-anchors.js';
+import { anchoredRelativeText, anchoredStoryTime, digestAnchorId } from '../extension/temporal-anchors.js';
 
 function world() {
     return {
@@ -26,7 +26,7 @@ function extraction({ title = 'Scene', storyTime = '', temporal, event, fact, th
     };
 }
 
-test('deictic wording remains bound to the immutable L1 where it was recorded', () => {
+test('deictic wording remains bound to the immutable Digest where it was recorded', () => {
     const target = world();
     const chatKey = 'chat:deictic';
     mergeExtraction(target, extraction({
@@ -44,7 +44,7 @@ test('deictic wording remains bound to the immutable L1 where it was recorded', 
         temporal: { frame: 'main narrative', relation: 'after', elapsed: '', certainty: 'implicit' },
     }), { chatKey, from: 8, to: 15, allowStateUpdates: true });
 
-    assert.equal(firstAnchor, l1AnchorId({ chatKey, from: 0, to: 7 }));
+    assert.equal(firstAnchor, digestAnchorId({ chatKey, from: 0, to: 7 }));
     assert.equal(target.events[0].temporal.referenceId, firstAnchor);
     assert.equal(target.events[0].temporal.elapsed, 'one local day');
     assert.equal(target.facts[0].temporalAnchorId, firstAnchor);
@@ -112,7 +112,7 @@ test('Chronicle promotion preserves anchor spans without inflating ordinary text
     }, target.chronicle);
 
     assert.deepEqual(parent.temporalAnchorIds, target.capsules.map(item => item.temporal.anchorId));
-    assert.match(anchoredStoryTime(parent), /relative to L1-.*…L1-/);
+    assert.match(anchoredStoryTime(parent), /relative to Digest-.*…Digest-/);
     assert.equal(anchoredStoryTime({ storyTime: 'After school', temporalAnchorIds: parent.temporalAnchorIds }), 'After school');
     assert.equal(anchoredRelativeText('A waited at the station', parent), 'A waited at the station');
     assert.equal(anchoredRelativeText('A waited for the last 300 days', parent), `A waited for the last 300 days (relative to ${parent.temporalAnchorIds[0]}…${parent.temporalAnchorIds.at(-1)})`);

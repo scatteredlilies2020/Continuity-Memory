@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildEmbeddingDocuments } from '../extension/embedding-index.js';
 import { EXTRACTION_VERSION } from '../extension/coverage.js';
-import { addDerivedChronicle, compactDuplicateMemoryRecords, compactHierarchyFields, compactRepeatedEntityDescriptions, freshResetResiduals, getLatestL1UndoStatus, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from '../extension/memory-model.js';
+import { addDerivedChronicle, compactDuplicateMemoryRecords, compactHierarchyFields, compactRepeatedEntityDescriptions, freshResetResiduals, getLatestDigestUndoStatus, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from '../extension/memory-model.js';
 import { buildMemoryPrompt, orderEventsChronologically } from '../extension/retrieval.js';
 import { sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
 
@@ -74,7 +74,7 @@ test('merges durable records and updates matching facts instead of duplicating t
     assert.deepEqual(target.sources[meta.chatKey].processedMessages, [{ index: 0, fingerprint: 'first', version: EXTRACTION_VERSION }]);
 });
 
-test('L1 extraction updates only the matching chat rolling story snapshot', () => {
+test('Digest extraction updates only the matching chat rolling story snapshot', () => {
     const target = world();
     target.storySoFar = {};
     target.storySoFar.chat = { text: 'Authoritative independent story.', from: 0, to: 7 };
@@ -163,7 +163,7 @@ test('promotes a stored historical tail snapshot without re-merging durable memo
     assert.equal(promoteStoredTailSnapshot(target, 'chat', 175), false);
 });
 
-test('does not promote an extraction behind the latest complete L1 boundary', () => {
+test('does not promote an extraction behind the latest complete Digest boundary', () => {
     const target = world();
     mergeExtraction(target, extraction(), { chatKey: 'chat', from: 160, to: 167, allowStateUpdates: false });
     assert.equal(promoteStoredTailSnapshot(target, 'chat', 175), false);
@@ -1334,7 +1334,7 @@ test('identity resolution fails closed without one unambiguous canonical entity'
     assert.deepEqual(target.entities.find(item => item.name === 'Confirmed Name').aliases, []);
 });
 
-test('L1 records retain up to ten expanded chronological beats', () => {
+test('Digest records retain up to ten expanded chronological beats', () => {
     const target = world();
     const long = 'x'.repeat(500);
     mergeExtraction(target, extraction({
@@ -1344,7 +1344,7 @@ test('L1 records retain up to ten expanded chronological beats', () => {
             beats: Array.from({ length: 12 }, (_, index) => `${index}-${long}`),
             emotionalArc: long,
             closing: long,
-            coverageWarnings: ['Potential durable detail remains only in L1: Yui vowed to return.'],
+            coverageWarnings: ['Potential durable detail remains only in Digest: Yui vowed to return.'],
         },
     }), { chatKey: 'chat', from: 0, to: 9, allowStateUpdates: true });
 
@@ -1354,7 +1354,7 @@ test('L1 records retain up to ten expanded chronological beats', () => {
     assert.ok(capsule.beats.every(beat => beat.length === 400));
     assert.equal(capsule.emotionalArc.length, 320);
     assert.equal(capsule.closing.length, 320);
-    assert.deepEqual(capsule.coverageWarnings, ['Potential durable detail remains only in L1: Yui vowed to return.']);
+    assert.deepEqual(capsule.coverageWarnings, ['Potential durable detail remains only in Digest: Yui vowed to return.']);
 });
 
 test('historical partial imports do not replace current mutable continuity', () => {
@@ -1760,8 +1760,8 @@ test('chronological event ordering recognizes stored numeric, placeholder-year, 
 
 test('undated events follow stored narrative relations across later flashbacks', () => {
     const source = (from) => [{ chatKey: 'chat', from, to: from }];
-    const presentAnchor = 'L1-chat-0-7';
-    const flashbackAnchor = 'L1-chat-8-15';
+    const presentAnchor = 'Digest-chat-0-7';
+    const flashbackAnchor = 'Digest-chat-8-15';
     const capsules = [
         { chatKey: 'chat', from: 0, to: 7, temporal: { anchorId: presentAnchor, referenceId: '', relation: 'unknown' } },
         { chatKey: 'chat', from: 8, to: 15, temporal: { anchorId: flashbackAnchor, referenceId: presentAnchor, relation: 'before' } },
@@ -1774,8 +1774,8 @@ test('undated events follow stored narrative relations across later flashbacks',
     assert.deepEqual(ordered.map(item => item.id), ['flashback', 'present']);
 });
 
-test('undated events use before and after positions within one L1 anchor', () => {
-    const anchorId = 'L1-chat-0-7';
+test('undated events use before and after positions within one Digest anchor', () => {
+    const anchorId = 'Digest-chat-0-7';
     const source = [{ chatKey: 'chat', from: 0, to: 7 }];
     const ordered = orderEventsChronologically([
         { id: 'after', sources: source, temporal: { referenceId: anchorId, relation: 'after' } },
@@ -1787,8 +1787,8 @@ test('undated events use before and after positions within one L1 anchor', () =>
 });
 
 test('contradictory undated temporal relations fail closed to source order', () => {
-    const firstAnchor = 'L1-chat-0-7';
-    const secondAnchor = 'L1-chat-8-15';
+    const firstAnchor = 'Digest-chat-0-7';
+    const secondAnchor = 'Digest-chat-8-15';
     const capsules = [
         { temporal: { anchorId: firstAnchor, referenceId: secondAnchor, relation: 'after' } },
         { temporal: { anchorId: secondAnchor, referenceId: firstAnchor, relation: 'after' } },
@@ -1837,15 +1837,15 @@ test('hierarchy compaction removes only exact repeated field text', () => {
     assert.deepEqual(compact.openThreads, ['Whether the new address will persist.']);
 });
 
-test('L1 retrieval preserves the complete bounded capsule', () => {
+test('Digest retrieval preserves the complete bounded capsule', () => {
     const target = world();
-    const chatKey = 'complete-l1-chat';
+    const chatKey = 'complete-digest-chat';
     const boundedCapsule = {
         ...extraction().sceneCapsule,
         opening: `${'Opening context remained relevant. '.repeat(8)}OPENING_END.`,
         beats: Array.from({ length: 10 }, (_, index) => `Beat ${index + 1}: ${'causal development remained relevant. '.repeat(8)}BEAT_${index + 1}_END.`),
         emotionalArc: `${'The relationship continued to change. '.repeat(7)}EMOTIONAL_END.`,
-        closing: `${'The resulting situation remained unresolved. '.repeat(6)}FINAL_L1_SENTENCE.`,
+        closing: `${'The resulting situation remained unresolved. '.repeat(6)}FINAL_DIGEST_SENTENCE.`,
     };
     mergeExtraction(target, extraction({ sceneCapsule: boundedCapsule }), { chatKey, from: 0, to: 7, allowStateUpdates: true });
 
@@ -1855,10 +1855,10 @@ test('L1 retrieval preserves the complete bounded capsule', () => {
     assert.ok(capsule.emotionalArc.length <= 320);
     assert.ok(capsule.closing.length <= 320);
     const prompt = buildMemoryPrompt(target, [{ name: 'User', mes: 'Continue the unresolved situation.' }], 12000, chatKey);
-    assert.match(prompt.prompt, /FINAL_L1_SENTENCE\./);
+    assert.match(prompt.prompt, /FINAL_DIGEST_SENTENCE\./);
 });
 
-test('retrying L1 transactionally replaces the selected range contribution', () => {
+test('retrying Digest transactionally replaces the selected range contribution', () => {
     const target = world();
     const meta = { chatKey: 'chat', from: 0, to: 4, allowStateUpdates: true, messageFingerprints: [] };
     mergeExtraction(target, extraction(), meta);
@@ -1928,7 +1928,7 @@ test('branch replay preserves retained record and Chronicle identities', () => {
     }
 });
 
-test('undo latest L1 keeps chat messages pending and removes all dependent memory', () => {
+test('undo latest Digest keeps chat messages pending and removes all dependent memory', () => {
     const target = world();
     const chatKey = 'chat';
     const first = extraction();
@@ -1953,14 +1953,14 @@ test('undo latest L1 keeps chat messages pending and removes all dependent memor
         facts: [{ subject: 'Mio', predicate: 'instrument', value: 'bass', category: 'identity', importance: 4, persistence: 'persistent' }],
     }), { chatKey: 'other', from: 0, to: 4, allowStateUpdates: false, messageFingerprints: fingerprints(0, 4) });
 
-    const status = getLatestL1UndoStatus(target, chatKey);
+    const status = getLatestDigestUndoStatus(target, chatKey);
     assert.deepEqual({ available: status.available, replayable: status.replayable, from: status.from, to: status.to, dependentChronicle: status.dependentChronicle }, {
         available: true, replayable: true, from: 5, to: 9, dependentChronicle: 1,
     });
 
-    const result = undoLatestL1Extraction(target, chatKey, status.extractionId);
-    assert.deepEqual({ from: result.from, to: result.to, removedChronicle: result.removedChronicle, retainedL1: result.retainedL1 }, {
-        from: 5, to: 9, removedChronicle: 1, retainedL1: 1,
+    const result = undoLatestDigestExtraction(target, chatKey, status.extractionId);
+    assert.deepEqual({ from: result.from, to: result.to, removedChronicle: result.removedChronicle, retainedDigest: result.retainedDigest }, {
+        from: 5, to: 9, removedChronicle: 1, retainedDigest: 1,
     });
     assert.deepEqual(target.extractions.filter(item => item.chatKey === chatKey).map(item => [item.from, item.to]), [[0, 4]]);
     assert.deepEqual(target.sources[chatKey].processedMessages.map(item => item.index), [0, 1, 2, 3, 4]);
@@ -1977,21 +1977,21 @@ test('undo latest L1 keeps chat messages pending and removes all dependent memor
 
     mergeExtraction(target, second, { chatKey, from: 5, to: 9, allowStateUpdates: true, messageFingerprints: fingerprints(5, 9) });
     assert.deepEqual(target.sources[chatKey].requiredMemoryIndexes, []);
-    undoLatestL1Extraction(target, chatKey);
-    undoLatestL1Extraction(target, chatKey);
-    assert.equal(getLatestL1UndoStatus(target, chatKey).available, false);
+    undoLatestDigestExtraction(target, chatKey);
+    undoLatestDigestExtraction(target, chatKey);
+    assert.equal(getLatestDigestUndoStatus(target, chatKey).available, false);
     assert.deepEqual(target.sources[chatKey].requiredMemoryIndexes, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
     assert.equal(target.extractions.some(item => item.chatKey === 'other'), true);
 });
 
-test('undo latest L1 refuses incomplete legacy replay data without changing memory', () => {
+test('undo latest Digest refuses incomplete legacy replay data without changing memory', () => {
     const target = world();
     mergeExtraction(target, extraction(), { chatKey: 'chat', from: 0, to: 4, allowStateUpdates: true });
     delete target.extractions[0].result;
     const before = structuredClone(target);
 
-    assert.equal(getLatestL1UndoStatus(target, 'chat').replayable, false);
-    assert.throws(() => undoLatestL1Extraction(target, 'chat'), /cannot safely undo one range/i);
+    assert.equal(getLatestDigestUndoStatus(target, 'chat').replayable, false);
+    assert.throws(() => undoLatestDigestExtraction(target, 'chat'), /cannot safely undo one range/i);
     assert.deepEqual(target, before);
 });
 
@@ -2052,14 +2052,14 @@ test('fresh rebuild verification detects stale records left after a claimed rese
     assert.deepEqual(freshResetResiduals(target), ['sources', 'relationships:1']);
 });
 
-test('hierarchy reset recreates C0 from L1 and removes every derived parent', () => {
+test('hierarchy reset recreates C0 from Digest and removes every derived parent', () => {
     const target = world();
     mergeExtraction(target, extraction(), { chatKey: 'chat', from: 0, to: 4, allowStateUpdates: true });
     target.arcs.push({ id: 'arc' });
     target.eras.push({ id: 'era' });
     target.chronicle.push({ id: 'derived', level: 1, chatKey: 'chat', childIds: target.chronicle.map(item => item.id) });
     target.chronicle[0].text = 'Stale C0 text that must not survive the rebuild.';
-    const l1 = structuredClone(target.capsules);
+    const digest = structuredClone(target.capsules);
     const extractions = structuredClone(target.extractions);
     const facts = structuredClone(target.facts);
 
@@ -2071,7 +2071,7 @@ test('hierarchy reset recreates C0 from L1 and removes every derived parent', ()
     assert.equal(target.chronicle.length, target.capsules.length);
     assert.notEqual(target.chronicle[0].text, 'Stale C0 text that must not survive the rebuild.');
     assert.match(target.chronicle[0].text, /Yui and Mio met to practice/u);
-    assert.deepEqual(target.capsules, l1);
+    assert.deepEqual(target.capsules, digest);
     assert.deepEqual(target.extractions, extractions);
     assert.deepEqual(target.facts, facts);
 });

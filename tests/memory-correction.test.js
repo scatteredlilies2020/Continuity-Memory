@@ -67,7 +67,7 @@ test('reviewed correction updates established records and invalidates only conta
             action: 'update', category: 'facts', targetId: 'fact-knowledge', reason: 'Correct when Sasuke learned this.',
             recordJson: JSON.stringify({ subject: 'Sasuke', predicate: 'knowledge of Elizabeth', value: 'Already knew her identity before the tower meeting', category: 'knowledge', persistence: 'persistent', importance: 4 }),
         }, {
-            action: 'update', category: 'capsules', targetId: 'capsule-tower', reason: 'Remove the false discovery beat from L1.',
+            action: 'update', category: 'capsules', targetId: 'capsule-tower', reason: 'Remove the false discovery beat from Digest.',
             recordJson: JSON.stringify({ title: 'Tower meeting', storyTime: 'Friday', location: 'Hokage Tower', participants: ['Sasuke', 'Elizabeth'], opening: 'Sasuke meets Elizabeth, whose identity he already knows.', beats: ['They discuss the mission.'], emotionalArc: '', closing: 'The meeting ends.', importance: 3 }),
         }],
     }, 'Sasuke already knew Elizabeth beforehand.');
@@ -86,7 +86,7 @@ test('reviewed correction updates established records and invalidates only conta
     assert.doesNotMatch(injected.prompt, /beforehand/i);
 });
 
-test('a newly asserted historical event is propagated into L1 before hierarchy rebuilding', () => {
+test('a newly asserted historical event is propagated into Digest before hierarchy rebuilding', () => {
     const world = memoryWorld();
     const proposal = augmentCorrectionChronology(world, validateCorrectionProposal(world, {
         summary: 'Add the missing injury event.',
@@ -106,7 +106,7 @@ test('a newly asserted historical event is propagated into L1 before hierarchy r
     const result = applyCorrectionProposal(world, proposal);
 });
 
-test('a historical event without a matching chronology creates an authoritative L1 source', () => {
+test('a historical event without a matching chronology creates an authoritative Digest source', () => {
     const world = memoryWorld();
     world.capsules = [];
     world.arcs = [];
@@ -127,7 +127,7 @@ test('a historical event without a matching chronology creates an authoritative 
     assert.deepEqual(result.addedCapsuleIds, [world.capsules[0].id]);
 });
 
-test('stored correction suppresses replay of the prior fact and preserves corrected L1', () => {
+test('stored correction suppresses replay of the prior fact and preserves corrected Digest', () => {
     const world = memoryWorld();
     const proposal = validateCorrectionProposal(world, {
         summary: 'Correct prior knowledge.',
@@ -135,7 +135,7 @@ test('stored correction suppresses replay of the prior fact and preserves correc
             action: 'update', category: 'facts', targetId: 'fact-knowledge', reason: 'Prior knowledge.',
             recordJson: JSON.stringify({ subject: 'Sasuke', predicate: 'knowledge of Elizabeth', value: 'Already knew her identity', category: 'knowledge', persistence: 'persistent', importance: 4 }),
         }, {
-            action: 'update', category: 'capsules', targetId: 'capsule-tower', reason: 'Correct L1.',
+            action: 'update', category: 'capsules', targetId: 'capsule-tower', reason: 'Correct Digest.',
             recordJson: JSON.stringify({ ...world.capsules[0], beats: ['Sasuke speaks with Elizabeth as an existing acquaintance.'] }),
         }],
     }, 'Sasuke already knew Elizabeth.');

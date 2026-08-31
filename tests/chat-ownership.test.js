@@ -69,13 +69,13 @@ test('does not guess when restored world recovery is ambiguous', () => {
     assert.equal(result.ambiguous, true);
 });
 
-test('ranks only same-chat Syncthing copies with greater L1 coverage', () => {
+test('ranks only same-chat Syncthing copies with greater Digest coverage', () => {
     const current = { id: 'old-copy', extractions: [{}, {}] };
     const worlds = [
-        { id: 'old-copy', name: 'Toska · RP', counts: { retryableL1: 2 }, revision: 9 },
-        { id: 'partial-copy', name: 'Toska · RP', counts: { retryableL1: 21 }, revision: 515 },
-        { id: 'complete-copy', name: 'Toska · RP', counts: { retryableL1: 53 }, revision: 255 },
-        { id: 'other-chat', name: 'Toska · Different RP', counts: { retryableL1: 80 }, revision: 900 },
+        { id: 'old-copy', name: 'Toska · RP', counts: { retryableDigest: 2 }, revision: 9 },
+        { id: 'partial-copy', name: 'Toska · RP', counts: { retryableDigest: 21 }, revision: 515 },
+        { id: 'complete-copy', name: 'Toska · RP', counts: { retryableDigest: 53 }, revision: 255 },
+        { id: 'other-chat', name: 'Toska · Different RP', counts: { retryableDigest: 80 }, revision: 900 },
     ];
     assert.deepEqual(rankSuperiorSyncedWorlds(worlds, current, { characterName: 'Toska', chatId: 'RP' }).map(item => item.id), [
         'complete-copy',

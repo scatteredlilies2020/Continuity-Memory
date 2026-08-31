@@ -12,7 +12,7 @@ export const MEMORY_VIEW_CATEGORIES = Object.freeze([
     { key: 'threads', label: 'Open threads' },
     { key: 'backgrounds', label: 'Background developments' },
     { key: 'corrections', label: 'Corrections' },
-    { key: 'l1', label: 'L1' },
+    { key: 'digest', label: 'Digest' },
     { key: 'chronicle', label: 'Chronicle' },
 ]);
 
@@ -62,7 +62,7 @@ function categoryItems(world, category, chatKey = '') {
         const story = world.storySoFar?.[chatKey];
         return story && (story.text || story.rebuildIncomplete || story.rebuildRestartPending) ? [story] : [];
     }
-    if (category === 'l1') return world.capsules || [];
+    if (category === 'digest') return world.capsules || [];
     if (category === 'chronicle') return world.chronicle || [];
     return Array.isArray(world[category]) ? world[category] : [];
 }
@@ -92,7 +92,7 @@ function entry(category, item, index) {
             add(fields, 'Closing state', item.closingState);
             add(fields, 'Still open', item.openThreads);
             add(fields, 'Direct source nodes', item.childIds);
-            add(fields, 'Canonical L1 sources', item.capsuleIds);
+            add(fields, 'Canonical Digest sources', item.capsuleIds);
         } else {
         const coveredRange = item.rebuildRestartPending ? '' : rangeLabel(item);
         const through = Number(item.to);
@@ -110,7 +110,7 @@ function entry(category, item, index) {
             ? `${checkpoints.length}; newest through message ${newestCheckpoint}`
             : 'None yet; an affected legacy or early range rebuilds from the beginning');
         add(fields, 'Narrative', item.text);
-        add(fields, 'Source', item.sourceMode === 'l1' ? 'Completed L1 summaries only' : 'Raw chat');
+        add(fields, 'Source', item.sourceMode === 'digest' ? 'Completed Digest summaries only' : 'Raw chat');
         add(fields, 'Last updated', item.updatedAt);
         }
     } else if (category === 'entities') {
@@ -158,7 +158,7 @@ function entry(category, item, index) {
         title = item.summary || 'Memory correction';
         add(fields, 'Instruction', item.instruction);
         add(fields, 'Changes', (item.operations || []).map(operation => `${operation.action} ${operation.category}${operation.reason ? `: ${operation.reason}` : ''}`));
-    } else if (category === 'l1') {
+    } else if (category === 'digest') {
         add(fields, 'Story time', item.storyTime);
         add(fields, 'Location', item.location);
         add(fields, 'Participants', item.participants);
@@ -190,9 +190,9 @@ function entry(category, item, index) {
     };
 }
 
-export function memoryViewerPage(world, category = 'l1', query = '', page = 0, pageSize = 30, chatKey = '') {
-    const known = MEMORY_VIEW_CATEGORIES.some(item => item.key === category) ? category : 'l1';
-    const chronological = ['story', 'l1', 'chronicle', 'events'].includes(known);
+export function memoryViewerPage(world, category = 'digest', query = '', page = 0, pageSize = 30, chatKey = '') {
+    const known = MEMORY_VIEW_CATEGORIES.some(item => item.key === category) ? category : 'digest';
+    const chronological = ['story', 'digest', 'chronicle', 'events'].includes(known);
     let entries = categoryItems(world, known, chatKey).map((item, index) => entry(known, item, index));
     entries.sort((a, b) => chronological
         ? (Number.isFinite(a.from) ? a.from : Number.MAX_SAFE_INTEGER) - (Number.isFinite(b.from) ? b.from : Number.MAX_SAFE_INTEGER)

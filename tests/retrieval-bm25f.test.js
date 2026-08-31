@@ -410,7 +410,7 @@ test('legacy hierarchy arrays remain inert even when query-relevant', () => {
 test('story so far is injected from its independent rolling stream, never hierarchy records', () => {
     const target = world({
         storySoFar: { chat: { text: 'Mara left home, found Ivo, and together they reached the flooded city.', from: 0, to: 79 } },
-        capsules: [{ id: 'l1-secret', title: 'Internal L1 wording', opening: '', beats: [], closing: 'Must not enter overview.', chatKey: 'chat', from: 0, to: 7 }],
+        capsules: [{ id: 'digest-secret', title: 'Internal Digest wording', opening: '', beats: [], closing: 'Must not enter overview.', chatKey: 'chat', from: 0, to: 7 }],
         arcs: [{ id: 'legacy-arc', title: 'Internal old hierarchy wording', summary: 'Must not enter overview.', capsuleIds: [] }],
         eras: [{ id: 'legacy-era', title: 'Internal older hierarchy wording', summary: 'Must not enter overview.', arcIds: [] }],
     });
@@ -499,7 +499,7 @@ test('tight recall targets present every populated selected category without cli
         events: [{ id: 'event', title: 'Beacon lighting', summary: 'Mara lit the beacon COMPLETE_EVENT_END', participants: ['Mara'], sources: source }],
         capsules: [{
             id: 'capsule', title: 'Beacon watch', opening: 'Mara arrived', beats: ['She lit it'],
-            closing: 'Watch continues COMPLETE_L1_END', emotionalArc: '', chatKey: 'chat', from: 8, to: 15, sources: source,
+            closing: 'Watch continues COMPLETE_DIGEST_END', emotionalArc: '', chatKey: 'chat', from: 8, to: 15, sources: source,
         }],
         threads: [{
             id: 'thread', title: 'Beacon fuel', detail: 'Mara must secure fuel COMPLETE_THREAD_END',
@@ -519,7 +519,7 @@ test('tight recall targets present every populated selected category without cli
         'Background', 'Entities', 'Current state', 'Relationships', 'Facts', 'Past events',
     ]) assert.match(result.prompt, new RegExp(`\\n${section}:\\n`, 'u'));
     for (const ending of [
-        'COMPLETE_CORRECTION_END', 'COMPLETE_L1_END',
+        'COMPLETE_CORRECTION_END', 'COMPLETE_DIGEST_END',
         'COMPLETE_THREAD_END', 'COMPLETE_BACKGROUND_END', 'COMPLETE_ENTITY_END', 'COMPLETE_STATE_END',
         'COMPLETE_RELATIONSHIP_END', 'COMPLETE_FACT_END', 'COMPLETE_EVENT_END',
     ]) assert.match(result.prompt, new RegExp(ending, 'u'));
@@ -537,7 +537,7 @@ test('user corrections are injected whole instead of being character-sliced', ()
     assert.doesNotMatch(result.prompt, /…/u);
 });
 
-test('older L1 evidence must occur within one beat or neighboring beats', () => {
+test('older Digest evidence must occur within one beat or neighboring beats', () => {
     const capsule = (id, from, title, passages) => ({
         id,
         chatKey: 'chat',
@@ -576,7 +576,7 @@ test('older L1 evidence must occur within one beat or neighboring beats', () => 
         'Samael hands Rem her black traveling cloak with a blue cord and Mathers crest',
     ], 'chat');
     const querySelected = selections(result, 'Recent continuity')
-        .filter(item => item.reason !== 'latest L1');
+        .filter(item => item.reason !== 'latest Digest');
 
     assert.deepEqual(querySelected.map(item => item.id), ['adjacent']);
     assert.equal(querySelected[0].passageLocalized, true);

@@ -54,7 +54,7 @@
                         <option value="__direct_openrouter__">Direct OpenRouter</option>
                     </select>
                 </label>
-                <small>Turns chat messages into structured L1 memory. Retrieval and summarization can use their own model below.</small>
+                <small>Turns chat messages into structured Digest memory. Retrieval and summarization can use their own model below.</small>
                 <div class="continuity-extraction-direct-setting continuity-card-inset">
                     <b>Direct extraction API</b>
                     <label>Provider
@@ -81,10 +81,10 @@
                     </label>
                 </div>
                 <label class="checkbox_label"><input id="continuity_auto" type="checkbox"><span>Process automatically in the background</span></label>
-                <label class="checkbox_label"><input id="continuity_review_extractions" type="checkbox"><span>Review every L1 extraction and Chronicle promotion before saving</span></label>
+                <label class="checkbox_label"><input id="continuity_review_extractions" type="checkbox"><span>Review every Digest extraction and Chronicle promotion before saving</span></label>
                 <small>Off by default. When enabled, processing waits at a centered review popup until you save, regenerate, or discard the unsaved result.</small>
-                <label class="checkbox_label"><input id="continuity_jb_enabled" type="checkbox"><span>JB for extraction / L1</span></label>
-                <small>When enabled, appends the editable JB prompt below to extraction and L1 requests only. Off by default.</small>
+                <label class="checkbox_label"><input id="continuity_jb_enabled" type="checkbox"><span>JB for extraction / Digest</span></label>
+                <small>When enabled, appends the editable JB prompt below to extraction and Digest requests only. Off by default.</small>
                 <details>
                     <summary>Advanced extraction options</summary>
                     <label>Reasoning / thinking
@@ -98,7 +98,7 @@
                             <option value="max">Maximum</option>
                         </select>
                     </label>
-                    <small>Applies to extraction/L1, AI retrieval, correction, and Chronicle promotion. Auto inherits each category's selected connection profile preset, then SillyTavern's active reasoning setting. Explicit levels are translated for Gemini, OpenAI-compatible, OpenRouter, Qwen, DeepSeek, and other detected providers; unsupported controls safely fall back. Reasoning is never stored in memory.</small>
+                    <small>Applies to extraction/Digest, AI retrieval, correction, and Chronicle promotion. Auto inherits each category's selected connection profile preset, then SillyTavern's active reasoning setting. Explicit levels are translated for Gemini, OpenAI-compatible, OpenRouter, Qwen, DeepSeek, and other detected providers; unsupported controls safely fall back. Reasoning is never stored in memory.</small>
                     <div class="continuity-grid">
                         <label>Detail
                             <select id="continuity_detail" class="text_pole">
@@ -107,7 +107,7 @@
                                 <option value="detailed">Detailed</option>
                             </select>
                         </label>
-                        <label>Messages per L1
+                        <label>Messages per Digest
                             <input id="continuity_batch" class="text_pole" type="number" min="2" max="50" step="1">
                             <small>default 8; range 2–50; smaller recent tails remain raw until the group is complete</small>
                         </label>
@@ -119,12 +119,12 @@
                     <details>
                         <summary>Extraction prompt templates</summary>
                         <small>The required JSON schema and source messages are added separately and cannot be removed accidentally.</small>
-                        <label>Extraction and L1 instructions
+                        <label>Extraction and Digest instructions
                             <textarea id="continuity_extraction_prompt" class="text_pole continuity-prompt-editor" rows="10"></textarea>
                         </label>
                         <label>JB prompt
                             <textarea id="continuity_jb_prompt" class="text_pole continuity-prompt-editor" rows="5"></textarea>
-                            <small>Appended after the extraction and L1 instructions only while the visible JB toggle is enabled.</small>
+                            <small>Appended after the extraction and Digest instructions only while the visible JB toggle is enabled.</small>
                         </label>
                         <label>Extraction request template
                             <textarea id="continuity_extraction_template" class="text_pole continuity-prompt-editor" rows="7"></textarea>
@@ -223,12 +223,12 @@
                     <small>Vectors are derived from the current structured memory and stored separately. They are never added to exports or portable chat memory. Continuity owns this configuration and does not read another extension's settings.</small>
                 </div>
                 <label class="checkbox_label"><input id="continuity_story_so_far" type="checkbox"><span>Include Recursive Chronicle layers (default)</span></label>
-                <small>Each L1 creates one source-linked C0 entry. Older entries are periodically promoted into compact C1, C2, and higher layers without deleting their sources. Structured memory books remain separate and unchanged.</small>
+                <small>Each Digest creates one source-linked C0 entry. Older entries are periodically promoted into compact C1, C2, and higher layers without deleting their sources. Structured memory books remain separate and unchanged.</small>
                 <label>Chronicle allowance
                     <input id="continuity_story_so_far_tokens" class="text_pole" type="number" min="0" max="100000" step="250">
                     <small>Maximum tokens reserved when the active Chronicle frontier is injected. 0 automatically uses 20% of the model context.</small>
                 </label>
-                <div id="continuity_story_progress" class="continuity-progress">C0 is updated with L1 extraction; parent layers are promoted only when a layer exceeds capacity.</div>
+                <div id="continuity_story_progress" class="continuity-progress">C0 is updated with Digest extraction; parent layers are promoted only when a layer exceeds capacity.</div>
                 <small id="continuity_story_status">No Chronicle is stored for this chat yet.</small>
                 <label class="continuity-ai-retrieval-setting">AI retrieval model
                     <select id="continuity_retrieval_profile" class="text_pole">
@@ -444,7 +444,7 @@
                     <button id="continuity_build" class="menu_button"><i class="fa-solid fa-hammer"></i> Build</button>
                     <button id="continuity_repair_rollback" class="menu_button" style="display: none;"><i class="fa-solid fa-clock-rotate-left"></i> Repair rollback</button>
                     <button id="continuity_stop" class="menu_button redWarningBG"><i class="fa-solid fa-stop"></i> Stop & clear queue</button>
-                    <button id="continuity_undo_latest_l1" class="menu_button"><i class="fa-solid fa-rotate-left"></i> Undo latest L1</button>
+                    <button id="continuity_undo_latest_digest" class="menu_button"><i class="fa-solid fa-rotate-left"></i> Undo latest Digest</button>
                 </div>
                 <small>Build creates missing structured memory and Chronicle C0 entries side by side, then promotes eligible Chronicle layers without redoing completed chunks.</small>
                 <div id="continuity_coverage" class="continuity-progress">Checking chat coverage…</div>
@@ -454,10 +454,10 @@
                 <details>
                     <summary>Start over from scratch…</summary>
                     <button id="continuity_rebuild_hierarchy" class="menu_button"><i class="fa-solid fa-layer-group"></i> Rebuild every Chronicle layer</button>
-                    <small>Keeps L1, structured memory, and extraction records. Recreates every C0 locally from L1, then rebuilds eligible recursive parent layers.</small>
+                    <small>Keeps Digest, structured memory, and extraction records. Recreates every C0 locally from Digest, then rebuilds eligible recursive parent layers.</small>
                     <hr>
                     <button id="continuity_restart_build" class="menu_button redWarningBG"><i class="fa-solid fa-radiation"></i> Erase everything & start over</button>
-                    <small>Immediately erases all Continuity memory for this world, including Chronicle layers, reviewed corrections, structured books, L1, extraction records, retrieval cache, and vectors, then rebuilds from the first message. Each completed chunk is saved. No backup is saved.</small>
+                    <small>Immediately erases all Continuity memory for this world, including Chronicle layers, reviewed corrections, structured books, Digest, extraction records, retrieval cache, and vectors, then rebuilds from the first message. Each completed chunk is saved. No backup is saved.</small>
                 </details>
             </div>
 
@@ -477,7 +477,7 @@
                             <option value="events">Events</option>
                             <option value="threads">Open threads</option>
                             <option value="backgrounds">Background developments</option>
-                            <option value="l1" selected>L1</option>
+                            <option value="digest" selected>Digest</option>
                             <option value="corrections">Corrections</option>
                         </select>
                         <input id="continuity_viewer_search" class="text_pole" type="search" placeholder="Search this category…">
@@ -503,7 +503,7 @@
             <div class="continuity-card">
                 <details>
                     <summary>Correct memory</summary>
-                    <small>Describe a correction in plain language, including whether it changes an established fact or only one character's belief. Continuity finds matching stored records and shows every proposed change before anything is saved. Historical events enter L1 and rebuild affected Chronicle parents. Chat messages are never edited.</small>
+                    <small>Describe a correction in plain language, including whether it changes an established fact or only one character's belief. Continuity finds matching stored records and shows every proposed change before anything is saved. Historical events enter Digest and rebuild affected Chronicle parents. Chat messages are never edited.</small>
                     <label>Correction-review model
                         <select id="continuity_correction_profile" class="text_pole">
                             <option value="">Same as extraction model</option>

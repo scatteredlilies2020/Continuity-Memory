@@ -22,8 +22,8 @@ function stableHash(value) {
     return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
-export function l1AnchorId(meta) {
-    return `L1-${stableHash(meta?.chatKey)}-${Number(meta?.from)}-${Number(meta?.to)}`;
+export function digestAnchorId(meta) {
+    return `Digest-${stableHash(meta?.chatKey)}-${Number(meta?.from)}-${Number(meta?.to)}`;
 }
 
 function previousInFrame(world, meta, frame) {
@@ -33,13 +33,13 @@ function previousInFrame(world, meta, frame) {
         .sort((a, b) => Number(b.to) - Number(a.to) || Number(b.from) - Number(a.from))[0] || null;
 }
 
-export function buildL1TemporalAnchor(world, raw, meta) {
+export function buildDigestTemporalAnchor(world, raw, meta) {
     const frame = text(raw?.frame) || 'main narrative';
     const previous = previousInFrame(world, meta, frame);
     const requestedRelation = RELATIONS.has(raw?.relation) ? raw.relation : 'unknown';
     const certainty = CERTAINTIES.has(raw?.certainty) ? raw.certainty : 'unknown';
     return {
-        anchorId: l1AnchorId(meta),
+        anchorId: digestAnchorId(meta),
         frame,
         relation: previous ? requestedRelation : (requestedRelation === 'detached' ? 'detached' : 'unknown'),
         referenceId: previous?.temporal?.anchorId || '',
@@ -48,12 +48,12 @@ export function buildL1TemporalAnchor(world, raw, meta) {
     };
 }
 
-export function buildRelativeTemporalAnchor(raw, l1Temporal) {
+export function buildRelativeTemporalAnchor(raw, digestTemporal) {
     const certainty = CERTAINTIES.has(raw?.certainty) ? raw.certainty : 'unknown';
     return {
-        frame: text(raw?.frame) || l1Temporal?.frame || 'main narrative',
+        frame: text(raw?.frame) || digestTemporal?.frame || 'main narrative',
         relation: RELATIONS.has(raw?.relation) ? raw.relation : 'unknown',
-        referenceId: l1Temporal?.anchorId || '',
+        referenceId: digestTemporal?.anchorId || '',
         elapsed: certainty === 'explicit' ? text(raw?.elapsed) : '',
         certainty,
     };

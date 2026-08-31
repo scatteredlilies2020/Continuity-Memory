@@ -37,7 +37,7 @@ test('old source mutations cancel overlapping work and repair their suffix', () 
     });
 });
 
-test('allows one background L1 batch of headroom before roleplay must catch up', () => {
+test('allows one background Digest batch of headroom before roleplay must catch up', () => {
     assert.deepEqual(roleplayBacklogPolicy(1, 8), {
         pending: 1,
         eligible: 0,
@@ -66,7 +66,7 @@ test('excludes the provisional newest AI output from the catch-up boundary', () 
     assert.equal(roleplayBacklogPolicy([...eligible, { mes: 'Stable 15', is_user: true }].length, 8).shouldCatchUp, true);
 });
 
-test('scales the protected background headroom with the configured L1 group size', () => {
+test('scales the protected background headroom with the configured Digest group size', () => {
     assert.deepEqual(roleplayBacklogPolicy(23, 12), {
         pending: 23,
         eligible: 12,
@@ -109,7 +109,7 @@ test('describes memory work that delays roleplay generation', () => {
         queue: [{}, {}],
         progress: { from: 204, to: 211 },
     }, 48);
-    assert.match(message, /48 messages awaiting L1 extraction/);
+    assert.match(message, /48 messages awaiting Digest extraction/);
     assert.match(message, /currently processing messages 204–211/);
     assert.match(message, /2 queued memory jobs/);
     assert.match(message, /start automatically/);

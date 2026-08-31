@@ -138,7 +138,7 @@ test('incremental storage remains bounded for a 4000-message synthetic RP', asyn
         importance: (index % 5) + 1,
     }));
     created.world.extractions = Array.from({ length: 500 }, (_, index) => ({
-        id: `l1-${index}`,
+        id: `digest-${index}`,
         chatKey: 'long-chat',
         from: index * 8,
         to: index * 8 + 7,
@@ -155,7 +155,7 @@ test('incremental storage remains bounded for a 4000-message synthetic RP', asyn
     server.clearActivity();
     firstSave.world.facts.push({ id: 'fact-4000', subject: 'Character 0', predicate: 'remembers', value: 'Latest detail' });
     firstSave.world.events.push({ id: 'event-4000', summary: 'Latest event', importance: 5 });
-    firstSave.world.extractions.push({ id: 'l1-500', chatKey: 'long-chat', from: 4000, to: 4000, result: { summary: 'Latest extraction' } });
+    firstSave.world.extractions.push({ id: 'digest-500', chatKey: 'long-chat', from: 4000, to: 4000, result: { summary: 'Latest extraction' } });
     firstSave.world.sources['long-chat'].processedMessages.push({ index: 4000, fingerprint: 'fingerprint-4000', version: 2 });
     await api.saveWorld(firstSave.world);
 

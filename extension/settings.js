@@ -1,11 +1,11 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CANONICAL_THIRD_PERSON_RULE, CHARACTER_PROFILE_RULE, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, EXTREME_CANON_FIDELITY_RULE, EXTREME_SUMMARY_FIDELITY_RULE, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, L1_EPISTEMIC_COVERAGE_RULE, LEGACY_EPISTEMIC_MEMORY_RULES, OOC_META_AUTHORITY_RULE, PRE_ATOMIC_IDENTITY_L1_EPISTEMIC_COVERAGE_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRICT_OOC_META_AUTHORITY_RULE, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.15.0-testing.3';
-import { DEFAULT_L1_GROUP_SIZE } from './l1-policy.js';
+import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CANONICAL_THIRD_PERSON_RULE, CHARACTER_PROFILE_RULE, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, EXTREME_CANON_FIDELITY_RULE, EXTREME_SUMMARY_FIDELITY_RULE, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, DIGEST_EPISTEMIC_COVERAGE_RULE, LEGACY_EPISTEMIC_MEMORY_RULES, OOC_META_AUTHORITY_RULE, PRE_ATOMIC_IDENTITY_DIGEST_EPISTEMIC_COVERAGE_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRICT_OOC_META_AUTHORITY_RULE, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.15.0-testing.4';
+import { DEFAULT_DIGEST_GROUP_SIZE } from './digest-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
-import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.15.0-testing.3';
-import { retainLatestPromptRule } from './prompt-migration.js?v=0.15.0-testing.3';
+import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.15.0-testing.4';
+import { retainLatestPromptRule } from './prompt-migration.js?v=0.15.0-testing.4';
 
 export const EXTENSION_NAME = 'continuityMemory';
 
@@ -15,7 +15,7 @@ const DEFAULTS = Object.freeze({
     retrievalMode: 'ai-expanded',
     storySoFarEnabled: true,
     storySoFarTokens: 0,
-    storySourceMode: 'l1',
+    storySourceMode: 'digest',
     storyBatchMessages: 8,
     storyThinkingMode: 'auto',
     retrievalThinkingMode: 'auto',
@@ -40,7 +40,7 @@ const DEFAULTS = Object.freeze({
     injectionPosition: 'before-chat-history',
     injectionDepth: 4,
     injectionRole: 'user',
-    extractionBatchMessages: DEFAULT_L1_GROUP_SIZE,
+    extractionBatchMessages: DEFAULT_DIGEST_GROUP_SIZE,
     extractionChunkTokens: 0,
     correctionResponseTokens: DEFAULT_CORRECTION_RESPONSE_TOKENS,
     memoryProfileId: '',
@@ -213,16 +213,16 @@ export function getSettings() {
         settings.compactInjectionInstructionVersion = 1;
         saveSettingsDebounced();
     }
-    if (Number(settings.l1GroupDefaultVersion || 0) < 1) {
+    if (Number(settings.digestGroupDefaultVersion || 0) < 1) {
         if (settings.extractionBatchMessages === undefined || Number(settings.extractionBatchMessages) === 6) {
-            settings.extractionBatchMessages = DEFAULT_L1_GROUP_SIZE;
+            settings.extractionBatchMessages = DEFAULT_DIGEST_GROUP_SIZE;
         }
-        settings.l1GroupDefaultVersion = 1;
+        settings.digestGroupDefaultVersion = 1;
         saveSettingsDebounced();
     }
     if (Number(settings.hierarchyLabelVersion || 0) < 1) {
         if (String(settings.extractionSystemPrompt || '').includes('The sceneCapsule must preserve')) {
-            settings.extractionSystemPrompt = String(settings.extractionSystemPrompt).replace('The sceneCapsule must preserve', 'The L1 record in sceneCapsule must preserve');
+            settings.extractionSystemPrompt = String(settings.extractionSystemPrompt).replace('The sceneCapsule must preserve', 'The Digest record in sceneCapsule must preserve');
         }
         settings.hierarchyLabelVersion = 1;
         saveSettingsDebounced();
@@ -514,8 +514,8 @@ export function getSettings() {
     }
     if (Number(settings.epistemicPromptVersion || 0) < 7) {
         let extractionPrompt = String(settings.extractionSystemPrompt || PROMPT_DEFAULTS.extractionSystemPrompt);
-        if (!extractionPrompt.includes(L1_EPISTEMIC_COVERAGE_RULE)) {
-            extractionPrompt = `${extractionPrompt}\n${L1_EPISTEMIC_COVERAGE_RULE}`;
+        if (!extractionPrompt.includes(DIGEST_EPISTEMIC_COVERAGE_RULE)) {
+            extractionPrompt = `${extractionPrompt}\n${DIGEST_EPISTEMIC_COVERAGE_RULE}`;
         }
         settings.extractionSystemPrompt = extractionPrompt;
         settings.epistemicPromptVersion = 7;
@@ -543,8 +543,8 @@ export function getSettings() {
         );
         compactedPrompt = retainLatestPromptRule(
             compactedPrompt,
-            L1_EPISTEMIC_COVERAGE_RULE,
-            [PRE_ATOMIC_IDENTITY_L1_EPISTEMIC_COVERAGE_RULE],
+            DIGEST_EPISTEMIC_COVERAGE_RULE,
+            [PRE_ATOMIC_IDENTITY_DIGEST_EPISTEMIC_COVERAGE_RULE],
             ['For consequential secrets, identities,'],
         );
         if (compactedPrompt !== extractionPrompt || Number(settings.epistemicPromptVersion || 0) < 9) {

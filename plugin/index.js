@@ -9,7 +9,7 @@ import { cancelDetachedJob, createDetachedJob, getDetachedJob, listDetachedJobs 
 import { registerVectorRoutes } from './vector-store.js';
 
 const PLUGIN = 'continuity-memory';
-const VERSION = '0.15.0-testing.3';
+const VERSION = '0.15.0-testing.4';
 const SCHEMA_VERSION = 12;
 const STORAGE_VERSION = 2;
 const SHARD_CHUNK_SIZE = 128;
@@ -394,7 +394,7 @@ function counts(world) {
         events: world.events?.length || 0,
         narrativeCapsules: world.capsules?.length || 0,
         chronicleNodes: world.chronicle?.length || 0,
-        retryableL1: world.extractions?.length || 0,
+        retryableDigest: world.extractions?.length || 0,
         threads: world.threads?.length || 0,
         backgrounds: world.backgrounds?.length || 0,
         corrections: world.corrections?.length || 0,

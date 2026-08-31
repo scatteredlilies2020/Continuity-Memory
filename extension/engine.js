@@ -6,38 +6,38 @@ import { oai_settings, openai_setting_names, openai_settings, proxies } from '/s
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError, isTransientApiError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.3';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.4';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { normalizeHierarchyResult } from './hierarchy-result.js';
-import { completeL1Messages, latestCompleteL1MessageIndex, l1StabilityRepairFrom, L1_STABILITY_BUFFER_MESSAGES, partitionL1StabilityBuffer, partitionPendingL1Messages, resolveL1GroupSize, selectAutomaticL1Messages } from './l1-policy.js';
+import { completeDigestMessages, latestCompleteDigestMessageIndex, digestStabilityRepairFrom, DIGEST_STABILITY_BUFFER_MESSAGES, partitionDigestStabilityBuffer, partitionPendingDigestMessages, resolveDigestGroupSize, selectAutomaticDigestMessages } from './digest-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.3';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.4';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
-import { addDerivedChronicle, freshResetResiduals, getLatestL1UndoStatus as inspectLatestL1Undo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestL1Extraction } from './memory-model.js';
+import { addDerivedChronicle, freshResetResiduals, getLatestDigestUndoStatus as inspectLatestDigestUndo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens, storyResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.3';
-import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.3';
+import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.4';
+import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.4';
 import { embedWorldInChat } from './portable.js';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.3';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_QUALITY_RULE, ROLLING_STORY_QUALITY_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, ROLLING_STORY_VERIFY_RULE, ROLLING_STORY_VERIFY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.3';
-import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.3';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.3';
-import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.3';
-import { isRuntimeCancellation, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.3';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.3';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.4';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_QUALITY_RULE, ROLLING_STORY_QUALITY_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, ROLLING_STORY_VERIFY_RULE, ROLLING_STORY_VERIFY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.4';
+import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.4';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.4';
+import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.4';
+import { isRuntimeCancellation, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.4';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.4';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { dynamicStoryRefineSourceChunk, dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.15.0-testing.3';
-import { storyCompressionTarget, storyGenerationTargets } from './story-output-policy.js?v=0.15.0-testing.3';
-import { resolveStoryRequestProfile } from './story-profile.js?v=0.15.0-testing.3';
-import { resolveProfileThinkingMode } from './story-thinking.js?v=0.15.0-testing.3';
-import { alignStoryRebuildTarget, completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, stableStoryMessages, storyChunkMessageLimit } from './story-cadence.js?v=0.15.0-testing.3';
-import { compileRollingStorySnapshot, ROLLING_STORY_SNAPSHOT_EXAMPLE, ROLLING_STORY_SNAPSHOT_SCHEMA } from './story-snapshot.js?v=0.15.0-testing.3';
-import { planStoryMutationRecovery, withStoryCheckpoint } from './story-checkpoints.js?v=0.15.0-testing.3';
-import { buildStorySourceUnits, isCurrentStorySnapshot, resolveStorySourceMode, storedStorySourceMode, storySourceModeLabel, storySourcePolicyIsCurrent, STORY_FORMAT_MANUAL, STORY_SOURCE_L1, STORY_SOURCE_POLICY_VERSION } from './story-source.js?v=0.15.0-testing.3';
-import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.3';
+import { dynamicStoryRefineSourceChunk, dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.15.0-testing.4';
+import { storyCompressionTarget, storyGenerationTargets } from './story-output-policy.js?v=0.15.0-testing.4';
+import { resolveStoryRequestProfile } from './story-profile.js?v=0.15.0-testing.4';
+import { resolveProfileThinkingMode } from './story-thinking.js?v=0.15.0-testing.4';
+import { alignStoryRebuildTarget, completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, stableStoryMessages, storyChunkMessageLimit } from './story-cadence.js?v=0.15.0-testing.4';
+import { compileRollingStorySnapshot, ROLLING_STORY_SNAPSHOT_EXAMPLE, ROLLING_STORY_SNAPSHOT_SCHEMA } from './story-snapshot.js?v=0.15.0-testing.4';
+import { planStoryMutationRecovery, withStoryCheckpoint } from './story-checkpoints.js?v=0.15.0-testing.4';
+import { buildStorySourceUnits, isCurrentStorySnapshot, resolveStorySourceMode, storedStorySourceMode, storySourceModeLabel, storySourcePolicyIsCurrent, STORY_FORMAT_MANUAL, STORY_SOURCE_DIGEST, STORY_SOURCE_POLICY_VERSION } from './story-source.js?v=0.15.0-testing.4';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.4';
 import { nextChroniclePromotion } from './chronicle.js';
 
 const temporalRelationSchema = {
@@ -284,8 +284,8 @@ const CORRECTION_SYSTEM_PROMPT = `You repair structured roleplay continuity memo
 The correction is authoritative only for the scope it states. Distinguish established facts from attributed facts whose category is "character belief". "That never happened" can change facts, events, and chronology; "Alice was wrong about it" changes only the fact about Alice's belief and does not establish what actually happened. "Bob was never told" adds or updates a persistent fact with Bob as subject, predicate "knowledge of CANONICAL_TOPIC", category "knowledge boundary", and an explicit value describing what Bob does not know; it may also add or update one open thread when the pending reveal is consequential. "Bob learned it" updates that same boundary fact to the established knowledge state and resolves the thread. If the roleplay has not established what happened, do not invent a fact or event about it.
 Change only records that conflict with the correction or are necessary to preserve it.
 Use exact category names and target IDs from the supplied candidate records. For update, return the complete corrected public record as JSON encoded inside recordJson. For delete, use "{}". For add, leave targetId empty and return the complete new record.
-Check every relevant representation of the mistake. In particular, update or remove an L1 capsule when it repeats the incorrect event; otherwise derived summaries can relearn the error.
-Do not alter unrelated details, invent unsupported events, create new L1 capsules, or edit chat messages. Return JSON only.`;
+Check every relevant representation of the mistake. In particular, update or remove a Digest capsule when it repeats the incorrect event; otherwise derived summaries can relearn the error.
+Do not alter unrelated details, invent unsupported events, create new Digest capsules, or edit chat messages. Return JSON only.`;
 
 const ARC_JSON_SHAPE_EXAMPLE = JSON.stringify({
     title: '', storyTime: '', participants: [], summary: '', turningPoints: [],
@@ -594,7 +594,7 @@ function prepareExtractionPrompts(messages, world = runtime.world) {
 }
 
 async function requestExtraction(prompt, systemPrompt, fallbackPrompt = prompt) {
-    return requestStructured(prompt, systemPrompt, extractionJsonSchema, memoryResponseTokens('l1'), undefined, 'extraction', fallbackPrompt);
+    return requestStructured(prompt, systemPrompt, extractionJsonSchema, memoryResponseTokens('digest'), undefined, 'extraction', fallbackPrompt);
 }
 
 function directRequestConfig(kind) {
@@ -713,7 +713,7 @@ async function requestDirectStructured(prompt, systemPrompt, jsonSchema, respons
 }
 
 function reviewStatus(review) {
-    if (review.layer === 'L1') return `Review L1 extracted memory for messages ${review.from}–${review.to} before it is saved.`;
+    if (review.layer === 'Digest') return `Review Digest extracted memory for messages ${review.from}–${review.to} before it is saved.`;
     if (/^C\d+$/.test(review.layer)) {
         const sourceLayer = `C${Math.max(0, Number(review.layer.slice(1)) - 1)}`;
         return `Review ${review.layer} Chronicle parent from ${review.sourceCount} ${sourceLayer} node(s) before it is saved.`;
@@ -738,7 +738,7 @@ async function reviewMemoryBeforeSave(result, meta, validate, regenerate = null)
 }
 
 async function reviewExtractionBeforeSave(result, world, messages, meta = {}, regenerate = null) {
-    return reviewMemoryBeforeSave(result, { ...meta, layer: 'L1' }, candidate => validateResult(candidate, world, messages).result, regenerate);
+    return reviewMemoryBeforeSave(result, { ...meta, layer: 'Digest' }, candidate => validateResult(candidate, world, messages).result, regenerate);
 }
 
 async function reviewHierarchyBeforeSave(result, layer, sources, reason = 'hierarchy', regenerate = null) {
@@ -1108,7 +1108,7 @@ async function regenerateRollingStory(priorStory, messages, expectedEpoch = runt
 
 function detachedRequestBodies({ prompt, fallbackPrompt, systemPrompt, usesStructuredSchema }, {
     jsonSchema = extractionJsonSchema,
-    layer = 'l1',
+    layer = 'digest',
     profileId = getSettings().memoryProfileId,
     directKind = 'extraction',
     thinkingMode: configuredThinkingMode = null,
@@ -1269,7 +1269,7 @@ function prepareDetachedHierarchyPlan() {
             chronicle,
         };
     } catch (error) {
-        console.warn('[Continuity] Detached Chronicle promotion could not be prepared; detached L1 will continue safely.', error);
+        console.warn('[Continuity] Detached Chronicle promotion could not be prepared; detached Digest will continue safely.', error);
         return null;
     }
 }
@@ -1300,9 +1300,9 @@ async function waitForDetachedJob(id, worldId = '') {
                 await embedWorldInChat(world);
                 syncedChunks = Number(job.chunks) || syncedChunks;
             } catch (error) {
-                // Canonical L1 is already safe in server storage. A temporary
+                // Canonical Digest is already safe in server storage. A temporary
                 // browser refresh failure must not cancel the detached job.
-                console.warn('[Continuity] Could not refresh saved detached L1 progress yet.', error);
+                console.warn('[Continuity] Could not refresh saved detached Digest progress yet.', error);
             }
         }
         if (job.status === 'complete') return job;
@@ -1686,17 +1686,17 @@ async function requireRetryStorage() {
         health = await api.health();
         updateRuntime({ health });
     }
-    if (Number(health.schemaVersion) < 5) throw new Error('Restart SillyTavern once to activate editable L1 storage.');
+    if (Number(health.schemaVersion) < 5) throw new Error('Restart SillyTavern once to activate editable Digest storage.');
 }
 
-function latestCurrentCompleteL1Index() {
+function latestCurrentCompleteDigestIndex() {
     const messages = collectMemoryEligibleMessages(getContext().chat || []);
-    const stableMessages = partitionL1StabilityBuffer(messages).extractable;
-    return latestCompleteL1MessageIndex(stableMessages, getSettings().extractionBatchMessages);
+    const stableMessages = partitionDigestStabilityBuffer(messages).extractable;
+    return latestCompleteDigestMessageIndex(stableMessages, getSettings().extractionBatchMessages);
 }
 
 function retryTargets(world, layer) {
-    if (layer === 'l1') {
+    if (layer === 'digest') {
         const chatKey = getChatKey();
         return (world.capsules || []).filter(item => item.chatKey === chatKey)
             .slice().sort((a, b) => Number(b.to ?? 0) - Number(a.to ?? 0));
@@ -1704,12 +1704,12 @@ function retryTargets(world, layer) {
     return [];
 }
 
-async function saveRetriedL1(worldId, target, result, messages) {
+async function saveRetriedDigest(worldId, target, result, messages) {
     const apply = world => replaceExtraction(world, result, {
         chatKey: target.chatKey,
         from: target.from,
         to: target.to,
-        allowStateUpdates: Number(target.to) >= latestCurrentCompleteL1Index(),
+        allowStateUpdates: Number(target.to) >= latestCurrentCompleteDigestIndex(),
         messageFingerprints: messages.map(message => ({ index: message.index, fingerprint: fingerprintMessage(message) })),
     });
     let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
@@ -1727,7 +1727,7 @@ async function saveRetriedL1(worldId, target, result, messages) {
 }
 
 export async function retryMemoryLayer({ layer, targetId = 'latest', all = false } = {}) {
-    if (layer !== 'l1') throw new Error('Only L1 extraction records can be retried.');
+    if (layer !== 'digest') throw new Error('Only Digest extraction records can be retried.');
     if (runtime.processing) throw new Error('Wait for current processing to finish.');
     const worldId = getBoundWorldId();
     if (!worldId) throw new Error('Open a chat and prepare its memory first.');
@@ -1751,7 +1751,7 @@ export async function retryMemoryLayer({ layer, targetId = 'latest', all = false
             let result = await extractChunk(messages);
             result = await reviewExtractionBeforeSave(result, runtime.world, messages, { from: target.from, to: target.to, reason: 'retry' }, () => extractChunk(messages));
             if (runtime.generation !== epoch) throw new Error('Retry stopped; the current generated result was discarded.');
-            await saveRetriedL1(worldId, target, result, messages);
+            await saveRetriedDigest(worldId, target, result, messages);
             retried++;
             updateRuntime({ retryStatus: `Rebuilt ${retried}/${targets.length} ${layer.toUpperCase()} item(s).` });
         }
@@ -1803,7 +1803,7 @@ export async function syncChangedExtractions(force = false) {
                     chatKey,
                     from: target.from,
                     to: target.to,
-                    allowStateUpdates: Number(target.to) >= latestCurrentCompleteL1Index(),
+                    allowStateUpdates: Number(target.to) >= latestCurrentCompleteDigestIndex(),
                     messageFingerprints: messages.map(message => ({ index: message.index, fingerprint: fingerprintMessage(message) })),
                 });
             }
@@ -1927,8 +1927,8 @@ export async function refineRollingStory() {
         if (!coveredMessages.length) throw new Error('The stored Story has no covered source available to review.');
         const sourceBreakdown = buildStorySourceUnits(coveredMessages, world.capsules, chatKey, sourceMode, through);
         if (sourceBreakdown.blockedFrom !== null || !sourceBreakdown.units.length) {
-            throw new Error(sourceMode === STORY_SOURCE_L1
-                ? `Story refinement is waiting for the missing L1 summary beginning at message ${Number(sourceBreakdown.blockedFrom ?? 0) + 1}.`
+            throw new Error(sourceMode === STORY_SOURCE_DIGEST
+                ? `Story refinement is waiting for the missing Digest summary beginning at message ${Number(sourceBreakdown.blockedFrom ?? 0) + 1}.`
                 : 'The stored Story source is unavailable for refinement.');
         }
         const allowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext).tokens;
@@ -2027,7 +2027,7 @@ async function runManualRollingStory(rebuildFromBeginning) {
     let plan;
     let messages = [];
     let sourceUnits = [];
-    let sourceBreakdown = { l1Count: 0, rawCount: 0, blockedFrom: null };
+    let sourceBreakdown = { digestCount: 0, rawCount: 0, blockedFrom: null };
     let chunks = [];
     let checkpointState = null;
     let action = rebuildFromBeginning ? 'Rebuilding' : 'Building';
@@ -2061,42 +2061,42 @@ async function runManualRollingStory(rebuildFromBeginning) {
         previous = world.storySoFar?.[chatKey];
         const settings = getSettings();
         const sourceMode = resolveStorySourceMode(settings.storySourceMode);
-        if (sourceMode === STORY_SOURCE_L1) {
-            if (!settings.enabled) throw new Error('Continuity is disabled. Enable it before building an L1-sourced Story.');
+        if (sourceMode === STORY_SOURCE_DIGEST) {
+        if (!settings.enabled) throw new Error('Continuity is disabled. Enable it before building a Digest-sourced Story.');
             if (runtime.processing || runtime.queue.length) throw new Error('Wait for current memory processing to finish before building Story so far.');
             if (runtime.paused) resumeRuntime();
-            let completedL1Messages = 0;
+            let completedDigestMessages = 0;
             while (true) {
                 const coverage = getProcessingCoverage(runtime.world || world, allMessages);
-                const eligible = completeL1Messages(coverage.extractableMessages, settings.extractionBatchMessages).length;
+                const eligible = completeDigestMessages(coverage.extractableMessages, settings.extractionBatchMessages).length;
                 if (!eligible) break;
                 updateRuntime({
-                    storyRetryStatus: `Preparing L1-sourced Story: completing ${eligible} eligible message(s) into L1 first…`,
-                    storyProgress: { phase: 'pending', label: 'completing required L1 summaries', from: coverage.extractableMessages[0]?.index, to: coverage.extractableMessages[eligible - 1]?.index },
+                    storyRetryStatus: `Preparing Digest-sourced Story: completing ${eligible} eligible message(s) into Digest first…`,
+                    storyProgress: { phase: 'pending', label: 'completing required Digest summaries', from: coverage.extractableMessages[0]?.index, to: coverage.extractableMessages[eligible - 1]?.index },
                 });
                 const before = coverage.extractable;
                 const result = await maybeAutoExtract(true, allMessages);
-                if (!result || result.cancelled) throw new Error('The required L1 extraction stopped before Story so far could be built.');
+                if (!result || result.cancelled) throw new Error('The required Digest extraction stopped before Story so far could be built.');
                 const after = getProcessingCoverage(runtime.world, allMessages);
                 const advanced = Math.max(0, before - after.extractable);
-                if (!advanced) throw new Error(`L1 extraction made no progress; ${after.extractable} eligible message(s) remain pending.`);
-                completedL1Messages += advanced;
+                if (!advanced) throw new Error(`Digest extraction made no progress; ${after.extractable} eligible message(s) remain pending.`);
+                completedDigestMessages += advanced;
                 world = runtime.world || world;
                 savedWorld = world;
             }
-            if (completedL1Messages) {
-                updateRuntime({ storyRetryStatus: `Completed ${completedL1Messages} message(s) into L1; preparing Story so far…` });
+            if (completedDigestMessages) {
+                updateRuntime({ storyRetryStatus: `Completed ${completedDigestMessages} message(s) into Digest; preparing Story so far…` });
             }
         }
-        const requiredL1Through = sourceMode === STORY_SOURCE_L1
-            ? latestCompleteL1MessageIndex(allMessages, settings.extractionBatchMessages)
+        const requiredDigestThrough = sourceMode === STORY_SOURCE_DIGEST
+            ? latestCompleteDigestMessageIndex(allMessages, settings.extractionBatchMessages)
             : -1;
-        const availableMessages = sourceMode === STORY_SOURCE_L1
-            ? allMessages.filter(message => Number(message.index) <= requiredL1Through)
+        const availableMessages = sourceMode === STORY_SOURCE_DIGEST
+            ? allMessages.filter(message => Number(message.index) <= requiredDigestThrough)
             : allMessages;
-        if (!availableMessages.length && sourceMode === STORY_SOURCE_L1) {
-            updateRuntime({ storyStatus: 'idle', storyProgress: null, storyLastError: '', storyFailure: null, storyRetryStatus: 'Story is waiting for the first completed L1 summary.' });
-            return { world, messages: 0, batches: 0, resumed: false, rebuilt: false, waitingL1: true };
+        if (!availableMessages.length && sourceMode === STORY_SOURCE_DIGEST) {
+            updateRuntime({ storyStatus: 'idle', storyProgress: null, storyLastError: '', storyFailure: null, storyRetryStatus: 'Story is waiting for the first completed Digest summary.' });
+            return { world, messages: 0, batches: 0, resumed: false, rebuilt: false, waitingDigest: true };
         }
         const sourceChanged = Boolean(previous?.text) && (storedStorySourceMode(previous) !== sourceMode || !storySourcePolicyIsCurrent(previous, sourceMode));
         plan = rebuildFromBeginning || sourceChanged
@@ -2117,12 +2117,12 @@ async function runManualRollingStory(rebuildFromBeginning) {
             world = await persistRollingStory(worldId, chatKey, { ...rollingStoryRebuildCheckpoint(plan), sourceMode, sourcePolicyVersion: STORY_SOURCE_POLICY_VERSION, storyFormat: STORY_FORMAT_MANUAL });
             savedWorld = world;
         }
-        sourceBreakdown = buildStorySourceUnits(messages, world.capsules, chatKey, sourceMode, requiredL1Through);
+        sourceBreakdown = buildStorySourceUnits(messages, world.capsules, chatKey, sourceMode, requiredDigestThrough);
         sourceUnits = sourceBreakdown.units;
         if (!sourceUnits.length && sourceBreakdown.blockedFrom !== null) {
-            const waiting = `Story is waiting for L1 extraction beginning at message ${sourceBreakdown.blockedFrom + 1}.`;
+            const waiting = `Story is waiting for Digest extraction beginning at message ${sourceBreakdown.blockedFrom + 1}.`;
             updateRuntime({ storyStatus: 'idle', storyProgress: null, storyLastError: '', storyFailure: null, storyRetryStatus: waiting });
-            return { world: savedWorld, messages: 0, batches: 0, resumed: false, rebuilt: rebuildFromBeginning || sourceChanged, waitingL1: true };
+            return { world: savedWorld, messages: 0, batches: 0, resumed: false, rebuilt: rebuildFromBeginning || sourceChanged, waitingDigest: true };
         }
         const allowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext).tokens;
         const rollingChunkLimit = dynamicStorySourceChunk(getContext().maxContext, allowance, true);
@@ -2137,7 +2137,7 @@ async function runManualRollingStory(rebuildFromBeginning) {
         updateRuntime({
             storyStatus: rebuildFromBeginning ? 'rebuilding-story' : 'updating-story',
             storyProgress: { phase: 'processing', current: 0, total: chunks.length, from: sourceUnits[0]?.sourceFrom ?? sourceUnits[0]?.index, to: sourceUnits.at(-1)?.index },
-            storyRetryStatus: `${action} Story so far from ${sourceMode === STORY_SOURCE_L1 ? `${sourceBreakdown.l1Count} completed L1 summary record(s)` : `${sourceBreakdown.rawCount} raw message(s)`}…`,
+            storyRetryStatus: `${action} Story so far from ${sourceMode === STORY_SOURCE_DIGEST ? `${sourceBreakdown.digestCount} completed Digest summary record(s)` : `${sourceBreakdown.rawCount} raw message(s)`}…`,
         });
         for (let index = 0; index < chunks.length; index++) {
             if (runtime.storyGeneration !== epoch) {
@@ -2165,7 +2165,7 @@ async function runManualRollingStory(rebuildFromBeginning) {
                 sourceMode,
                 sourcePolicyVersion: STORY_SOURCE_POLICY_VERSION,
                 storyFormat: STORY_FORMAT_MANUAL,
-                rebuiltFromRawChat: sourceMode !== STORY_SOURCE_L1,
+                rebuiltFromRawChat: sourceMode !== STORY_SOURCE_DIGEST,
                 rebuildIncomplete: incomplete,
                 rebuildRestartPending: false,
                 rebuildTargetTo: plan.targetTo,
@@ -2175,14 +2175,14 @@ async function runManualRollingStory(rebuildFromBeginning) {
         await embedWorldInChat(savedWorld);
         const processedThrough = Number(checkpointState?.to ?? -1);
         const processedMessages = messages.filter(message => Number(message.index) <= processedThrough).length;
-        const sourceDescription = sourceMode === STORY_SOURCE_L1
-            ? `${sourceBreakdown.l1Count} completed L1 summary record(s)`
+        const sourceDescription = sourceMode === STORY_SOURCE_DIGEST
+            ? `${sourceBreakdown.digestCount} completed Digest summary record(s)`
             : `${sourceBreakdown.rawCount} raw message(s)`;
-        const waitingSuffix = sourceBreakdown.blockedFrom === null ? '' : ` Waiting for L1 extraction at message ${sourceBreakdown.blockedFrom + 1}.`;
+        const waitingSuffix = sourceBreakdown.blockedFrom === null ? '' : ` Waiting for Digest extraction at message ${sourceBreakdown.blockedFrom + 1}.`;
         updateRuntime({ storyStatus: 'idle', storyProgress: null, storyFailure: null, storyRetryStatus: rebuildFromBeginning || sourceChanged
             ? `Rebuild processed ${sourceDescription} in ${chunks.length} batch(es).${waitingSuffix}`
             : `Story so far ${plan.resuming ? 'continued' : previous?.text ? 'advanced' : 'built'} from ${sourceDescription} in ${chunks.length} batch(es).${waitingSuffix}` });
-        return { world: savedWorld, messages: processedMessages, batches: chunks.length, resumed: plan.resuming, rebuilt: rebuildFromBeginning || sourceChanged, waitingL1: sourceBreakdown.blockedFrom !== null, l1Records: sourceBreakdown.l1Count, rawMessages: sourceBreakdown.rawCount };
+        return { world: savedWorld, messages: processedMessages, batches: chunks.length, resumed: plan.resuming, rebuilt: rebuildFromBeginning || sourceChanged, waitingDigest: sourceBreakdown.blockedFrom !== null, digestRecords: sourceBreakdown.digestCount, rawMessages: sourceBreakdown.rawCount };
     } catch (error) {
         if (isRuntimeCancellation(error)) updateRuntime({ storyStatus: 'idle', storyProgress: null, storyLastError: '', storyFailure: null, storyRetryStatus: error.message });
         else {
@@ -2231,24 +2231,24 @@ export async function maybeAutoUpdateRollingStory(sourceMessages = null) {
         return null;
     }
     if (previous?.rebuildRestartPending) return buildRollingStory();
-    const requiredL1Through = sourceMode === STORY_SOURCE_L1
-        ? latestCompleteL1MessageIndex(messages, settings.extractionBatchMessages)
+    const requiredDigestThrough = sourceMode === STORY_SOURCE_DIGEST
+        ? latestCompleteDigestMessageIndex(messages, settings.extractionBatchMessages)
         : -1;
-    const availableMessages = sourceMode === STORY_SOURCE_L1
-        ? messages.filter(message => Number(message.index) <= requiredL1Through)
+    const availableMessages = sourceMode === STORY_SOURCE_DIGEST
+        ? messages.filter(message => Number(message.index) <= requiredDigestThrough)
         : messages;
     if (!availableMessages.length) return null;
     const rebuilding = Boolean(previous?.rebuildIncomplete && previous?.text && Number.isFinite(Number(previous?.rebuildTargetTo)));
-    const rebuildTargetTo = alignStoryRebuildTarget(previous, sourceMode, requiredL1Through);
+    const rebuildTargetTo = alignStoryRebuildTarget(previous, sourceMode, requiredDigestThrough);
     const pending = availableMessages.filter(message => Number(message.index) > Number(previous?.to ?? -1)
         && (!rebuilding || Number(message.index) <= rebuildTargetTo));
     const batchSize = resolveStoryBatchMessages(settings.storyBatchMessages);
     const ready = rebuilding ? pending : completeStoryMessages(pending, batchSize);
     if (!ready.length) return null;
-    const sourceBreakdown = buildStorySourceUnits(ready, world.capsules, chatKey, sourceMode, requiredL1Through);
+    const sourceBreakdown = buildStorySourceUnits(ready, world.capsules, chatKey, sourceMode, requiredDigestThrough);
     const sourceUnits = sourceBreakdown.units;
     if (!sourceUnits.length && sourceBreakdown.blockedFrom !== null) {
-        updateRuntime({ storyRetryStatus: `Story is waiting for L1 extraction beginning at message ${sourceBreakdown.blockedFrom + 1}.` });
+        updateRuntime({ storyRetryStatus: `Story is waiting for Digest extraction beginning at message ${sourceBreakdown.blockedFrom + 1}.` });
         return null;
     }
     if (runtime.storyProcessing) return null;
@@ -2263,7 +2263,7 @@ export async function maybeAutoUpdateRollingStory(sourceMessages = null) {
         storyLastError: '',
         storyFailure: null,
         storyProgress: { phase: 'pending', current: 0, total: 0, from: ready[0]?.index, to: ready.at(-1)?.index },
-        storyRetryStatus: `${rebuilding ? 'Resuming interrupted' : previous?.text ? 'Updating' : 'Building'} Story so far from ${sourceMode === STORY_SOURCE_L1 ? `${sourceBreakdown.l1Count} completed L1 summary record(s)` : `${sourceBreakdown.rawCount} raw message(s)`}…`,
+        storyRetryStatus: `${rebuilding ? 'Resuming interrupted' : previous?.text ? 'Updating' : 'Building'} Story so far from ${sourceMode === STORY_SOURCE_DIGEST ? `${sourceBreakdown.digestCount} completed Digest summary record(s)` : `${sourceBreakdown.rawCount} raw message(s)`}…`,
     });
     try {
         await requireRetryStorage();
@@ -2303,7 +2303,7 @@ export async function maybeAutoUpdateRollingStory(sourceMessages = null) {
                 sourceMode,
                 sourcePolicyVersion: STORY_SOURCE_POLICY_VERSION,
                 storyFormat: STORY_FORMAT_MANUAL,
-                rebuiltFromRawChat: sourceMode !== STORY_SOURCE_L1,
+                rebuiltFromRawChat: sourceMode !== STORY_SOURCE_DIGEST,
                 rebuildIncomplete: rebuilding && (index < chunks.length - 1 || sourceBreakdown.blockedFrom !== null),
                 ...(rebuilding ? { rebuildTargetTo } : {}),
             }, availableMessages, fingerprintMessage);
@@ -2312,9 +2312,9 @@ export async function maybeAutoUpdateRollingStory(sourceMessages = null) {
         await embedWorldInChat(savedWorld);
         const processedThrough = Number(checkpointState?.to ?? -1);
         const processedMessages = ready.filter(message => Number(message.index) <= processedThrough).length;
-        const waitingSuffix = sourceBreakdown.blockedFrom === null ? '' : ` Waiting for L1 extraction at message ${sourceBreakdown.blockedFrom + 1}.`;
+        const waitingSuffix = sourceBreakdown.blockedFrom === null ? '' : ` Waiting for Digest extraction at message ${sourceBreakdown.blockedFrom + 1}.`;
         updateRuntime({ storyStatus: 'idle', storyProgress: null, storyFailure: null, storyRetryStatus: `Story so far advanced through ${processedMessages} eligible message(s) using ${storySourceModeLabel(sourceMode)}.${waitingSuffix}` });
-        return { world: savedWorld, messages: processedMessages, batches: chunks.length, fresh: !previous?.text, waitingL1: sourceBreakdown.blockedFrom !== null, l1Records: sourceBreakdown.l1Count, rawMessages: sourceBreakdown.rawCount };
+        return { world: savedWorld, messages: processedMessages, batches: chunks.length, fresh: !previous?.text, waitingDigest: sourceBreakdown.blockedFrom !== null, digestRecords: sourceBreakdown.digestCount, rawMessages: sourceBreakdown.rawCount };
     } catch (error) {
         if (isRuntimeCancellation(error)) updateRuntime({ storyStatus: 'idle', storyProgress: null, storyLastError: '', storyFailure: null, storyRetryStatus: error.message });
         else {
@@ -2368,7 +2368,7 @@ export async function eraseAllMemory() {
     }
 }
 
-export async function restartL1FromScratch(afterReset = null) {
+export async function restartDigestFromScratch(afterReset = null) {
     if (runtime.processing || runtime.storyProcessing) throw new Error('Wait for current memory and Story processing to finish.');
     const worldId = getBoundWorldId();
     const chatKey = getChatKey();
@@ -2377,11 +2377,11 @@ export async function restartL1FromScratch(afterReset = null) {
     await requireRetryStorage();
     const allMessages = collectMemoryEligibleMessages(chat);
     if (!allMessages.length) throw new Error('This chat has no processable messages.');
-    const groupSize = resolveL1GroupSize(getSettings().extractionBatchMessages);
-    const stability = partitionL1StabilityBuffer(allMessages);
-    const messages = completeL1Messages(stability.extractable, groupSize);
+    const groupSize = resolveDigestGroupSize(getSettings().extractionBatchMessages);
+    const stability = partitionDigestStabilityBuffer(allMessages);
+    const messages = completeDigestMessages(stability.extractable, groupSize);
     const pendingTail = allMessages.length - messages.length;
-    if (!messages.length) throw new Error(`At least ${groupSize + L1_STABILITY_BUFFER_MESSAGES} processable messages are required for the first L1 record while preserving the ${L1_STABILITY_BUFFER_MESSAGES}-message stability buffer.`);
+    if (!messages.length) throw new Error(`At least ${groupSize + DIGEST_STABILITY_BUFFER_MESSAGES} processable messages are required for the first Digest record while preserving the ${DIGEST_STABILITY_BUFFER_MESSAGES}-message stability buffer.`);
     runtime.generation++;
     const queued = runtime.queue.splice(0);
     for (const job of queued) job.reject?.(new Error('Start Over cleared the processing queue.'));
@@ -2390,7 +2390,7 @@ export async function restartL1FromScratch(afterReset = null) {
     updateRuntime({ processing: true, paused: false, status: 'restarting', progress: null, lastError: '', retryStatus: 'Erasing all Continuity memory before the fresh build…' });
     try {
         const world = await persistVerifiedEmptyWorld(worldId);
-        updateRuntime({ world, retryStatus: 'All old Continuity memory was erased and verified empty. Preparing the first fresh L1 chunks…' });
+        updateRuntime({ world, retryStatus: 'All old Continuity memory was erased and verified empty. Preparing the first fresh Digest chunks…' });
         await embedWorldInChat(world);
         if (typeof afterReset === 'function') afterReset(world);
 
@@ -2400,7 +2400,7 @@ export async function restartL1FromScratch(afterReset = null) {
             const chunk = chunks[index].messages;
             updateRuntime({
                 progress: { current: index + 1, total: chunks.length, from: chunk[0].index, to: chunk.at(-1).index, inputTokens: chunks[index].tokens },
-                retryStatus: `Rebuilding fresh L1 chunk ${index + 1}/${chunks.length}; each completed chunk is saved.`,
+                retryStatus: `Rebuilding fresh Digest chunk ${index + 1}/${chunks.length}; each completed chunk is saved.`,
             });
             let result = await extractChunk(chunk);
             result = await reviewExtractionBeforeSave(result, runtime.world, chunk, { from: chunk[0].index, to: chunk.at(-1).index, reason: 'fresh-rebuild' }, () => extractChunk(chunk));
@@ -2419,7 +2419,7 @@ export async function restartL1FromScratch(afterReset = null) {
         updateRuntime({
             status: 'idle',
             progress: null,
-            retryStatus: `Fresh L1 build complete: ${messages.length} messages in ${chunks.length} saved chunk(s)${pendingTail ? `; ${pendingTail} recent message(s) remain raw, including the ${stability.buffered.length}-message stability buffer` : ''}.`,
+            retryStatus: `Fresh Digest build complete: ${messages.length} messages in ${chunks.length} saved chunk(s)${pendingTail ? `; ${pendingTail} recent message(s) remain raw, including the ${stability.buffered.length}-message stability buffer` : ''}.`,
         });
         return { messages: messages.length, chunks: chunks.length, completedChunks, pendingTail, bufferedMessages: stability.buffered.length };
     } catch (error) {
@@ -2438,7 +2438,7 @@ export async function restartL1FromScratch(afterReset = null) {
     }
 }
 
-export async function restartHierarchyFromL1() {
+export async function restartHierarchyFromDigest() {
     if (runtime.processing) throw new Error('Wait for current processing to finish.');
     const worldId = getBoundWorldId();
     if (!worldId) throw new Error('Open a chat with Continuity memory first.');
@@ -2447,11 +2447,11 @@ export async function restartHierarchyFromL1() {
     const epoch = runtime.generation;
     const queued = runtime.queue.splice(0);
     for (const job of queued) job.reject?.(new Error('Chronicle rebuild cleared the processing queue.'));
-    updateRuntime({ processing: true, paused: false, status: 'restarting', progress: null, lastError: '', retryStatus: 'Preparing a complete replacement Chronicle from preserved L1…' });
+    updateRuntime({ processing: true, paused: false, status: 'restarting', progress: null, lastError: '', retryStatus: 'Preparing a complete replacement Chronicle from preserved Digest…' });
     try {
         let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
-        if (!(world.capsules || []).length) throw new Error('There are no L1 records to build Chronicle parents from. Use Build or erase everything and start over.');
-        const l1Kept = world.capsules.length;
+        if (!(world.capsules || []).length) throw new Error('There are no Digest records to build Chronicle parents from. Use Build or erase everything and start over.');
+        const digestKept = world.capsules.length;
         const baseRevision = Number(world.revision) || 0;
         resetWorldHierarchy(world);
         let chroniclePromotions = 0;
@@ -2481,9 +2481,9 @@ export async function restartHierarchyFromL1() {
             if (error.status === 409) throw new Error(`Memory changed while the replacement Chronicle was being built (started at revision ${baseRevision}). Nothing was replaced; run the rebuild again.`);
             throw error;
         }
-        updateRuntime({ world, status: 'idle', arcStatus: `Replacement Chronicle committed with ${chroniclePromotions} promotion(s).`, retryStatus: `Atomically rebuilt ${l1Kept} C0 record(s) and ${chroniclePromotions} eligible parent node(s) from preserved L1.` });
+        updateRuntime({ world, status: 'idle', arcStatus: `Replacement Chronicle committed with ${chroniclePromotions} promotion(s).`, retryStatus: `Atomically rebuilt ${digestKept} C0 record(s) and ${chroniclePromotions} eligible parent node(s) from preserved Digest.` });
         await embedWorldInChat(world);
-        return { l1Kept, continued: 0, chroniclePromotions };
+        return { digestKept, continued: 0, chroniclePromotions };
     } catch (error) {
         updateRuntime({ status: 'error', progress: null, lastError: error.message, retryStatus: `Chronicle rebuild did not commit; the previously saved hierarchy was kept: ${error.message}` });
         throw error;
@@ -2536,7 +2536,7 @@ async function processRange(job, epoch) {
         updateRuntime({ lastValidation: `Skipped ${skipped} unchanged message(s); they are already in memory.` });
         return { chunks: 0, messages: 0, skipped };
     }
-    const groupSize = resolveL1GroupSize(job.l1GroupSize);
+    const groupSize = resolveDigestGroupSize(job.digestGroupSize);
     const chunks = await chunkMessages(unseen, resolveExtractionChunk(getSettings().extractionChunkTokens, getContext().maxContext), groupSize);
 
     const detached = await processDetachedRange(job, chunks, currentWorld);
@@ -2572,13 +2572,13 @@ async function processRange(job, epoch) {
             messageFingerprints: chunk.map(message => ({ index: message.index, fingerprint: message.fingerprint })),
             embed: false,
         }),
-        // L1 saves stay on the critical path; hierarchy generation runs once
+        // Digest saves stay on the critical path; hierarchy generation runs once
         // after the batch so each chunk does not trigger another large
         // world-save/embed cycle.
         afterSave: async () => {},
     });
     if (adaptive.splits) {
-        updateRuntime({ retryStatus: `Adaptive extraction recovered ${adaptive.splits} incomplete section${adaptive.splits === 1 ? '' : 's'} as ${adaptive.completed} validated L1 parts.` });
+        updateRuntime({ retryStatus: `Adaptive extraction recovered ${adaptive.splits} incomplete section${adaptive.splits === 1 ? '' : 's'} as ${adaptive.completed} validated Digest parts.` });
     }
     try {
         while (await buildNextChronicle(job.worldId, epoch, { embed: false })) { /* drain recursive Chronicle */ }
@@ -2587,7 +2587,7 @@ async function processRange(job, epoch) {
         updateRuntime({ arcStatus: 'Chronicle promotion deferred; C0 and structured memory are safe.', arcError: error.message });
     }
     // Publish one portable snapshot after the batch rather than rewriting the
-    // entire chat metadata after every successfully saved L1 chunk.
+    // entire chat metadata after every successfully saved Digest chunk.
     if (adaptive.completed && runtime.world?.id === job.worldId) {
         await embedWorldInChat(runtime.world);
     }
@@ -2624,7 +2624,7 @@ async function processQueue() {
     }
 }
 
-export function enqueueRange({ from, to, worldId = getBoundWorldId(), allowStateUpdates = true, reason = 'manual', messageIndexes = null, sourceMessages = null, l1GroupSize = getSettings().extractionBatchMessages }) {
+export function enqueueRange({ from, to, worldId = getBoundWorldId(), allowStateUpdates = true, reason = 'manual', messageIndexes = null, sourceMessages = null, digestGroupSize = getSettings().extractionBatchMessages }) {
     if (!worldId) return Promise.reject(new Error('Select or create a world first.'));
     const chatKey = getChatKey();
     if (!chatKey) return Promise.reject(new Error('Open a chat first.'));
@@ -2643,7 +2643,7 @@ export function enqueueRange({ from, to, worldId = getBoundWorldId(), allowState
         reason,
         messageIndexes,
         sourceMessages,
-        l1GroupSize: resolveL1GroupSize(l1GroupSize),
+        digestGroupSize: resolveDigestGroupSize(digestGroupSize),
         resolve: resolveJob,
         reject: rejectJob,
         promise,
@@ -2661,15 +2661,15 @@ export function getProcessingCoverage(world = runtime.world, sourceMessages = nu
     }
     const messages = Array.isArray(sourceMessages) ? sourceMessages : collectMemoryEligibleMessages(chat);
     const coverage = analyzeCoverage(messages, world?.sources?.[chatKey]?.processedMessages || []);
-    const stability = partitionL1StabilityBuffer(messages);
-    const pending = partitionPendingL1Messages(messages, coverage.pendingMessages);
+    const stability = partitionDigestStabilityBuffer(messages);
+    const pending = partitionPendingDigestMessages(messages, coverage.pendingMessages);
     const requiredIndexes = new Set((world?.sources?.[chatKey]?.requiredMemoryIndexes || []).map(Number));
     const requiredMessages = coverage.pendingMessages.filter(message => requiredIndexes.has(message.index));
     const requiredExtractableMessages = pending.extractable.filter(message => requiredIndexes.has(message.index));
     return {
         ...coverage,
         latestExtractableIndex: stability.extractable.at(-1)?.index ?? -1,
-        latestCompleteExtractableIndex: latestCompleteL1MessageIndex(stability.extractable, getSettings().extractionBatchMessages),
+        latestCompleteExtractableIndex: latestCompleteDigestMessageIndex(stability.extractable, getSettings().extractionBatchMessages),
         extractable: pending.extractable.length,
         buffered: pending.buffered.length,
         required: requiredMessages.length,
@@ -2681,12 +2681,12 @@ export function getProcessingCoverage(world = runtime.world, sourceMessages = nu
     };
 }
 
-export function getLatestL1UndoStatus(world = runtime.world) {
+export function getLatestDigestUndoStatus(world = runtime.world) {
     const chatKey = getChatKey();
-    return chatKey ? inspectLatestL1Undo(world, chatKey) : inspectLatestL1Undo(null, '');
+    return chatKey ? inspectLatestDigestUndo(world, chatKey) : inspectLatestDigestUndo(null, '');
 }
 
-export async function undoLatestL1() {
+export async function undoLatestDigest() {
     if (runtime.processing) throw new Error('Wait for current processing to finish before undoing memory.');
     const worldId = getBoundWorldId();
     const chatKey = getChatKey();
@@ -2694,12 +2694,12 @@ export async function undoLatestL1() {
     await requireRetryStorage();
 
     let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
-    const expected = inspectLatestL1Undo(world, chatKey);
-    if (!expected.available) throw new Error('There is no saved L1 memory to undo for this chat.');
-    if (!expected.replayable) throw new Error('This memory predates stored L1 replay data and cannot safely undo one range. Rebuild it from scratch first.');
+    const expected = inspectLatestDigestUndo(world, chatKey);
+    if (!expected.available) throw new Error('There is no saved Digest memory to undo for this chat.');
+    if (!expected.replayable) throw new Error('This memory predates stored Digest replay data and cannot safely undo one range. Rebuild it from scratch first.');
 
-    const applyUndo = targetWorld => undoLatestL1Extraction(targetWorld, chatKey, expected.extractionId);
-    updateRuntime({ processing: true, status: 'undoing', lastError: '', retryStatus: `Undoing L1 messages ${expected.from}–${expected.to} and dependent memory…` });
+    const applyUndo = targetWorld => undoLatestDigestExtraction(targetWorld, chatKey, expected.extractionId);
+    updateRuntime({ processing: true, status: 'undoing', lastError: '', retryStatus: `Undoing Digest messages ${expected.from}–${expected.to} and dependent memory…` });
     try {
         let result = applyUndo(world);
         try {
@@ -2710,11 +2710,11 @@ export async function undoLatestL1() {
             result = applyUndo(world);
             world = (await api.saveWorld(world)).world;
         }
-        updateRuntime({ world, status: 'idle', progress: null, retryStatus: `L1 messages ${result.from}–${result.to} are pending memory rebuild before the next reply.` });
+        updateRuntime({ world, status: 'idle', progress: null, retryStatus: `Digest messages ${result.from}–${result.to} are pending memory rebuild before the next reply.` });
         await embedWorldInChat(world);
         return { ...result, world };
     } catch (error) {
-        updateRuntime({ status: 'error', progress: null, lastError: error.message, retryStatus: `Undo latest L1 failed: ${error.message}` });
+        updateRuntime({ status: 'error', progress: null, lastError: error.message, retryStatus: `Undo latest Digest failed: ${error.message}` });
         throw error;
     } finally {
         updateRuntime({ processing: false });
@@ -2743,7 +2743,7 @@ export async function repairDivergedBranch({ sourceMessages = null, sourceMutati
     const messages = Array.isArray(sourceMessages) ? sourceMessages : collectMemoryEligibleMessages(getContext().chat || []);
     let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
     const divergence = getBranchRepairStatus(world, messages);
-    const stabilityRepairFrom = l1StabilityRepairFrom(messages, world.extractions, chatKey);
+    const stabilityRepairFrom = digestStabilityRepairFrom(messages, world.extractions, chatKey);
     const storyMessages = stableStoryMessages(messages);
     const fingerprintedStoryMessages = storyMessages.map(message => ({ index: Number(message.index), fingerprint: fingerprintMessage(message) }));
     const storyRecoveryFor = targetWorld => planStoryMutationRecovery(
@@ -2916,7 +2916,7 @@ export async function repairTailRollback({ allowChanged = false } = {}) {
             apply(sourceWorld);
             sourceWorld = (await api.saveWorld(sourceWorld)).world;
         }
-        updateRuntime({ world: sourceWorld, status: 'idle', progress: null, retryStatus: `Rollback repaired: removed ${rollback.removedMessages} deleted message(s), replayed ${replay.length} retained L1 range(s).` });
+        updateRuntime({ world: sourceWorld, status: 'idle', progress: null, retryStatus: `Rollback repaired: removed ${rollback.removedMessages} deleted message(s), replayed ${replay.length} retained Digest range(s).` });
         await embedWorldInChat(sourceWorld);
         return { repaired: true, removedMessages: rollback.removedMessages, replayed: replay.length, reextracted: partial.length };
     } catch (error) {
@@ -2939,7 +2939,7 @@ export async function maybeAutoExtract(force = false, sourceMessages = null, { r
     const queuedAutomaticJob = runtime.queue.find(job => job.chatKey === chatKey && job.reason === 'auto');
     // A manual Build may arrive in the short hand-off between the automatic
     // scheduler queueing a range and processQueue claiming it. Adopt that
-    // exact promise instead of reporting that no L1 work could be started.
+    // exact promise instead of reporting that no Digest work could be started.
     if (queuedAutomaticJob) return force ? queuedAutomaticJob.promise : null;
 
     let world = runtime.world?.id === worldId ? runtime.world : null;
@@ -2950,7 +2950,7 @@ export async function maybeAutoExtract(force = false, sourceMessages = null, { r
     const lastIndex = activeMessages?.at(-1)?.index ?? context.chat.length - 1;
     const source = world.sources?.[chatKey];
     const coverage = getProcessingCoverage(world, activeMessages);
-    const groupSize = resolveL1GroupSize(settings.extractionBatchMessages);
+    const groupSize = resolveDigestGroupSize(settings.extractionBatchMessages);
     let pending = coverage.extractableMessages;
     if (requiredOnly) {
         const requiredIndexes = new Set(coverage.requiredExtractableMessages.map(message => message.index));
@@ -2973,9 +2973,9 @@ export async function maybeAutoExtract(force = false, sourceMessages = null, { r
         }
         // The shared eligible-message view already omits the provisional
         // newest AI reply from every automatic and forced CM path.
-        pending = selectAutomaticL1Messages(pending, groupSize, !source);
+        pending = selectAutomaticDigestMessages(pending, groupSize, !source);
     } else {
-        pending = completeL1Messages(pending, groupSize);
+        pending = completeDigestMessages(pending, groupSize);
     }
     if (!pending.length) return null;
     return enqueueRange({
@@ -2996,11 +2996,11 @@ export async function loadBoundWorld() {
         return null;
     }
     let world = (await api.getWorld(worldId)).world;
-    // Loading must remain fast. Canonical compaction already runs when L1 is
+    // Loading must remain fast. Canonical compaction already runs when Digest is
     // merged; repeating whole-world maintenance here blocked mobile startup.
     const messages = collectMemoryEligibleMessages(getContext().chat || []);
-    const stability = partitionL1StabilityBuffer(messages);
-    const latestCompleteIndex = latestCompleteL1MessageIndex(stability.extractable, getSettings().extractionBatchMessages);
+    const stability = partitionDigestStabilityBuffer(messages);
+    const latestCompleteIndex = latestCompleteDigestMessageIndex(stability.extractable, getSettings().extractionBatchMessages);
     const promotedSnapshot = promoteStoredTailSnapshot(world, getChatKey(), latestCompleteIndex);
     if (promotedSnapshot) world = (await api.saveWorld(world)).world;
     updateRuntime({ world });

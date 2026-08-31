@@ -10,9 +10,10 @@ export class ExtractionReviewCancelledError extends Error {
 }
 
 function publicReview(result, meta, id) {
+    const rawLayer = String(meta?.layer || 'Digest');
     return {
         id,
-        layer: String(meta?.layer || 'L1').toUpperCase(),
+        layer: /^c\d+$/iu.test(rawLayer) ? rawLayer.toUpperCase() : rawLayer.toLowerCase() === 'digest' ? 'Digest' : rawLayer,
         from: Number(meta?.from),
         to: Number(meta?.to),
         sourceCount: Math.max(0, Math.round(Number(meta?.sourceCount) || 0)),

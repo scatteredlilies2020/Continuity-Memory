@@ -25,7 +25,7 @@ test('review exposes editable JSON and resolves only after validation', async ()
     });
     const review = getPendingExtractionReview();
     assert.equal(review.from, 4);
-    assert.equal(review.layer, 'L1');
+    assert.equal(review.layer, 'Digest');
     assert.match(review.json, /old/);
     assert.throws(() => approveExtractionReview('{'), /not valid JSON/);
     approveExtractionReview('{"facts":[{"value":"edited"}]}');

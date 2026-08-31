@@ -1,33 +1,33 @@
-export const DEFAULT_L1_GROUP_SIZE = 8;
-export const L1_STABILITY_BUFFER_MESSAGES = 2;
+export const DEFAULT_DIGEST_GROUP_SIZE = 8;
+export const DIGEST_STABILITY_BUFFER_MESSAGES = 2;
 
-export function resolveL1GroupSize(value) {
-    return Math.min(50, Math.max(2, Math.round(Number(value) || DEFAULT_L1_GROUP_SIZE)));
+export function resolveDigestGroupSize(value) {
+    return Math.min(50, Math.max(2, Math.round(Number(value) || DEFAULT_DIGEST_GROUP_SIZE)));
 }
 
-export function validateL1GroupSize(value) {
+export function validateDigestGroupSize(value) {
     const numeric = Number(value);
     return {
-        value: resolveL1GroupSize(value),
+        value: resolveDigestGroupSize(value),
         valid: Number.isInteger(numeric) && numeric >= 2 && numeric <= 50,
     };
 }
 
-export function completeL1MessageCount(count, groupSize = DEFAULT_L1_GROUP_SIZE) {
-    const size = resolveL1GroupSize(groupSize);
+export function completeDigestMessageCount(count, groupSize = DEFAULT_DIGEST_GROUP_SIZE) {
+    const size = resolveDigestGroupSize(groupSize);
     return Math.floor(Math.max(0, Number(count) || 0) / size) * size;
 }
 
-export function completeL1Messages(messages, groupSize = DEFAULT_L1_GROUP_SIZE) {
+export function completeDigestMessages(messages, groupSize = DEFAULT_DIGEST_GROUP_SIZE) {
     const source = Array.isArray(messages) ? messages : [];
-    return source.slice(0, completeL1MessageCount(source.length, groupSize));
+    return source.slice(0, completeDigestMessageCount(source.length, groupSize));
 }
 
-export function latestCompleteL1MessageIndex(messages, groupSize = DEFAULT_L1_GROUP_SIZE) {
-    return Number(completeL1Messages(messages, groupSize).at(-1)?.index ?? -1);
+export function latestCompleteDigestMessageIndex(messages, groupSize = DEFAULT_DIGEST_GROUP_SIZE) {
+    return Number(completeDigestMessages(messages, groupSize).at(-1)?.index ?? -1);
 }
 
-export function partitionL1StabilityBuffer(messages, bufferMessages = L1_STABILITY_BUFFER_MESSAGES) {
+export function partitionDigestStabilityBuffer(messages, bufferMessages = DIGEST_STABILITY_BUFFER_MESSAGES) {
     const source = Array.isArray(messages) ? messages : [];
     const requested = Math.max(0, Math.round(Number(bufferMessages) || 0));
     const bufferedCount = Math.min(source.length, requested);
@@ -38,9 +38,9 @@ export function partitionL1StabilityBuffer(messages, bufferMessages = L1_STABILI
     };
 }
 
-export function partitionPendingL1Messages(messages, pendingMessages, bufferMessages = L1_STABILITY_BUFFER_MESSAGES) {
+export function partitionPendingDigestMessages(messages, pendingMessages, bufferMessages = DIGEST_STABILITY_BUFFER_MESSAGES) {
     const pending = Array.isArray(pendingMessages) ? pendingMessages : [];
-    const stability = partitionL1StabilityBuffer(messages, bufferMessages);
+    const stability = partitionDigestStabilityBuffer(messages, bufferMessages);
     const bufferedIndexes = new Set(stability.buffered.map(message => Number(message?.index)));
     const buffered = pending.filter(message => bufferedIndexes.has(Number(message?.index)));
     return {
@@ -49,18 +49,18 @@ export function partitionPendingL1Messages(messages, pendingMessages, bufferMess
     };
 }
 
-export function isL1StabilityProtectedMessage(allMessages, eligibleMessages, messageIndex, bufferMessages = L1_STABILITY_BUFFER_MESSAGES) {
+export function isDigestStabilityProtectedMessage(allMessages, eligibleMessages, messageIndex, bufferMessages = DIGEST_STABILITY_BUFFER_MESSAGES) {
     if (messageIndex === null || messageIndex === undefined || !Number.isFinite(Number(messageIndex))) return false;
     const target = Number(messageIndex);
     const eligible = Array.isArray(eligibleMessages) ? eligibleMessages : [];
     const eligibleIndexes = new Set(eligible.map(message => Number(message?.index)));
-    const buffered = partitionL1StabilityBuffer(eligible, bufferMessages).buffered;
+    const buffered = partitionDigestStabilityBuffer(eligible, bufferMessages).buffered;
     return buffered.some(message => Number(message?.index) === target)
         || (Array.isArray(allMessages) && allMessages.some(message => Number(message?.index) === target && !eligibleIndexes.has(target)));
 }
 
-export function l1StabilityRepairFrom(messages, extractions, chatKey, bufferMessages = L1_STABILITY_BUFFER_MESSAGES) {
-    const bufferedIndexes = partitionL1StabilityBuffer(messages, bufferMessages).buffered
+export function digestStabilityRepairFrom(messages, extractions, chatKey, bufferMessages = DIGEST_STABILITY_BUFFER_MESSAGES) {
+    const bufferedIndexes = partitionDigestStabilityBuffer(messages, bufferMessages).buffered
         .map(message => Number(message?.index))
         .filter(Number.isFinite);
     if (!bufferedIndexes.length) return null;
@@ -80,9 +80,9 @@ export function l1StabilityRepairFrom(messages, extractions, chatKey, bufferMess
     return starts.length ? Math.min(...starts) : null;
 }
 
-export function selectAutomaticL1Messages(messages, groupSize = DEFAULT_L1_GROUP_SIZE, bootstrap = false) {
-    const size = resolveL1GroupSize(groupSize);
+export function selectAutomaticDigestMessages(messages, groupSize = DEFAULT_DIGEST_GROUP_SIZE, bootstrap = false) {
+    const size = resolveDigestGroupSize(groupSize);
     const source = Array.isArray(messages) ? messages : [];
     const candidates = bootstrap ? source.slice(-size) : source;
-    return completeL1Messages(candidates, size);
+    return completeDigestMessages(candidates, size);
 }

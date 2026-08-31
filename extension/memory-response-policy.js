@@ -2,7 +2,7 @@ export const PROVIDER_MANAGED_MEMORY_RESPONSE_TOKENS = null;
 export const GEMINI_MEMORY_RESPONSE_TOKENS = 8192;
 
 export function memoryResponseTokens(layer) {
-    if (!['l1', 'chronicle'].includes(String(layer || '').toLowerCase())) {
+    if (!['digest', 'chronicle'].includes(String(layer || '').toLowerCase())) {
         throw new Error(`Unknown memory layer: ${layer}`);
     }
     return PROVIDER_MANAGED_MEMORY_RESPONSE_TOKENS;
