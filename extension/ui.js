@@ -4,10 +4,10 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.5';
+import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.6';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.5';
+import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.6';
 import { clearRetrievalExpansionCache } from './semantic-retrieval.js';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
@@ -15,23 +15,23 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.15.0-testing.5';
-import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.15.0-testing.5';
-import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.5';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.15.0-testing.6';
+import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.15.0-testing.6';
+import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.6';
 import { completeDigestMessageCount, latestCompleteDigestMessageIndex, resolveDigestGroupSize, validateDigestGroupSize } from './digest-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.5';
-import { embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.5';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.5';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.6';
+import { embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.6';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.6';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.5';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.5';
-import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.15.0-testing.5';
-import { resolveStoryBudget } from './story-budget.js?v=0.15.0-testing.5';
-import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.15.0-testing.5';
+import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.6';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.6';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.15.0-testing.6';
+import { resolveStoryBudget } from './story-budget.js?v=0.15.0-testing.6';
+import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.15.0-testing.6';
 import { createRenderScheduler } from './render-scheduler.js';
-import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.5';
-import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.5';
+import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.6';
+import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.6';
 import { isTransientApiError } from './errors.js';
 
 let worlds = [];
@@ -609,7 +609,14 @@ function setSetting(id, key, transform = value => value, onChange = null) {
         getSettings()[key] = value;
         saveSettings();
         renderRuntime();
-        if (key === 'enabled' && value) void refreshWorlds().catch(error => toast('error', error.message));
+        if (key === 'enabled' && value) {
+            // Enabling may need to restore or create the chat-bound world
+            // before automatic Digest/Chronicle maintenance can inspect it.
+            void refreshWorlds()
+                .then(() => onChange?.(value))
+                .catch(error => toast('error', error.message));
+            return;
+        }
         onChange?.(value);
     });
 }
@@ -1858,13 +1865,13 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
     $('#continuity_reset_defaults').on('click', async () => {
         if (!window.confirm('Reset all Continuity settings and prompts to their built-in defaults? Stored memory and chat bindings will not be changed.')) return;
         resetConfigurationSettings();
-        if (getSettings().embedMemoryInChat && runtime.world) await embedWorldInChat(runtime.world);
-        if (!getSettings().embedMemoryInChat) await clearPortableSnapshot();
+        await refreshWorlds();
         refreshModelProfiles();
         renderRuntime();
+        scheduleMemoryMaintenance?.();
         toast('success', 'Continuity configuration reset. Stored memory was not changed.');
     });
-    setSetting('#continuity_enabled', 'enabled', Boolean);
+    setSetting('#continuity_enabled', 'enabled', Boolean, () => scheduleMemoryMaintenance?.());
     setSetting('#continuity_notifications', 'showNotifications', Boolean);
     setSetting('#continuity_retrieval_mode', 'retrievalMode');
     setSetting('#continuity_story_so_far', 'storySoFarEnabled', Boolean);
@@ -1906,7 +1913,7 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
                 toast('error', error.message);
             });
     });
-    setSetting('#continuity_auto', 'autoExtract', Boolean);
+    setSetting('#continuity_auto', 'autoExtract', Boolean, () => scheduleMemoryMaintenance?.());
     setSetting('#continuity_review_extractions', 'reviewBeforeCommit', Boolean);
     setSetting('#continuity_jb_enabled', 'jbEnabled', Boolean);
     $('#continuity_embed_chat').on('change', async function () {
@@ -1945,6 +1952,7 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
         getSettings().extractionBatchMessages = result.value;
         saveSettings();
         renderRuntime();
+        scheduleMemoryMaintenance?.();
         if (!result.valid) settingWarning(`Messages per Digest must be a whole number from 2 to 50. Adjusted to ${result.value}.`);
     });
     setSetting('#continuity_chunk', 'extractionChunkTokens', value => Math.min(50000, Math.max(0, Number(value) || 0)));
@@ -2009,7 +2017,9 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
         toast('success', 'Continuity prompts reset to defaults.');
     });
 
-    $('#continuity_refresh').on('click', () => refreshWorlds().catch(error => toast('error', error.message)));
+    $('#continuity_refresh').on('click', () => refreshWorlds()
+        .then(() => scheduleMemoryMaintenance?.())
+        .catch(error => toast('error', error.message)));
     $('#continuity_detach').on('click', () => detachToEmptyMemory()
         .then(result => !result.cancelled && toast('success', 'Attached memory retained unchanged and detached from this chat.'))
         .catch(error => toast('error', error.message)));
@@ -2026,7 +2036,11 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
             })
         .catch(error => toast('error', error.message)));
     $('#continuity_undo_latest_digest').on('click', () => undoLatestDigestMemory()
-        .then(result => !result.cancelled && toast('success', `Undid Digest messages ${result.from}–${result.to}${result.removedChronicle ? `; removed ${result.removedChronicle} dependent Chronicle node(s)` : ''}. The range will rebuild before the next reply.`))
+        .then(result => {
+            if (result.cancelled) return;
+            scheduleMemoryMaintenance?.();
+            toast('success', `Undid Digest messages ${result.from}–${result.to}${result.removedChronicle ? `; removed ${result.removedChronicle} dependent Chronicle node(s)` : ''}. The range will rebuild automatically when it is outside the stability buffer.`);
+        })
         .catch(error => toast('error', error.message)));
     $('#continuity_repair_rollback').on('click', () => repairRollback()
         .then(result => !result.cancelled && toast('success', `Rollback repaired: removed memory from ${result.removedMessages || 0} deleted message(s).`))
@@ -2084,9 +2098,21 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
             .catch(error => toast('error', error.message));
     });
     $('#continuity_export').on('click', () => exportWorld().catch(error => toast('error', error.message)));
-    $('#continuity_import').on('change', function () { const file = this.files?.[0]; if (file) importWorld(file).catch(error => toast('error', error.message)); this.value = ''; });
+    $('#continuity_import').on('change', function () {
+        const file = this.files?.[0];
+        if (file) importWorld(file)
+            .then(world => { if (world) scheduleMemoryMaintenance?.(); })
+            .catch(error => toast('error', error.message));
+        this.value = '';
+    });
     $('#continuity_export_continuation').on('click', () => exportContinuationArc().then(() => toast('success', 'Continuation-arc file downloaded. Open the destination chat and select Start continuation arc.')).catch(error => toast('error', error.message)));
-    $('#continuity_import_continuation').on('change', function () { const file = this.files?.[0]; if (file) startContinuationArc(file).catch(error => toast('error', error.message)); this.value = ''; });
+    $('#continuity_import_continuation').on('change', function () {
+        const file = this.files?.[0];
+        if (file) startContinuationArc(file)
+            .then(world => { if (world) scheduleMemoryMaintenance?.(); })
+            .catch(error => toast('error', error.message));
+        this.value = '';
+    });
     $('#continuity_clean_chat').on('change', function () { const file = this.files?.[0]; if (file) cleanChatExport(file).then(count => toast('success', `Downloaded a clean chat copy with ${count} embedded Continuity block(s) removed.`)).catch(error => toast('error', error.message)); this.value = ''; });
     $('#continuity_viewer_category').on('change', function () { viewerCategory = String($(this).val() || 'digest'); viewerPage = 0; renderMemoryViewer(true); });
     $('#continuity_viewer_search').on('input', function () { viewerSearch = String($(this).val() || ''); viewerPage = 0; renderMemoryViewer(true); });

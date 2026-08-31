@@ -113,6 +113,18 @@ test('changing Recursive Chronicle settings schedules immediate maintenance', as
     assert.match(ui, /continuity_chronicle_fan_in[\s\S]*scheduleChronicleMaintenance/u);
 });
 
+test('every UI action that can create newly eligible memory schedules maintenance', async () => {
+    const ui = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/ui.js', import.meta.url), 'utf8'));
+    assert.match(ui, /continuity_enabled[^\n]*scheduleMemoryMaintenance/u);
+    assert.match(ui, /continuity_auto[^\n]*scheduleMemoryMaintenance/u);
+    assert.match(ui, /continuity_batch[\s\S]*extractionBatchMessages[\s\S]*scheduleMemoryMaintenance/u);
+    assert.match(ui, /continuity_reset_defaults[\s\S]*await refreshWorlds\(\)[\s\S]*scheduleMemoryMaintenance/u);
+    assert.match(ui, /continuity_refresh[\s\S]*scheduleMemoryMaintenance/u);
+    assert.match(ui, /continuity_undo_latest_digest[\s\S]*scheduleMemoryMaintenance/u);
+    assert.match(ui, /continuity_import[^_][\s\S]*importWorld\(file\)[\s\S]*scheduleMemoryMaintenance/u);
+    assert.match(ui, /continuity_import_continuation[\s\S]*startContinuationArc\(file\)[\s\S]*scheduleMemoryMaintenance/u);
+});
+
 test('generation defers branch repair instead of failing while background Digest owns the processing lock', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/engine.js', import.meta.url), 'utf8'));
     const start = source.indexOf('export async function repairDivergedBranch');
