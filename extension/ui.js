@@ -4,10 +4,10 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.4';
+import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.5';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.4';
+import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.5';
 import { clearRetrievalExpansionCache } from './semantic-retrieval.js';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
@@ -15,23 +15,23 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.15.0-testing.4';
-import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.15.0-testing.4';
-import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.4';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.15.0-testing.5';
+import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.15.0-testing.5';
+import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.5';
 import { completeDigestMessageCount, latestCompleteDigestMessageIndex, resolveDigestGroupSize, validateDigestGroupSize } from './digest-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.4';
-import { embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.4';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.4';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.5';
+import { embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.5';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.5';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.4';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.4';
-import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.15.0-testing.4';
-import { resolveStoryBudget } from './story-budget.js?v=0.15.0-testing.4';
-import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.15.0-testing.4';
+import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.5';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.5';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.15.0-testing.5';
+import { resolveStoryBudget } from './story-budget.js?v=0.15.0-testing.5';
+import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.15.0-testing.5';
 import { createRenderScheduler } from './render-scheduler.js';
-import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.4';
-import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.4';
+import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.5';
+import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.5';
 import { isTransientApiError } from './errors.js';
 
 let worlds = [];
@@ -603,13 +603,14 @@ function installNativeChatExportBridge() {
     }, true);
 }
 
-function setSetting(id, key, transform = value => value) {
+function setSetting(id, key, transform = value => value, onChange = null) {
     $(id).on('change', function () {
         const value = transform($(this).is(':checkbox') ? $(this).prop('checked') : $(this).val());
         getSettings()[key] = value;
         saveSettings();
         renderRuntime();
         if (key === 'enabled' && value) void refreshWorlds().catch(error => toast('error', error.message));
+        onChange?.(value);
     });
 }
 
@@ -1840,7 +1841,7 @@ function cancelCorrection() {
     $('#continuity_correction_status').text('Correction cancelled; nothing was changed.');
 }
 
-export function initUI() {
+export function initUI({ scheduleMemoryMaintenance = null } = {}) {
     const settings = getSettings();
     installNativeChatExportBridge();
     installReviewRecoveryListeners();
@@ -1948,12 +1949,13 @@ export function initUI() {
     });
     setSetting('#continuity_chunk', 'extractionChunkTokens', value => Math.min(50000, Math.max(0, Number(value) || 0)));
     setSetting('#continuity_correction_tokens', 'correctionResponseTokens', resolveCorrectionResponseTokens);
-    setSetting('#continuity_hierarchy_mode', 'hierarchyMode', value => value === 'off' ? 'off' : 'chronicle');
-    setSetting('#continuity_chronicle_capacity', 'chronicleLayerCapacity', value => Math.min(100, Math.max(8, Number(value) || 24)));
+    const scheduleChronicleMaintenance = () => scheduleMemoryMaintenance?.();
+    setSetting('#continuity_hierarchy_mode', 'hierarchyMode', value => value === 'off' ? 'off' : 'chronicle', scheduleChronicleMaintenance);
+    setSetting('#continuity_chronicle_capacity', 'chronicleLayerCapacity', value => Math.min(100, Math.max(8, Number(value) || 24)), scheduleChronicleMaintenance);
     setSetting('#continuity_chronicle_fan_in', 'chroniclePromotionSize', value => {
         const capacity = Math.min(100, Math.max(8, Number(getSettings().chronicleLayerCapacity) || 24));
         return Math.min(capacity, Math.max(3, Number(value) || 10));
-    });
+    }, scheduleChronicleMaintenance);
     setSetting('#continuity_thinking', 'thinkingMode');
     for (const kind of DIRECT_KINDS) {
         bindModelProfileSelector(kind);

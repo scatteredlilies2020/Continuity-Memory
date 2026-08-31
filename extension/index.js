@@ -1,26 +1,26 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.15.0-testing.4';
+import { api } from './api.js?v=0.15.0-testing.5';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.15.0-testing.4';
-import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.15.0-testing.4';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.4';
-import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.4';
-import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.15.0-testing.4';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.4';
+import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maintainChronicleHierarchy, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.15.0-testing.5';
+import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.15.0-testing.5';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.5';
+import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.5';
+import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.15.0-testing.5';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.5';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.15.0-testing.4';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.4';
-import { purgeEmbeddingIndex, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.15.0-testing.4';
-import { isTransientApiError } from './errors.js?v=0.15.0-testing.4';
-import { roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.15.0-testing.4';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.15.0-testing.5';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.5';
+import { purgeEmbeddingIndex, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.15.0-testing.5';
+import { isTransientApiError } from './errors.js?v=0.15.0-testing.5';
+import { roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.15.0-testing.5';
 import { isDigestStabilityProtectedMessage, latestCompleteDigestMessageIndex } from './digest-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
-import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.15.0-testing.4';
-import { resolveStoryBudget } from './story-budget.js?v=0.15.0-testing.4';
+import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.15.0-testing.5';
+import { resolveStoryBudget } from './story-budget.js?v=0.15.0-testing.5';
 import { createBackgroundScheduler } from './background-scheduler.js';
 import { createContinuityContextBridge } from './context-bridge.js';
 
@@ -120,8 +120,13 @@ const backgroundMemoryWork = createBackgroundScheduler(async () => {
             // protected by maybeAutoExtract/selectAutomaticDigestMessages.
             const result = await maybeAutoExtract(false);
             if (runtime.stopSequence !== stopSequence || runtime.paused) return;
+            // Chronicle capacity is an independent invariant. In particular,
+            // switching Recursive mode on, reopening a chat, or a previously
+            // deferred hierarchy request must heal even with no new Digest.
+            const hierarchy = await maintainChronicleHierarchy();
+            if (runtime.stopSequence !== stopSequence || runtime.paused) return;
             failures = 0;
-            if (!result) return;
+            if (!result && !hierarchy) return;
         } catch (error) {
             if (backgroundCancelled || isRuntimeCancellation(error) || error?.code === 'CONTINUITY_BACKGROUND_CANCELLED' || runtime.stopSequence !== stopSequence) return;
             if (!isTransientApiError(error)) {
@@ -582,13 +587,13 @@ async function onChatRenamed(eventData) {
 }
 
 async function init() {
-    const templateResponse = await fetch(new URL('./settings.html?v=0.15.0-testing.4', import.meta.url));
+    const templateResponse = await fetch(new URL('./settings.html?v=0.15.0-testing.5', import.meta.url));
     if (!templateResponse.ok) throw new Error(`Could not load settings template: ${templateResponse.status} ${templateResponse.statusText}`);
     const html = $(await templateResponse.text());
     const container = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
     if (!container) throw new Error('Extensions settings container was not found.');
     container.appendChild(html[0]);
-    initUI();
+    initUI({ scheduleMemoryMaintenance: () => backgroundMemoryWork.schedule(0) });
 
     try {
         updateRuntime({ health: await api.health(), lastError: '' });

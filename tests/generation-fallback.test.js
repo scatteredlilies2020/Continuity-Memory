@@ -77,6 +77,42 @@ test('opening an externally updated chat drains pending Digest after mutation re
     assert.ok(reconciliation.indexOf('syncChangedExtractions()') < reconciliation.indexOf('backgroundMemoryWork.schedule(0)'));
 });
 
+test('background memory enforces Chronicle capacity even when no Digest is pending', async () => {
+    const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
+    const start = source.indexOf('const backgroundMemoryWork = createBackgroundScheduler');
+    const end = source.indexOf('onRuntimeStop(', start);
+    const worker = source.slice(start, end);
+    assert.ok(start >= 0 && end > start);
+    assert.match(source, /maintainChronicleHierarchy/u);
+    assert.match(worker, /const result = await maybeAutoExtract\(false\);/u);
+    assert.match(worker, /const hierarchy = await maintainChronicleHierarchy\(\);/u);
+    assert.match(worker, /if \(!result && !hierarchy\) return;/u);
+    assert.ok(worker.indexOf('await maybeAutoExtract(false)') < worker.indexOf('await maintainChronicleHierarchy()'));
+    assert.ok(worker.indexOf('await maintainChronicleHierarchy()') < worker.indexOf('if (!result && !hierarchy) return'));
+});
+
+test('automatic Chronicle maintenance owns the processing lock and drains recursively', async () => {
+    const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/engine.js', import.meta.url), 'utf8'));
+    const start = source.indexOf('export async function maintainChronicleHierarchy');
+    const end = source.indexOf('async function requireRetryStorage', start);
+    const maintenance = source.slice(start, end);
+    assert.ok(start >= 0 && end > start);
+    assert.match(maintenance, /if \(runtime\.processing \|\| runtime\.queue\.length\) return null;/u);
+    assert.match(maintenance, /processing: true/u);
+    assert.match(maintenance, /while \(await buildNextChronicle\(worldId, epoch\)\) chroniclePromotions\+\+;/u);
+    assert.match(maintenance, /finally \{[\s\S]*processing: false/u);
+});
+
+test('changing Recursive Chronicle settings schedules immediate maintenance', async () => {
+    const index = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
+    const ui = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/ui.js', import.meta.url), 'utf8'));
+    assert.match(index, /initUI\(\{ scheduleMemoryMaintenance: \(\) => backgroundMemoryWork\.schedule\(0\) \}\)/u);
+    assert.match(ui, /export function initUI\(\{ scheduleMemoryMaintenance = null \} = \{\}\)/u);
+    assert.match(ui, /continuity_hierarchy_mode[\s\S]*scheduleChronicleMaintenance/u);
+    assert.match(ui, /continuity_chronicle_capacity[\s\S]*scheduleChronicleMaintenance/u);
+    assert.match(ui, /continuity_chronicle_fan_in[\s\S]*scheduleChronicleMaintenance/u);
+});
+
 test('generation defers branch repair instead of failing while background Digest owns the processing lock', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/engine.js', import.meta.url), 'utf8'));
     const start = source.indexOf('export async function repairDivergedBranch');

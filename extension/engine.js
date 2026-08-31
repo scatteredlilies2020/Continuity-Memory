@@ -6,38 +6,38 @@ import { oai_settings, openai_setting_names, openai_settings, proxies } from '/s
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError, isTransientApiError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.4';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.5';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { normalizeHierarchyResult } from './hierarchy-result.js';
 import { completeDigestMessages, latestCompleteDigestMessageIndex, digestStabilityRepairFrom, DIGEST_STABILITY_BUFFER_MESSAGES, partitionDigestStabilityBuffer, partitionPendingDigestMessages, resolveDigestGroupSize, selectAutomaticDigestMessages } from './digest-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.4';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.5';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedChronicle, freshResetResiduals, getLatestDigestUndoStatus as inspectLatestDigestUndo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens, storyResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.4';
-import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.4';
+import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.5';
+import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.5';
 import { embedWorldInChat } from './portable.js';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.4';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_QUALITY_RULE, ROLLING_STORY_QUALITY_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, ROLLING_STORY_VERIFY_RULE, ROLLING_STORY_VERIFY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.4';
-import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.4';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.4';
-import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.4';
-import { isRuntimeCancellation, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.4';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.4';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.5';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, ROLLING_STORY_QUALITY_RULE, ROLLING_STORY_QUALITY_TASK_TEMPLATE, ROLLING_STORY_RULE, ROLLING_STORY_TASK_TEMPLATE, ROLLING_STORY_VERIFY_RULE, ROLLING_STORY_VERIFY_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.5';
+import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.5';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.5';
+import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.5';
+import { isRuntimeCancellation, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.5';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.5';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { dynamicStoryRefineSourceChunk, dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.15.0-testing.4';
-import { storyCompressionTarget, storyGenerationTargets } from './story-output-policy.js?v=0.15.0-testing.4';
-import { resolveStoryRequestProfile } from './story-profile.js?v=0.15.0-testing.4';
-import { resolveProfileThinkingMode } from './story-thinking.js?v=0.15.0-testing.4';
-import { alignStoryRebuildTarget, completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, stableStoryMessages, storyChunkMessageLimit } from './story-cadence.js?v=0.15.0-testing.4';
-import { compileRollingStorySnapshot, ROLLING_STORY_SNAPSHOT_EXAMPLE, ROLLING_STORY_SNAPSHOT_SCHEMA } from './story-snapshot.js?v=0.15.0-testing.4';
-import { planStoryMutationRecovery, withStoryCheckpoint } from './story-checkpoints.js?v=0.15.0-testing.4';
-import { buildStorySourceUnits, isCurrentStorySnapshot, resolveStorySourceMode, storedStorySourceMode, storySourceModeLabel, storySourcePolicyIsCurrent, STORY_FORMAT_MANUAL, STORY_SOURCE_DIGEST, STORY_SOURCE_POLICY_VERSION } from './story-source.js?v=0.15.0-testing.4';
-import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.4';
+import { dynamicStoryRefineSourceChunk, dynamicStorySourceChunk, resolveStoryBudget, storyWithinAllowance } from './story-budget.js?v=0.15.0-testing.5';
+import { storyCompressionTarget, storyGenerationTargets } from './story-output-policy.js?v=0.15.0-testing.5';
+import { resolveStoryRequestProfile } from './story-profile.js?v=0.15.0-testing.5';
+import { resolveProfileThinkingMode } from './story-thinking.js?v=0.15.0-testing.5';
+import { alignStoryRebuildTarget, completeStoryMessages, resolveStoryBatchMessages, rollingStoryBuildPlan, rollingStoryRebuildCheckpoint, rollingStoryRebuildPlan, stableStoryMessages, storyChunkMessageLimit } from './story-cadence.js?v=0.15.0-testing.5';
+import { compileRollingStorySnapshot, ROLLING_STORY_SNAPSHOT_EXAMPLE, ROLLING_STORY_SNAPSHOT_SCHEMA } from './story-snapshot.js?v=0.15.0-testing.5';
+import { planStoryMutationRecovery, withStoryCheckpoint } from './story-checkpoints.js?v=0.15.0-testing.5';
+import { buildStorySourceUnits, isCurrentStorySnapshot, resolveStorySourceMode, storedStorySourceMode, storySourceModeLabel, storySourcePolicyIsCurrent, STORY_FORMAT_MANUAL, STORY_SOURCE_DIGEST, STORY_SOURCE_POLICY_VERSION } from './story-source.js?v=0.15.0-testing.5';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.5';
 import { nextChroniclePromotion } from './chronicle.js';
 
 const temporalRelationSchema = {
@@ -1678,6 +1678,49 @@ export async function buildNextChronicle(worldId = getBoundWorldId(), expectedEp
     result = await reviewHierarchyBeforeSave(result, `C${destination}`, nodes, 'hierarchy', () => generateChroniclePromotion(nodes));
     if (expectedEpoch !== null && runtime.generation !== expectedEpoch) throw new Error('Processing stopped; pending Chronicle result was discarded.');
     return saveChroniclePromotion(world, result, nodes, embed);
+}
+
+export async function maintainChronicleHierarchy() {
+    const settings = getSettings();
+    const worldId = getBoundWorldId();
+    if (!settings.enabled || settings.hierarchyMode === 'off' || !worldId || runtime.paused) return null;
+    // Digest processing and explicit builds own the same runtime lock. A later
+    // background pass will re-check the invariant after either one finishes.
+    if (runtime.processing || runtime.queue.length) return null;
+
+    let world = runtime.world?.id === worldId ? runtime.world : (await api.getWorld(worldId)).world;
+    if (!nextChroniclePromotion(world, settings)) return null;
+
+    const epoch = runtime.generation;
+    let chroniclePromotions = 0;
+    updateRuntime({
+        processing: true,
+        status: 'building',
+        lastError: '',
+        retryStatus: 'Repairing the Recursive Chronicle frontier automatically…',
+    });
+    try {
+        // This is an invariant repair, not a Digest side effect: it must run
+        // even when there are no new messages eligible for extraction.
+        while (await buildNextChronicle(worldId, epoch)) chroniclePromotions++;
+        world = runtime.world?.id === worldId ? runtime.world : world;
+        updateRuntime({
+            status: 'idle',
+            lastCompletedAt: new Date().toISOString(),
+            retryStatus: `Recursive Chronicle frontier is within capacity; created ${chroniclePromotions} automatic promotion(s).`,
+        });
+        return { chroniclePromotions, world };
+    } catch (error) {
+        updateRuntime({
+            status: 'error',
+            arcStatus: 'Chronicle promotion deferred; C0 and structured memory are safe.',
+            arcError: error.message,
+        });
+        throw error;
+    } finally {
+        updateRuntime({ processing: false });
+        if (!runtime.paused) queueMicrotask(processQueue);
+    }
 }
 
 async function requireRetryStorage() {
