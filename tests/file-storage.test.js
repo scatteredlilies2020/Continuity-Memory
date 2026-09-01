@@ -98,7 +98,7 @@ test('built-in SillyTavern file storage preserves worlds, revisions, import, and
     assert.equal(server.files.has('continuity-memory-index-redundant.json'), true);
 });
 
-test('sharded storage rewrites only the changed tail chunk during normal growth', async () => {
+test('sharded storage rewrites only the changed tail chunk and retains its rollback shard', async () => {
     const server = memoryFileServer();
     const api = createFileStorageApi({ fetchFn: server.fetchFn });
     const created = await api.createWorld('Long RP');
@@ -119,7 +119,7 @@ test('sharded storage rewrites only the changed tail chunk during normal growth'
     assert.equal(shardUploads.length, 1);
     const secondManifest = JSON.parse(server.files.get(`continuity-memory-world-${created.world.id}.json`));
     assert.deepEqual(secondManifest.shards.facts.slice(0, 2).map(entry => entry.file), stableFiles);
-    assert.equal(server.files.has(firstManifest.shards.facts[2].file), false);
+    assert.equal(server.files.has(firstManifest.shards.facts[2].file), true);
 });
 
 test('incremental storage remains bounded for a 4000-message synthetic RP', async () => {

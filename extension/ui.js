@@ -4,10 +4,10 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.6';
+import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.7';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.6';
+import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.7';
 import { clearRetrievalExpansionCache } from './semantic-retrieval.js';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
@@ -15,23 +15,23 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.15.0-testing.6';
-import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.15.0-testing.6';
-import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.6';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.15.0-testing.7';
+import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.15.0-testing.7';
+import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.7';
 import { completeDigestMessageCount, latestCompleteDigestMessageIndex, resolveDigestGroupSize, validateDigestGroupSize } from './digest-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.6';
-import { embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.6';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.6';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.7';
+import { embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.7';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.7';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.6';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.6';
-import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.15.0-testing.6';
-import { resolveStoryBudget } from './story-budget.js?v=0.15.0-testing.6';
-import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.15.0-testing.6';
+import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.7';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.7';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.15.0-testing.7';
+import { resolveStoryBudget } from './story-budget.js?v=0.15.0-testing.7';
+import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.15.0-testing.7';
 import { createRenderScheduler } from './render-scheduler.js';
-import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.6';
-import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.6';
+import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.7';
+import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.7';
 import { isTransientApiError } from './errors.js';
 
 let worlds = [];
@@ -671,7 +671,7 @@ export async function refreshWorlds() {
     const response = await api.listWorlds();
     worlds = response.worlds || [];
     let selected = getBoundWorldId();
-    if (selected && !worlds.some(world => world.id === selected)) {
+    if (selected && !worlds.some(world => world.id === selected && !world.corrupt)) {
         const portable = getPortableSnapshot();
         const portableEligible = portable
             && !(getSettings().deletedWorldIds || []).includes(portable.world.id);
@@ -795,6 +795,7 @@ async function recoverStoredWorldForCurrentChat(missingBoundWorldId) {
     const messages = collectFingerprintMessages(context.chat || []);
     const matches = [];
     for (const summary of ordered) {
+        if (summary.corrupt) continue;
         try {
             const stored = (await api.getWorld(summary.id)).world;
             const alignment = alignWorldToChat(stored, messages, getChatKey());
@@ -826,9 +827,14 @@ export async function ensureCurrentChatMemory(createIfMissing = false, recoverSt
     if (boundWorldId && !recoverStaleBinding) {
         // A saved binding does not mean its world has finished loading. Wait
         // for the shared load instead of treating every chat message as new.
-        return runtime.world?.id === boundWorldId
-            ? runtime.world
-            : await loadBoundWorldOnce(boundWorldId);
+        if (runtime.world?.id === boundWorldId) return runtime.world;
+        try {
+            return await loadBoundWorldOnce(boundWorldId);
+        } catch (error) {
+            if (![404, 503].includes(Number(error.status))) throw error;
+            console.warn('[Continuity] Bound memory is unavailable; attempting verified chat recovery.', error);
+            return await ensureCurrentChatMemory(false, true);
+        }
     }
     if (!getChatKey()) return null;
     if (creatingChatMemory) {
@@ -856,6 +862,15 @@ export async function ensureCurrentChatMemory(createIfMissing = false, recoverSt
             const existing = worlds.find(item => item.id === portable.world.id);
             const boundElsewhere = existing && Object.entries(getSettings().chatWorlds || {})
                 .some(([chatKey, worldId]) => chatKey !== getChatKey() && worldId === existing.id);
+            if (existing?.corrupt && !boundElsewhere) {
+                const recovered = await api.recoverWorld(alignment.world);
+                bindCurrentChat(recovered.world.id);
+                updateRuntime({ world: recovered.world, lastError: '' });
+                if (getSettings().embedMemoryInChat) await embedWorldInChat(recovered.world, { force: true });
+                else await clearPortableSnapshot();
+                toast('success', 'Recovered this chat’s Continuity memory from its verified embedded copy.');
+                return recovered.world;
+            }
             if (existing && !boundElsewhere) {
                 const stored = (await api.getWorld(existing.id)).world;
                 const storedAlignment = verifyMemoryAlignment(stored);

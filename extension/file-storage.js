@@ -355,7 +355,6 @@ export function createFileStorageApi({ fetchFn = globalThis.fetch, requestHeader
 
     async function writeShardedWorld(world, previousManifest = null) {
         const manifest = { ...manifestMetadata(world), shards: {} };
-        const newFiles = new Set();
         const candidateFiles = [];
 
         try {
@@ -370,37 +369,27 @@ export function createFileStorageApi({ fetchFn = globalThis.fetch, requestHeader
                     let file = oldEntry?.hash === hash ? oldEntry.file : null;
                     if (!file) {
                         file = shardFilename(world.id, category, part, hash);
-                        await writeJsonFile(file, {
+                        const existing = await readJsonFile(file, true);
+                        const shard = {
                             storageVersion: STORAGE_VERSION,
                             worldId: world.id,
                             category,
                             part,
                             hash,
                             data,
-                        });
-                        candidateFiles.push(file);
+                        };
+                        if (!existing || existing.worldId !== world.id || existing.category !== category
+                            || Number(existing.part) !== part || existing.hash !== hash || valueHash(existing.data) !== hash) {
+                            await writeJsonFile(file, shard);
+                        }
+                        if (!existing) candidateFiles.push(file);
                     }
-                    newFiles.add(file);
                     manifest.shards[category].push({ file, hash, count: Array.isArray(data) ? data.length : 1 });
                 }
             }
-            const oldFiles = READ_SHARDS.flatMap(category => previousManifest?.shards?.[category] || [])
-                .map(entry => entry.file)
-                .filter(file => file && !newFiles.has(file));
-            const retiredFiles = [...new Set([...(previousManifest?.retiredShards || []), ...oldFiles])];
-            if (retiredFiles.length) manifest.retiredShards = retiredFiles;
             await writeJsonFile(worldFilename(world.id), manifest);
-
-            const failedRetirements = await deleteFilesWithFailures(retiredFiles);
-            if (failedRetirements.length) manifest.retiredShards = failedRetirements;
-            else delete manifest.retiredShards;
-            if (retiredFiles.length) {
-                try {
-                    await writeJsonFile(worldFilename(world.id), manifest);
-                } catch {
-                    // The committed manifest still records every file that needs a later cleanup retry.
-                }
-            }
+            // Keep immutable, content-addressed shard versions. A delayed manifest
+            // synced from another device must never reference a shard we deleted.
         } catch (error) {
             await deleteFilesWithFailures(candidateFiles);
             throw error;

@@ -9,7 +9,7 @@ import { cancelDetachedJob, createDetachedJob, getDetachedJob, listDetachedJobs 
 import { registerVectorRoutes } from './vector-store.js';
 
 const PLUGIN = 'continuity-memory';
-const VERSION = '0.15.0-testing.6';
+const VERSION = '0.15.0-testing.7';
 const SCHEMA_VERSION = 12;
 const STORAGE_VERSION = 2;
 const SHARD_CHUNK_SIZE = 128;
@@ -301,9 +301,84 @@ async function materializeStoredWorld(dirs, id, stored) {
     return world;
 }
 
+function canonicalWorldFilename(file) {
+    return file.endsWith('.json') && WORLD_ID_RE.test(file.slice(0, -5));
+}
+
+async function conflictManifestFiles(dirs, id) {
+    const prefix = `${id}.sync-conflict-`;
+    return (await fs.readdir(dirs.worlds))
+        .filter(file => file.startsWith(prefix) && file.endsWith('.json'));
+}
+
+async function validConflictRecords(dirs, id) {
+    const files = await conflictManifestFiles(dirs, id);
+    const records = [];
+    for (const file of files) {
+        try {
+            const stored = await readJson(path.join(dirs.worlds, file));
+            if (stored?.id !== id) continue;
+            const world = await materializeStoredWorld(dirs, id, stored);
+            records.push({ file, stored, world, fingerprint: migrationFingerprint(world) });
+        } catch {
+            // Syncthing conflict copies are recovery candidates only after every
+            // referenced shard and integrity hash has been validated.
+        }
+    }
+    return records;
+}
+
 async function optionalWorldRecord(dirs, id) {
-    const stored = await optionalStoredWorld(dirs, id);
-    if (!stored) return { world: null, manifest: null };
+    let stored = null;
+    let loadError = null;
+    try {
+        stored = await optionalStoredWorld(dirs, id);
+        if (stored) {
+            const world = await materializeStoredWorld(dirs, id, stored);
+            const legacyStoryCount = Number(world.__legacyStorySnapshotsRemoved || 0);
+            delete world.__legacyStorySnapshotsRemoved;
+            return {
+                world,
+                manifest: isShardManifest(stored) ? stored : null,
+                legacyStoryCount,
+            };
+        }
+    } catch (error) {
+        loadError = error;
+    }
+
+    // A missing canonical manifest can be an intentional deletion. Only use a
+    // conflict copy to repair a canonical manifest that still exists but is
+    // incomplete; portable chat recovery handles genuinely missing worlds.
+    if (!stored && !loadError) return { world: null, manifest: null };
+
+    const candidates = await validConflictRecords(dirs, id);
+    if (candidates.length) {
+        const highestRevision = Math.max(...candidates.map(record => Number(record.world.revision || 0)));
+        const newest = candidates.filter(record => Number(record.world.revision || 0) === highestRevision);
+        const fingerprints = new Set(newest.map(record => record.fingerprint));
+        if (fingerprints.size > 1) {
+            throw Object.assign(new Error(`Stored memory has multiple divergent Syncthing recovery copies (${id}); automatic recovery refused to guess.`), { status: 503 });
+        }
+        newest.sort((a, b) => String(b.world.updatedAt || '').localeCompare(String(a.world.updatedAt || '')) || b.file.localeCompare(a.file));
+        const recovered = newest[0];
+        await atomicWrite(worldPath(dirs, id), recovered.stored);
+        console.warn(`[${PLUGIN}] Recovered world ${id} from validated Syncthing conflict manifest ${recovered.file}.`);
+        const legacyStoryCount = Number(recovered.world.__legacyStorySnapshotsRemoved || 0);
+        delete recovered.world.__legacyStorySnapshotsRemoved;
+        return {
+            world: recovered.world,
+            manifest: isShardManifest(recovered.stored) ? recovered.stored : null,
+            legacyStoryCount,
+            recoveredFrom: recovered.file,
+        };
+    }
+
+    const detail = loadError?.message || 'the canonical manifest is invalid';
+    throw Object.assign(new Error(`Stored memory is incomplete or corrupt (${id}): ${detail}`), { status: 503, cause: loadError });
+}
+
+async function worldRecordFromStored(dirs, id, stored) {
     const world = await materializeStoredWorld(dirs, id, stored);
     const legacyStoryCount = Number(world.__legacyStorySnapshotsRemoved || 0);
     delete world.__legacyStorySnapshotsRemoved;
@@ -332,7 +407,6 @@ async function writeShardedWorld(dirs, world, previousManifest = null) {
         revision: world.revision,
         shards: {},
     };
-    const newFiles = new Set();
     const candidates = [];
     try {
         for (const category of ALL_SHARDS) {
@@ -346,7 +420,9 @@ async function writeShardedWorld(dirs, world, previousManifest = null) {
                 let file = oldEntry?.hash === hash ? oldEntry.file : null;
                 if (!file) {
                     file = `${category}-${String(part).padStart(4, '0')}-${hash}.json`;
-                    await atomicWrite(shardFilePath(dirs, world.id, file), {
+                    const target = shardFilePath(dirs, world.id, file);
+                    const alreadyExisted = await exists(target);
+                    await atomicWrite(target, {
                         storageVersion: STORAGE_VERSION,
                         worldId: world.id,
                         category,
@@ -354,30 +430,15 @@ async function writeShardedWorld(dirs, world, previousManifest = null) {
                         hash,
                         data,
                     });
-                    candidates.push(file);
+                    if (!alreadyExisted) candidates.push(file);
                 }
-                newFiles.add(file);
                 manifest.shards[category].push({ file, hash, count: Array.isArray(data) ? data.length : 1 });
             }
         }
-        const oldFiles = READ_SHARDS.flatMap(category => previousManifest?.shards?.[category] || [])
-            .map(entry => entry.file)
-            .filter(file => file && !newFiles.has(file));
-        const retiredFiles = [...new Set([...(previousManifest?.retiredShards || []), ...oldFiles])];
-        if (retiredFiles.length) manifest.retiredShards = retiredFiles;
         await atomicWrite(worldPath(dirs, world.id), manifest);
-
-        const retirements = await Promise.allSettled(retiredFiles.map(file => fs.rm(shardFilePath(dirs, world.id, file), { force: true })));
-        const failedRetirements = retiredFiles.filter((file, index) => retirements[index].status === 'rejected');
-        if (failedRetirements.length) manifest.retiredShards = failedRetirements;
-        else delete manifest.retiredShards;
-        if (retiredFiles.length) {
-            try {
-                await atomicWrite(worldPath(dirs, world.id), manifest);
-            } catch {
-                // The committed manifest retains the full cleanup list for the next save.
-            }
-        }
+        // Shards are immutable and content-addressed. Keep superseded versions so
+        // a Syncthing-delayed or rolled-back manifest can never point at a shard
+        // this device has already deleted.
     } catch (error) {
         await Promise.allSettled(candidates.map(file => fs.rm(shardFilePath(dirs, world.id, file), { force: true })));
         throw error;
@@ -425,7 +486,7 @@ export async function init(router, {
     router.get('/health', async (req, res) => {
         try {
             const dirs = await ensureStorage(req);
-            const files = (await fs.readdir(dirs.worlds)).filter(file => file.endsWith('.json'));
+            const files = (await fs.readdir(dirs.worlds)).filter(canonicalWorldFilename);
             res.json({ ok: true, plugin: PLUGIN, version: VERSION, schemaVersion: SCHEMA_VERSION, storageVersion: STORAGE_VERSION, detachedJobs: true, worlds: files.length, storage: dirs.root });
         } catch (error) {
             sendError(res, error);
@@ -435,7 +496,7 @@ export async function init(router, {
     router.get('/worlds', async (req, res) => {
         try {
             const dirs = await ensureStorage(req);
-            const files = (await fs.readdir(dirs.worlds)).filter(file => file.endsWith('.json'));
+            const files = (await fs.readdir(dirs.worlds)).filter(canonicalWorldFilename);
             const worlds = [];
             for (const file of files) {
                 try {
@@ -461,6 +522,42 @@ export async function init(router, {
             const world = emptyWorld(id, req.body?.name);
             await writeShardedWorld(dirs, world);
             res.status(201).json({ ok: true, world });
+        } catch (error) {
+            sendError(res, error);
+        }
+    });
+
+    router.post('/recover-world', async (req, res) => {
+        try {
+            const dirs = await ensureStorage(req);
+            const source = req.body?.world || req.body;
+            const id = assertWorldId(source?.id);
+            const candidate = migrationWorld(source, id);
+            const canonical = worldPath(dirs, id);
+            let stored = null;
+            let corrupt = false;
+            try {
+                stored = await optionalStoredWorld(dirs, id);
+                if (stored) await materializeStoredWorld(dirs, id, stored);
+            } catch {
+                corrupt = true;
+            }
+            if (stored && !corrupt) {
+                const record = await worldRecordFromStored(dirs, id, stored);
+                return res.json({ ok: true, existing: true, recovered: false, verified: true, world: record.world, counts: counts(record.world) });
+            }
+            let backup = null;
+            if (await exists(canonical)) {
+                const directory = path.join(dirs.worlds, 'recovery-backups');
+                await fs.mkdir(directory, { recursive: true });
+                backup = `${new Date().toISOString().replace(/[:.]/g, '-')}-${id}-${crypto.randomBytes(3).toString('hex')}.json`;
+                await fs.copyFile(canonical, path.join(directory, backup));
+            }
+            await writeShardedWorld(dirs, candidate);
+            const recovered = await optionalWorld(dirs, id);
+            const verified = Boolean(recovered && migrationFingerprint(recovered) === migrationFingerprint(candidate));
+            if (!verified) throw new Error(`Recovered world failed verification: ${id}`);
+            res.status(201).json({ ok: true, existing: false, recovered: true, verified: true, backup, world: recovered, counts: counts(recovered) });
         } catch (error) {
             sendError(res, error);
         }
@@ -504,6 +601,8 @@ export async function init(router, {
             if (!world) throw Object.assign(new Error('World not found'), { status: 404 });
             await fs.unlink(worldPath(dirs, id));
             await fs.rm(shardDirectory(dirs, id), { recursive: true, force: true });
+            await Promise.allSettled((await conflictManifestFiles(dirs, id))
+                .map(file => fs.rm(path.join(dirs.worlds, file), { force: true })));
             res.json({ ok: true, deleted: id });
         } catch (error) {
             sendError(res, error);

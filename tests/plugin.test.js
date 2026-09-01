@@ -76,6 +76,91 @@ test('server plugin creates, saves, and explicitly deletes worlds', async t => {
     assert.equal(router.routes.has('GET /backups'), false);
 });
 
+test('server storage retains immutable shards and heals a broken Syncthing manifest from a validated conflict copy', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-syncthing-test-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const router = mockRouter();
+    await init(router, { syncExtension: false });
+
+    const created = await call(router.routes.get('POST /worlds'), root, { body: { name: 'Synced world' } });
+    const id = created.payload.world.id;
+    const worlds = path.join(root, 'continuity-memory', 'worlds');
+    const manifestFile = path.join(worlds, `${id}.json`);
+    const shardDirectory = path.join(worlds, `${id}.shards`);
+
+    created.payload.world.facts = [{ id: 'old-fact', value: 'recoverable' }];
+    const firstSave = await call(router.routes.get('PUT /worlds/:id'), root, { params: { id }, body: created.payload.world });
+    const recoverableManifest = JSON.parse(await fs.readFile(manifestFile, 'utf8'));
+    const recoverableShard = recoverableManifest.shards.facts[0].file;
+
+    firstSave.payload.world.facts = [{ id: 'new-fact', value: 'newer' }];
+    await call(router.routes.get('PUT /worlds/:id'), root, { params: { id }, body: firstSave.payload.world });
+    assert.equal(await fs.stat(path.join(shardDirectory, recoverableShard)).then(() => true), true);
+
+    const conflictFile = path.join(worlds, `${id}.sync-conflict-20260901-220315-TEST.json`);
+    await fs.writeFile(conflictFile, JSON.stringify(recoverableManifest));
+    const broken = JSON.parse(await fs.readFile(manifestFile, 'utf8'));
+    broken.shards.facts[0].file = 'facts-0000-missing.json';
+    await fs.writeFile(manifestFile, JSON.stringify(broken));
+
+    const recovered = await call(router.routes.get('GET /worlds/:id'), root, { params: { id } });
+    assert.equal(recovered.status, 200);
+    assert.equal(recovered.payload.world.facts[0].id, 'old-fact');
+    assert.deepEqual(JSON.parse(await fs.readFile(manifestFile, 'utf8')), recoverableManifest);
+
+    const listed = await call(router.routes.get('GET /worlds'), root);
+    assert.equal(listed.payload.worlds.length, 1);
+    assert.equal(listed.payload.worlds[0].id, id);
+    assert.equal(listed.payload.worlds[0].corrupt, undefined);
+    const health = await call(router.routes.get('GET /health'), root);
+    assert.equal(health.payload.worlds, 1);
+
+    await call(router.routes.get('DELETE /worlds/:id'), root, { params: { id } });
+    const afterDelete = await call(router.routes.get('GET /worlds/:id'), root, { params: { id } });
+    assert.equal(afterDelete.status, 404);
+    await assert.rejects(fs.stat(conflictFile), error => error.code === 'ENOENT');
+});
+
+test('server recovery restores an incomplete world from a portable snapshot after backing up its manifest', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-portable-recovery-test-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const router = mockRouter();
+    await init(router, { syncExtension: false });
+
+    const created = await call(router.routes.get('POST /worlds'), root, { body: { name: 'Portable recovery' } });
+    created.payload.world.facts = [{ id: 'portable-fact', value: 'preserved' }];
+    created.payload.world.capsules = [{
+        id: 'portable-capsule', chatKey: 'chat', from: 0, to: 1,
+        title: 'Portable scene', chronicleText: 'The recovered scene remains intact.',
+        createdAt: '2026-09-01T00:00:00.000Z', updatedAt: '2026-09-01T00:00:00.000Z',
+    }];
+    const saved = await call(router.routes.get('PUT /worlds/:id'), root, {
+        params: { id: created.payload.world.id },
+        body: created.payload.world,
+    });
+    const id = saved.payload.world.id;
+    const worlds = path.join(root, 'continuity-memory', 'worlds');
+    const manifestFile = path.join(worlds, `${id}.json`);
+    const broken = JSON.parse(await fs.readFile(manifestFile, 'utf8'));
+    broken.shards.facts[0].file = 'facts-0000-never-synced.json';
+    await fs.writeFile(manifestFile, JSON.stringify(broken));
+
+    const unavailable = await call(router.routes.get('GET /worlds/:id'), root, { params: { id } });
+    assert.equal(unavailable.status, 503);
+    assert.match(unavailable.payload.error, /incomplete or corrupt/i);
+
+    const restored = await call(router.routes.get('POST /recover-world'), root, { body: { world: saved.payload.world } });
+    assert.equal(restored.status, 201);
+    assert.equal(restored.payload.recovered, true);
+    assert.equal(restored.payload.verified, true);
+    assert.equal(restored.payload.world.revision, saved.payload.world.revision);
+    assert.equal(restored.payload.world.facts[0].id, 'portable-fact');
+    assert.equal(restored.payload.world.chronicle.length, 1);
+    assert.equal(restored.payload.world.storySoFar.chat.updatedAt, saved.payload.world.storySoFar.chat.updatedAt);
+    assert.ok(restored.payload.backup);
+    await fs.stat(path.join(worlds, 'recovery-backups', restored.payload.backup));
+});
+
 test('server load replaces obsolete Story snapshots with a source-linked Chronicle frontier', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-story-migration-'));
     t.after(() => fs.rm(root, { recursive: true, force: true }));

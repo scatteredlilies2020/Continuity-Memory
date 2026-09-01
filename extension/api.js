@@ -1,5 +1,5 @@
 import { getRequestHeaders } from '/script.js';
-import { createFileStorageApi } from './file-storage.js?v=0.15.0-testing.6';
+import { createFileStorageApi } from './file-storage.js?v=0.15.0-testing.7';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 
 const BASE = '/api/plugins/continuity-memory';
@@ -35,6 +35,7 @@ const pluginApi = {
     deleteWorld: id => request(`/worlds/${encodeURIComponent(id)}`, { method: 'DELETE', body: JSON.stringify({}) }),
     importWorld: world => request('/import', { method: 'POST', body: JSON.stringify({ world }) }),
     migrateWorld: world => request('/migrate-world', { method: 'POST', body: JSON.stringify({ world }) }),
+    recoverWorld: world => request('/recover-world', { method: 'POST', body: JSON.stringify({ world }) }),
     startExtractionJob: job => request('/extraction-jobs', { method: 'POST', body: JSON.stringify(job) }),
     getExtractionJob: id => request(`/extraction-jobs/${encodeURIComponent(id)}`),
     listExtractionJobs: ({ worldId = '', chatKey = '' } = {}) => request(`/extraction-jobs?worldId=${encodeURIComponent(worldId)}&chatKey=${encodeURIComponent(chatKey)}`),
@@ -120,6 +121,7 @@ export const api = {
     saveWorld: world => call('saveWorld', world),
     deleteWorld: id => call('deleteWorld', id),
     importWorld: world => call('importWorld', world),
+    recoverWorld: world => call('recoverWorld', world),
     startExtractionJob: job => call('startExtractionJob', job),
     getExtractionJob: id => call('getExtractionJob', id),
     listExtractionJobs: filter => call('listExtractionJobs', filter),

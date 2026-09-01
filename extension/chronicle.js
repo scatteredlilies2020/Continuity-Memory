@@ -226,6 +226,12 @@ export function refreshChronicleStory(world, chatKey) {
         rebuiltFromRawChat: false,
         nodeIds: nodes.map(item => item.id),
     };
+    const previous = world.storySoFar[chatKey];
+    if (previous) {
+        const { updatedAt: ignoredPreviousUpdate, ...previousStable } = previous;
+        const { updatedAt: ignoredSnapshotUpdate, ...snapshotStable } = snapshot;
+        if (JSON.stringify(previousStable) === JSON.stringify(snapshotStable)) return previous;
+    }
     world.storySoFar[chatKey] = snapshot;
     return snapshot;
 }

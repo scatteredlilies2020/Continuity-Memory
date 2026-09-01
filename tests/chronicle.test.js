@@ -50,6 +50,14 @@ test('C0 Chronicle entries are source-linked and materialize the active frontier
     assert.deepEqual(value.storySoFar.chat.nodeIds, value.chronicle.map(item => item.id));
 });
 
+test('synchronizing an unchanged Chronicle preserves its snapshot timestamp', async () => {
+    const value = world(3);
+    const updatedAt = value.storySoFar.chat.updatedAt;
+    await new Promise(resolve => setTimeout(resolve, 2));
+    syncChronicleBase(value);
+    assert.equal(value.storySoFar.chat.updatedAt, updatedAt);
+});
+
 test('promotion is oldest-first, same-layer, non-destructive, and capacity-gated', () => {
     const value = world(9);
     const settings = { chronicleLayerCapacity: 8, chroniclePromotionSize: 3 };

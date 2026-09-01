@@ -3,11 +3,11 @@
   "loading_order": 60,
   "requires": [],
   "optional": [],
-  "js": "index.js?v=0.15.0-testing.6",
+  "js": "index.js?v=0.15.0-testing.7",
   "css": "style.css",
   "generate_interceptor": "continuityMemoryGenerateInterceptor",
   "author": "scatteredlilies2020",
-    "version": "0.15.0-testing.6",
+    "version": "0.15.0-testing.7",
   "description": "Standalone structured continuity for roleplay and simulations; does not use Lorebooks or World Info.",
   "homePage": "https://github.com/scatteredlilies2020/Continuity-Memory"
 }

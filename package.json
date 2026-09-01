@@ -1,6 +1,6 @@
 {
   "name": "sillytavern-continuity",
-  "version": "0.15.0-testing.6",
+  "version": "0.15.0-testing.7",
   "description": "Standalone structured continuity for SillyTavern; does not use Lorebooks or World Info.",
   "private": true,
   "type": "module",
