@@ -9,7 +9,7 @@ import { cancelDetachedJob, createDetachedJob, getDetachedJob, listDetachedJobs 
 import { registerVectorRoutes } from './vector-store.js';
 
 const PLUGIN = 'continuity-memory';
-const VERSION = '0.15.0-testing.7';
+const VERSION = '0.15.0-testing.8';
 const SCHEMA_VERSION = 12;
 const STORAGE_VERSION = 2;
 const SHARD_CHUNK_SIZE = 128;
@@ -240,7 +240,14 @@ function canonicalValue(value) {
 }
 
 function migrationFingerprint(world) {
-    return crypto.createHash('sha256').update(JSON.stringify(canonicalValue(migrationWorld(world, world.id)))).digest('hex');
+    const normalized = migrationWorld(world, world.id);
+    // Chronicle snapshots are derived from canonical capsules/nodes. Rebuilding
+    // an otherwise identical snapshot may refresh only this cache timestamp;
+    // it must not make portable or Syncthing recovery fail verification.
+    for (const snapshot of Object.values(normalized.storySoFar || {})) {
+        if (snapshot && typeof snapshot === 'object') delete snapshot.updatedAt;
+    }
+    return crypto.createHash('sha256').update(JSON.stringify(canonicalValue(normalized))).digest('hex');
 }
 
 async function readJson(file) {
