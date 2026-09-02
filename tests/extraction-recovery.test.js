@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
     isExplicitExtractionOutputLimitError,
+    isAdaptiveExtractionSplitError,
     isRecoverableExtractionOutputError,
     processAdaptiveExtractionChunks,
     splitMessagesByTokenBalance,
@@ -22,6 +23,9 @@ test('recognizes incomplete structured output without treating ordinary API fail
     assert.equal(isExplicitExtractionOutputLimitError(new Error('Extractor returned text without a valid JSON object.')), false);
     assert.equal(isRecoverableExtractionOutputError(new Error('401 Unauthorized')), false);
     assert.equal(isRecoverableExtractionOutputError(new Error('Rate limited')), false);
+    assert.equal(isAdaptiveExtractionSplitError(new Error('Extractor returned text without a valid JSON object.')), true);
+    assert.equal(isAdaptiveExtractionSplitError(new Error('Extractor field "facts" is not an array.')), false);
+    assert.equal(isAdaptiveExtractionSplitError(new Error('Extractor returned no valid chronological scene capsule.')), false);
 });
 
 test('splits messages near half of their token weight while preserving order', async () => {
@@ -79,6 +83,23 @@ test('does not split transport or authentication errors', async () => {
             save: async () => {},
         }),
         /401 Unauthorized/,
+    );
+    assert.equal(attempts, 1);
+});
+
+test('does not recursively split a structurally invalid schema response', async () => {
+    const source = messages([1, 1, 1, 1]);
+    let attempts = 0;
+    await assert.rejects(
+        processAdaptiveExtractionChunks([{ messages: source, tokens: 4 }], {
+            measureMessages: measure,
+            extract: async () => {
+                attempts++;
+                throw new Error('Extractor field "facts" is not an array.');
+            },
+            save: async () => {},
+        }),
+        /facts.*not an array/i,
     );
     assert.equal(attempts, 1);
 });

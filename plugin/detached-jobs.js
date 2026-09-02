@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 
 import { isRateLimitError, isTransientApiError } from '../extension/errors.js';
-import { isRecoverableExtractionOutputError } from '../extension/extraction-recovery.js';
+import { isAdaptiveExtractionSplitError } from '../extension/extraction-recovery.js';
 import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries } from '../extension/extraction-context.js';
 import { fingerprintMessage } from '../extension/message-digest.js';
 import { addDerivedChronicle, mergeExtraction } from '../extension/memory-model.js';
@@ -19,6 +19,7 @@ const MAX_FINISHED_JOBS = 40;
 const DEFAULT_REQUEST_TIMEOUT_MS = 120000;
 const DEFAULT_RETRY_DELAY_MS = 2000;
 const MAX_RETRY_DELAY_MS = 60000;
+const DEFAULT_MAX_NETWORK_ATTEMPTS = 5;
 const TASK_REQUEST_FIELDS = ['request', 'fallbackRequest', 'mandatoryRequest', 'mandatoryFallbackRequest', 'uncontrolledRequest'];
 
 export function releaseDetachedTaskPayload(task, { recursive = true } = {}) {
@@ -330,6 +331,11 @@ async function backendRequest(job, body) {
             return result;
         } catch (error) {
             if (job.cancelled || !isTransientApiError(error)) throw error;
+            if (attempt >= job.maxNetworkAttempts) {
+                const exhausted = new Error(`Temporary API failure persisted after ${attempt} attempts; detached processing stopped without marking this section processed.`, { cause: error });
+                exhausted.networkAttemptsExhausted = true;
+                throw exhausted;
+            }
             job.networkFailures = Math.max(job.networkFailures || 0, attempt);
             const delay = Math.min(job.maxRetryDelayMs, job.retryDelayMs * (2 ** Math.min(5, attempt - 1)));
             job.validation = `Temporary connection error; retrying in ${Math.round(delay / 1000)}s (attempt ${attempt + 1})…`;
@@ -388,6 +394,7 @@ async function extractTask(job, task, world) {
             return validated.result;
         } catch (error) {
             lastError = error;
+            if (error?.networkAttemptsExhausted) throw error;
             if (isRateLimitError(error)) throw new Error('Rate limited; detached processing paused without marking this section processed.', { cause: error });
             if (/output limit|finish_reason/i.test(error.message)) throw error;
         }
@@ -425,7 +432,7 @@ async function runTask(job, task) {
         job.messages += task.messages.length;
         return;
     } catch (error) {
-        if (!isRecoverableExtractionOutputError(error) || !Array.isArray(task.parts) || task.parts.length !== 2) throw error;
+        if (!isAdaptiveExtractionSplitError(error) || !Array.isArray(task.parts) || task.parts.length !== 2) throw error;
         const parts = task.parts;
         task.parts = null;
         for (const field of TASK_REQUEST_FIELDS) task[field] = null;
@@ -504,6 +511,7 @@ export function createDetachedJob(req, payload, storage, {
     requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
     retryDelayMs = DEFAULT_RETRY_DELAY_MS,
     maxRetryDelayMs = MAX_RETRY_DELAY_MS,
+    maxNetworkAttempts = DEFAULT_MAX_NETWORK_ATTEMPTS,
 } = {}) {
     const worldId = String(payload?.worldId || '');
     const chatKey = String(payload?.chatKey || '');
@@ -531,6 +539,7 @@ export function createDetachedJob(req, payload, storage, {
         requestTimeoutMs: Math.max(10, Number(requestTimeoutMs) || DEFAULT_REQUEST_TIMEOUT_MS),
         retryDelayMs: Math.max(10, Number(retryDelayMs) || DEFAULT_RETRY_DELAY_MS),
         maxRetryDelayMs: Math.max(10, Number(maxRetryDelayMs) || MAX_RETRY_DELAY_MS),
+        maxNetworkAttempts: Math.max(1, Number(maxNetworkAttempts) || DEFAULT_MAX_NETWORK_ATTEMPTS),
         networkFailures: 0,
         loadWorld: () => storage.loadWorld(worldId),
         saveWorld: world => storage.saveWorld(worldId, world),

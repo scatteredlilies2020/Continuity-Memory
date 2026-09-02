@@ -23,6 +23,15 @@ export function isRecoverableExtractionOutputError(error) {
         || /maximum context length|context length|token limit|returned no text|without a valid json object|returned no json object|no valid chronological scene capsule|extractor field [^\n]+ is not an array/.test(message);
 }
 
+// Only errors that indicate incomplete text should cause recursive splitting.
+// A schema-shaped response with the wrong field type is usually a provider
+// compatibility problem; splitting it repeatedly only multiplies API cost.
+export function isAdaptiveExtractionSplitError(error) {
+    const message = errorChainText(error);
+    return isExplicitExtractionOutputLimitError(error)
+        || /maximum context length|context length|token limit|returned no text|without a valid json object|returned no json object|unexpected end|invalid json/.test(message);
+}
+
 function rangeLabel(messages) {
     const first = Number(messages?.[0]?.index);
     const last = Number(messages?.at(-1)?.index);
@@ -88,7 +97,7 @@ export async function processAdaptiveExtractionChunks(initialChunks, {
         try {
             result = await extract(chunk.messages);
         } catch (error) {
-            if (!isRecoverableExtractionOutputError(error)) throw error;
+            if (!isAdaptiveExtractionSplitError(error)) throw error;
             if (chunk.messages.length < 2) {
                 throw recoveryFailure(error, chunk.messages, 'This section contains one message and cannot be split safely at a message boundary.');
             }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { releaseDetachedTaskPayload } from '../plugin/detached-jobs.js';
+import { createDetachedJob, getDetachedJob, releaseDetachedTaskPayload } from '../plugin/detached-jobs.js';
 
 function request(label) {
     return {
@@ -41,4 +41,38 @@ test('completed detached tasks release every retry and recursive split payload',
         assert.equal(item.mandatoryFallbackRequest, null);
         assert.equal(item.uncontrolledRequest, null);
     }
+});
+
+test('detached transient failures stop at the configured request limit', async () => {
+    const req = {
+        socket: { localPort: 3210 },
+        headers: {},
+        user: { directories: { root: 'detached-test' } },
+    };
+    let calls = 0;
+    const { job } = createDetachedJob(req, {
+        worldId: 'world',
+        chatKey: 'chat',
+        tasks: [{ messages: [{ index: 0, text: 'hello' }], request: { messages: [] } }],
+    }, {
+        loadWorld: async () => ({ id: 'world' }),
+        saveWorld: async () => {},
+    }, {
+        fetchImpl: async () => {
+            calls++;
+            throw new Error('503 Service Unavailable');
+        },
+        maxNetworkAttempts: 2,
+        retryDelayMs: 1,
+        maxRetryDelayMs: 1,
+    });
+
+    for (let attempt = 0; attempt < 50; attempt++) {
+        if (getDetachedJob(req, job.id)?.status === 'error') break;
+        await new Promise(resolve => setTimeout(resolve, 2));
+    }
+    const finished = getDetachedJob(req, job.id);
+    assert.equal(finished.status, 'error');
+    assert.equal(calls, 2);
+    assert.match(finished.error, /after 2 attempts.*without marking this section processed/i);
 });

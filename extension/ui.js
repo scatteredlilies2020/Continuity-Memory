@@ -4,10 +4,10 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.8';
+import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.9';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.8';
+import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.9';
 import { clearRetrievalExpansionCache } from './semantic-retrieval.js';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
@@ -15,23 +15,23 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.15.0-testing.8';
-import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.15.0-testing.8';
-import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.8';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.15.0-testing.9';
+import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.15.0-testing.9';
+import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.9';
 import { completeDigestMessageCount, latestCompleteDigestMessageIndex, resolveDigestGroupSize, validateDigestGroupSize } from './digest-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.8';
-import { embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.8';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.8';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.9';
+import { embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.9';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.9';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.8';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.8';
-import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.15.0-testing.8';
-import { resolveStoryBudget } from './story-budget.js?v=0.15.0-testing.8';
-import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.15.0-testing.8';
+import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.9';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.9';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.15.0-testing.9';
+import { resolveStoryBudget } from './story-budget.js?v=0.15.0-testing.9';
+import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.15.0-testing.9';
 import { createRenderScheduler } from './render-scheduler.js';
-import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.8';
-import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.8';
+import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.9';
+import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.9';
 import { isTransientApiError } from './errors.js';
 
 let worlds = [];
@@ -1718,6 +1718,7 @@ function buildFailureCanRetry(error) {
 async function runMemoryBuildWithRestart() {
     const stopSequence = runtime.stopSequence;
     let failures = 0;
+    const maxFailures = 5;
     if (runtime.paused) resumeRuntime();
     try {
         while (true) {
@@ -1746,6 +1747,11 @@ async function runMemoryBuildWithRestart() {
                     throw error;
                 }
                 failures++;
+                if (failures >= maxFailures) {
+                    const message = `Build stopped after ${failures} temporary failures to limit repeated API requests. Saved progress was kept.`;
+                    updateRuntime({ status: 'error', lastError: error.message, retryStatus: message });
+                    throw new Error(message, { cause: error });
+                }
                 const delay = Math.min(20000, 2000 * (2 ** Math.min(4, failures - 1)));
                 const message = `Build activity failed (${error.message}). Restarting in ${Math.round(delay / 1000)}s (attempt ${failures + 1})…`;
                 updateRuntime({ processing: true, status: 'building', lastError: '', retryStatus: message });
