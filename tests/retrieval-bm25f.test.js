@@ -255,7 +255,30 @@ test('open threads remain visible when the current message changes topics', () =
 
     assert.deepEqual(selected, []);
     assert.match(result.prompt, /Lucas will visit Darth Segundus at the palace within three days/);
-    assert.match(result.prompt, /Compact continuity ledger:[\s\S]*Open-thread ledger \(latest\):/);
+    assert.match(result.prompt, /Compact continuity ledger:[\s\S]*Open-thread ledger \(priority \+ latest\):/);
+});
+
+test('the open-thread ledger reserves four slots for important older threads', () => {
+    const important = Array.from({ length: 4 }, (_, index) => ({
+        id: `important-${index}`,
+        title: `Critical commitment ${index}`,
+        detail: `Critical commitment ${index} must remain visible.`,
+        status: 'open', participants: [], importance: 5,
+        updatedAt: new Date(2026, 0, index + 1).toISOString(),
+    }));
+    const recent = Array.from({ length: 12 }, (_, index) => ({
+        id: `recent-${index}`,
+        title: `Recent side matter ${String.fromCharCode(65 + index)}`,
+        detail: `Recent side matter ${String.fromCharCode(65 + index)} remains unresolved.`,
+        status: 'open', participants: [], importance: 1,
+        updatedAt: new Date(2026, 1, index + 1).toISOString(),
+    }));
+    const result = buildMemoryPrompt(world({ threads: [...important, ...recent] }), user('An unrelated quiet scene.'), 4000);
+    const ledger = result.prompt.match(/Open-thread ledger \(priority \+ latest\): ([^\n]+)/)?.[1] || '';
+
+    for (let index = 0; index < 4; index++) assert.match(ledger, new RegExp(`Critical commitment ${index}`));
+    for (const label of ['E', 'F', 'G', 'H', 'I', 'J', 'K', 'L']) assert.match(ledger, new RegExp(`Recent side matter ${label}`));
+    for (const label of ['A', 'B', 'C', 'D']) assert.doesNotMatch(ledger, new RegExp(`Recent side matter ${label}(?:\\s|$)`));
 });
 
 test('strong completed events remain in the compact ledger when the current message changes topics', () => {
@@ -275,7 +298,7 @@ test('the compact ledger collapses typographic duplicate thread titles', () => {
         { id: 'straight', title: "Toska's transformation", detail: 'Duplicate wording.', status: 'open', importance: 4 },
     ] });
     const result = buildMemoryPrompt(target, user('An unrelated quiet moment.'), 3000);
-    const ledger = result.prompt.match(/Open-thread ledger \(latest\): ([^\n]+)/)?.[1] || '';
+    const ledger = result.prompt.match(/Open-thread ledger \(priority \+ latest\): ([^\n]+)/)?.[1] || '';
 
     assert.equal((ledger.match(/wording/gu) || []).length, 1);
 });
@@ -298,7 +321,7 @@ test('an open-thread ledger uses the current unresolved description instead of a
         detail: 'Caelen Veyr’s identity is established; why he concealed Toska’s potential remains unresolved.',
     }] });
     const result = buildMemoryPrompt(target, user('An unrelated palace scene.'), 3000);
-    const ledger = result.prompt.match(/Open-thread ledger \(latest\): ([^\n]+)/)?.[1] || '';
+    const ledger = result.prompt.match(/Open-thread ledger \(priority \+ latest\): ([^\n]+)/)?.[1] || '';
 
     assert.match(ledger, /Caelen Veyr’s identity is established/);
     assert.doesNotMatch(ledger, /Determine Toska’s master’s true identity/);
@@ -337,7 +360,7 @@ test('raw-tail threads and events retain only neutral latest ledger titles', () 
 
     assert.deepEqual(selections(result, 'Open matters'), []);
     assert.deepEqual(selections(result, 'Past events'), []);
-    assert.match(result.prompt, /Open-thread ledger \(latest\): Audience confrontation/);
+    assert.match(result.prompt, /Open-thread ledger \(priority \+ latest\): Audience confrontation/);
     assert.match(result.prompt, /Event ledger \(latest\): Palace arrival/);
     assert.doesNotMatch(result.prompt, /Potentially duplicated raw/);
 });

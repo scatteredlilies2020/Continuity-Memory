@@ -475,7 +475,13 @@ function extractionStateContext(world, messages) {
         const score = [...contextTerms(searchable)].reduce((total, term) => total + Number(conversationTerms.has(term)), 0);
         return { item, score, sourceTo: Number(source?.to ?? -1) };
     }).sort((a, b) => b.score - a.score || b.sourceTo - a.sourceTo);
-    const activeThreads = [...threadCandidates.filter(entry => entry.score > 0).slice(0, 8), ...threadCandidates.filter(entry => entry.item.status === 'open').slice(0, 2)]
+    const matchedThreads = threadCandidates.filter(entry => entry.score > 0).slice(0, 8);
+    const matchedThreadItems = new Set(matchedThreads.map(entry => entry.item));
+    const fallbackThreads = threadCandidates
+        .filter(entry => entry.item.status === 'open' && !matchedThreadItems.has(entry.item))
+        .sort((a, b) => Number(b.item.importance || 0) - Number(a.item.importance || 0) || b.sourceTo - a.sourceTo)
+        .slice(0, 2);
+    const activeThreads = [...matchedThreads, ...fallbackThreads]
         .filter((entry, index, all) => all.findIndex(other => other.item === entry.item) === index)
         .slice(0, 12)
         .map(({ item }) => ({

@@ -1548,13 +1548,20 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         chatKey,
         world.capsules || [],
     );
-    const compactThreads = openThreadItems
-        .filter(item => !activeThreadIds.has(item.id))
-        .sort((left, right) => compareRecordFreshness(right, left, chatKey))
+    const compactThreadCandidates = openThreadItems.filter(item => !activeThreadIds.has(item.id));
+    const priorityThreads = [...compactThreadCandidates]
+        .sort((left, right) => Number(right.importance || 0) - Number(left.importance || 0)
+            || compareRecordFreshness(right, left, chatKey))
+        .slice(0, 4);
+    const compactThreads = [
+        ...priorityThreads,
+        ...[...compactThreadCandidates].sort((left, right) => compareRecordFreshness(right, left, chatKey)),
+    ]
+        .filter((item, index, all) => all.findIndex(other => other.id === item.id) === index)
         .slice(0, 12);
     addSection('Compact continuity ledger', [
         compactEvents.length ? `- Event ledger (latest): ${compactEvents.map(item => plain(item.title)).join(' → ')}` : '',
-        compactThreads.length ? `- Open-thread ledger (latest): ${compactThreads.map(item => whollyRaw(item) ? plain(item.title) : plain(item.detail) || plain(item.title)).join('; ')}` : '',
+        compactThreads.length ? `- Open-thread ledger (priority + latest): ${compactThreads.map(item => whollyRaw(item) ? plain(item.title) : plain(item.detail) || plain(item.title)).join('; ')}` : '',
     ]);
 
     const selectedIds = new Set(selectedMemoryRecords.map(selection => selection.item.id));
