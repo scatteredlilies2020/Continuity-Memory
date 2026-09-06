@@ -54,6 +54,14 @@ test('deictic wording remains bound to the immutable Digest where it was recorde
     assert.match(prompt, new RegExp(`tomorrow \\(relative to ${firstAnchor}\\)`, 'i'));
 });
 
+test('retrieval injection forbids cross-record event and time fusion', () => {
+    const prompt = buildMemoryPrompt(world(), [{ name: 'User', mes: 'Continue the scene.' }], 1000).prompt;
+    assert.match(prompt, /each retrieved row is atomic/i);
+    assert.match(prompt, /Do not merge locations, actions, people, reports, or times from different rows/i);
+    assert.match(prompt, /Keep reports and last-known status as reports/i);
+    assert.match(prompt, /relative date or duration is valid only when that exact row/i);
+});
+
 test('message distance never becomes elapsed story time', () => {
     const target = world();
     const chatKey = 'chat:long-day';

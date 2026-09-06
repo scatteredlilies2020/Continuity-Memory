@@ -7,6 +7,10 @@ const IRREGULAR_NEGATIVE_BASES = new Map([
 ]);
 const CJK_RUN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
 const LIFECYCLE_GUIDANCE = 'Facts are objective canon unless corrected; perspectives and reports are not. Entity rows describe only their entity. Relationship ↔ has no directional role; use its Description and established facts. Only Current state is current. Open matters are pending; other events and plans are past.';
+// This is deliberately separate from the user-editable injection instruction.
+// Retrieval returns independent evidence rows; the roleplay model must not
+// turn nearby fragments into a new witnessed event or an invented date.
+const EVIDENCE_FIDELITY_GUARD = 'Evidence handling: each retrieved row is atomic. Do not merge locations, actions, people, reports, or times from different rows into one event, itinerary, witness statement, or first-person memory. Keep reports and last-known status as reports; do not convert them into personal experience. A relative date or duration is valid only when that exact row (or an explicit temporal relation) establishes it; otherwise leave the timing unknown. Raw chat and explicit user corrections override memory.';
 const BM25_K1 = 1.2;
 const RRF_OFFSET = 20;
 const RETRIEVAL_FIELDS = {
@@ -1315,7 +1319,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     );
     const budget = Math.max(128, Number(budgetTokens));
     const guidance = String(injectionInstruction ?? DEFAULT_INJECTION_INSTRUCTION).trim();
-    const parts = { value: `<continuity>\n${guidance}${guidance ? '\n' : ''}${LIFECYCLE_GUIDANCE}\n` };
+    const parts = { value: `<continuity>\n${guidance}${guidance ? '\n' : ''}${EVIDENCE_FIDELITY_GUARD}\n${LIFECYCLE_GUIDANCE}\n` };
     const sections = [];
     const seenRows = new Set();
     const addSection = (title, rows) => sections.push({
