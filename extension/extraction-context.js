@@ -4,7 +4,11 @@ function messageText(message) {
 
 const AUTHORITATIVE_USER_META = /(?:^|[\s[(])(?:OOC|out[- ]of[- ]character|meta|canon(?:ical)?\s+note|author(?:'s)?\s+note|GM\s+note|narrator\s+note)\s*(?:[:—–-]|\)|\])/iu;
 const PROVENANCE_STOP_WORDS = new Set('about after again against also and are because been before being between both but can could did does doing down during each few for from further had has have having her here hers herself him himself his how into its itself just more most nor not now off once only other our ours ourselves out over own same she should some such than that the their theirs them themselves then there these they this those through too under until very was were what when where which while who whom why will with would you your yours yourself yourselves'.split(' '));
-const ATTRIBUTION_VERB = /\b(?:said|says|stated|asserted|claimed|revealed|disclosed|told|informed|admitted|announced|reported|confirmed|explained|mentioned|shared|communicated|declared|identified|established|knew|knows|learned|realized|recognized|understood|discovered)\b/iu;
+// Keep this list limited to verbs that actually attribute speech or knowledge
+// to a character. Broad factual/administrative verbs such as "established",
+// "identified", "confirmed", and "reported" also occur in neutral narration
+// and can falsely turn an OOC-term overlap into a provenance violation.
+const ATTRIBUTION_VERB = /\b(?:said|says|stated|asserted|claimed|revealed|disclosed|told|informed|admitted|announced|explained|mentioned|shared|communicated|declared|knew|knows|learned|realized|recognized|understood|discovered)\b/iu;
 const SAFE_PROVENANCE = /\b(?:OOC|meta|author(?:'s)?[- ]level|authorial|narrative context|canon(?:ical)? note|GM note|narrator note)\b/iu;
 const NEGATED_ATTRIBUTION = /\b(?:did not|does not|had not|has not|never|without)\s+(?:say|state|assert|claim|reveal|disclose|tell|inform|admit|announce|report|confirm|explain|mention|share|communicate|declare|identify|establish|know|learn|realize|recognize|understand|discover)\b/iu;
 

@@ -86,3 +86,13 @@ test('author-only canon cannot be persisted as the persona speech or knowledge',
         chronicleEntry: 'Author-level context established Lucia’s abnormally high midichlorian count; Lucia did not disclose it in-world.',
     }, boundaries));
 });
+
+test('neutral institutional narration does not trip provenance on an OOC scheduling term', () => {
+    const boundaries = authoritativeMetaBoundaries([{
+        index: 591, name: 'Lucia', isUser: true,
+        text: 'OOC: Advance to the petition filing time',
+    }]);
+    assert.doesNotThrow(() => assertAuthoritativeMetaProvenance({
+        chronicleEntry: 'Lucia’s petition and Nim’s placement materials were formally submitted, with separate tracking and review paths established.',
+    }, boundaries));
+});
