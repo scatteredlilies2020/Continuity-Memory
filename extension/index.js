@@ -39,6 +39,55 @@ let injectionRefreshCancel = null;
 let injectionRefreshRevision = 0;
 let generationInjectionRunning = false;
 
+function bridgeSourceRange(record, chatKey) {
+    const sources = Array.isArray(record?.sources) ? record.sources : [];
+    const source = sources.filter(item => !chatKey || !item?.chatKey || item.chatKey === chatKey)
+        .sort((a, b) => Number(b?.to ?? -1) - Number(a?.to ?? -1))[0];
+    if (!source) return null;
+    return { chatKey: String(source.chatKey || chatKey || ''), from: Number(source.from), to: Number(source.to) };
+}
+
+function bridgeRecordText(record, category) {
+    const values = category === 'threads'
+        ? [record?.title, record?.detail]
+        : category === 'relationships'
+            ? [record?.from, record?.to, record?.kind, record?.dynamic, record?.description]
+            : category === 'events'
+                ? [record?.title, record?.summary, record?.description, record?.outcome]
+                : category === 'backgrounds'
+                    ? [record?.topic, record?.summary]
+                    : [record?.name, record?.subject, record?.predicate, record?.attribute, record?.value, record?.description, record?.state, record?.location];
+    return values.filter(value => value != null && String(value).trim()).map(value => String(value).trim()).join(' — ').replace(/\s+/gu, ' ').slice(0, 700);
+}
+
+function buildPlanningEvidence(world, chatKey, coverage) {
+    const categories = ['threads', 'facts', 'states', 'relationships', 'events', 'entities', 'backgrounds'];
+    const evidence = [];
+    for (const category of categories) {
+        for (const record of Array.isArray(world?.[category]) ? world[category] : []) {
+            const sourceRange = bridgeSourceRange(record, chatKey);
+            if (sourceRange?.to != null && Number(sourceRange.to) > Number(coverage?.throughMessageIndex ?? -1)) continue;
+            const text = bridgeRecordText(record, category);
+            if (!record?.id || !text) continue;
+            const canonicalStatus = String(record.status || record.truthStatus || (category === 'threads' ? 'open' : 'current')).toLowerCase();
+            evidence.push({
+                id: String(record.id), category, canonicalStatus,
+                cmRevision: Math.max(0, Number(world?.revision) || 0),
+                importance: Math.max(0, Math.min(5, Number(record.importance) || 0)), text,
+                participants: Array.isArray(record.participants) ? record.participants : [record.from, record.to].filter(Boolean),
+                sourceRange,
+                temporalAnchor: record.temporalAnchorId || record.temporalAnchor || null,
+                retrievalReason: record.correctionId
+                    ? 'reviewed Continuity correction'
+                    : category === 'threads' && ['open', 'pending'].includes(canonicalStatus)
+                        ? 'important open canonical thread'
+                        : 'current canonical record',
+            });
+        }
+    }
+    return evidence.sort((a, b) => b.importance - a.importance || Number(b.sourceRange?.to ?? -1) - Number(a.sourceRange?.to ?? -1)).slice(0, 64);
+}
+
 function yieldToBrowser(maxWait = 100) {
     return new Promise(resolve => {
         let settled = false;
@@ -395,7 +444,10 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
         injectionStatus,
         ...retrievalSnapshotPatch(retrievalSnapshot),
     });
-    continuityContextBridge.publish(prompt);
+    continuityContextBridge.publish(prompt, {
+        coverage: { throughMessageIndex: coverage.latestIndex },
+        planningEvidence: buildPlanningEvidence(world, getChatKey(), coverage),
+    });
 }
 
 async function refreshInjection(useRetrievalAssist = false, coverageMessages = null, recentMessages = null, promptOptions = {}) {
