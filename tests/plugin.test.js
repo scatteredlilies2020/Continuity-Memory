@@ -28,6 +28,64 @@ async function call(handler, root, { body = {}, params = {}, query = {}, headers
     return { status, payload };
 }
 
+test('unsupported server storage requires an update instead of recovering an older conflict copy', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-format-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const router = mockRouter();
+    await init(router, { syncExtension: false });
+    const created = await call(router.routes.get('POST /worlds'), root, { body: { name: 'Newer format' } });
+    const world = created.payload.world;
+    const directory = path.join(root, 'continuity-memory', 'worlds');
+    const filename = path.join(directory, `${world.id}.json`);
+    const supported = await fs.readFile(filename, 'utf8');
+    const conflictName = path.join(directory, `${world.id}.sync-conflict-20260910-000000-TEST.json`);
+    await fs.writeFile(conflictName, supported);
+    const manifest = JSON.parse(supported);
+    manifest.shardedStorage.version = 999;
+    const newer = JSON.stringify(manifest);
+    await fs.writeFile(filename, newer);
+    const filesBefore = await fs.readdir(directory);
+
+    const listed = await call(router.routes.get('GET /worlds'), root);
+    assert.equal(listed.status, 200);
+    assert.equal(listed.payload.worlds[0].unsupported, true);
+    assert.equal(listed.payload.worlds[0].corrupt, false, 'newer storage must not trigger portable corruption recovery');
+
+    for (const route of ['GET /worlds/:id', 'PUT /worlds/:id', 'POST /recover-world', 'POST /migrate-world']) {
+        const result = await call(router.routes.get(route), root, { params: { id: world.id }, body: world });
+        assert.equal(result.status, 422);
+        assert.match(result.payload.error, /Update Continuity Memory/);
+        assert.match(result.payload.error, /do not erase or rescan/);
+        assert.equal(await fs.readFile(filename, 'utf8'), newer, 'a readable older copy must not replace unsupported newer storage');
+        assert.equal(await fs.readFile(conflictName, 'utf8'), supported);
+    }
+    assert.deepEqual(await fs.readdir(directory), filesBefore);
+});
+
+test('invalid current-format server manifests still recover from validated conflict copies', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-corrupt-manifest-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const router = mockRouter();
+    await init(router, { syncExtension: false });
+    const created = await call(router.routes.get('POST /worlds'), root, { body: { name: 'Recoverable manifest' } });
+    const world = created.payload.world;
+    world.facts = [{ id: 'retained-fact', value: 'Still recoverable' }];
+    const saved = await call(router.routes.get('PUT /worlds/:id'), root, { params: { id: world.id }, body: world });
+    assert.equal(saved.status, 200);
+    const directory = path.join(root, 'continuity-memory', 'worlds');
+    const filename = path.join(directory, `${world.id}.json`);
+    const supported = JSON.parse(await fs.readFile(filename, 'utf8'));
+    await fs.writeFile(path.join(directory, `${world.id}.sync-conflict-20260910-000000-TEST.json`), JSON.stringify(supported));
+
+    for (const shards of [null, [], 'invalid']) {
+        await fs.writeFile(filename, JSON.stringify({ ...supported, shards }));
+        const loaded = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: world.id } });
+        assert.equal(loaded.status, 200);
+        assert.deepEqual(loaded.payload.world.facts, saved.payload.world.facts);
+        assert.deepEqual(JSON.parse(await fs.readFile(filename, 'utf8')), supported);
+    }
+});
+
 test('server plugin creates, saves, and explicitly deletes worlds', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-test-'));
     t.after(() => fs.rm(root, { recursive: true, force: true }));

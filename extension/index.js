@@ -1,28 +1,28 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.15.0-testing.9';
+import { api } from './api.js?v=0.15.0-testing.10';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maintainChronicleHierarchy, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.15.0-testing.9';
-import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.15.0-testing.9';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.9';
-import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.9';
-import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.15.0-testing.9';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.9';
+import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maintainChronicleHierarchy, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.15.0-testing.10';
+import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.15.0-testing.10';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.10';
+import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.10';
+import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.15.0-testing.10';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.10';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.15.0-testing.9';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.9';
-import { purgeEmbeddingIndex, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.15.0-testing.9';
-import { isTransientApiError } from './errors.js?v=0.15.0-testing.9';
-import { roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.15.0-testing.9';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.15.0-testing.10';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.10';
+import { purgeEmbeddingIndex, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.15.0-testing.10';
+import { isTransientApiError } from './errors.js?v=0.15.0-testing.10';
+import { roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.15.0-testing.10';
 import { isDigestStabilityProtectedMessage, latestCompleteDigestMessageIndex } from './digest-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
-import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.15.0-testing.9';
-import { resolveStoryBudget } from './story-budget.js?v=0.15.0-testing.9';
+import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.15.0-testing.10';
+import { resolveStoryBudget } from './story-budget.js?v=0.15.0-testing.10';
 import { createBackgroundScheduler } from './background-scheduler.js';
-import { createContinuityContextBridge } from './context-bridge.js';
+import { buildPlanningEvidence, createContinuityContextBridge } from './context-bridge.js?v=0.15.0-testing.10';
 
 const PROMPT_KEY = 'continuity_memory_context';
 const continuityContextBridge = createContinuityContextBridge(getContext);
@@ -38,55 +38,6 @@ let pendingEmbeddingSync = null;
 let injectionRefreshCancel = null;
 let injectionRefreshRevision = 0;
 let generationInjectionRunning = false;
-
-function bridgeSourceRange(record, chatKey) {
-    const sources = Array.isArray(record?.sources) ? record.sources : [];
-    const source = sources.filter(item => !chatKey || !item?.chatKey || item.chatKey === chatKey)
-        .sort((a, b) => Number(b?.to ?? -1) - Number(a?.to ?? -1))[0];
-    if (!source) return null;
-    return { chatKey: String(source.chatKey || chatKey || ''), from: Number(source.from), to: Number(source.to) };
-}
-
-function bridgeRecordText(record, category) {
-    const values = category === 'threads'
-        ? [record?.title, record?.detail]
-        : category === 'relationships'
-            ? [record?.from, record?.to, record?.kind, record?.dynamic, record?.description]
-            : category === 'events'
-                ? [record?.title, record?.summary, record?.description, record?.outcome]
-                : category === 'backgrounds'
-                    ? [record?.topic, record?.summary]
-                    : [record?.name, record?.subject, record?.predicate, record?.attribute, record?.value, record?.description, record?.state, record?.location];
-    return values.filter(value => value != null && String(value).trim()).map(value => String(value).trim()).join(' — ').replace(/\s+/gu, ' ').slice(0, 700);
-}
-
-function buildPlanningEvidence(world, chatKey, coverage) {
-    const categories = ['threads', 'facts', 'states', 'relationships', 'events', 'entities', 'backgrounds'];
-    const evidence = [];
-    for (const category of categories) {
-        for (const record of Array.isArray(world?.[category]) ? world[category] : []) {
-            const sourceRange = bridgeSourceRange(record, chatKey);
-            if (sourceRange?.to != null && Number(sourceRange.to) > Number(coverage?.throughMessageIndex ?? -1)) continue;
-            const text = bridgeRecordText(record, category);
-            if (!record?.id || !text) continue;
-            const canonicalStatus = String(record.status || record.truthStatus || (category === 'threads' ? 'open' : 'current')).toLowerCase();
-            evidence.push({
-                id: String(record.id), category, canonicalStatus,
-                cmRevision: Math.max(0, Number(world?.revision) || 0),
-                importance: Math.max(0, Math.min(5, Number(record.importance) || 0)), text,
-                participants: Array.isArray(record.participants) ? record.participants : [record.from, record.to].filter(Boolean),
-                sourceRange,
-                temporalAnchor: record.temporalAnchorId || record.temporalAnchor || null,
-                retrievalReason: record.correctionId
-                    ? 'reviewed Continuity correction'
-                    : category === 'threads' && ['open', 'pending'].includes(canonicalStatus)
-                        ? 'important open canonical thread'
-                        : 'current canonical record',
-            });
-        }
-    }
-    return evidence.sort((a, b) => b.importance - a.importance || Number(b.sourceRange?.to ?? -1) - Number(a.sourceRange?.to ?? -1)).slice(0, 64);
-}
 
 function yieldToBrowser(maxWait = 100) {
     return new Promise(resolve => {
@@ -648,7 +599,7 @@ async function onChatRenamed(eventData) {
 }
 
 async function init() {
-    const templateResponse = await fetch(new URL('./settings.html?v=0.15.0-testing.9', import.meta.url));
+    const templateResponse = await fetch(new URL('./settings.html?v=0.15.0-testing.10', import.meta.url));
     if (!templateResponse.ok) throw new Error(`Could not load settings template: ${templateResponse.status} ${templateResponse.statusText}`);
     const html = $(await templateResponse.text());
     const container = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');

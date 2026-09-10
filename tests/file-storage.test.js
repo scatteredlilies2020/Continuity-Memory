@@ -49,6 +49,55 @@ function memoryFileServer() {
     };
 }
 
+test('unsupported file storage requires an update without rewriting saved memory', async () => {
+    const server = memoryFileServer();
+    const api = createFileStorageApi({ fetchFn: server.fetchFn });
+    const { world } = await api.createWorld('Newer format');
+    const filename = `continuity-memory-world-${world.id}.json`;
+    const manifest = JSON.parse(server.files.get(filename));
+    manifest.shardedStorage.version = 999;
+    server.files.set(filename, JSON.stringify(manifest));
+    const before = [...server.files];
+    server.clearActivity();
+    for (const operation of [() => api.getWorld(world.id), () => api.saveWorld(world)]) {
+        await assert.rejects(operation, error => {
+            assert.equal(error.status, 422);
+            assert.equal(error.code, 'CONTINUITY_UPDATE_REQUIRED');
+            assert.match(error.message, /Update Continuity Memory/);
+            assert.match(error.message, /do not erase or rescan/);
+            return true;
+        });
+    }
+    assert.deepEqual(server.uploads, []);
+    assert.deepEqual(server.deletes, []);
+    assert.deepEqual([...server.files], before);
+});
+
+test('invalid current-format file manifests remain corruption errors without rewriting memory', async () => {
+    const server = memoryFileServer();
+    const api = createFileStorageApi({ fetchFn: server.fetchFn });
+    const { world } = await api.createWorld('Malformed manifest');
+    const filename = `continuity-memory-world-${world.id}.json`;
+    const manifest = JSON.parse(server.files.get(filename));
+    for (const shards of [null, [], 'invalid']) {
+        manifest.shards = shards;
+        server.files.set(filename, JSON.stringify(manifest));
+        const before = [...server.files];
+        server.clearActivity();
+        for (const operation of [() => api.getWorld(world.id), () => api.saveWorld(world)]) {
+            await assert.rejects(operation, error => {
+                assert.equal(error.status, 500);
+                assert.notEqual(error.code, 'CONTINUITY_UPDATE_REQUIRED');
+                assert.match(error.message, /shard manifest is invalid/);
+                return true;
+            });
+        }
+        assert.deepEqual(server.uploads, []);
+        assert.deepEqual(server.deletes, []);
+        assert.deepEqual([...server.files], before);
+    }
+});
+
 test('built-in SillyTavern file storage preserves worlds, revisions, import, and deletion', async () => {
     const server = memoryFileServer();
     const api = createFileStorageApi({ fetchFn: server.fetchFn });

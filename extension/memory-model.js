@@ -1,3 +1,4 @@
+import { LEGACY_DIGEST_RESCAN_MESSAGE } from './legacy-support.js';
 import { EXTRACTION_VERSION } from './coverage.js';
 import { isSuppressedByCorrection } from './memory-correction.js';
 import { addressFactAddressee, addressFactIdentity, enrichEntityDescriptionsFromEstablishedFacts, entityIsPersonLike, entityTypesAreCompatible, isAddressFact, mergeAddressValues, normalizeKnowledgePredicateTaxonomy, normalizeRelationalKnowledgeTopics, reconcileGenericAddressDuplicates, reconcileStoredMemoryRecords, reconciliationMergeIsCompatible, reconciliationTargetIsCompatible, reconciliationTargetWasRejected, reconciliationThreadWasAtomicallySplit, recoverRelationshipBackedEntityDescriptions, relationshipPairIdentity, removeInvalidAddressFacts } from './reconciliation-policy.js';
@@ -1612,7 +1613,7 @@ export function getLatestDigestUndoStatus(world, chatKey) {
 export function undoLatestDigestExtraction(world, chatKey, expectedExtractionId = '') {
     const status = getLatestDigestUndoStatus(world, chatKey);
     if (!status.available) throw new Error('There is no saved Digest memory to undo for this chat.');
-    if (!status.replayable) throw new Error('This memory predates stored Digest replay data and cannot safely undo one range. Rebuild it from scratch first.');
+    if (!status.replayable) throw new Error(LEGACY_DIGEST_RESCAN_MESSAGE);
     if (expectedExtractionId && status.extractionId !== expectedExtractionId) {
         throw new Error('The latest Digest changed while Undo was saving. Nothing was removed; review the latest range and try again.');
     }

@@ -1991,8 +1991,14 @@ test('undo latest Digest refuses incomplete legacy replay data without changing 
     const before = structuredClone(target);
 
     assert.equal(getLatestDigestUndoStatus(target, 'chat').replayable, false);
-    assert.throws(() => undoLatestDigestExtraction(target, 'chat'), /cannot safely undo one range/i);
-    assert.deepEqual(target, before);
+    assert.throws(() => undoLatestDigestExtraction(target, 'chat'), error => {
+        assert.match(error.message, /cannot safely undo one range/i);
+        assert.match(error.message, /Export memory first/);
+        assert.match(error.message, /Erase everything & start over/);
+        assert.match(error.message, /Rebuild every Chronicle layer alone cannot/);
+        return true;
+    });
+    assert.deepEqual(target, before, 'unsupported undo must leave saved records unchanged');
 });
 
 test('full reset erases every memory layer while preserving the bound world identity', () => {

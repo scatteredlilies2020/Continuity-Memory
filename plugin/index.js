@@ -1,3 +1,4 @@
+import { unsupportedStorageVersion } from '../extension/legacy-support.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -9,7 +10,7 @@ import { cancelDetachedJob, createDetachedJob, getDetachedJob, listDetachedJobs 
 import { registerVectorRoutes } from './vector-store.js';
 
 const PLUGIN = 'continuity-memory';
-const VERSION = '0.15.0-testing.9';
+const VERSION = '0.15.0-testing.10';
 const SCHEMA_VERSION = 12;
 const STORAGE_VERSION = 2;
 const SHARD_CHUNK_SIZE = 128;
@@ -271,8 +272,11 @@ async function optionalStoredWorld(dirs, id) {
 }
 
 async function materializeStoredWorld(dirs, id, stored) {
+    if (stored?.shardedStorage && stored.shardedStorage.version !== STORAGE_VERSION) {
+        throw unsupportedStorageVersion(stored.shardedStorage.version);
+    }
     if (stored?.shardedStorage && !isShardManifest(stored)) {
-        throw new Error(`Unsupported memory storage version: ${stored.shardedStorage.version ?? 'unknown'}`);
+        throw new Error('Stored memory shard manifest is invalid');
     }
     if (!isShardManifest(stored)) {
         migrateLegacyBeliefs(stored);
@@ -351,6 +355,9 @@ async function optionalWorldRecord(dirs, id) {
             };
         }
     } catch (error) {
+        // Unsupported is not corrupt: never overwrite newer storage with an
+        // older Syncthing conflict copy. Let the user update the reader first.
+        if (error.code === 'CONTINUITY_UPDATE_REQUIRED') throw error;
         loadError = error;
     }
 
@@ -511,7 +518,8 @@ export async function init(router, {
                     const world = await optionalWorld(dirs, id);
                     worlds.push({ id: world.id, name: world.name, updatedAt: world.updatedAt, revision: world.revision || 0, counts: counts(world) });
                 } catch (error) {
-                    worlds.push({ id: file.slice(0, -5), name: file, corrupt: true, error: error.message });
+                    const unsupported = error.code === 'CONTINUITY_UPDATE_REQUIRED';
+                    worlds.push({ id: file.slice(0, -5), name: file, corrupt: !unsupported, unsupported, error: error.message });
                 }
             }
             worlds.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
@@ -546,7 +554,8 @@ export async function init(router, {
             try {
                 stored = await optionalStoredWorld(dirs, id);
                 if (stored) await materializeStoredWorld(dirs, id, stored);
-            } catch {
+            } catch (error) {
+                if (error.code === 'CONTINUITY_UPDATE_REQUIRED') throw error;
                 corrupt = true;
             }
             if (stored && !corrupt) {

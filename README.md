@@ -91,6 +91,14 @@ Existing records are embedded once. New and revised records are synchronized inc
 
 Background developments are retrieved only when the current conversation matches their topic, participants, or meaning. They are not inserted into every response merely because they were retained.
 
+## Retired features and older memory
+
+Standalone Rolling Story generation, refinement, and deletion have been retired in favor of Digest and Recursive Chronicle. Stale callers receive an explicit error instead of starting the old generation pipeline. If old controls still appear, update Continuity Memory and reload SillyTavern. Use **Build** for missing Digest/C0 entries, or **Rebuild every Chronicle layer** to regenerate chronology from existing Digest without erasing structured memory.
+
+Supported saved snapshots, attributed-belief migration, and source-edit recovery remain supported; older fields alone do not require a rescan. If memory lacks the stored Digest replay data needed for **Undo latest Digest**, export it first and explicitly choose **Erase everything & start over** to rescan the chat. That action clears reviewed corrections too; a Chronicle-only rebuild cannot restore missing Digest replay data.
+
+An unsupported storage version requires updating the extension and optional server plugin, not erasing memory. The reader leaves the files untouched and does not replace an unsupported newer server manifest with an older Syncthing conflict copy.
+
 ## Chronological memory
 
 Continuity builds chronological memory from detailed **Digest** records and a **Recursive Chronicle**. Each Digest creates one source-linked C0 node. When a Chronicle layer exceeds its configured capacity (24 by default), the oldest eligible nodes are summarized into a parent at the next level; groups of 10 are promoted by default. The same rule recursively creates C1, C2, C3, and higher layers without a fixed maximum depth or deletion of their sources.

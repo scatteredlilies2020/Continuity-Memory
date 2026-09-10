@@ -1,3 +1,56 @@
+function bridgeSourceRange(record, chatKey) {
+    const sources = Array.isArray(record?.sources) ? record.sources : [];
+    const source = sources.filter(item => !chatKey || !item?.chatKey || item.chatKey === chatKey)
+        .sort((a, b) => Number(b?.to ?? -1) - Number(a?.to ?? -1))[0];
+    if (!source) return null;
+    return { chatKey: String(source.chatKey || chatKey || ''), from: Number(source.from), to: Number(source.to) };
+}
+
+function bridgeRecordText(record, category) {
+    const values = category === 'threads'
+        ? [record?.title, record?.detail]
+        : category === 'relationships'
+            ? [record?.from, record?.to, record?.kind, record?.dynamic, record?.description]
+            : category === 'events'
+                ? [record?.title, record?.summary, record?.description, record?.outcome]
+                : category === 'backgrounds'
+                    ? [record?.topic, record?.summary]
+                    : [record?.name, record?.subject, record?.predicate, record?.attribute, record?.value, record?.description, record?.state, record?.location];
+    return values.filter(value => value != null && String(value).trim()).map(value => String(value).trim()).join(' — ').replace(/\s+/gu, ' ').slice(0, 700);
+}
+
+export function buildPlanningEvidence(world, chatKey, coverage) {
+    // Internal coverage uses latestIndex; throughMessageIndex is only the
+    // published bridge-v2 field. Do not treat ordinary covered facts as future.
+    const latestIndex = Number(coverage?.latestIndex ?? -1);
+    const throughMessageIndex = Number.isFinite(latestIndex) ? latestIndex : -1;
+    const categories = ['threads', 'facts', 'states', 'relationships', 'events', 'entities', 'backgrounds'];
+    const evidence = [];
+    for (const category of categories) {
+        for (const record of Array.isArray(world?.[category]) ? world[category] : []) {
+            const sourceRange = bridgeSourceRange(record, chatKey);
+            if (sourceRange?.to != null && Number(sourceRange.to) > throughMessageIndex) continue;
+            const text = bridgeRecordText(record, category);
+            if (!record?.id || !text) continue;
+            const canonicalStatus = String(record.status || record.truthStatus || (category === 'threads' ? 'open' : 'current')).toLowerCase();
+            evidence.push({
+                id: String(record.id), category, canonicalStatus,
+                cmRevision: Math.max(0, Number(world?.revision) || 0),
+                importance: Math.max(0, Math.min(5, Number(record.importance) || 0)), text,
+                participants: Array.isArray(record.participants) ? record.participants : [record.from, record.to].filter(Boolean),
+                sourceRange,
+                temporalAnchor: record.temporalAnchorId || record.temporalAnchor || null,
+                retrievalReason: record.correctionId
+                    ? 'reviewed Continuity correction'
+                    : category === 'threads' && ['open', 'pending'].includes(canonicalStatus)
+                        ? 'important open canonical thread'
+                        : 'current canonical record',
+            });
+        }
+    }
+    return evidence.sort((a, b) => b.importance - a.importance || Number(b.sourceRange?.to ?? -1) - Number(a.sourceRange?.to ?? -1)).slice(0, 64);
+}
+
 function fastHash(value) {
     const source = String(value ?? '');
     let hash = 0x811c9dc5;

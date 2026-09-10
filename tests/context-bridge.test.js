@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createContinuityContextBridge } from '../extension/context-bridge.js';
+import { buildPlanningEvidence, createContinuityContextBridge } from '../extension/context-bridge.js';
+import { analyzeCoverage } from '../extension/coverage.js';
 
 function testContext() {
     return {
@@ -9,6 +10,55 @@ function testContext() {
         chat: [{ name: 'User', is_user: true, mes: 'Hello' }],
     };
 }
+
+test('planning evidence accepts actual coverage output and excludes records beyond the source boundary', () => {
+    const context = testContext();
+    const coverage = analyzeCoverage([
+        { index: 0, name: 'User', text: 'The gate is locked.' },
+        { index: 1, name: 'Character', text: 'I will find the key.' },
+    ]);
+    const source = to => [{ chatKey: 'chat-1', from: 0, to }];
+    const world = {
+        revision: 7,
+        facts: [
+            { id: 'covered', subject: 'Gate', predicate: 'is', value: 'locked', importance: 4, sources: source(1) },
+            { id: 'future', subject: 'Gate', predicate: 'is', value: 'open', importance: 5, sources: source(2) },
+        ],
+    };
+    const before = structuredClone(world);
+    assert.equal(coverage.latestIndex, 1);
+    assert.equal(coverage.throughMessageIndex, undefined);
+    const evidence = buildPlanningEvidence(world, 'chat-1', coverage);
+    assert.deepEqual(evidence.map(item => item.id), ['covered']);
+    assert.equal(evidence[0].cmRevision, 7);
+    assert.deepEqual(evidence[0].sourceRange, { chatKey: 'chat-1', from: 0, to: 1 });
+    assert.deepEqual(world, before, 'building evidence must not mutate saved memory');
+
+    const { bridge, publish } = createContinuityContextBridge(() => context);
+    publish('', { coverage: { throughMessageIndex: coverage.latestIndex }, planningEvidence: evidence });
+    const snapshot = bridge.getContextSnapshot();
+    assert.equal(snapshot.status, 'current');
+    assert.equal(snapshot.coverage.throughMessageIndex, 1);
+    assert.equal(snapshot.planningEvidence[0].id, 'covered');
+});
+
+test('planning evidence fails closed for sourced records without a valid coverage boundary', () => {
+    const world = { facts: [{ id: 'fact', subject: 'Gate', value: 'locked', sources: [{ chatKey: 'chat-1', from: 0, to: 0 }] }] };
+    for (const coverage of [undefined, {}, { latestIndex: NaN }, { latestIndex: Infinity }, analyzeCoverage([])]) {
+        assert.deepEqual(buildPlanningEvidence(world, 'chat-1', coverage), []);
+    }
+});
+
+test('planning evidence preserves importance ordering and the 64-record limit', () => {
+    const world = { facts: Array.from({ length: 70 }, (_, index) => ({
+        id: `fact-${index}`, subject: 'Gate', value: `detail ${index}`, importance: index === 0 ? 5 : 1,
+        sources: [{ chatKey: 'chat-1', from: index, to: index }],
+    })) };
+    const evidence = buildPlanningEvidence(world, 'chat-1', { latestIndex: 69 });
+    assert.equal(evidence.length, 64);
+    assert.equal(evidence[0].id, 'fact-0');
+    assert.equal(evidence[1].id, 'fact-69');
+});
 
 test('context bridge exposes only an aligned read-only v2 snapshot', () => {
     const context = testContext();

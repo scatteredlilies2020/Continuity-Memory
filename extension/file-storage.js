@@ -1,3 +1,4 @@
+import { unsupportedStorageVersion } from './legacy-support.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { discardLegacyStorySnapshots } from './story-source.js';
 import { syncChronicleBase } from './chronicle.js';
@@ -290,8 +291,11 @@ export function createFileStorageApi({ fetchFn = globalThis.fetch, requestHeader
     }
 
     async function materializeStoredWorld(stored, expectedId) {
+        if (stored?.shardedStorage && stored.shardedStorage.version !== STORAGE_VERSION) {
+            throw unsupportedStorageVersion(stored.shardedStorage.version);
+        }
         if (stored?.shardedStorage && !isShardManifest(stored)) {
-            throw storageError(`Unsupported memory storage version: ${stored.shardedStorage.version ?? 'unknown'}`);
+            throw storageError('Stored memory shard manifest is invalid');
         }
         if (!isShardManifest(stored)) {
             migrateLegacyBeliefs(stored);
