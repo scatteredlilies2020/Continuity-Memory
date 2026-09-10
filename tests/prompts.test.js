@@ -20,6 +20,10 @@ import {
     HIERARCHY_CONCISION_RULES,
     DIGEST_EPISTEMIC_COVERAGE_RULE,
     OOC_META_AUTHORITY_RULE,
+    SCENARIO_NOTE_RULE,
+    PRE_GREETING_OOC_META_AUTHORITY_RULE,
+    PRE_STRICT_OOC_META_AUTHORITY_RULE,
+    upgradeOocMetaAuthorityPrompt,
     PRE_ATOMIC_IDENTITY_DIGEST_EPISTEMIC_COVERAGE_RULE,
     RELATIONSHIP_DESCRIPTION_RULE,
     ROLLING_STORY_QUALITY_RULE,
@@ -52,6 +56,28 @@ test('custom prompt templates cannot omit required payloads', () => {
     assert.match(rendered, /User: hello/);
 });
 
+test('scenario note rules apply to all roles without promoting dialogue or writing preferences', () => {
+    for (const prompt of [DEFAULT_EXTRACTION_SYSTEM_PROMPT, buildExtractionSystemPrompt('Custom instructions.')]) {
+        assert.ok(prompt.includes(SCENARIO_NOTE_RULE));
+        assert.match(prompt, /each durable constraint in source-linked structured facts/u);
+        assert.match(prompt, /negative capabilities, unavailable techniques or technology, era restrictions, and milestones not yet reached/u);
+        assert.match(prompt, /whether in a greeting, assistant message, or user message/u);
+        assert.match(prompt, /Explicit user corrections override conflicting assistant notes/u);
+        assert.match(prompt, /Exclude questions, hypotheticals, writing preferences, and quoted in-world documents/u);
+    }
+});
+
+test('old authority prompts upgrade idempotently without losing custom instructions', () => {
+    for (const previous of [PRE_GREETING_OOC_META_AUTHORITY_RULE, PRE_STRICT_OOC_META_AUTHORITY_RULE]) {
+        const upgraded = upgradeOocMetaAuthorityPrompt(`Custom prefix.\n${previous}\nCustom suffix.`);
+        assert.equal(upgraded, `Custom prefix.\n${OOC_META_AUTHORITY_RULE}\nCustom suffix.`);
+        assert.equal(upgradeOocMetaAuthorityPrompt(upgraded), upgraded);
+        const built = buildExtractionSystemPrompt(`Custom prefix.\n${previous}\nCustom suffix.`);
+        assert.equal(built.split(SCENARIO_NOTE_RULE).length, 2);
+        assert.doesNotMatch(built, /Only an explicit user OOC\/meta assertion may authorize/u);
+    }
+});
+
 test('hierarchy concision rules apply to defaults and custom instructions', () => {
     assert.equal(buildHierarchySystemPrompt(DEFAULT_CHRONICLE_SYSTEM_PROMPT), DEFAULT_CHRONICLE_SYSTEM_PROMPT);
     assert.equal(buildHierarchySystemPrompt('Custom hierarchy instructions.'), `Custom hierarchy instructions.\n\n${HIERARCHY_CONCISION_RULES}`);
@@ -81,7 +107,7 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /reports, logs, turns, status updates, or simulation results/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /out-of-character or meta assertions about scenario continuity are authoritative canon/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Every durable assertion under such a label must appear in structured records/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Only an explicit user OOC\/meta assertion may authorize treating an assertion's embedded proposition as hard objective truth/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Only an explicit OOC\/meta or scenario-note assertion may authorize treating an assertion's embedded proposition as hard objective truth/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /establishes only that the source said, reported, remembered, inferred, or believed it/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /leave the embedded proposition unconfirmed/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /epistemic state; do not promote its embedded proposition/);
@@ -156,7 +182,7 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_CHRONICLE_SYSTEM_PROMPT, /chronological Chronicle nodes/);
     assert.match(DEFAULT_CHRONICLE_SYSTEM_PROMPT, /consequential knowledge gaps as open threads/);
     assert.match(DEFAULT_CHRONICLE_SYSTEM_PROMPT, /Most items are 2 or 3/);
-    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 13400);
+    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 14300);
     assert.ok(DEFAULT_CHRONICLE_SYSTEM_PROMPT.length < 2400);
 });
 

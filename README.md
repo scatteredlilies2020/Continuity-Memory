@@ -45,6 +45,8 @@ Continuity maintains structured records for:
 
 The built-in memory viewer lets you search and inspect these records, including the message ranges from which they were created.
 
+Explicit scenario notes anywhere in the chat—including greetings, assistant messages, and user messages, with Markdown-formatted `Note:`, `Timeline:`, and OOC/meta labels—are extracted as scenario context, not character speech or knowledge. Extraction retains each durable era restriction, unavailable capability, and not-yet-reached milestone as source-linked canon. Explicit user corrections override conflicting assistant notes. In-world quoted documents, questions, hypotheticals, and writing preferences are not promoted into continuity facts. Already-processed messages are not automatically re-extracted; use a reviewed memory correction to repair an existing omission.
+
 Extraction distinguishes the current focus from other continuity-bearing strands. Focused characters, goals, decisions, relationships, and directly consequential subplots receive normal detailed records. Each meaningful non-focused theater or process receives one compact, source-grounded background record with its current condition and certainty. This applies equally to simulation and ordinary roleplay; it does not assume that geographic or political material is background when it directly affects the active story.
 
 ## Corrections and revisions

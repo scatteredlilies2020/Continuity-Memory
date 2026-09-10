@@ -3,6 +3,7 @@ import { canonicalCharacterProfileField, characterProfileDetailIsAdmissible, dur
 import { canonicalProseIsThirdPerson, thirdPersonOnlyProse } from './canonical-prose.js';
 import { EXTRACTION_VERSION } from './coverage.js';
 import { randomUuid } from './uuid.js';
+import { splitScenarioNotes } from './extraction-context.js?v=0.15.0-testing.10';
 
 export const TARGET_RECORD_CATEGORIES = Object.freeze(['entities', 'facts', 'states', 'relationships', 'threads', 'backgrounds']);
 
@@ -711,9 +712,7 @@ export function recoverExplicitOocIdentityBoundaries(result, world, messages) {
     const index = continuityEntityIndex(result, world);
     let recovered = 0;
     for (const message of messages) {
-        if (message?.isUser !== true && message?.is_user !== true) continue;
-        const source = cleanText(message?.text ?? message?.mes);
-        const ooc = source.match(/(?:^|[\s[(])(?:OOC|out[- ]of[- ]character|meta|canon(?:ical)?\s+note|author(?:'s)?\s+note|GM\s+note|narrator\s+note)\s*(?:[:—–-]|\)|\])\s*([\s\S]+)$/iu)?.[1] || '';
+        const ooc = splitScenarioNotes(message)?.meta || '';
         if (!ooc) continue;
         const hidden = ooc.match(/\b(?:no\s+one|nobody)(?:\s+(?:here|present|in\s+the\s+scene))?\s+(?:knows?|recognizes?)\s+(?:that\s+)?(?:i\s+am|i['’]m|he\s+is|she\s+is|they\s+are)\s+([\p{L}\p{N}'’ -]{2,80}?)(?=[.!?;]|$)/iu);
         if (!hidden) continue;
@@ -829,9 +828,7 @@ function sourceExplicitlyGrantsIdentityKnowledge(messages, holder, identity) {
                 && !/\b(?:confirms?|confirmed|recognizes?|recognized|learns?|learned|discovers?|discovered|now knows?)\b/iu.test(window)) continue;
             return true;
         }
-        const ooc = (message?.isUser === true || message?.is_user === true)
-            ? source.match(/(?:^|[\s[(])(?:OOC|out[- ]of[- ]character|meta|canon(?:ical)?\s+note|author(?:'s)?\s+note|GM\s+note|narrator\s+note)\s*(?:[:—–-]|\)|\])\s*([\s\S]+)$/iu)?.[1] || ''
-            : '';
+        const ooc = splitScenarioNotes(message)?.meta || '';
         if (ooc && textMentionsIdentityVariant(ooc, [holderName])
             && textMentionsIdentityVariant(ooc, [identityName])
             && /\b(?:knows?|recognizes?|is aware|learned|was told)\b/iu.test(ooc)
@@ -2751,7 +2748,6 @@ const AUDIT_ATTRIBUTED_PREDICATE = /^(?:belief|claim|allegation|rumou?r|report|s
 const AUDIT_ATTRIBUTION_VERB = /\b(?:believes?|believed|claims?|claimed|alleges?|alleged|reports?|reported|rumou?rs?|rumou?red|suspects?|suspected|speculates?|speculated|thinks?|thought|assumes?|assumed|infers?|inferred|concludes?|concluded|remembers?|remembered|recalls?|recalled|says?|said|tells?|told|states?|stated|reveals?|revealed|discloses?|disclosed|explains?|explained|informs?|informed|insists?|insisted|argues?|argued)\b/iu;
 const AUDIT_ACTIVE_ATTRIBUTION_VERB = /(?:believes?|believed|claims?|claimed|alleges?|alleged|reports?|reported|rumou?rs?|rumou?red|suspects?|suspected|speculates?|speculated|thinks?|thought|assumes?|assumed|infers?|inferred|concludes?|concluded|remembers?|remembered|recalls?|recalled|says?|said|states?|stated|reveals?|revealed|discloses?|disclosed|explains?|explained|informs?|informed|insists?|insisted|argues?|argued)/iu;
 const AUDIT_SOURCE_SUBJECTIVE = /(?:[“”"]|\b(?:i|we)\s+(?:(?:say|said|tell|told|claim|claimed|state|stated|insist|insisted|argue|argued|believe|believed|think|thought|suspect|suspected|remember|remembered|recall|recalled)|(?:(?:am|are|was|were|have been|had been|serve|serves|served|work|works|worked|command|commands|commanded|hold|holds|held|possess|possesses|possessed|own|owns|owned)\b))|\b(?:according to|in (?:his|her|their|my|our) (?:view|memory|belief)|appears?|appeared|seems?|seemed|probably|possibly|perhaps|maybe|might|unconfirmed|disputed)\b|\b(?:belief|claim|allegation|rumou?r|report|record|dossier|testimony|perspective|inference|conclusion|memory)\b)/iu;
-const AUDIT_SOURCE_AUTHORITATIVE = /(?:^|[\s[(])(?:OOC|out[- ]of[- ]character|meta|canon(?:ical)?\s+note|author(?:'s)?\s+note|GM\s+note|narrator\s+note)\s*(?:[:—–-]|\)|\])/iu;
 const CHARACTER_PROFILE_SECTION = /(Role\/background|Age\/demographics|Appearance|Personality\/quirks):\s*/giu;
 const CHARACTER_PROFILE_ORDER = ['roleBackground', 'ageDemographics', 'appearance', 'personalityQuirks'];
 const CHARACTER_PROFILE_LABEL = {
@@ -3146,15 +3142,19 @@ function auditEvidenceThreshold(value) {
     return Math.max(4, Math.min(9, Math.ceil(coverageTerms(value).size * 0.42)));
 }
 
-function sourceEvidenceParts(message) {
+function sourceEvidenceChunks(message) {
     const source = String(message?.text ?? message?.mes ?? '').replace(/\r/g, ' ');
-    const userAuthored = message?.isUser === true || message?.is_user === true;
-    const chunks = source.split(/\n+|(?<=[.!?])\s+(?=[\p{L}\p{N}“"'*_<])/u)
-        .map(cleanText).filter(value => value && !/^<\/?[^>]+>$/u.test(value) && value !== '```');
+    const spans = splitScenarioNotes({ ...message, text: source, mes: undefined })?.spans || [{ type: 'inWorld', text: source }];
+    return spans.flatMap(span => span.text.split(/\n+|(?<=[.!?])\s+(?=[\p{L}\p{N}“"'*_<])/u)
+        .map(cleanText).filter(value => value && !/^<\/?[^>]+>$/u.test(value) && value !== '```')
+        .map(text => ({ text, authoritative: span.type === 'meta' })));
+}
+
+function sourceEvidenceParts(message) {
     const subjective = [];
     const objective = [];
-    for (const chunk of chunks) {
-        if (userAuthored && AUDIT_SOURCE_AUTHORITATIVE.test(chunk)) objective.push(chunk);
+    for (const { text: chunk, authoritative } of sourceEvidenceChunks(message)) {
+        if (authoritative) objective.push(chunk);
         else if (AUDIT_SOURCE_SUBJECTIVE.test(chunk) || /^\*[^*]+\*$/u.test(chunk)) subjective.push(chunk);
         else objective.push(chunk);
     }
@@ -3163,12 +3163,10 @@ function sourceEvidenceParts(message) {
 
 function characterProfileObjectiveParts(message) {
     const source = stripGeneratedProfileControlBlocks(String(message?.text ?? message?.mes ?? '')).replace(/\r/g, ' ');
-    const userAuthored = message?.isUser === true || message?.is_user === true;
-    return source.split(/\n+|(?<=[.!?])\s+(?=[\p{L}\p{N}“"'*_<])/u)
-        .map(cleanText)
-        .map(chunk => {
+    return sourceEvidenceChunks({ ...message, text: source, mes: undefined })
+        .map(({ text: chunk, authoritative }) => {
             if (!chunk || /^<\/?[^>]+>$/u.test(chunk) || chunk === '```' || looksLikeStructuredProfilePanel(chunk)) return '';
-            if ((userAuthored && AUDIT_SOURCE_AUTHORITATIVE.test(chunk)) || !AUDIT_SOURCE_SUBJECTIVE.test(chunk)) return chunk;
+            if (authoritative || !AUDIT_SOURCE_SUBJECTIVE.test(chunk)) return chunk;
             // Quoted claims cannot establish appearance or personality. Keep
             // only a bare proper-name self-introduction as a discourse anchor
             // so immediately preceding objective narration can be attributed

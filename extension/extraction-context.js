@@ -2,7 +2,11 @@ function messageText(message) {
     return String(message?.mes ?? message?.text ?? '').trim();
 }
 
-const AUTHORITATIVE_USER_META = /(?:^|[\s[(])(?:OOC|out[- ]of[- ]character|meta|canon(?:ical)?\s+note|author(?:'s)?\s+note|GM\s+note|narrator\s+note)\s*(?:[:—–-]|\)|\])/iu;
+const META_LABEL = "(?:OOC|out[- ]of[- ]character|meta|canon(?:ical)?\\s+note|author(?:'s)?\\s+note|GM\\s+note|narrator\\s+note)";
+const SETUP_LABEL = '(?:timeline|era|setting|scenario|scene|location|notes?)';
+const NOTE_HEADER = new RegExp(`^[\\t ]*(?:#{1,6}[\\t ]+)?(?:\\*{1,2}|_{1,2})?[\\t ]*[\\[(]?(${META_LABEL}|${SETUP_LABEL})(?:\\*{1,2}|_{1,2})?[\\t ]*(?:[:—–-]|\\]|\\))[\\t ]*(?:\\*{1,2}|_{1,2})?[\\t ]*(.*)$`, 'iu');
+const EXPLICIT_META_LABEL = new RegExp(`^${META_LABEL}$`, 'iu');
+const INLINE_META = new RegExp(`[\\[(](?:${META_LABEL}|${SETUP_LABEL})[\\t ]*[:—–-][\\t ]*[^\\]\\)\\n]+[\\]\\)]|\\b${META_LABEL}[\\t ]*[:—–-][\\t ]*.+$`, 'giu');
 const PROVENANCE_STOP_WORDS = new Set('about after again against also and are because been before being between both but can could did does doing down during each few for from further had has have having her here hers herself him himself his how into its itself just more most nor not now off once only other our ours ourselves out over own same she should some such than that the their theirs them themselves then there these they this those through too under until very was were what when where which while who whom why will with would you your yours yourself yourselves'.split(' '));
 // Keep this list limited to verbs that actually attribute speech or knowledge
 // to a character. Broad factual/administrative verbs such as "established",
@@ -13,26 +17,80 @@ const SAFE_PROVENANCE = /\b(?:OOC|meta|author(?:'s)?[- ]level|authorial|narrativ
 const NEGATED_ATTRIBUTION = /\b(?:did not|does not|had not|has not|never|without)\s+(?:say|state|assert|claim|reveal|disclose|tell|inform|admit|announce|report|confirm|explain|mention|share|communicate|declare|identify|establish|know|learn|realize|recognize|understand|discover)\b/iu;
 
 function words(value) {
-    return String(value ?? '').toLocaleLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || [];
+    return String(value ?? '').toLocaleLowerCase().replace(/\b(?:pre|post)-/gu, '').match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || [];
 }
 
 export function splitAuthoritativeUserMeta(message) {
     if (message?.isUser !== true) return null;
-    const source = messageText(message);
-    const match = AUTHORITATIVE_USER_META.exec(source);
-    if (!match) return null;
-    const labelOffset = match.index + (match[0].match(/^[\s[(]+/u)?.[0].length || 0);
-    const contentOffset = match.index + match[0].length;
+    const split = splitScenarioNotes(message);
+    return split ? { inWorld: split.inWorld, meta: split.meta } : null;
+}
+
+// Role and position do not decide note authority. Keep source order and narrow
+// boundaries so a note never absorbs the dialogue or narration following it.
+export function splitScenarioNotes(message) {
+    if (message?.is_system) return null;
+    const lines = messageText(message).split(/\r?\n/u);
+    const spans = [];
+    const append = (type, text) => {
+        if (spans.at(-1)?.type === type) spans.at(-1).text += `\n${text}`;
+        else spans.push({ type, text });
+    };
+    let fence = null;
+    let noteContinuation = false;
+    for (const line of lines) {
+        const marker = line.match(/^[\t ]*(`{3,}|~{3,})/u)?.[1];
+        if (marker) {
+            noteContinuation = false;
+            if (!fence) fence = marker;
+            else if (marker[0] === fence[0] && marker.length >= fence.length) fence = null;
+            append('inWorld', line);
+            continue;
+        }
+        if (fence || /^[\t ]*(?:>|["“‘'`])/u.test(line)) {
+            noteContinuation = false;
+            append('inWorld', line);
+            continue;
+        }
+        const header = NOTE_HEADER.exec(line);
+        // A closed inline note at the start of a line must not absorb the
+        // narration after its closing bracket. Let the inline splitter handle it.
+        const boundedInlineHeader = /^[\t ]*[\[(][^\]\)]*[:—–-][^\]\)]*[\]\)]/u.test(line);
+        if (header && !boundedInlineHeader) {
+            // Retain setup labels (e.g. Timeline) as part of the evidence.
+            const text = EXPLICIT_META_LABEL.test(header[1]) && header[2].trim() ? header[2] : line.trim();
+            append('meta', text);
+            noteContinuation = true;
+            continue;
+        }
+        if (noteContinuation && line.trim() && /^(?:\t| {2,}|[\t ]*(?:[-+*]|\d+[.)])\s+)/u.test(line)) {
+            append('meta', line);
+            continue;
+        }
+        noteContinuation = false;
+        let offset = 0;
+        for (const match of line.matchAll(INLINE_META)) {
+            // Inline quoted speech and code are not author notes.
+            if (/["“”‘’`]/u.test(line.slice(0, match.index))) continue;
+            append('inWorld', line.slice(offset, match.index));
+            append('meta', match[0]);
+            offset = match.index + match[0].length;
+        }
+        append('inWorld', line.slice(offset));
+    }
+    const nonempty = spans.map(span => ({ ...span, text: span.text.trim() })).filter(span => span.text);
+    if (!nonempty.some(span => span.type === 'meta')) return null;
     return {
-        inWorld: source.slice(0, labelOffset).trim(),
-        meta: source.slice(contentOffset).trim(),
+        spans: nonempty,
+        meta: nonempty.filter(span => span.type === 'meta').map(span => span.text).join('\n'),
+        inWorld: nonempty.filter(span => span.type === 'inWorld').map(span => span.text).join('\n'),
     };
 }
 
 export function authoritativeMetaBoundaries(messages) {
     const boundaries = [];
     for (const message of messages || []) {
-        const split = splitAuthoritativeUserMeta(message);
+        const split = splitScenarioNotes(message);
         if (!split?.meta) continue;
         const speaker = String(message?.name || '').trim();
         const inWorldTerms = new Set(words(split.inWorld));
@@ -105,10 +163,13 @@ export function precedingUserAttributionContext(chat, messages) {
 
 export function formatExtractionMessages(messages, attributionContext = null) {
     const formatted = (messages || []).map(message => {
-        const split = splitAuthoritativeUserMeta(message);
-        if (!split) return `[message ${message.index}] [${message.name}]: ${message.text}`;
-        const inWorld = split.inWorld ? `<IN_WORLD_SPAN>\n${split.inWorld}\n</IN_WORLD_SPAN>\n` : '';
-        return `[message ${message.index}] [${message.name}] [PROVENANCE-SEGMENTED USER MESSAGE]:\n${inWorld}<AUTHOR_OOC_META_SPAN>\n${split.meta}\n</AUTHOR_OOC_META_SPAN>\n[The author span is canon but is not ${message.name}'s speech, action, disclosure, or knowledge.]`;
+        const split = splitScenarioNotes(message);
+        if (!split) return `[message ${message.index}] [${message.name}]: ${messageText(message)}`;
+        const spans = split.spans.map(span => {
+            const tag = span.type === 'meta' ? 'AUTHOR_OOC_META_SPAN' : 'IN_WORLD_SPAN';
+            return `<${tag}>\n${span.text}\n</${tag}>`;
+        }).join('\n');
+        return `[message ${message.index}] [${message.name}] [PROVENANCE-SEGMENTED ${message.isUser ? 'USER ' : ''}MESSAGE]:\n${spans}\n[Each author span's continuity assertions are canon but it is not ${message.name}'s speech, action, disclosure, or knowledge. Extract durable constraints; exclude questions, hypotheticals, writing preferences, and in-world quoted notes. Explicit user corrections take precedence over conflicting assistant notes.]`;
     }).join('\n\n');
     if (!attributionContext) return formatted;
     const context = `[message ${attributionContext.index}] [${attributionContext.name}]: ${attributionContext.text}`;

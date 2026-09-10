@@ -1,6 +1,7 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
+import { upgradeOocMetaAuthorityPrompt } from './prompts.js?v=0.15.0-testing.10';
 import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CANONICAL_THIRD_PERSON_RULE, CHARACTER_PROFILE_RULE, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, EXTREME_CANON_FIDELITY_RULE, EXTREME_SUMMARY_FIDELITY_RULE, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, DIGEST_EPISTEMIC_COVERAGE_RULE, LEGACY_EPISTEMIC_MEMORY_RULES, OOC_META_AUTHORITY_RULE, PRE_ATOMIC_IDENTITY_DIGEST_EPISTEMIC_COVERAGE_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRICT_OOC_META_AUTHORITY_RULE, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.15.0-testing.10';
 import { DEFAULT_DIGEST_GROUP_SIZE } from './digest-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
@@ -91,7 +92,7 @@ const DEFAULTS = Object.freeze({
     rawTailMode: 'tokens',
     rawTailValue: 0,
     ...PROMPT_DEFAULTS,
-    oocMetaAuthorityPromptVersion: 2,
+    oocMetaAuthorityPromptVersion: 3,
     extremeCanonPromptVersion: 1,
     chatWorlds: {},
     deletedWorldIds: [],
@@ -116,14 +117,14 @@ function promptFingerprint(value) {
 export function getSettings() {
     if (!extension_settings[EXTENSION_NAME]) extension_settings[EXTENSION_NAME] = {};
     const settings = extension_settings[EXTENSION_NAME];
-    if (Number(settings.oocMetaAuthorityPromptVersion || 0) < 2) {
-        const prompt = String(settings.extractionSystemPrompt || PROMPT_DEFAULTS.extractionSystemPrompt);
+    if (Number(settings.oocMetaAuthorityPromptVersion || 0) < 3) {
+        const prompt = upgradeOocMetaAuthorityPrompt(settings.extractionSystemPrompt || PROMPT_DEFAULTS.extractionSystemPrompt);
         settings.extractionSystemPrompt = prompt.includes(OOC_META_AUTHORITY_RULE)
             ? prompt
             : prompt.includes(PRE_STRICT_OOC_META_AUTHORITY_RULE)
                 ? prompt.replace(PRE_STRICT_OOC_META_AUTHORITY_RULE, OOC_META_AUTHORITY_RULE)
                 : `${prompt}\n${OOC_META_AUTHORITY_RULE}`;
-        settings.oocMetaAuthorityPromptVersion = 2;
+        settings.oocMetaAuthorityPromptVersion = 3;
         saveSettingsDebounced();
     }
     if (Number(settings.extremeCanonPromptVersion || 0) < 1) {
