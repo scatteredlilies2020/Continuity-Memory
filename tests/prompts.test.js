@@ -93,11 +93,31 @@ test('existing extraction and Chronicle prompts preserve source scope across all
     }
     assert.ok(DEFAULT_CHRONICLE_SYSTEM_PROMPT.includes(SOURCE_SCOPE_RULE));
     assert.match(SOURCE_SCOPE_RULE, /every memory: who, what, certainty, conditions, and any stated time/u);
-    assert.match(SOURCE_SCOPE_RULE, /even when stored as facts/u);
+    assert.match(SOURCE_SCOPE_RULE, /even if stored as facts, backgrounds, or other records/u);
     assert.match(SOURCE_SCOPE_RULE, /Do not add past\/current\/future, permanent, expired, resolved, or universal status without evidence/u);
     assert.match(SOURCE_SCOPE_RULE, /Retain explicit chronology and plans as plans; leave unspecified timing unspecified/u);
     assert.match(SOURCE_SCOPE_RULE, /update only the affected claim/u);
     assert.match(SOURCE_SCOPE_RULE, /Recency, elapsed turns, silence, and outside lore do not prove a change or continued applicability/u);
+});
+
+test('Chronicle retains consequential setup independently of structured storage without requiring an event', () => {
+    for (const base of [DEFAULT_EXTRACTION_SYSTEM_PROMPT, 'Custom extraction instructions.']) {
+        const prompt = buildExtractionSystemPrompt(base);
+        assert.ok(prompt.includes(CHRONICLE_ENTRY_RULE));
+        assert.match(prompt, /this excerpt's consequential setup and causally important change/u);
+        assert.match(prompt, /source-supported conditions that materially govern what is possible or how events should be understood/u);
+        assert.match(prompt, /even when no action changes them in this excerpt/u);
+        assert.match(prompt, /Omit low-value detail and repetition within the entry, not consequential information merely because it is also stored in structured records/u);
+        assert.match(prompt, /check that the entry itself retains the excerpt's consequential setup with its source scope and knowledge boundaries intact/u);
+        assert.doesNotMatch(prompt, /or repeat details already represented in the structured records unless needed/u);
+        assert.equal(buildExtractionSystemPrompt(prompt), prompt);
+    }
+    for (const base of [DEFAULT_CHRONICLE_SYSTEM_PROMPT, 'Custom hierarchy instructions.']) {
+        const prompt = buildHierarchySystemPrompt(base);
+        assert.match(prompt, /consequential setup from supplied sources/u);
+        assert.match(prompt, /separate storage does not justify omission/u);
+        assert.ok(prompt.includes(SOURCE_SCOPE_RULE));
+    }
 });
 
 test('prompt builders preserve custom instructions without adding prose-style directives', () => {
