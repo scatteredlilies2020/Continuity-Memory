@@ -160,6 +160,8 @@ Write chronicleEntry from this excerpt only. It will be promoted recursively wit
 export const DEFAULT_RETRIEVAL_QUERY_TEMPLATE = `Current conversation:
 {{conversation}}`;
 
+export const SOURCE_SCOPE_RULE = `Preserve source scope for every memory: who, what, certainty, conditions, and any stated time. Keep consequential setup notes in summaries even when stored as facts. Do not add past/current/future, permanent, expired, resolved, or universal status without evidence. Retain explicit chronology and plans as plans; leave unspecified timing unspecified. Represent supported changes without erasing what earlier sources established; update only the affected claim. Recency, elapsed turns, silence, and outside lore do not prove a change or continued applicability.`;
+
 export const HIERARCHY_CONCISION_RULES = `Keep hierarchy fields clear, complete, and non-redundant. Compact means remove repetition, never information; a parent need not be shorter than its children. Use all space needed for fidelity. Store each detail once in its most specific field; never repeat a sentence across fields. title and storyTime are labels; summary holds causal continuity; other fields may be as long as fidelity requires. Finish cleanly without omission ellipses.`;
 
 export const DEFAULT_CHRONICLE_SYSTEM_PROMPT = `Compress chronological Chronicle nodes into one accurate parent Chronicle node. Preserve source order, causal progression, foundational premises, consequential decisions, durable changes, relationship meaning, knowledge boundaries, attributed uncertainty, and every surviving unresolved matter. Use only the supplied child nodes. Never invent a transition, flatten a character's belief into objective fact, or resolve an open matter.
@@ -167,6 +169,7 @@ ${HIERARCHY_ATTRIBUTION_RULE}
 ${EXTREME_SUMMARY_FIDELITY_RULE}
 Chronicle order is source order, not necessarily elapsed time. Preserve supplied anchors, relative wording, subjective frames, and explicit skips; never invent dates, durations, boundaries, or synchronization.
 ${HIERARCHY_CONCISION_RULES}
+${SOURCE_SCOPE_RULE}
 ${IMPORTANCE_RUBRIC}
 Rate the whole source interval.`;
 
@@ -199,9 +202,12 @@ export function buildExtractionSystemPrompt(basePrompt, jbEnabled = false, jbPro
     const withExtremeFidelity = withProfiles.includes(EXTREME_CANON_FIDELITY_RULE)
         ? withProfiles
         : `${withProfiles}\n\n${EXTREME_CANON_FIDELITY_RULE}`;
-    return withExtremeFidelity.includes(CHRONICLE_ENTRY_RULE)
+    const withChronicle = withExtremeFidelity.includes(CHRONICLE_ENTRY_RULE)
         ? withExtremeFidelity
         : `${withExtremeFidelity}\n\n${CHRONICLE_ENTRY_RULE}`;
+    return withChronicle.includes(SOURCE_SCOPE_RULE)
+        ? withChronicle
+        : `${withChronicle}\n\n${SOURCE_SCOPE_RULE}`;
 }
 
 export function buildHierarchySystemPrompt(basePrompt) {
@@ -209,7 +215,9 @@ export function buildHierarchySystemPrompt(basePrompt) {
     const withConcision = base.includes(HIERARCHY_CONCISION_RULES)
         ? base
         : (base ? `${base}\n\n${HIERARCHY_CONCISION_RULES}` : HIERARCHY_CONCISION_RULES);
-    return withConcision;
+    return withConcision.includes(SOURCE_SCOPE_RULE)
+        ? withConcision
+        : `${withConcision}\n\n${SOURCE_SCOPE_RULE}`;
 }
 
 export function buildRetrievalSystemPrompt(basePrompt) {

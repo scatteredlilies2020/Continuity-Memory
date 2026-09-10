@@ -6,7 +6,7 @@ const IRREGULAR_NEGATIVE_BASES = new Map([
     ['ai', 'am'],
 ]);
 const CJK_RUN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
-const LIFECYCLE_GUIDANCE = 'Facts are objective canon unless corrected; perspectives and reports are not. Entity rows describe only their entity. Relationship ↔ has no directional role; use its Description and established facts. Only Current state is current. Open matters are pending; other events and plans are past.';
+const LIFECYCLE_GUIDANCE = 'Facts are objective canon within their stated scope unless corrected; perspectives and reports are not. Entity rows describe only their entity. Relationship ↔ has no directional role; use its Description and established facts. Current state describes confirmed excerpt-end conditions. Other records retain their stated timing, conditions, and certainty; plans are not outcomes. Do not infer past/current/future, permanence, expiry, resolution, or universal scope merely from storage, recency, or silence. Preserve explicit chronology and supported changes; leave unspecified timing unspecified.';
 // This is deliberately separate from the user-editable injection instruction.
 // Retrieval returns independent evidence rows; the roleplay model must not
 // turn nearby fragments into a new witnessed event or an invented date.

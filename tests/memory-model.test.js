@@ -507,7 +507,7 @@ test('retrieval appends high-importance established identity canon to a matching
 
     const injected = buildMemoryPrompt(target, [{ name: 'User', mes: 'What did Caelen Veyr do?' }], 2000, 'roleplay');
     assert.match(injected.prompt, /Caelen Veyr \(person\).*established canon: former identity and service: Jedi Master and former Jedi Council member/i);
-    assert.match(injected.prompt, /Facts are objective canon unless corrected/);
+    assert.match(injected.prompt, /Facts are objective canon within their stated scope unless corrected/);
     assert.doesNotMatch(injected.prompt, /avoid em dashes/i);
 });
 

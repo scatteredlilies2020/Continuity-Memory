@@ -24,6 +24,37 @@ function event(id, title, summary, participants = []) {
     return { id, title, summary, participants, storyTime: '', consequences: '', importance: 3 };
 }
 
+test('injected era facts retain historical scope alongside explicitly changed conditions', () => {
+    const target = world({ facts: [
+        { id: 'early-era', subject: 'Scenario', predicate: 'starting era', value: 'At the journey start, Zoltraak was unavailable and the Demon King was undefeated.', importance: 5, persistence: 'persistent' },
+        { id: 'later-era', subject: 'Scenario', predicate: 'later era', value: 'After the established time skip, Zoltraak became common; the Demon King remained undefeated.', importance: 5, persistence: 'persistent' },
+    ] });
+    const result = buildMemoryPrompt(target, user('Zoltraak and the Demon King'), 4000);
+    assert.match(result.prompt, /Zoltraak was unavailable/u);
+    assert.match(result.prompt, /Zoltraak became common/u);
+    assert.match(result.prompt, /within their stated scope/u);
+    assert.match(result.prompt, /Preserve explicit chronology and supported changes/u);
+});
+
+test('injection preserves neutral scope for capabilities, relationships, conditions, and plans', () => {
+    for (const value of [
+        'Mira can operate the relay while its battery is charged.',
+        'Mira and Taren agreed to cooperate on the relay repairs.',
+        'Mira reported pain when lifting the relay housing.',
+        'Mira intends to inspect the relay after breakfast.',
+    ]) {
+        const target = world({ facts: [
+            { id: 'scoped', subject: 'Mira', predicate: 'relay context', value, importance: 5 },
+        ] });
+        const result = buildMemoryPrompt(target, user('Mira and the relay'), 4000);
+        assert.ok(result.prompt.includes(value));
+        assert.match(result.prompt, /Do not infer past\/current\/future, permanence, expiry, resolution, or universal scope merely from storage, recency, or silence/u);
+        assert.match(result.prompt, /plans are not outcomes/u);
+        assert.match(result.prompt, /leave unspecified timing unspecified/u);
+        assert.doesNotMatch(result.prompt, /other events and plans are past/u);
+    }
+});
+
 test('AI expansion keeps phrases separate instead of joining one term from each phrase', () => {
     const target = world({
         events: [

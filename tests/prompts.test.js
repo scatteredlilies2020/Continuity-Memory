@@ -21,6 +21,7 @@ import {
     DIGEST_EPISTEMIC_COVERAGE_RULE,
     OOC_META_AUTHORITY_RULE,
     SCENARIO_NOTE_RULE,
+    SOURCE_SCOPE_RULE,
     PRE_GREETING_OOC_META_AUTHORITY_RULE,
     PRE_STRICT_OOC_META_AUTHORITY_RULE,
     upgradeOocMetaAuthorityPrompt,
@@ -36,13 +37,13 @@ import {
 } from '../extension/prompts.js';
 
 test('JB prompt is appended to extraction instructions only when enabled', () => {
-    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', false, '<rules>custom</rules>'), `Base extraction instructions.\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', false, '<rules>custom</rules>'), `Base extraction instructions.\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}`);
     assert.equal(
         buildExtractionSystemPrompt('Base extraction instructions.', true, '<rules>custom</rules>'),
-        `Base extraction instructions.\n\n<rules>custom</rules>\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}`,
+        `Base extraction instructions.\n\n<rules>custom</rules>\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}`,
     );
-    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', true, '   '), `Base extraction instructions.\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}`);
-    assert.equal(buildExtractionSystemPrompt('', true, '<rules>custom</rules>'), `<rules>custom</rules>\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', true, '   '), `Base extraction instructions.\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('', true, '<rules>custom</rules>'), `<rules>custom</rules>\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}`);
     assert.match(DEFAULT_JB_PROMPT, /^<rules>[\s\S]*<\/rules>$/);
 });
 
@@ -80,8 +81,23 @@ test('old authority prompts upgrade idempotently without losing custom instructi
 
 test('hierarchy concision rules apply to defaults and custom instructions', () => {
     assert.equal(buildHierarchySystemPrompt(DEFAULT_CHRONICLE_SYSTEM_PROMPT), DEFAULT_CHRONICLE_SYSTEM_PROMPT);
-    assert.equal(buildHierarchySystemPrompt('Custom hierarchy instructions.'), `Custom hierarchy instructions.\n\n${HIERARCHY_CONCISION_RULES}`);
+    assert.equal(buildHierarchySystemPrompt('Custom hierarchy instructions.'), `Custom hierarchy instructions.\n\n${HIERARCHY_CONCISION_RULES}\n\n${SOURCE_SCOPE_RULE}`);
     assert.match(HIERARCHY_CONCISION_RULES, /without omission ellipses/i);
+});
+
+test('existing extraction and Chronicle prompts preserve source scope across all memory categories', () => {
+    for (const build of [buildExtractionSystemPrompt, buildHierarchySystemPrompt]) {
+        const prompt = build('Custom instructions.');
+        assert.ok(prompt.includes(SOURCE_SCOPE_RULE));
+        assert.equal(build(prompt), prompt);
+    }
+    assert.ok(DEFAULT_CHRONICLE_SYSTEM_PROMPT.includes(SOURCE_SCOPE_RULE));
+    assert.match(SOURCE_SCOPE_RULE, /every memory: who, what, certainty, conditions, and any stated time/u);
+    assert.match(SOURCE_SCOPE_RULE, /even when stored as facts/u);
+    assert.match(SOURCE_SCOPE_RULE, /Do not add past\/current\/future, permanent, expired, resolved, or universal status without evidence/u);
+    assert.match(SOURCE_SCOPE_RULE, /Retain explicit chronology and plans as plans; leave unspecified timing unspecified/u);
+    assert.match(SOURCE_SCOPE_RULE, /update only the affected claim/u);
+    assert.match(SOURCE_SCOPE_RULE, /Recency, elapsed turns, silence, and outside lore do not prove a change or continued applicability/u);
 });
 
 test('prompt builders preserve custom instructions without adding prose-style directives', () => {
@@ -183,7 +199,7 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_CHRONICLE_SYSTEM_PROMPT, /consequential knowledge gaps as open threads/);
     assert.match(DEFAULT_CHRONICLE_SYSTEM_PROMPT, /Most items are 2 or 3/);
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 14300);
-    assert.ok(DEFAULT_CHRONICLE_SYSTEM_PROMPT.length < 2400);
+    assert.ok(DEFAULT_CHRONICLE_SYSTEM_PROMPT.length < 3000);
 });
 
 test('rolling snapshot is bounded, chronological, and sourced only from supplied Story material', () => {
