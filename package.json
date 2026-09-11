@@ -1,6 +1,6 @@
 {
   "name": "sillytavern-continuity",
-  "version": "0.15.0-testing.10",
+  "version": "0.15.0-testing.11",
   "description": "Standalone structured continuity for SillyTavern; does not use Lorebooks or World Info.",
   "private": true,
   "type": "module",
@@ -15,7 +15,7 @@
     "check": "node --experimental-vm-modules scripts/check.js",
     "deploy:live": "node scripts/deploy-live.mjs",
     "deploy:verify": "node scripts/deploy-live.mjs --verify-only",
-    "test": "npm run check && node --test"
+    "test": "npm run check && node --require ./scripts/node-test-env.cjs --test"
   },
   "engines": {
     "node": ">=18.0.0"

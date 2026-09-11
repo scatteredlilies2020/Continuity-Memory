@@ -98,7 +98,7 @@
                             <option value="max">Maximum</option>
                         </select>
                     </label>
-                    <small>Applies to extraction/Digest, AI retrieval, correction, and Chronicle promotion. Auto inherits each category's selected connection profile preset, then SillyTavern's active reasoning setting. Explicit levels are translated for Gemini, OpenAI-compatible, OpenRouter, Qwen, DeepSeek, and other detected providers; unsupported controls safely fall back. Reasoning is never stored in memory.</small>
+                    <small>Applies to extraction/Digest and correction. Chronicle promotion has its own reasoning selector. Auto inherits each category's selected connection profile preset, then SillyTavern's active reasoning setting. Explicit levels are translated for Gemini, OpenAI-compatible, OpenRouter, Qwen, DeepSeek, and other detected providers; unsupported controls safely fall back. Reasoning is never stored in memory.</small>
                     <div class="continuity-grid">
                         <label>Detail
                             <select id="continuity_detail" class="text_pole">
@@ -134,16 +134,15 @@
                 </details>
 
                 <h4>Retrieval &amp; embeddings</h4>
-                <label>Memory retrieval
+                <label>Local retrieval &amp; optional index
                     <select id="continuity_retrieval_mode" class="text_pole">
-                        <option value="local">Local matching (fast)</option>
-                        <option value="ai-expanded">AI-expanded matching (default, more accurate)</option>
-                        <option value="embedding-hybrid">Embedding hybrid (vector + local, optional)</option>
+                        <option value="local">Local matching (default; no vector index maintenance)</option>
+                        <option value="embedding-hybrid">Local matching + optional embedding index maintenance</option>
                     </select>
                 </label>
-                <small>Visible roleplay replies always use latency-safe local matching, so retrieval providers cannot delay generation. AI-expanded and embedding configuration is retained for memory tooling and future enhanced retrieval; embedding indexing updates only after structured memory actually changes.</small>
+                <small>Replies and previews use local matching with no AI expansion or vector queries. The optional embedding index can be built and maintained, but does not improve reply retrieval in this version. Existing provider settings are preserved.</small>
                 <div class="continuity-embedding-setting continuity-card-inset">
-                    <b>Embedding hybrid index</b>
+                    <b>Optional embedding index maintenance</b>
                     <label>Embedding provider
                         <select id="continuity_embedding_provider_choice" class="text_pole">
                             <option value="proxy">Custom / OpenAI-compatible proxy</option>
@@ -189,23 +188,6 @@
                     <div id="continuity_embedding_provider" class="continuity-progress">Vector provider not checked yet.</div>
                     <div id="continuity_embedding_status" class="continuity-progress">The optional index has not been built.</div>
                     <progress id="continuity_embedding_progress" max="1" value="0" style="width: 100%; display: none;"></progress>
-                    <details>
-                        <summary>Advanced embedding tuning</summary>
-                        <div class="continuity-grid">
-                            <label>Query history
-                                <input id="continuity_embedding_messages" class="text_pole" type="number" min="1" max="12" step="1">
-                                <small>recent non-system messages; default 4</small>
-                            </label>
-                            <label>Vector candidates
-                                <input id="continuity_embedding_top_k" class="text_pole" type="number" min="10" max="200" step="10">
-                                <small>before hybrid ranking; default 100</small>
-                            </label>
-                            <label>Similarity threshold
-                                <input id="continuity_embedding_threshold" class="text_pole" type="number" min="0" max="1" step="0.01">
-                                <small>provider-dependent; default 0.20</small>
-                            </label>
-                        </div>
-                    </details>
                     <div class="continuity-button-row">
                         <button id="continuity_embedding_build" class="menu_button"><i class="fa-solid fa-hammer"></i> Build index</button>
                         <button id="continuity_embedding_pause" class="menu_button" style="display: none;"><i class="fa-solid fa-pause"></i> Pause index</button>
@@ -224,58 +206,10 @@
                 </div>
                 <label class="checkbox_label"><input id="continuity_story_so_far" type="checkbox"><span>Include Recursive Chronicle layers (default)</span></label>
                 <small>Each Digest creates one source-linked C0 entry. Older entries are periodically promoted into compact C1, C2, and higher layers without deleting their sources. Structured memory books remain separate and unchanged.</small>
-                <label>Chronicle allowance
-                    <input id="continuity_story_so_far_tokens" class="text_pole" type="number" min="0" max="100000" step="250">
-                    <small>Maximum tokens reserved when the active Chronicle frontier is injected. 0 automatically uses 20% of the model context.</small>
-                </label>
+                <small>The complete active Chronicle frontier is included without token clipping. Adjust layer capacity and promotion group size below to control when older nodes are summarized; these are not hard token limits.</small>
                 <div id="continuity_story_progress" class="continuity-progress">C0 is updated with Digest extraction; parent layers are promoted only when a layer exceeds capacity.</div>
                 <small id="continuity_story_status">No Chronicle is stored for this chat yet.</small>
-                <label class="continuity-ai-retrieval-setting">AI retrieval model
-                    <select id="continuity_retrieval_profile" class="text_pole">
-                        <option value="">Same as extraction model</option>
-                        <option value="__direct_custom__">Direct OpenAI-compatible / proxy</option>
-                        <option value="__direct_openrouter__">Direct OpenRouter</option>
-                    </select>
-                </label>
-                <small class="continuity-ai-retrieval-setting">Used only for AI-expanded matching. Leave unchanged to share the extraction model.</small>
-                <label class="continuity-ai-retrieval-setting">AI retrieval reasoning / thinking
-                    <select id="continuity_retrieval_thinking" class="text_pole">
-                        <option value="auto">Auto (selected profile)</option>
-                        <option value="off">Off</option>
-                        <option value="minimum">Minimum</option>
-                        <option value="low">Low</option>
-                        <option value="medium">Medium</option>
-                        <option value="high">High</option>
-                        <option value="max">Maximum</option>
-                    </select>
-                </label>
-                <small class="continuity-ai-retrieval-setting">Auto inherits the reasoning effort saved by the selected AI retrieval profile, then the active SillyTavern setting when that profile has no effort. This affects only the short AI-expanded retrieval request.</small>
-                <div class="continuity-retrieval-direct-setting continuity-ai-retrieval-setting continuity-card-inset">
-                    <b>Direct AI retrieval API</b>
-                    <label>Provider
-                        <select id="continuity_retrieval_direct_provider" class="text_pole">
-                            <option value="custom">Custom / OpenAI-compatible / proxy</option>
-                            <option value="openrouter">OpenRouter</option>
-                        </select>
-                    </label>
-                    <label>API URL
-                        <input id="continuity_retrieval_direct_url" class="text_pole" type="url" placeholder="https://api.openai.com/v1">
-                    </label>
-                    <label>API password / key
-                        <input id="continuity_retrieval_direct_key" class="text_pole" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved password">
-                    </label>
-                    <div class="continuity-button-row">
-                        <button id="continuity_retrieval_direct_save_key" class="menu_button"><i class="fa-solid fa-key"></i> Save retrieval password</button>
-                        <button id="continuity_retrieval_direct_fetch_models" class="menu_button"><i class="fa-solid fa-arrows-rotate"></i> Fetch models</button>
-                    </div>
-                    <div id="continuity_retrieval_direct_key_status" class="continuity-progress">No retrieval password saved.</div>
-                    <select id="continuity_retrieval_direct_model_select" class="text_pole" style="display: none;"></select>
-                    <div id="continuity_retrieval_direct_models_status" class="continuity-progress">Model list not fetched yet.</div>
-                    <label>Model
-                        <input id="continuity_retrieval_direct_model" class="text_pole" type="text" placeholder="gpt-4.1-mini">
-                    </label>
-                </div>
-                <details class="continuity-text-retrieval-setting">
+                <details>
                     <summary>Advanced retrieval history</summary>
                     <label>Recent messages
                         <input id="continuity_retrieval_messages" class="text_pole" type="number" min="2" max="50" step="1">
@@ -287,7 +221,7 @@
                     <div class="continuity-grid">
                         <label>Recall allowance
                             <input id="continuity_budget" class="text_pole" type="number" min="0" max="100000" step="250">
-                            <small>structured recall tokens; 0 = automatic 20% of model context. Fixed overrides may range from 128 to 100,000. The Chronicle allowance is additional.</small>
+                            <small>Soft packing target for structured recall; 0 = automatic 20% of model context. Fixed targets range from 128 to 100,000. Complete records may exceed the target. The complete Chronicle frontier is additional.</small>
                         </label>
                         <label>Injection position
                         <select id="continuity_injection_position" class="text_pole">
@@ -321,14 +255,7 @@
                     <small>Prompt Manager positions apply exactly on Chat Completion APIs. Other APIs safely use the closest main-prompt anchor. At-depth placement works across APIs.</small>
                 </details>
                 <details>
-                    <summary>Advanced retrieval prompts</summary>
-                    <label>AI retrieval expansion instructions
-                        <textarea id="continuity_retrieval_prompt" class="text_pole continuity-prompt-editor" rows="5"></textarea>
-                    </label>
-                    <label>AI retrieval query template
-                        <textarea id="continuity_retrieval_template" class="text_pole continuity-prompt-editor" rows="4"></textarea>
-                        <small>Placeholder: <code>{{conversation}}</code>. It is appended automatically if omitted.</small>
-                    </label>
+                    <summary>Injected-memory guidance</summary>
                     <label>Injected-memory guidance
                         <textarea id="continuity_injection_prompt" class="text_pole continuity-prompt-editor" rows="4"></textarea>
                     </label>

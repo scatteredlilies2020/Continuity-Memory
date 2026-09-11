@@ -1,28 +1,26 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.15.0-testing.10';
+import { api } from './api.js?v=0.15.0-testing.11';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maintainChronicleHierarchy, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.15.0-testing.10';
-import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.15.0-testing.10';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.10';
-import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.10';
-import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.15.0-testing.10';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.10';
+import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maintainChronicleHierarchy, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.15.0-testing.11';
+import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.15.0-testing.11';
+import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.11';
+import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.15.0-testing.11';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.11';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.15.0-testing.10';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.10';
-import { purgeEmbeddingIndex, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.15.0-testing.10';
-import { isTransientApiError } from './errors.js?v=0.15.0-testing.10';
-import { roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.15.0-testing.10';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.15.0-testing.11';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.11';
+import { purgeEmbeddingIndex, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.15.0-testing.11';
+import { isTransientApiError } from './errors.js?v=0.15.0-testing.11';
+import { roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.15.0-testing.11';
 import { isDigestStabilityProtectedMessage, latestCompleteDigestMessageIndex } from './digest-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
-import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.15.0-testing.10';
-import { resolveStoryBudget } from './story-budget.js?v=0.15.0-testing.10';
+import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.15.0-testing.11';
 import { createBackgroundScheduler } from './background-scheduler.js';
-import { buildPlanningEvidence, createContinuityContextBridge } from './context-bridge.js?v=0.15.0-testing.10';
+import { buildPlanningEvidence, createContinuityContextBridge } from './context-bridge.js?v=0.15.0-testing.11';
 
 const PROMPT_KEY = 'continuity_memory_context';
 const continuityContextBridge = createContinuityContextBridge(getContext);
@@ -234,7 +232,7 @@ async function prepareRoleplayGeneration(type) {
         ? { status: runtime.paused ? 'paused' : 'error', lastError: retainedError, retryStatus }
         : { status: 'idle', lastError: '', retryStatus });
     const settings = getSettings();
-    const recentLimit = Math.max(Number(settings.retrievalQueryMessages) || 6, Number(settings.embeddingQueryMessages) || 4);
+    const recentLimit = Math.min(50, Math.max(2, Number(settings.retrievalQueryMessages) || 6));
     const notification = updates.length ? `Continuity updated before roleplay: ${updates.join('; ')}.` : '';
     return { sourceMessages, recentMessages: activeChat.slice(-recentLimit), notification };
 }
@@ -242,7 +240,6 @@ async function prepareRoleplayGeneration(type) {
 async function performInjectionRefresh(useRetrievalAssist, coverageMessages, recentMessages, promptOptions, refreshRevision) {
     const settings = getSettings();
     const phase = useRetrievalAssist ? 'generation' : 'preview';
-    const localOnly = promptOptions?.localOnly === true;
     const placement = resolveInjectionPlacement(settings, extension_prompt_types, extension_prompt_roles);
     const refreshIsCurrent = () => injectionRefreshIsCurrent(refreshRevision);
     if (!settings.enabled || !getBoundWorldId()) {
@@ -276,72 +273,14 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
     if (!refreshIsCurrent()) return;
     const availableRecent = Array.isArray(recentMessages)
         ? recentMessages
-        : (getContext().chat || []).filter(message => !message?.is_system).slice(-Math.max(
-            Number(settings.retrievalQueryMessages) || 6,
-            Number(settings.embeddingQueryMessages) || 4,
-        ));
-    const queryMessageLimit = settings.retrievalMode === 'embedding-hybrid'
-        ? Math.min(12, Math.max(1, Number(settings.embeddingQueryMessages) || 4))
-        : Math.min(50, Math.max(2, Number(settings.retrievalQueryMessages) || 6));
+        : (getContext().chat || []).filter(message => !message?.is_system);
+    const queryMessageLimit = Math.min(50, Math.max(2, Number(settings.retrievalQueryMessages) || 6));
     const recent = availableRecent.slice(-queryMessageLimit);
-    let expandedTerms = [];
-    let semanticRanks = new Map();
-    let retrievalAssist = { mode: settings.retrievalMode, phase, executed: false, terms: [], fallback: false };
-    if (useRetrievalAssist && localOnly) {
-        retrievalAssist = { mode: 'local', phase, executed: true, terms: [], fallback: true, reason: 'latency-safe' };
-        updateRuntime({ retrievalAssist });
-    } else if (settings.retrievalMode === 'ai-expanded' && useRetrievalAssist) {
-        try {
-            expandedTerms = await expandRetrievalTerms(recent);
-            if (!refreshIsCurrent()) return;
-            retrievalAssist = {
-                mode: 'ai-expanded',
-                phase,
-                executed: true,
-                terms: expandedTerms,
-                fallback: false,
-                error: null,
-            };
-            updateRuntime({ retrievalAssist });
-        } catch (error) {
-            if (!refreshIsCurrent()) return;
-            const message = `AI-expanded retrieval is selected but failed: ${error.message}`;
-            console.error('[Continuity] AI retrieval expansion failed; local matching was not substituted.', error);
-            setExtensionPrompt(PROMPT_KEY, '', placement.position, placement.depth, false, placement.role);
-            retrievalAssist = {
-                mode: 'ai-expanded',
-                phase,
-                executed: false,
-                terms: [],
-                fallback: false,
-                error: error.message,
-            };
-            updateRuntime({
-                lastInjection: '',
-                lastInjectionTokens: 0,
-                injectionStatus: `${message} No local memory was injected.`,
-                lastError: message,
-                retrievalAssist,
-            });
-            continuityContextBridge.publish('');
-            if (useRetrievalAssist) throw new Error(message, { cause: error });
-            return;
-        }
-    } else if (settings.retrievalMode === 'ai-expanded') {
-        // Opening or changing a chat should never spend an AI request merely
-        // to populate the settings preview. Actual roleplay generation runs
-        // the authoritative AI-expanded retrieval immediately above.
-        retrievalAssist = { mode: 'ai-expanded', phase, executed: false, terms: [], fallback: false };
-        updateRuntime({ retrievalAssist });
-    } else if (settings.retrievalMode === 'embedding-hybrid') {
-        retrievalAssist = { mode: 'embedding-hybrid', phase, executed: false, hits: 0, fallback: false };
-        updateRuntime({ retrievalAssist });
-    } else if (settings.retrievalMode === 'local') {
-        retrievalAssist = { mode: 'local', phase, executed: true, terms: [], fallback: false };
-        updateRuntime({ retrievalAssist });
-    }
+    const expandedTerms = [];
+    const semanticRanks = new Map();
+    const retrievalAssist = { mode: 'local', phase, executed: true, terms: [], fallback: false, reason: 'latency-safe' };
+    updateRuntime({ retrievalAssist });
     const budget = resolveInjectionBudget(settings.injectionBudgetTokens, getContext().maxContext);
-    const storyBudget = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext);
     const sourceMessages = Array.isArray(coverageMessages)
         ? coverageMessages
         : collectMemoryEligibleMessages(getContext().chat || []);
@@ -361,7 +300,7 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
         expandedTerms,
         settings.injectionInstruction,
         semanticRanks,
-        { ...memoryPromptOptions, invalidSourceRanges, includeSceneCheckpoint: coverage.pending === 0, includeStorySoFar: settings.storySoFarEnabled, storySoFarTokens: storyBudget.tokens },
+        { ...memoryPromptOptions, invalidSourceRanges, includeSceneCheckpoint: coverage.pending === 0, includeStorySoFar: settings.storySoFarEnabled },
     );
     if (!refreshIsCurrent()) return;
     const managerApplied = useRetrievalAssist && getContext().mainApi === 'openai'
@@ -376,7 +315,7 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
     );
     const placementStatus = managerApplied ? 'Prompt Manager placement' : settings.injectionPosition === 'at-depth' ? `chat depth ${placement.depth}` : 'main-prompt placement';
     const injectionStatus = prompt
-        ? `Ready to inject approximately ${estimatedTokens} tokens via ${placementStatus} (${budget.mode} recall allowance: ${budget.tokens} tokens${settings.storySoFarEnabled ? ` + ${storyBudget.mode} story allowance: ${storyBudget.tokens} tokens` : ''}).`
+        ? `Ready to inject approximately ${estimatedTokens} tokens via ${placementStatus} (${budget.mode} recall target: ${budget.tokens} tokens${settings.storySoFarEnabled ? ' + complete active Chronicle frontier' : ''}).`
         : 'The selected memory has no injectable records yet.';
     const retrievalSnapshot = createRetrievalSnapshot({
         phase,
@@ -599,7 +538,7 @@ async function onChatRenamed(eventData) {
 }
 
 async function init() {
-    const templateResponse = await fetch(new URL('./settings.html?v=0.15.0-testing.10', import.meta.url));
+    const templateResponse = await fetch(new URL('./settings.html?v=0.15.0-testing.11', import.meta.url));
     if (!templateResponse.ok) throw new Error(`Could not load settings template: ${templateResponse.status} ${templateResponse.statusText}`);
     const html = $(await templateResponse.text());
     const container = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');

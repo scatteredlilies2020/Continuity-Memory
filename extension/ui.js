@@ -5,10 +5,10 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.10';
+import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.11';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.10';
+import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.11';
 import { clearRetrievalExpansionCache } from './semantic-retrieval.js';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
@@ -16,23 +16,22 @@ import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.15.0-testing.10';
-import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.15.0-testing.10';
-import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.10';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.15.0-testing.11';
+import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.15.0-testing.11';
+import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.11';
 import { completeDigestMessageCount, latestCompleteDigestMessageIndex, resolveDigestGroupSize, validateDigestGroupSize } from './digest-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.10';
-import { embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.10';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.10';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.11';
+import { embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.11';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.11';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.10';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.10';
-import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.15.0-testing.10';
-import { resolveStoryBudget } from './story-budget.js?v=0.15.0-testing.10';
-import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.15.0-testing.10';
+import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.11';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.11';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.15.0-testing.11';
+import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.15.0-testing.11';
 import { createRenderScheduler } from './render-scheduler.js';
-import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.10';
-import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.10';
+import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.11';
+import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.11';
 import { isTransientApiError } from './errors.js';
 
 let worlds = [];
@@ -52,22 +51,20 @@ let liveUiRecoveryNeeded = false;
 let liveUiRecoveryPromise = null;
 let lastLiveUiRecoveryAt = Date.now();
 const LIVE_UI_RECOVERY_INTERVAL = 30000;
-const DIRECT_KINDS = Object.freeze(['extraction', 'retrieval', 'correction', 'summary']);
+const DIRECT_KINDS = Object.freeze(['extraction', 'correction', 'summary']);
 const DIRECT_PROFILE_SETTINGS = Object.freeze({
     extraction: 'memoryProfileId',
-    retrieval: 'retrievalProfileId',
     correction: 'correctionProfileId',
     summary: 'arcProfileId',
 });
 const DIRECT_PROFILE_SELECTORS = Object.freeze({
     extraction: '#continuity_model_profile',
-    retrieval: '#continuity_retrieval_profile',
     correction: '#continuity_correction_profile',
     summary: '#continuity_arc_profile',
 });
 
 function directLabel(kind) {
-    return kind === 'summary' ? 'Chronicle promotion' : kind === 'correction' ? 'correction' : kind === 'retrieval' ? 'retrieval' : 'extraction';
+    return kind === 'summary' ? 'Chronicle promotion' : kind === 'correction' ? 'correction' : 'extraction';
 }
 
 function directControl(kind, suffix) {
@@ -89,7 +86,7 @@ function renderDirectCategory(settings, kind) {
     const direct = settings[profileSetting] === DIRECT_PROFILE_ID;
     const openRouter = settings[`${kind}DirectProvider`] === 'openrouter';
     $(DIRECT_PROFILE_SELECTORS[kind]).val(directProfileChoice(settings[profileSetting], openRouter ? 'openrouter' : 'custom'));
-    $(`.continuity-${kind}-direct-setting`).toggle(direct && (kind !== 'retrieval' || settings.retrievalMode === 'ai-expanded'));
+    $(`.continuity-${kind}-direct-setting`).toggle(direct);
     $(directControl(kind, 'provider')).val(openRouter ? 'openrouter' : 'custom');
     $(directControl(kind, 'url'))
         .val(openRouter ? settings[`${kind}OpenRouterUrl`] : settings[`${kind}DirectUrl`])
@@ -928,7 +925,6 @@ export function refreshModelProfiles() {
     const settings = getSettings();
     const selections = {
         extraction: $(DIRECT_PROFILE_SELECTORS.extraction).empty().append($('<option>').val('').text('Current active SillyTavern model')),
-        retrieval: $(DIRECT_PROFILE_SELECTORS.retrieval).empty().append($('<option>').val('').text('Same as extraction model')),
         correction: $(DIRECT_PROFILE_SELECTORS.correction).empty().append($('<option>').val('').text('Same as extraction model')),
         summary: $(DIRECT_PROFILE_SELECTORS.summary).empty().append($('<option>').val('').text('Same as extraction model')),
     };
@@ -975,7 +971,6 @@ function bindModelProfileSelector(kind) {
         const settings = getSettings();
         settings[DIRECT_PROFILE_SETTINGS[kind]] = selected.profileId;
         if (selected.provider) settings[`${kind}DirectProvider`] = selected.provider;
-        if (kind === 'retrieval') clearRetrievalExpansionCache();
         saveSettings();
         renderRuntime();
     });
@@ -1168,29 +1163,21 @@ export function renderRuntime(refreshSettings = true) {
         $('#continuity_notifications').prop('checked', settings.showNotifications);
         $('#continuity_retrieval_mode').val(settings.retrievalMode);
         $('#continuity_story_so_far').prop('checked', settings.storySoFarEnabled);
-        $('#continuity_story_so_far_tokens').val(settings.storySoFarTokens);
-        $('#continuity_retrieval_thinking').val(settings.retrievalThinkingMode);
         $('#continuity_summary_thinking').val(settings.summaryThinkingMode);
-        $('.continuity-ai-retrieval-setting').toggle(settings.retrievalMode === 'ai-expanded');
-        $('.continuity-text-retrieval-setting').toggle(settings.retrievalMode !== 'embedding-hybrid');
         $('.continuity-embedding-setting').toggle(settings.retrievalMode === 'embedding-hybrid');
         $('#continuity_retrieval_messages').val(settings.retrievalQueryMessages);
-        $('#continuity_embedding_messages').val(settings.embeddingQueryMessages);
-        $('#continuity_embedding_top_k').val(settings.embeddingTopK);
-        $('#continuity_embedding_threshold').val(settings.embeddingThreshold);
         updateEmbeddingProviderUI(settings);
         $('#continuity_embedding_provider').text(`Provider: ${embeddingProviderDescription()}`);
     }
     const rollingStory = runtime.world?.storySoFar?.[getChatKey()];
-    const resolvedStoryAllowance = resolveStoryBudget(settings.storySoFarTokens, getContext().maxContext);
     const storyTo = Number(rollingStory?.to ?? -1);
     const chatKey = getChatKey();
     const chronicleNodes = (runtime.world?.chronicle || []).filter(node => node.chatKey === chatKey);
     const activeNodes = rollingStory?.sourceMode === 'chronicle' ? (rollingStory.nodeIds || []).length : 0;
     $('#continuity_story_progress').removeClass('continuity-error').text('Every completed Digest creates a source-linked C0 entry. Eligible older entries are promoted recursively without deleting their sources.');
     $('#continuity_story_status').text(rollingStory?.text
-        ? `Chronicle stored through message ${storyTo + 1}: ${chronicleNodes.length} retained node(s), ${activeNodes} on the active frontier. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`
-        : `No Chronicle is stored for this chat yet. Build memory to create C0 entries with Digest. Current ${resolvedStoryAllowance.mode} allowance: ${resolvedStoryAllowance.tokens} tokens.`);
+        ? `Chronicle stored through message ${storyTo + 1}: ${chronicleNodes.length} retained node(s), ${activeNodes} on the active frontier. The complete active frontier is included without token clipping.`
+        : `No Chronicle is stored for this chat yet. Build memory to create C0 entries with Digest.`);
     const embedding = runtime.embeddingIndex;
     const embeddingTotal = Math.max(0, Number(embedding?.total) || 0);
     const embeddingIndexed = Math.min(embeddingTotal, Math.max(0, Number(embedding?.indexed) || 0));
@@ -1265,15 +1252,12 @@ export function renderRuntime(refreshSettings = true) {
         $('#continuity_chronicle_capacity').val(settings.chronicleLayerCapacity);
         $('#continuity_chronicle_fan_in').val(settings.chroniclePromotionSize);
         $('#continuity_thinking').val(settings.thinkingMode);
-        $('.continuity-ai-retrieval-setting').toggle(settings.retrievalMode === 'ai-expanded');
         for (const kind of DIRECT_KINDS) renderDirectCategory(settings, kind);
         // These fields can contain tens of thousands of characters. Reassigning an
         // unchanged textarea value forces browsers to redo selection and layout work.
         setControlValue('#continuity_extraction_prompt', settings.extractionSystemPrompt);
         setControlValue('#continuity_jb_prompt', settings.jbPrompt);
         setControlValue('#continuity_extraction_template', settings.extractionTaskTemplate);
-        setControlValue('#continuity_retrieval_prompt', settings.retrievalSystemPrompt);
-        setControlValue('#continuity_retrieval_template', settings.retrievalQueryTemplate);
         setControlValue('#continuity_injection_prompt', settings.injectionInstruction);
         setControlValue('#continuity_chronicle_prompt', settings.chronicleSystemPrompt);
         setControlValue('#continuity_chronicle_template', settings.chronicleTaskTemplate);
@@ -1363,7 +1347,6 @@ export function renderRuntime(refreshSettings = true) {
         activeModel: (() => { try { return getContext().getChatCompletionModel?.() || null; } catch { return null; } })(),
         extractionConnection: memoryProfile || 'Current active SillyTavern model',
         thinkingMode: settings.thinkingMode,
-        retrievalThinkingMode: settings.retrievalThinkingMode,
         thinkingControl: runtime.thinkingControl || null,
         lastGenerationRetrieval: retrievalSnapshotDiagnostics(runtime.lastGenerationRetrieval),
         nextRetrievalPreview: retrievalSnapshotDiagnostics(runtime.nextRetrievalPreview),
@@ -1895,18 +1878,13 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
     });
     setSetting('#continuity_enabled', 'enabled', Boolean, () => scheduleMemoryMaintenance?.());
     setSetting('#continuity_notifications', 'showNotifications', Boolean);
-    setSetting('#continuity_retrieval_mode', 'retrievalMode');
+    setSetting('#continuity_retrieval_mode', 'retrievalMode', value => value === 'embedding-hybrid' ? 'embedding-hybrid' : 'local');
     setSetting('#continuity_story_so_far', 'storySoFarEnabled', Boolean);
-    setSetting('#continuity_story_so_far_tokens', 'storySoFarTokens', value => Math.min(100000, Math.max(0, Number(value) || 0)));
-    setSetting('#continuity_retrieval_thinking', 'retrievalThinkingMode');
     setSetting('#continuity_summary_thinking', 'summaryThinkingMode');
     $('#continuity_retrieval_mode').on('change', () => {
         if (getSettings().retrievalMode === 'embedding-hybrid' && runtime.world) scheduleEmbeddingIndexSync(runtime.world, 0);
     });
     setSetting('#continuity_retrieval_messages', 'retrievalQueryMessages', value => Math.min(50, Math.max(2, Number(value) || 6)));
-    setSetting('#continuity_embedding_messages', 'embeddingQueryMessages', value => Math.min(12, Math.max(1, Number(value) || 4)));
-    setSetting('#continuity_embedding_top_k', 'embeddingTopK', value => Math.min(200, Math.max(10, Number(value) || 100)));
-    setSetting('#continuity_embedding_threshold', 'embeddingThreshold', value => Math.min(1, Math.max(0, Number(value) || 0)));
     setSetting('#continuity_embedding_provider_choice', 'embeddingProvider', value => value === 'openrouter' ? 'openrouter' : 'proxy');
     $('#continuity_embedding_provider_choice').on('change', () => $('#continuity_embedding_api_key').val(''));
     setSetting('#continuity_embedding_proxy_url', 'embeddingProxyUrl', value => String(value || '').trim());
@@ -1994,7 +1972,6 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
             settings[`${kind}DirectProvider`] = $(this).val() === 'openrouter' ? 'openrouter' : 'custom';
             $(directControl(kind, 'model_select')).empty().hide();
             $(directControl(kind, 'models_status')).text('Model list not fetched yet.');
-            if (kind === 'retrieval') clearRetrievalExpansionCache();
             saveSettings();
             renderRuntime();
         });
@@ -2006,7 +1983,6 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
                 ? `${kind}OpenRouter${model ? 'Model' : 'Url'}`
                 : `${kind}Direct${model ? 'Model' : 'Url'}`;
             settings[key] = String($(this).val() || '').trim();
-            if (kind === 'retrieval') clearRetrievalExpansionCache();
             saveSettings();
             renderRuntime();
         });
@@ -2026,8 +2002,6 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
     setSetting('#continuity_extraction_prompt', 'extractionSystemPrompt', String);
     setSetting('#continuity_jb_prompt', 'jbPrompt', String);
     setSetting('#continuity_extraction_template', 'extractionTaskTemplate', String);
-    setSetting('#continuity_retrieval_prompt', 'retrievalSystemPrompt', String);
-    setSetting('#continuity_retrieval_template', 'retrievalQueryTemplate', String);
     setSetting('#continuity_injection_prompt', 'injectionInstruction', String);
     setSetting('#continuity_chronicle_prompt', 'chronicleSystemPrompt', String);
     setSetting('#continuity_chronicle_template', 'chronicleTaskTemplate', String);
@@ -2159,14 +2133,13 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
 
 export function previewInjection() {
     const context = getContext();
-    const recent = (context.chat || []).slice(-12);
     const settings = getSettings();
+    const recent = (context.chat || []).filter(message => !message?.is_system)
+        .slice(-Math.min(50, Math.max(2, Number(settings.retrievalQueryMessages) || 6)));
     const budget = resolveInjectionBudget(settings.injectionBudgetTokens, context.maxContext);
-    const storyBudget = resolveStoryBudget(settings.storySoFarTokens, context.maxContext);
     const coverage = getProcessingCoverage(runtime.world);
     return buildMemoryPrompt(runtime.world, recent, budget.tokens, getChatKey(), [], settings.injectionInstruction, new Map(), {
         includeSceneCheckpoint: coverage.pending === 0,
         includeStorySoFar: settings.storySoFarEnabled,
-        storySoFarTokens: storyBudget.tokens,
     });
 }

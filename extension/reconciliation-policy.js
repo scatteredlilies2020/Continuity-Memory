@@ -3,7 +3,7 @@ import { canonicalCharacterProfileField, characterProfileDetailIsAdmissible, dur
 import { canonicalProseIsThirdPerson, thirdPersonOnlyProse } from './canonical-prose.js';
 import { EXTRACTION_VERSION } from './coverage.js';
 import { randomUuid } from './uuid.js';
-import { splitScenarioNotes } from './extraction-context.js?v=0.15.0-testing.10';
+import { splitScenarioNotes } from './extraction-context.js?v=0.15.0-testing.11';
 
 export const TARGET_RECORD_CATEGORIES = Object.freeze(['entities', 'facts', 'states', 'relationships', 'threads', 'backgrounds']);
 

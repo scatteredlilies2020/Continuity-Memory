@@ -1,14 +1,14 @@
 import { extractMessageFromData } from '/script.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
-import { isThinkingControlError, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.10';
-import { generateWithThinkingPolicy, requestDirectText, resolveThinkingModeForProfile } from './engine.js?v=0.15.0-testing.10';
-import { parseExpandedTerms } from './semantic-terms.js?v=0.15.0-testing.10';
+import { isThinkingControlError, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.11';
+import { generateWithThinkingPolicy, requestDirectText, resolveThinkingModeForProfile } from './engine.js?v=0.15.0-testing.11';
+import { parseExpandedTerms } from './semantic-terms.js?v=0.15.0-testing.11';
 import { recentRetrievalQuery } from './retrieval-query.js';
-import { getSettings } from './settings.js?v=0.15.0-testing.10';
-import { buildThinkingRequest } from './thinking-policy.js?v=0.15.0-testing.10';
-import { buildRetrievalSystemPrompt, DEFAULT_RETRIEVAL_QUERY_TEMPLATE, DEFAULT_RETRIEVAL_SYSTEM_PROMPT, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.10';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.10';
-import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.10';
+import { getSettings } from './settings.js?v=0.15.0-testing.11';
+import { buildThinkingRequest } from './thinking-policy.js?v=0.15.0-testing.11';
+import { buildRetrievalSystemPrompt, DEFAULT_RETRIEVAL_QUERY_TEMPLATE, DEFAULT_RETRIEVAL_SYSTEM_PROMPT, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.11';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.11';
+import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.11';
 
 const cache = new Map();
 const pending = new Map();

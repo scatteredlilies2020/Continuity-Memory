@@ -69,21 +69,21 @@ Relevant existing mutable records are supplied to each extraction with stable ID
 
 ## Memory retrieval
 
-Continuity retains three retrieval configurations. Visible roleplay generation always uses latency-safe local matching, so an LLM or vector provider can never hold the reply open. Automatic embedding updates are triggered only by actual structured-memory revisions, not by every visible reply.
+Replies and previews use latency-safe local matching by default, so an LLM or vector provider can never hold the reply open. The optional embedding-index maintenance mode does not change reply retrieval. Automatic embedding updates are triggered only by actual structured-memory revisions, not by every visible reply.
 
-Retrieval supplements the active Recursive Chronicle frontier rather than replacing it. Each Digest extraction returns a source-linked C0 Chronicle entry in the same response as structured memory, so normal processing does not need a second request for that entry. Older nodes are recursively promoted into compact parents while their source-linked children remain available for inspection. The active frontier keeps chronological continuity in working context within its separate configured allowance.
+Retrieval supplements the active Recursive Chronicle frontier rather than replacing it. Each Digest extraction returns a source-linked C0 Chronicle entry in the same response as structured memory, so normal processing does not need a second request for that entry. Older nodes are recursively promoted into compact parents while their source-linked children remain available for inspection. The complete active frontier is included without token clipping, in addition to the soft structured-recall target. Layer capacity and promotion group size control when older nodes are summarized; neither is a hard token limit.
 
 ### Local matching
 
-Deterministic multilingual text matching with no additional model request. This is the simplest option and a good place to start.
+Deterministic multilingual text matching with no additional model request. This is the active retrieval method for both selectable modes. The recent-message setting controls how much conversation local matching considers, including when optional index maintenance is enabled.
 
-### AI-expanded matching
+### Legacy AI-expanded settings
 
-This configuration is retained for memory tooling and future enhanced retrieval. It is not called on the visible roleplay path.
+The inactive AI-expanded mode and its model, reasoning, and prompt controls are no longer shown. Existing installations using that mode migrate to local matching. Saved provider configuration is preserved; no credentials or memory are deleted.
 
-### Embedding hybrid
+### Optional embedding index maintenance
 
-The optional vector index is retained for memory tooling and future enhanced retrieval. Vector queries are not called on the visible roleplay path. When auto-sync is enabled, changed structured or Chronicle records are embedded after a memory revision; unchanged replies do not request or retry embeddings.
+Select **Local matching + optional embedding index maintenance** to build or maintain the derived vector index. This does not enable vector queries or improve reply retrieval in this version, and provider calls for indexing may incur costs. Unused vector-query tuning controls are no longer shown. When auto-sync is enabled, changed structured or Chronicle records are embedded after a memory revision; unchanged replies do not request or retry embeddings. Existing index opt-ins remain enabled after updating.
 
 Embeddings are optional. The vector index is derived from canonical Continuity memory, stored separately, and never included in memory exports or portable chat snapshots. It can be deleted or rebuilt at any time. Indexing failures never affect visible roleplay, which already uses local matching.
 
@@ -111,7 +111,7 @@ Once a complete Digest group accumulates, Continuity starts extracting it in the
 
 Generated Digest and Chronicle review is off by default. Enable it in extension settings to inspect each result in a centered popup before it is saved. The memory pipeline waits while the popup is open. You can unlock manual editing, regenerate temporary swipe candidates from the same source, revert a draft, or save the selected candidate and continue. Discarding stops processing without saving the candidate; the source messages or lower-level records remain available for a later build.
 
-Roleplay can continue with up to one additional group of uncovered messages because every uncovered message remains verbatim in the prompt. If the uncovered backlog reaches two complete groups (16 messages by default), Continuity catches up before starting the next roleplay response. An extraction request already using the active SillyTavern connection is also allowed to settle first so its temporary request settings cannot leak into roleplay.
+Roleplay is not blocked by a fixed Digest-backlog threshold. Continuity prepares the latest safe local snapshot and leaves uncovered messages raw for SillyTavern's normal context handling while memory processing continues in the background. There is no 16-message catch-up gate.
 
 The complete active Chronicle frontier is injected alongside retrieved structured facts and current state. Covered child nodes remain stored but are not duplicated in the active prompt.
 
@@ -135,7 +135,7 @@ Roleplay never waits for extraction, hierarchy building, embedding synchronizati
 
 ## Models and connections
 
-Digest extraction, optional retrieval expansion, correction review, and Chronicle promotion can each independently use:
+Digest extraction, correction review, and Chronicle promotion can each independently use:
 
 - the active SillyTavern connection
 - a SillyTavern Connection Profile
@@ -144,7 +144,7 @@ Digest extraction, optional retrieval expansion, correction review, and Chronicl
 
 Each category has its own direct provider, endpoint, credential, and model settings. Leaving a category on “Same as extraction model” still inherits Extraction. Embeddings retain their separate proxy/OpenRouter configuration. This allows each memory task to use an appropriate model without changing the main roleplay connection.
 
-Reasoning controls are translated independently for each selected provider. Chronicle entry creation follows the Digest extraction request, while promotion and AI retrieval keep their own selectors. OpenRouter Auto explicitly preserves reasoning so endpoints that require it are not accidentally disabled by SillyTavern's missing-value fallback; if an endpoint reports that reasoning is mandatory, Continuity retries with reasoning enabled rather than removing the control.
+Reasoning controls are translated independently for each selected provider. Chronicle entry creation and correction follow the extraction reasoning control, while Chronicle promotion has its own selector. OpenRouter Auto explicitly preserves reasoning so endpoints that require it are not accidentally disabled by SillyTavern's missing-value fallback; if an endpoint reports that reasoning is mandatory, Continuity retries with reasoning enabled rather than removing the control.
 
 ## Storage and portability
 

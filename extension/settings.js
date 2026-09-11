@@ -1,24 +1,20 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { upgradeOocMetaAuthorityPrompt } from './prompts.js?v=0.15.0-testing.10';
-import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CANONICAL_THIRD_PERSON_RULE, CHARACTER_PROFILE_RULE, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, EXTREME_CANON_FIDELITY_RULE, EXTREME_SUMMARY_FIDELITY_RULE, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, DIGEST_EPISTEMIC_COVERAGE_RULE, LEGACY_EPISTEMIC_MEMORY_RULES, OOC_META_AUTHORITY_RULE, PRE_ATOMIC_IDENTITY_DIGEST_EPISTEMIC_COVERAGE_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRICT_OOC_META_AUTHORITY_RULE, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.15.0-testing.10';
+import { upgradeOocMetaAuthorityPrompt } from './prompts.js?v=0.15.0-testing.11';
+import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CANONICAL_THIRD_PERSON_RULE, CHARACTER_PROFILE_RULE, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, EXTREME_CANON_FIDELITY_RULE, EXTREME_SUMMARY_FIDELITY_RULE, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, DIGEST_EPISTEMIC_COVERAGE_RULE, LEGACY_EPISTEMIC_MEMORY_RULES, OOC_META_AUTHORITY_RULE, PRE_ATOMIC_IDENTITY_DIGEST_EPISTEMIC_COVERAGE_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRICT_OOC_META_AUTHORITY_RULE, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.15.0-testing.11';
 import { DEFAULT_DIGEST_GROUP_SIZE } from './digest-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
-import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.15.0-testing.10';
-import { retainLatestPromptRule } from './prompt-migration.js?v=0.15.0-testing.10';
+import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.15.0-testing.11';
+import { retainLatestPromptRule } from './prompt-migration.js?v=0.15.0-testing.11';
 
 export const EXTENSION_NAME = 'continuityMemory';
 
 const DEFAULTS = Object.freeze({
     enabled: true,
     showNotifications: true,
-    retrievalMode: 'ai-expanded',
+    retrievalMode: 'local',
     storySoFarEnabled: true,
-    storySoFarTokens: 0,
-    storySourceMode: 'digest',
-    storyBatchMessages: 8,
-    storyThinkingMode: 'auto',
     retrievalThinkingMode: 'auto',
     summaryThinkingMode: 'auto',
     retrievalQueryMessages: 6,
@@ -46,7 +42,6 @@ const DEFAULTS = Object.freeze({
     correctionResponseTokens: DEFAULT_CORRECTION_RESPONSE_TOKENS,
     memoryProfileId: '',
     retrievalProfileId: '',
-    storyProfileId: '',
     arcProfileId: '',
     extractionDirectUrl: '',
     extractionDirectModel: '',
@@ -62,13 +57,6 @@ const DEFAULTS = Object.freeze({
     retrievalOpenRouterUrl: '',
     retrievalOpenRouterModel: 'openai/gpt-4.1-mini',
     retrievalOpenRouterSecretId: '',
-    storyDirectUrl: '',
-    storyDirectModel: '',
-    storyDirectSecretId: '',
-    storyDirectProvider: 'custom',
-    storyOpenRouterUrl: '',
-    storyOpenRouterModel: 'openai/gpt-4.1-mini',
-    storyOpenRouterSecretId: '',
     correctionProfileId: '',
     correctionDirectUrl: '',
     correctionDirectModel: '',
@@ -168,9 +156,11 @@ export function getSettings() {
         settings.embeddingAutoSyncDefaultVersion = 1;
         saveSettingsDebounced();
     }
-    if (Number(settings.retrievalDefaultVersion || 0) < 1) {
-        settings.retrievalMode = 'ai-expanded';
-        settings.retrievalDefaultVersion = 1;
+    if (Number(settings.retrievalDefaultVersion || 0) < 2) {
+        // Visible replies use local matching. Preserve opted-in index maintenance,
+        // but do not advertise or retain an inactive AI-expanded mode.
+        if (settings.retrievalMode !== 'embedding-hybrid') settings.retrievalMode = 'local';
+        settings.retrievalDefaultVersion = 2;
         saveSettingsDebounced();
     }
     if (applyReviewBeforeCommitDefault(settings)) saveSettingsDebounced();
@@ -271,11 +261,6 @@ export function getSettings() {
             );
         }
         settings.promptPunctuationVersion = 1;
-        saveSettingsDebounced();
-    }
-    if (Number(settings.storySoFarTokenDefaultVersion || 0) < 2) {
-        if (settings.storySoFarTokens === undefined || [750, 1000].includes(Number(settings.storySoFarTokens))) settings.storySoFarTokens = 0;
-        settings.storySoFarTokenDefaultVersion = 2;
         saveSettingsDebounced();
     }
     if (Number(settings.removeStyleDirectiveVersion || 0) < 1) {
@@ -561,19 +546,6 @@ export function getSettings() {
         settings.rawTailValue = settings.rawTailMode === 'turns' ? oldTurns : oldTokens;
         delete settings.rawTailTurns;
         delete settings.rawTailTokens;
-    }
-    if (Number(settings.independentDirectCategoryVersion || 0) < 1) {
-        if (settings.storyProfileId === '__direct__') {
-            settings.storyDirectProvider = settings.summaryDirectProvider === 'openrouter' ? 'openrouter' : 'custom';
-            settings.storyDirectUrl = settings.summaryDirectUrl || '';
-            settings.storyDirectModel = settings.summaryDirectModel || '';
-            settings.storyDirectSecretId = settings.summaryDirectSecretId || '';
-            settings.storyOpenRouterUrl = settings.summaryOpenRouterUrl || '';
-            settings.storyOpenRouterModel = settings.summaryOpenRouterModel || 'openai/gpt-4.1-mini';
-            settings.storyOpenRouterSecretId = settings.summaryOpenRouterSecretId || '';
-        }
-        settings.independentDirectCategoryVersion = 1;
-        saveSettingsDebounced();
     }
     if (Number(settings.thinkingEffortOptionsVersion || 0) < 1) {
         if (settings.thinkingMode === 'default') settings.thinkingMode = 'auto';
