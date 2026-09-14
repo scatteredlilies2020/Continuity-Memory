@@ -1,9 +1,10 @@
+import { normalizeSupportingResult } from './supporting-memories.js';
 import { canonicalMemorySubject, canonicalStateAttribute, isActiveState, stateIdentity } from './state-lifecycle.js';
 import { canonicalCharacterProfileField, characterProfileDetailIsAdmissible, durableCharacterProfileDetail, entityProfile as storedEntityProfile, formatEntityProfile, normalizeEntityProfile } from './entity-profile.js';
 import { canonicalProseIsThirdPerson, thirdPersonOnlyProse } from './canonical-prose.js';
 import { EXTRACTION_VERSION } from './coverage.js';
 import { randomUuid } from './uuid.js';
-import { splitScenarioNotes } from './extraction-context.js?v=0.15.0-testing.14';
+import { splitScenarioNotes } from './extraction-context.js?v=0.15.0-testing.15';
 
 export const TARGET_RECORD_CATEGORIES = Object.freeze(['entities', 'facts', 'states', 'relationships', 'threads', 'backgrounds']);
 
@@ -4008,7 +4009,7 @@ function splitResolvedStoredCompoundThreads(world) {
     return split;
 }
 
-export function reconcileStoredMemoryRecords(world, messages = null) {
+export function reconcileStoredMemoryRecords(world, messages = null, { neutralSupporting = false } = {}) {
     if (!world || typeof world !== 'object') return 0;
     const sourceMessages = processedStoredMessages(world, messages);
     let reconciled = normalizeRelationshipDescriptions(world);
@@ -4038,9 +4039,9 @@ export function reconcileStoredMemoryRecords(world, messages = null) {
     }
     reconciled += normalizeRelationshipDescriptions(world);
     reconciled += recoverRelationshipBackedEntityDescriptions(world, world, sourceMessages);
-    reconciled += splitResolvedStoredCompoundThreads(world);
+    if (!neutralSupporting) reconciled += splitResolvedStoredCompoundThreads(world);
 
-    if (sourceMessages.length && Array.isArray(world?.threads) && world.threads.some(thread => normalized(thread?.status) === 'open')) {
+    if (!neutralSupporting && sourceMessages.length && Array.isArray(world?.threads) && world.threads.some(thread => normalized(thread?.status) === 'open')) {
         const evidence = {
             entities: world.entities || [], facts: world.facts || [], states: world.states || [],
             relationships: world.relationships || [], events: world.events || [], backgrounds: world.backgrounds || [],
@@ -4064,7 +4065,7 @@ export function reconcileStoredMemoryRecords(world, messages = null) {
             reconciled++;
         }
     }
-    reconciled += reopenInternallyUnresolvedThreads(world);
+    if (!neutralSupporting) reconciled += reopenInternallyUnresolvedThreads(world);
     return reconciled;
 }
 
@@ -5202,7 +5203,8 @@ function discardSchemaPlaceholderRecords(result) {
     return { discarded, warnings };
 }
 
-export function sanitizeReconciliationMetadata(result, world, messages = null) {
+export function sanitizeReconciliationMetadata(result, world, messages = null, { neutralSupporting = false } = {}) {
+    if (neutralSupporting) normalizeSupportingResult(result);
     const missingIdentityResolutions = !Array.isArray(result.identityResolutions);
     if (missingIdentityResolutions) result.identityResolutions = [];
     const schemaPlaceholderGate = discardSchemaPlaceholderRecords(result);
@@ -5257,14 +5259,15 @@ export function sanitizeReconciliationMetadata(result, world, messages = null) {
     // Recovery operates on model prose and can recreate a shape that an
     // earlier validation pass just rejected; validate recovered facts too.
     discardedMalformedDesignations += discardMalformedEstablishedDesignationFacts(result);
-    const preservedResolvedThreads = preserveResolvedThreadHistory(result, world);
-    const splitCompoundThreads = splitResolvedCompoundThreads(result, world);
+    const preservedResolvedThreads = neutralSupporting ? 0 : preserveResolvedThreadHistory(result, world);
+    const splitCompoundThreads = neutralSupporting ? 0 : splitResolvedCompoundThreads(result, world);
     const modelResolvedThreads = new Set((result?.threads || []).filter(thread => normalized(thread?.status) === 'resolved'));
-    const resolvedCompletedThreads = resolveCompletedIncomingThreads(result);
-    const reopenedUnsupportedThreads = reopenUnsupportedResolvedThreads(result, world, messages, modelResolvedThreads);
-    const reconciledIdentityThreads = reconcileResolvedIdentityThreads(result, world, messages);
-    const reconciledThreads = reconcileExplicitlyResolvedThreads(result, world, messages);
-    const reopenedInternallyUnresolvedThreads = reopenInternallyUnresolvedThreads(result);
+    const resolvedCompletedThreads = neutralSupporting ? 0 : resolveCompletedIncomingThreads(result);
+    const reopenedUnsupportedThreads = neutralSupporting ? 0 : reopenUnsupportedResolvedThreads(result, world, messages, modelResolvedThreads);
+    const reconciledIdentityThreads = neutralSupporting ? 0 : reconcileResolvedIdentityThreads(result, world, messages);
+    const reconciledThreads = neutralSupporting ? { resolved: 0, warnings: [] } : reconcileExplicitlyResolvedThreads(result, world, messages);
+    const reopenedInternallyUnresolvedThreads = neutralSupporting ? 0 : reopenInternallyUnresolvedThreads(result);
+    if (neutralSupporting) normalizeSupportingResult(result);
     const normalizedRelationshipDescriptions = normalizeRelationshipDescriptions(result);
     const stateDurabilityGate = sanitizeStateDurability(result);
     const normalizedCompositeStateSubjects = normalizeCompositeStateSubjects(result, world);

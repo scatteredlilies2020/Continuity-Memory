@@ -141,7 +141,7 @@ function validateResult(result, world, messages) {
     const provenanceBoundaries = authoritativeMetaBoundaries(messages);
     delete result._sourceScenarioContext;
     assertAuthoritativeMetaProvenance(result, provenanceBoundaries);
-    const validation = sanitizeReconciliationMetadata(result, world, messages);
+    const validation = sanitizeReconciliationMetadata(result, world, messages, { neutralSupporting: true });
     assertAuthoritativeMetaProvenance(result, provenanceBoundaries);
     result._authoritativeMetaBoundaries = provenanceBoundaries;
     result._sourceScenarioContext = captureScenarioContext(messages);

@@ -2,7 +2,7 @@
 
 Structured, revisable long-term memory for roleplay and simulations.
 
-Continuity extracts events, facts, relationships, character states, open threads, and compact background developments from a chat. It keeps those records tied to their source messages, builds a compact chronological history, and retrieves the parts that matter for the current scene.
+Continuity extracts events, facts, relationships, character states, and supporting observations from a chat. It keeps those records tied to their source messages, builds a compact chronological history, and retrieves the parts that matter for the current scene.
 
 Each chat has its own isolated memory. Continuity does not use, create, or modify SillyTavern Lorebooks or World Info, and it never edits chat messages.
 
@@ -13,29 +13,29 @@ Long chats create two different memory problems:
 1. Recent events and the current scene must remain coherent.
 2. Older details must return when they become relevant.
 
-A rolling summary helps with the first problem, but gradually loses detail. Vector search helps with the second, but cannot guarantee that current state and unresolved threads remain visible.
+A rolling summary helps with the first problem, but gradually loses detail. Vector search helps with the second, but cannot guarantee that chronology and consequential details remain coherent.
 
 Continuity combines several forms of memory instead:
 
 - Recent messages remain in their original form.
-- Structured records preserve facts, relationships, states, events, and compact background developments.
+- Structured records preserve facts, relationships, states, events, and supporting observations.
 - Digest records retain detailed source-linked scene history.
 - Recursive Chronicle nodes keep the covered narrative compact across C0, C1, C2, and higher layers.
 - Retrieval selects relevant older memories for each response.
-- Relevant events and open threads receive full detail. The fallback ledger offers up to six unresolved reminders (four priority slots, then latest), packed individually without clipping conditions or deadlines. Without a rendered Chronicle it also offers up to three recent event titles; with the Chronicle, that extra event recap is omitted. Only records not already supplied by full recall qualify.
+- Relevant events and supporting memories receive complete selected rows. No unconditional open-thread reminders are injected. Without a rendered Chronicle, the fallback ledger offers up to three recent event titles not already recalled; with the Chronicle, that extra recap is omitted.
 - Reviewed corrections remain authoritative when extraction gets something wrong.
 
 This produces a compact working context backed by a searchable and traceable history.
 
 The Chronicle is a lossy narrative backbone; structured records remain its detailed, retrievable support. Prompt assembly avoids repeating the same record across entity canon, facts, supporting recall, and the fallback ledger. This is presentation-only: records and source links are not deleted or merged, Chronicle coverage is not evidence that a detail is redundant, and similar wording alone never justifies discarding different conditions, timelines, or character perspectives. Duplicate suppression happens only after a complete row is actually packed, so a budget-excluded row cannot hide its other retrieval path.
 
-Supporting continuity requires a topical/contextual connection or an explicit record reference; sharing a source batch or temporal anchor and a character name alone is insufficient. Its one-hop envelope is capped at 24 records (smaller for tight budgets), not a fill target. Records outside that envelope remain directly retrievable. Open-thread retrieval, support, and the ledger all use the newest same-title lifecycle record, so a newer resolved record cannot resurrect an older open copy. These are read-only prompt policies, not semantic corrections to saved records: differently titled stale threads still need evidence-backed reconciliation, and ambiguous reminder details are preserved rather than guessed or shortened.
+Supporting continuity requires a topical/contextual connection or an explicit record reference; sharing a source batch or temporal anchor and a character name alone is insufficient. Its one-hop envelope is capped at 24 records (smaller for tight budgets), not a fill target. Records outside that envelope remain directly retrievable. Supporting memories are historical evidence with source ranges, not claims that a plan remains open or has closed. A later outcome does not suppress the earlier conditions. Similar headings alone never justify merging distinct observations.
 
 ### Historical memory and the raw-chat handoff
 
 The aim is to approximate access to the whole conversation: older history is carried by the Chronicle and retrievable structured detail, while the retained recent messages provide verbatim continuation. Context reduction removes eligible, fingerprint-matched extracted messages from the outgoing prompt, not from the saved chat; unprocessed or changed messages stay available. Compression and retrieval remain imperfect, not lossless replacements for the original history.
 
-The Chronicle describes what was established **at each point in history**, not a live list of open or closed tasks. For example, an earlier entry can say “Aster planned to inspect the bridge before dawn, if Beryl consented”; a later entry can describe consent, the inspection, and its result. Neither entry assigns a current lifecycle status. Uncertainty, conditions, deadlines, consequences, and character knowledge remain explicit. Structured threads and their ledger own lifecycle status separately.
+The Chronicle describes what was established **at each point in history**, not a live list of open or closed tasks. For example, an earlier entry can say “Aster planned to inspect the bridge before dawn, if Beryl consented”; a later entry can describe consent, the inspection, and its result. Neither entry assigns a current lifecycle status. Uncertainty, conditions, deadlines, consequences, and character knowledge remain explicit. Supporting memories follow the same historical policy.
 
 Existing Chronicle `openThreads` fields remain readable for compatibility and are presented as **Context at that point**, never as an “Open” list. New generation uses that field only for historical context not already carried by the narrative. Identical whole fields within one rendered node appear once; stored nodes and their source links are not rewritten or deleted. Default and custom prompt builders apply the historical policy on future requests, but do not automatically rewrite old prose or rebuild saved history.
 
@@ -53,11 +53,14 @@ Continuity maintains structured records for:
 - character and world states
 - relationships
 - events
-- open threads
-- background developments outside the current focus
+- supporting memories: historical plans, questions, knowledge gaps, and non-focal developments
 - chronological Digest and Recursive Chronicle history
 
-The built-in memory viewer lets you search and inspect these records, including the message ranges from which they were created.
+The built-in memory viewer lets you search and inspect these records, including the message ranges from which they were created. **Supporting memories** combines the former Open threads and Background developments views.
+
+The legacy `threads` and `backgrounds` storage channels remain compatible; new observations use `status: "recorded"`. Old lifecycle labels remain available for audit but never control supporting recall. Updates preserve prior observations, certainty and source ranges; matching whole observations share their provenance, while different details remain separate. Earlier versions still present in saved extraction replay are also available without rebuilding. Continuation handoffs retain this history. Explicit corrections supersede the corrected record and keep its prior history in the correction audit, not as competing truth. Source deletion, range replacement and Undo remove the corresponding invalidated observations.
+
+This does not recover text already absent from both saved records and extraction replay; recovering that requires the original source. Retrieval is selective, not a promise that every stored detail appears in every reply.
 
 Explicit scenario notes anywhere in the chat—including greetings, assistant messages, and user messages, with Markdown-formatted `Note:`, `Timeline:`, `Premise:`, and OOC/meta labels—are preserved directly from source, independently of what the extraction model remembers to write. Each Digest stores those source excerpts, roles, and message positions; opening-message prose is also retained, including prose around labelled notes. This uses generic source structure, not hard-coded settings or lore.
 
@@ -67,7 +70,7 @@ Existing memory does not require a rebuild: when the original chat remains avail
 
 This channel prevents model omissions from erasing recognized scenario notes or the opening message from assembled continuity context. It does not guarantee perfect downstream AI compliance or lossless recall of every unlabelled detail later in the conversation. Large openings or many notes add to the prompt outside the soft recall budget; the model/provider's finite context window still applies.
 
-Extraction distinguishes the current focus from other continuity-bearing strands. Focused characters, goals, decisions, relationships, and directly consequential subplots receive normal detailed records. Each meaningful non-focused theater or process receives one compact, source-grounded background record with its current condition and certainty. This applies equally to simulation and ordinary roleplay; it does not assume that geographic or political material is background when it directly affects the active story.
+Extraction distinguishes the current focus from other continuity-bearing strands. Focused characters, goals, decisions, relationships, and directly consequential subplots receive normal detailed records. Each meaningful non-focused theater or process receives a source-grounded supporting observation with its condition at that point and certainty. This applies equally to simulation and ordinary roleplay; it does not assume that geographic or political material is background when it directly affects the active story.
 
 ## Corrections and revisions
 
@@ -81,7 +84,7 @@ Continuity detects edits, deletions, swipes, and branch changes. A checkpoint is
 
 When a SillyTavern branch or checkpoint is created, Continuity verifies and locally replays the parent chat's unchanged Digest prefix into a separate memory for the new chat. Only the Digest containing the fork point and the later suffix need fresh extraction; the two-message stability buffer is still preserved.
 
-Mutable state is fail-closed. Scene-local locations, activities, emotions, and plans expire when the next Digest range advances. Longer-running conditions are stored for reconciliation, but are injected as current only when the newest Digest reconfirms them. Predicted or scheduled events remain plans or open threads until they actually occur. Legacy state records without lifecycle metadata are never injected as current.
+Mutable state is fail-closed. Scene-local locations, activities, emotions, and plans expire when the next Digest range advances. Longer-running conditions are stored for reconciliation, but are injected as current only when the newest Digest reconfirms them. Predicted or scheduled events are retained as historical plans; later outcomes add evidence rather than erasing those plans. Legacy state records without lifecycle metadata are never injected as current.
 
 When the narrative later identifies an earlier unknown, disguised, or descriptive reference, Continuity migrates matching structured references to the canonical entity and merges duplicates. The identification must be supported by the chat; outside franchise knowledge, resemblance, suspicion, and unconfirmed claims do not establish identity.
 
@@ -111,7 +114,7 @@ When the optional Continuity server plugin is available, CM uses its detached ve
 
 Existing records are embedded once. New and revised records are synchronized incrementally.
 
-Background developments are retrieved only when the current conversation matches their topic, participants, or meaning. They are not inserted into every response merely because they were retained.
+Supporting memories are retrieved only when the current conversation matches their topic, participants, or meaning. They are not inserted into every response merely because they were retained.
 
 ## Retired features and older memory
 
@@ -143,7 +146,7 @@ This preserves broad narrative continuity without injecting the entire history o
 
 Message counts and Digest boundaries record source order, never elapsed story time. Every new Digest receives an immutable temporal anchor and links only to the preceding anchor in the same subjective time frame. Explicit time skips are retained; unstated dates, durations, day boundaries, and synchronization between dreams, flashbacks, alternate timelines, or other local clocks are never inferred.
 
-Relative wording such as “yesterday,” “tomorrow,” “last year,” and “the last 300 days” is preserved and bound to the anchor where it was stated. When one of those memories is retrieved later, Continuity adds its short anchor reference so the phrase cannot silently drift with the current scene. Ordinary non-relative memories carry no extra prompt text, and promoted Chronicle nodes retain compact anchor spans rather than copying every timestamp.
+Relative wording such as “yesterday,” “tomorrow,” “last year,” and “the last 300 days” is preserved and bound to the anchor where it was stated. When one of those memories is retrieved later, Continuity adds its short anchor reference so the phrase cannot silently drift with the current scene. Supporting observations always carry source-bound historical labels; other non-relative memories need no additional relative-time wording, and promoted Chronicle nodes retain compact anchor spans rather than copying every timestamp.
 
 ## Context handling
 

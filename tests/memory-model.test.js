@@ -307,7 +307,7 @@ test('compact background strands update by stable topic and inject only when rel
     assert.deepEqual(target.backgrounds[0].sources.map(source => [source.from, source.to]), [[0, 7], [8, 15]]);
 
     const relevant = buildMemoryPrompt(target, [{ name: 'User', mes: 'What is happening with Qing China and the White Lotus?' }], 1800, 'world-sim');
-    assert.match(relevant.prompt, /Background:/);
+    assert.match(relevant.prompt, /Supporting memories:/);
     assert.match(relevant.prompt, /provincial militarization/);
     assert.match(relevant.prompt, /confirmed/);
 
@@ -796,7 +796,7 @@ test('equivalent concealed-identity knowledge boundaries collapse to one canonic
     assert.equal(boundaries[0].category, 'knowledge gap');
 });
 
-test('visible semantic duplicates compact by category while distinct chronology remains', () => {
+test('supporting observations retain distinct wording while adjacent duplicate events compact', () => {
     const target = world();
     target.entities.push(
         { id: 'toska', name: 'Toska', type: 'person', aliases: [], description: '', importance: 4 },
@@ -838,9 +838,9 @@ test('visible semantic duplicates compact by category while distinct chronology 
         },
     );
 
-    assert.equal(compactDuplicateMemoryRecords(target), 3);
-    assert.equal(target.threads.length, 1);
-    assert.equal(target.backgrounds.length, 1);
+    assert.equal(compactDuplicateMemoryRecords(target), 1);
+    assert.equal(target.threads.length, 2);
+    assert.equal(target.backgrounds.length, 2);
     assert.equal(target.events.length, 2);
     assert.ok(target.events.some(item => item.id === 'event_new'));
     assert.ok(target.events.some(item => item.id === 'event_later'));
@@ -967,7 +967,7 @@ test('stored reconciliation repairs established records using processed messages
         [item.from, item.to].includes('Ari Lane') && [item.from, item.to].includes('Doctor Vale')));
     assert.equal(target.facts.find(item => item.id === 'fact_misowned').subject, 'Toska');
     assert.equal(target.facts.find(item => item.id === 'fact_misowned').category, 'knowledge');
-    assert.equal(target.threads.find(item => item.id === 'thread_hiding').status, 'resolved');
+    assert.equal(target.threads.find(item => item.id === 'thread_hiding').status, 'open');
     assert.equal(target.threads.find(item => item.id === 'thread_destination').status, 'open');
 });
 
@@ -1378,7 +1378,7 @@ test('historical partial imports do not replace current mutable continuity', () 
     assert.equal(target.entities[0].description, 'Current description');
     assert.equal(target.facts[0].value, 'current cake');
     assert.equal(target.relationships[0].status, 'Current status');
-    assert.equal(target.threads[0].status, 'resolved');
+    assert.equal(target.threads[0].status, 'recorded');
 });
 
 test('newer historical ranges advance durable records without allowing older ranges to regress them', () => {
@@ -1401,8 +1401,9 @@ test('newer historical ranges advance durable records without allowing older ran
     assert.deepEqual(target.entities[0].aliases, ['Tea Circle']);
     assert.equal(target.facts[0].value, 'completed and accepted');
     assert.equal(target.relationships[0].status, 'Completed');
-    assert.equal(target.threads[0].status, 'resolved');
-    assert.deepEqual(target.threads[0].participants, ['Team 7', 'Sakura']);
+    assert.equal(target.threads[0].status, 'recorded');
+    assert.equal(target.threads.length, 2);
+    assert.deepEqual(target.threads.map(item => item.participants), [['Team 7'], ['Sakura']]);
 
     mergeExtraction(target, extraction({
         entities: [{ name: 'Tea Circle Amphitheater', type: 'place', aliases: [], description: 'Venue where Team 7 will assemble a stage.', importance: 3 }],
@@ -1414,7 +1415,7 @@ test('newer historical ranges advance durable records without allowing older ran
     assert.equal(target.entities[0].description, 'East-district venue and site of Team 7’s completed D-014 stage setup.');
     assert.equal(target.facts[0].value, 'completed and accepted');
     assert.equal(target.relationships[0].status, 'Completed');
-    assert.equal(target.threads[0].status, 'resolved');
+    assert.equal(target.threads[0].status, 'recorded');
 });
 
 test('state lifecycle expires scenes and fails closed when ongoing state is not reconfirmed', () => {
@@ -1557,7 +1558,7 @@ test('retrieval reserves room for every populated memory category', () => {
     for (const heading of [
         'Checkpoint',
         'Recursive Chronicle layers (complete active frontier)',
-        'Open matters',
+        'Supporting memories',
         'Entities',
         'Current state',
         'Relationships',

@@ -1,7 +1,8 @@
+import { supportingHistory, supportingIdentity, retainSupportingHistory, filterSupportingSources } from './supporting-memories.js';
 import { LEGACY_DIGEST_RESCAN_MESSAGE } from './legacy-support.js';
 import { EXTRACTION_VERSION } from './coverage.js';
 import { isSuppressedByCorrection } from './memory-correction.js';
-import { addressFactAddressee, addressFactIdentity, enrichEntityDescriptionsFromEstablishedFacts, entityIsPersonLike, entityTypesAreCompatible, isAddressFact, mergeAddressValues, normalizeKnowledgePredicateTaxonomy, normalizeRelationalKnowledgeTopics, reconcileGenericAddressDuplicates, reconcileStoredMemoryRecords, reconciliationMergeIsCompatible, reconciliationTargetIsCompatible, reconciliationTargetWasRejected, reconciliationThreadWasAtomicallySplit, recoverRelationshipBackedEntityDescriptions, relationshipPairIdentity, removeInvalidAddressFacts } from './reconciliation-policy.js';
+import { addressFactAddressee, addressFactIdentity, enrichEntityDescriptionsFromEstablishedFacts, entityIsPersonLike, entityTypesAreCompatible, isAddressFact, mergeAddressValues, normalizeKnowledgePredicateTaxonomy, normalizeRelationalKnowledgeTopics, reconcileGenericAddressDuplicates, reconcileStoredMemoryRecords, reconciliationMergeIsCompatible, reconciliationTargetIsCompatible, reconciliationTargetWasRejected, recoverRelationshipBackedEntityDescriptions, relationshipPairIdentity, removeInvalidAddressFacts } from './reconciliation-policy.js';
 import { canonicalMemorySubject, canonicalStateAttribute, stateIdentity, stateScope } from './state-lifecycle.js';
 import { buildDigestTemporalAnchor, buildRelativeTemporalAnchor } from './temporal-anchors.js';
 import { randomUuid } from './uuid.js';
@@ -250,11 +251,19 @@ function mergeArray(world, collection, target, incoming, identity, meta, prefix,
                 && (isAddressFact(target[index]) || isAddressFact(normalized))) {
                 merged.value = mergeAddressValues(target[index].value, normalized.value);
             }
-            if (collection === 'threads' || collection === 'backgrounds') merged.participants = cleanList([...(target[index].participants || []), ...(normalized.participants || [])]);
+            if (collection === 'threads' || collection === 'backgrounds') {
+                const observation = { ...normalized, observationSources: [sourceRef(meta)] };
+                merged.history = supportingHistory(target[index], observation);
+                merged.observationSources = preserve || target[index].correctionId
+                    ? target[index].observationSources || target[index].sources || []
+                    : observation.observationSources;
+                if (target[index].correctionId) merged.history = target[index].history || [];
+            }
             target[index] = common({ ...merged, id: target[index].id, createdAt: target[index].createdAt }, meta, prefix);
             raw.targetId = target[index].id;
         } else {
             const created = common({ ...normalized, ...(requestedTargetId ? { id: requestedTargetId } : {}) }, meta, prefix);
+            if (collection === 'threads' || collection === 'backgrounds') created.observationSources = [sourceRef(meta)];
             target.push(created);
             raw.targetId = created.id;
         }
@@ -512,6 +521,7 @@ function mergeCanonicalDuplicates(left, right) {
     return {
         ...other,
         ...preferred,
+        ...((left.detail !== undefined || left.topic !== undefined) ? { history: supportingHistory(left, right) } : {}),
         sources: mergedSources(left.sources || [], right.sources || []),
         createdAt: left.createdAt || right.createdAt,
         updatedAt: recordTimestamp(right) >= recordTimestamp(left) ? right.updatedAt : left.updatedAt,
@@ -625,28 +635,6 @@ function semanticTopicBucket(value, participants = []) {
     return `terms:${[...semanticRecordTerms(value)].sort().slice(0, 2).join('|')}`;
 }
 
-function semanticallyDuplicateThread(left, right) {
-    if (left?.correctionId || right?.correctionId) return false;
-    if (semanticRecordIdentifiersDiffer(`${left?.title} ${left?.detail}`, `${right?.title} ${right?.detail}`)) return false;
-    const leftParticipants = participantIdentity(left);
-    const rightParticipants = participantIdentity(right);
-    if (leftParticipants && rightParticipants && leftParticipants !== rightParticipants) return false;
-    const excluded = [...(left?.participants || []), ...(right?.participants || [])];
-    const title = semanticRecordOverlap(left?.title, right?.title, excluded);
-    const detail = semanticRecordOverlap(left?.detail, right?.detail, excluded);
-    return (title.shared >= 3 && title.containment >= 0.75)
-        || (title.shared >= 2 && title.containment >= 0.5 && detail.shared >= 6 && detail.containment >= 0.75);
-}
-
-function semanticallyDuplicateBackground(left, right) {
-    if (left?.correctionId || right?.correctionId) return false;
-    if (semanticRecordIdentifiersDiffer(`${left?.topic} ${left?.summary}`, `${right?.topic} ${right?.summary}`)) return false;
-    const topic = semanticRecordOverlap(left?.topic, right?.topic, [...(left?.participants || []), ...(right?.participants || [])]);
-    const summary = semanticRecordOverlap(left?.summary, right?.summary);
-    return (topic.shared >= 3 && topic.containment >= 0.75)
-        || (topic.shared >= 2 && topic.containment >= 0.6 && summary.shared >= 7 && summary.containment >= 0.75);
-}
-
 function semanticallyDuplicateAdjacentEvent(left, right) {
     if (left?.correctionId || right?.correctionId || !sourceRangesTouch(left, right)) return false;
     if (semanticRecordIdentifiersDiffer(`${left?.title} ${left?.summary}`, `${right?.title} ${right?.summary}`)) return false;
@@ -671,7 +659,7 @@ export function compactDuplicateMemoryRecords(world, messages = null) {
     let compacted = compactDuplicateEntities(world);
     compacted += splitCompositeStateSubjects(world);
     compacted += compactRepeatedEntityDescriptions(world);
-    compacted += reconcileStoredMemoryRecords(world, messages);
+    compacted += reconcileStoredMemoryRecords(world, messages, { neutralSupporting: true });
     reconcileCanonicalKnowledgeFacts(world);
     const exactFacts = deduplicateCanonicalRecords(world?.facts, item => item?.correctionId ? ''
         : addressFactIdentity(item, world) || `${key(canonicalMemorySubject(world, item?.subject))}|${key(item?.predicate)}|${key(item?.category)}`);
@@ -685,11 +673,11 @@ export function compactDuplicateMemoryRecords(world, messages = null) {
     compacted += (world?.relationships?.length || 0) - exactRelationships.length;
     world.relationships = exactRelationships;
 
-    const threads = compactSemanticRecords(world?.threads, semanticallyDuplicateThread, mergeSemanticListRecord,
+    const threads = compactSemanticRecords(world?.threads, (a, b) => !a.correctionId && !b.correctionId && supportingIdentity(a) === supportingIdentity(b), mergeSemanticListRecord,
         item => semanticTopicBucket(`${item?.title} ${item?.detail}`, item?.participants || []));
     world.threads = threads.items;
     compacted += threads.removed;
-    const backgrounds = compactSemanticRecords(world?.backgrounds, semanticallyDuplicateBackground, mergeSemanticListRecord,
+    const backgrounds = compactSemanticRecords(world?.backgrounds, (a, b) => !a.correctionId && !b.correctionId && supportingIdentity(a) === supportingIdentity(b), mergeSemanticListRecord,
         item => semanticTopicBucket(`${item?.topic} ${item?.summary}`, item?.participants || []));
     world.backgrounds = backgrounds.items;
     compacted += backgrounds.removed;
@@ -1048,7 +1036,7 @@ function applyRecordMerge(world, raw, meta) {
     if ([canonical, ...duplicates].some(item => item.correctionId || shouldPreserveHistoricalRecord(item, meta))) return false;
 
     if (category === 'threads' || category === 'backgrounds') {
-        canonical.participants = cleanList([...(canonical.participants || []), ...duplicates.flatMap(item => item.participants || [])]);
+        canonical.history = supportingHistory(canonical, ...duplicates);
     }
     const resolutionSource = sourceRef(meta);
     canonical.sources = mergedSources(canonical.sources || [], ...duplicates.map(item => item.sources || []), [resolutionSource]);
@@ -1199,6 +1187,7 @@ export function promoteStoredTailSnapshot(world, chatKey, latestCompleteIndex) {
 
 export function mergeExtraction(world, result, meta) {
     migrateLegacyBeliefs(world);
+    retainSupportingHistory(world);
     world.entities ||= [];
     world.facts ||= [];
     world.states ||= [];
@@ -1344,21 +1333,21 @@ export function mergeExtraction(world, result, meta) {
         if (!duplicate) world.events.push(common(event, meta, 'event'));
     }
 
-    mergeArray(world, 'threads', world.threads, result.threads, item => key(item.title), meta, 'thread', (item, existing) => ({
-        title: reconciliationThreadWasAtomicallySplit(item) ? text(item.title) : existing?.title || text(item.title),
+    mergeArray(world, 'threads', world.threads, result.threads, item => supportingIdentity(item), meta, 'thread', (item, existing) => ({
+        title: text(item.title) || existing?.title,
         detail: text(item.detail),
-        status: ['open', 'resolved', 'abandoned'].includes(item.status) ? item.status : 'open',
+        status: 'recorded',
         participants: canonicalList(world, item.participants),
         importance: clampImportance(item.importance),
         temporalAnchorId: digestTemporal.anchorId,
     }), preserveHistoricalRecord);
 
-    mergeArray(world, 'backgrounds', world.backgrounds, result.backgrounds, item => key(item.topic), meta, 'background', (item, existing) => ({
-        topic: existing?.topic || clipped(item.topic, 120),
-        summary: clipped(item.summary, 400),
-        status: ['active', 'resolved', 'dormant'].includes(item.status) ? item.status : 'active',
+    mergeArray(world, 'backgrounds', world.backgrounds, result.backgrounds, item => supportingIdentity(item), meta, 'background', (item, existing) => ({
+        topic: text(item.topic) || existing?.topic,
+        summary: text(item.summary),
+        status: 'recorded',
         certainty: ['confirmed', 'reported', 'rumored', 'uncertain'].includes(item.certainty) ? item.certainty : 'uncertain',
-        participants: canonicalList(world, item.participants, 12),
+        participants: canonicalList(world, item.participants),
         importance: clampImportance(item.importance),
         temporalAnchorId: digestTemporal.anchorId,
     }), preserveHistoricalRecord);
@@ -1455,6 +1444,7 @@ function sameRange(source, meta) {
 
 export function replaceExtraction(world, result, meta) {
     migrateLegacyBeliefs(world);
+    retainSupportingHistory(world);
     world.extractions ||= [];
     world.arcs ||= [];
     world.eras ||= [];
@@ -1462,6 +1452,10 @@ export function replaceExtraction(world, result, meta) {
     const removedArcIds = new Set(world.arcs.filter(arc => (arc.capsuleIds || []).some(id => removedCapsuleIds.has(id))).map(arc => arc.id));
     for (const category of ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds']) {
         world[category] = (world[category] || []).flatMap(item => {
+            if (['threads', 'backgrounds'].includes(category)) {
+                const retained = filterSupportingSources(item, source => !sameRange(source, meta));
+                return retained ? [retained] : [];
+            }
             const sources = (item.sources || []).filter(source => !sameRange(source, meta));
             return sources.length ? [{ ...item, sources }] : [];
         });
@@ -1479,10 +1473,15 @@ export function replaceExtraction(world, result, meta) {
 
 export function removeChatContributions(world, chatKey) {
     migrateLegacyBeliefs(world);
+    retainSupportingHistory(world);
     const removedCapsuleIds = new Set((world.capsules || []).filter(item => item.chatKey === chatKey).map(item => item.id));
     const removedArcIds = new Set((world.arcs || []).filter(arc => arc.chatKey === chatKey || (arc.capsuleIds || []).some(id => removedCapsuleIds.has(id))).map(arc => arc.id));
     for (const category of ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds']) {
         world[category] = (world[category] || []).flatMap(item => {
+            if (['threads', 'backgrounds'].includes(category)) {
+                const retained = filterSupportingSources(item, source => source.chatKey !== chatKey);
+                return retained ? [retained] : [];
+            }
             const sources = (item.sources || []).filter(source => source.chatKey !== chatKey);
             return sources.length ? [{ ...item, sources }] : [];
         });
@@ -1505,8 +1504,7 @@ function replayIdentity(collection, item, chatKey) {
     if (collection === 'facts') return addressFactIdentity(item) || `${key(item.subject)}|${key(item.predicate)}|${key(item.category)}`;
     if (collection === 'states') return stateIdentity(null, item);
     if (collection === 'relationships') return relationshipPairIdentity(item);
-    if (collection === 'threads') return key(item.title);
-    if (collection === 'backgrounds') return key(item.topic);
+    if (collection === 'threads' || collection === 'backgrounds') return supportingIdentity(item);
     if (collection === 'capsules' || collection === 'extractions') {
         return item.chatKey === chatKey ? `${item.chatKey}|${Number(item.from)}|${Number(item.to)}` : '';
     }

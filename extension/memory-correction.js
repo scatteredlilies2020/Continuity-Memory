@@ -304,6 +304,12 @@ export function applyCorrectionProposal(world, proposal) {
                 correctionId,
                 sources: [...(before?.sources || []), correctionSource].slice(-20),
             };
+            if (['threads', 'backgrounds'].includes(operation.category)) {
+                // A correction rejects the old wording; retain it in the audit, not active recall.
+                after.history = [];
+                after.status = 'recorded';
+                after.observationSources = before?.observationSources || before?.sources || [];
+            }
             if (before?.chatKey) after.chatKey = before.chatKey;
             if (Number.isFinite(Number(before?.from))) after.from = Number(before.from);
             if (Number.isFinite(Number(before?.to))) after.to = Number(before.to);
@@ -325,6 +331,8 @@ export function applyCorrectionProposal(world, proposal) {
             reason: operation.reason,
             beforeSelector: before ? correctionSelector(operation.category, before) : '',
             before: before ? publicRecord(operation.category, before) : null,
+            ...(['threads', 'backgrounds'].includes(operation.category) && before
+                ? { supportingHistoryBefore: structuredClone(before) } : {}),
             after: after ? publicRecord(operation.category, after) : null,
         });
     }

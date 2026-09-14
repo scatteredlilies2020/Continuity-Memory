@@ -38,7 +38,7 @@ test('builds stable embedding documents from canonical structured records only',
     assert.ok(first.some(document => document.key === 'event:event-lantern'));
     assert.ok(first.some(document => document.key === 'thread:thread-open'));
     assert.ok(first.some(document => document.key === 'background:background-qing'));
-    assert.ok(!first.some(document => document.key === 'thread:thread-resolved'));
+    assert.ok(first.some(document => document.key === 'thread:thread-resolved'));
     assert.ok(first.every(document => !document.text.includes('world-one')));
     assert.equal(stableEmbeddingHash('same text'), stableEmbeddingHash('same text'));
 });

@@ -1,3 +1,4 @@
+import { SUPPORTING_MEMORY_RULES } from '../extension/prompts.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
@@ -38,13 +39,13 @@ import {
 } from '../extension/prompts.js';
 
 test('JB prompt is appended to extraction instructions only when enabled', () => {
-    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', false, '<rules>custom</rules>'), `Base extraction instructions.\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', false, '<rules>custom</rules>'), `Base extraction instructions.\n\n${SUPPORTING_MEMORY_RULES}\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}`);
     assert.equal(
         buildExtractionSystemPrompt('Base extraction instructions.', true, '<rules>custom</rules>'),
-        `Base extraction instructions.\n\n<rules>custom</rules>\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}`,
+        `Base extraction instructions.\n\n<rules>custom</rules>\n\n${SUPPORTING_MEMORY_RULES}\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}`,
     );
-    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', true, '   '), `Base extraction instructions.\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}`);
-    assert.equal(buildExtractionSystemPrompt('', true, '<rules>custom</rules>'), `<rules>custom</rules>\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', true, '   '), `Base extraction instructions.\n\n${SUPPORTING_MEMORY_RULES}\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('', true, '<rules>custom</rules>'), `<rules>custom</rules>\n\n${SUPPORTING_MEMORY_RULES}\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}`);
     assert.match(DEFAULT_JB_PROMPT, /^<rules>[\s\S]*<\/rules>$/);
 });
 
@@ -96,7 +97,7 @@ test('Chronicle history policy preserves evidenced outcomes without assigning li
         assert.match(prompt, /When later supplied evidence answers a question or fulfills a plan, narrate that progression/);
         assert.match(prompt, /never infer an outcome from silence or elapsed turns/);
         assert.match(prompt, /conditions, deadlines, and outcomes at their evidenced point/);
-        assert.match(prompt, /Structured threads alone own lifecycle status/);
+        assert.match(prompt, /Supporting memories also preserve source-bound historical evidence/);
         assert.doesNotMatch(prompt, /or resolve (?:an open matter|open matters)/);
     }
 });
@@ -189,14 +190,14 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /empty if unknown\/non-person/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /never invent/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /explicit names and third person, never I\/we\/you or player-facing advice/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /unfinished matters in atomic threads/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Threads are atomic unresolved conditions/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /emit its targetId resolved/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Reuse a supplied thread title only while that exact titled condition remains open/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /source-grounded intentions and questions in supporting memories/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /source-linked historical observations/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Use status="recorded" in both/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Reuse a targetId only for the same subject\/strand/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /one canonical relationship record/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /from and to identify the participants only/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /dynamic the authoritative self-contained description/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /never retain a fulfilled or misleading title/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /never infer that it remains pending/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, new RegExp(RELATIONSHIP_DESCRIPTION_RULE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /include a named person being visited, met, contacted, or reported to/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /exclude someone mentioned only as an object's former owner/);
@@ -208,10 +209,10 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /When canonical context supplies targetId/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Omit unchanged records/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Silently inventory distinct non-focal strands/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /output exactly one compact background record/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /output one background observation/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Never group unrelated strands/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /confirmed, reported, rumored, or uncertain/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /If future relevance is uncertain, retain at most one compact low-importance background record/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Preserve unique information before optimizing brevity/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /one fact per speaker-addressee pair/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /honorifics, titles, nicknames, callsigns, or first-name use/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /direct, name-like vocative/);
@@ -249,7 +250,7 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_RETRIEVAL_SYSTEM_PROMPT, /every phrase independently searchable/);
     assert.match(DEFAULT_RETRIEVAL_SYSTEM_PROMPT, /include those actors in that same phrase/);
     assert.match(DEFAULT_CHRONICLE_SYSTEM_PROMPT, /chronological Chronicle nodes/);
-    assert.match(DEFAULT_CHRONICLE_SYSTEM_PROMPT, /consequential knowledge gaps as open threads/);
+    assert.match(DEFAULT_CHRONICLE_SYSTEM_PROMPT, /consequential knowledge gaps and later disclosures at their respective historical points/);
     assert.match(DEFAULT_CHRONICLE_SYSTEM_PROMPT, /Most items are 2 or 3/);
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 14300);
     assert.ok(DEFAULT_CHRONICLE_SYSTEM_PROMPT.length < 4000);

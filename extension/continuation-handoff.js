@@ -1,3 +1,4 @@
+import { retainSupportingHistory } from './supporting-memories.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 
 export const CONTINUATION_PACKAGE_KIND = 'continuity-arc-handoff';
@@ -47,6 +48,8 @@ function remapRecord(record, chatKey) {
     if (Array.isArray(next.sources)) {
         next.sources = next.sources.map(source => remapSource(source, chatKey)).filter(Boolean);
     }
+    if (Array.isArray(next.observationSources)) next.observationSources = next.observationSources.map(source => remapSource(source, chatKey)).filter(Boolean);
+    if (Array.isArray(next.history)) next.history = next.history.map(item => remapRecord(item, chatKey));
     return next;
 }
 
@@ -82,6 +85,7 @@ export function prepareContinuationWorld(value, { chatKey, attachedAt = new Date
     if (!clean(chatKey)) throw new Error('Open the destination chat before starting a continuation arc.');
     const source = clone(value.world);
     migrateLegacyBeliefs(source);
+    retainSupportingHistory(source);
     if (!source.id || !source.name) throw new Error('The continuation file does not contain a valid source memory.');
 
     const world = clone(source);

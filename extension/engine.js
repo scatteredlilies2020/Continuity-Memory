@@ -7,35 +7,35 @@ import { oai_settings, openai_setting_names, openai_settings, proxies } from '/s
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.14';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.15';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { normalizeHierarchyResult } from './hierarchy-result.js';
 import { captureScenarioContext } from './scenario-context.js';
 import { completeDigestMessages, latestCompleteDigestMessageIndex, digestStabilityRepairFrom, DIGEST_STABILITY_BUFFER_MESSAGES, partitionDigestStabilityBuffer, partitionPendingDigestMessages, resolveDigestGroupSize, selectAutomaticDigestMessages } from './digest-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.14';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.15';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedChronicle, freshResetResiduals, getLatestDigestUndoStatus as inspectLatestDigestUndo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.14';
-import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.14';
+import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.15';
+import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.15';
 import { embedWorldInChat } from './portable.js';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.14';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.14';
-import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.14';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.14';
-import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.14';
-import { isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.14';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.14';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.15';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.15';
+import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.15';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.15';
+import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.15';
+import { isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.15';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.15';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { resolveProfileThinkingMode } from './story-thinking.js?v=0.15.0-testing.14';
-import { stableStoryMessages } from './story-cadence.js?v=0.15.0-testing.14';
-import { compileRollingStorySnapshot } from './story-snapshot.js?v=0.15.0-testing.14';
-import { planStoryMutationRecovery } from './story-checkpoints.js?v=0.15.0-testing.14';
-import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.14';
+import { resolveProfileThinkingMode } from './story-thinking.js?v=0.15.0-testing.15';
+import { stableStoryMessages } from './story-cadence.js?v=0.15.0-testing.15';
+import { compileRollingStorySnapshot } from './story-snapshot.js?v=0.15.0-testing.15';
+import { planStoryMutationRecovery } from './story-checkpoints.js?v=0.15.0-testing.15';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.15';
 import { nextChroniclePromotion } from './chronicle.js';
 import { chronicleRetryFeedback, isRetryableChronicleError, retryChroniclePromotion } from './chronicle-retry.js';
 
@@ -167,7 +167,7 @@ const extractionSchema = {
                 type: 'object', additionalProperties: false,
                 required: ['targetId', 'title', 'detail', 'status', 'participants', 'importance'],
                 properties: {
-                    targetId: { type: 'string' }, title: { type: 'string' }, detail: { type: 'string' }, status: { type: 'string', enum: ['open', 'resolved', 'abandoned'] },
+                    targetId: { type: 'string' }, title: { type: 'string' }, detail: { type: 'string' }, status: { type: 'string', enum: ['recorded'] },
                     participants: { type: 'array', items: { type: 'string' } }, importance: { type: 'integer', minimum: 1, maximum: 5 },
                 },
             },
@@ -178,7 +178,7 @@ const extractionSchema = {
                 required: ['targetId', 'topic', 'summary', 'status', 'certainty', 'participants', 'importance'],
                 properties: {
                     targetId: { type: 'string' }, topic: { type: 'string' }, summary: { type: 'string' },
-                    status: { type: 'string', enum: ['active', 'resolved', 'dormant'] },
+                    status: { type: 'string', enum: ['recorded'] },
                     certainty: { type: 'string', enum: ['confirmed', 'reported', 'rumored', 'uncertain'] },
                     participants: { type: 'array', items: { type: 'string' } },
                     importance: { type: 'integer', minimum: 1, maximum: 5 },
@@ -259,7 +259,7 @@ const correctionJsonSchema = Object.freeze({
 });
 
 const CORRECTION_SYSTEM_PROMPT = `You repair structured roleplay continuity memory from an explicit user correction.
-The correction is authoritative only for the scope it states. Distinguish established facts from attributed facts whose category is "character belief". "That never happened" can change facts, events, and chronology; "Alice was wrong about it" changes only the fact about Alice's belief and does not establish what actually happened. "Bob was never told" adds or updates a persistent fact with Bob as subject, predicate "knowledge of CANONICAL_TOPIC", category "knowledge boundary", and an explicit value describing what Bob does not know; it may also add or update one open thread when the pending reveal is consequential. "Bob learned it" updates that same boundary fact to the established knowledge state and resolves the thread. If the roleplay has not established what happened, do not invent a fact or event about it.
+The correction is authoritative only for the scope it states. Distinguish established facts from attributed facts whose category is "character belief". "That never happened" can change facts, events, and chronology; "Alice was wrong about it" changes only the fact about Alice's belief and does not establish what actually happened. "Bob was never told" adds or updates a persistent fact with Bob as subject, predicate "knowledge of CANONICAL_TOPIC", category "knowledge boundary", and an explicit value describing what Bob does not know; it may also add a source-bound supporting observation when the knowledge gap is consequential. "Bob learned it" updates that same boundary fact and records the later disclosure without discarding the earlier observation. Supporting entries in threads/backgrounds use status "recorded", never an inferred open/closed lifecycle. If the roleplay has not established what happened, do not invent a fact or event about it.
 Change only records that conflict with the correction or are necessary to preserve it.
 Use exact category names and target IDs from the supplied candidate records. For update, return the complete corrected public record as JSON encoded inside recordJson. For delete, use "{}". For add, leave targetId empty and return the complete new record.
 Check every relevant representation of the mistake. In particular, update or remove a Digest capsule when it repeats the incorrect event; otherwise derived summaries can relearn the error.
@@ -280,8 +280,8 @@ const JSON_SHAPE_EXAMPLE = JSON.stringify({
     states: [{ targetId: '', subject: '', attribute: '', value: '', previous: '', importance: 3, scope: 'scene', operation: 'set' }],
     relationships: [{ targetId: '', from: '', to: '', kind: '', status: '', dynamic: '', importance: 3 }],
     events: [{ title: '', summary: '', participants: [], location: '', storyTime: '', consequences: '', importance: 3, temporal: { frame: 'main narrative', relation: 'same-period', elapsed: '', certainty: 'implicit' } }],
-    threads: [{ targetId: '', title: '', detail: '', status: 'open', participants: [], importance: 3 }],
-    backgrounds: [{ targetId: '', topic: '', summary: '', status: 'active', certainty: 'reported', participants: [], importance: 2 }],
+    threads: [{ targetId: '', title: '', detail: '', status: 'recorded', participants: [], importance: 3 }],
+    backgrounds: [{ targetId: '', topic: '', summary: '', status: 'recorded', certainty: 'reported', participants: [], importance: 2 }],
     chronicleEntry: '',
 });
 
@@ -390,7 +390,7 @@ function validateResult(result, world, messages) {
     const provenanceBoundaries = authoritativeMetaBoundaries(messages);
     delete result._sourceScenarioContext;
     assertAuthoritativeMetaProvenance(result, provenanceBoundaries);
-    const validation = sanitizeReconciliationMetadata(result, world, messages);
+    const validation = sanitizeReconciliationMetadata(result, world, messages, { neutralSupporting: true });
     assertAuthoritativeMetaProvenance(result, provenanceBoundaries);
     result._authoritativeMetaBoundaries = provenanceBoundaries;
     // Overwrite any model-supplied field with source text captured by code.
@@ -457,19 +457,14 @@ function extractionStateContext(world, messages) {
         return { item, score, sourceTo: Number(source?.to ?? -1) };
     }).sort((a, b) => b.score - a.score || b.sourceTo - a.sourceTo);
     const matchedThreads = threadCandidates.filter(entry => entry.score > 0).slice(0, 8);
-    const matchedThreadItems = new Set(matchedThreads.map(entry => entry.item));
-    const fallbackThreads = threadCandidates
-        .filter(entry => entry.item.status === 'open' && !matchedThreadItems.has(entry.item))
-        .sort((a, b) => Number(b.item.importance || 0) - Number(a.item.importance || 0) || b.sourceTo - a.sourceTo)
-        .slice(0, 2);
-    const activeThreads = [...matchedThreads, ...fallbackThreads]
+    const activeThreads = matchedThreads
         .filter((entry, index, all) => all.findIndex(other => other.item === entry.item) === index)
         .slice(0, 12)
         .map(({ item }) => ({
             targetId: item.id,
             title: item.title,
             detail: String(item.detail || '').replace(/\s+/g, ' ').trim().slice(0, 240),
-            status: item.status,
+            evidenceScope: 'Historical observation, not current status',
         }));
     const backgrounds = rankCanonical(world?.backgrounds,
         item => `${item.topic || ''} ${item.summary || ''} ${(item.participants || []).join(' ')}`,
@@ -477,7 +472,7 @@ function extractionStateContext(world, messages) {
         targetId: item.id,
         topic: item.topic,
         summary: String(item.summary || '').replace(/\s+/g, ' ').trim().slice(0, 320),
-        status: item.status,
+        evidenceScope: 'Historical observation, not current status',
         certainty: item.certainty,
     }));
     const snapshot = Object.fromEntries(Object.entries({
@@ -2397,7 +2392,7 @@ export async function testExtractor() {
             { index: 0, name: 'Alice', text: 'I always take my tea without sugar.' },
             { index: 1, name: 'Bob', text: 'I will remember that for our picnic tomorrow.' },
         ]);
-        updateRuntime({ status: 'idle', lastValidation: `Extractor healthy: ${result.facts.length} fact(s), ${result.threads.length} open-thread candidate(s).` });
+        updateRuntime({ status: 'idle', lastValidation: `Extractor healthy: ${result.facts.length} fact(s), ${result.threads.length} supporting-memory candidate(s).` });
         return result;
     } catch (error) {
         updateRuntime({ status: 'error', lastError: error.message, lastValidation: `Extractor test failed: ${error.message}` });

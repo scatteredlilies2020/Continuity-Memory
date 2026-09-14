@@ -1,3 +1,4 @@
+import { supportingRecords, supportingEvidenceText } from './supporting-memories.js';
 import { isFreshActiveState } from './state-lifecycle.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 
@@ -27,6 +28,7 @@ export function embeddingRecordKey(category, id) {
 }
 
 export function embeddingRecordText(category, item, fields) {
+    if (category === 'thread' || category === 'background') return supportingEvidenceText(item);
     const lines = [`Memory type: ${category}`];
     for (const field of fields) {
         const value = clean(item?.[field]);
@@ -51,9 +53,8 @@ export function buildEmbeddingDocuments(world) {
     const documents = [];
     const usedHashes = new Set();
     for (const [category, collection, fields] of INDEXED_CATEGORIES) {
-        for (const item of world?.[collection] || []) {
+        for (const item of (['threads', 'backgrounds'].includes(collection) ? supportingRecords(world, collection) : world?.[collection] || [])) {
             if (!item?.id) continue;
-            if (category === 'thread' && item.status !== 'open') continue;
             if (category === 'state' && !isFreshActiveState(world, item)) continue;
             const key = embeddingRecordKey(category, item.id);
             const text = embeddingRecordText(category, item, fields);
@@ -99,9 +100,9 @@ export function semanticRanksFromResponse(response, documents) {
 export function embeddingAnchorText(world, semanticRanks) {
     if (!(semanticRanks instanceof Map) || !semanticRanks.size) return '';
     const values = [];
-    const anchorFields = ['name', 'aliases', 'subject', 'from', 'to', 'participants', 'location', 'title'];
+    const anchorFields = ['name', 'aliases', 'subject', 'from', 'to', 'participants', 'location', 'title', 'topic'];
     for (const [category, collection] of INDEXED_CATEGORIES) {
-        for (const item of world?.[collection] || []) {
+        for (const item of (['threads', 'backgrounds'].includes(collection) ? supportingRecords(world, collection) : world?.[collection] || [])) {
             if (!semanticRanks.has(embeddingRecordKey(category, item?.id))) continue;
             for (const field of anchorFields) {
                 const value = clean(item?.[field]);

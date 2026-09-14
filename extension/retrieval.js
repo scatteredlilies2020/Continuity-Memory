@@ -1,3 +1,4 @@
+import { supportingRecords, supportingEvidenceText } from './supporting-memories.js';
 const STOP_WORDS = new Set('a an the and that this with from into have has had was were are am can did does will shall may might must for but not never neither nor you your they them their she her him his its our out about just then than there here what when where who how why would could should been being also very more most some any all to of in on at as by or if it is be do we he me my up no so us during between through within without among around'.split(' '));
 const IRREGULAR_NEGATIVE_BASES = new Map([
     ['ca', 'can'],
@@ -194,7 +195,7 @@ function textValues(value) {
 function retrievalFieldText(item) {
     const identityKeys = new Set(['name', 'subject', 'from', 'to', 'aliases']);
     const headingKeys = new Set(['title', 'topic', 'predicate', 'attribute', 'kind', 'type', 'category']);
-    const ignoredKeys = new Set(['id', 'sources', 'createdAt', 'updatedAt', 'chatKey', 'from', 'to', 'importance', 'revision', 'capsuleIds', 'arcIds']);
+    const ignoredKeys = new Set(['id', 'sources', 'createdAt', 'updatedAt', 'chatKey', 'from', 'to', 'importance', 'revision', 'capsuleIds', 'arcIds', 'recordId', 'collection', 'legacyStatus']);
     const identity = [
         item?.name,
         item?.subject,
@@ -300,7 +301,7 @@ function retrievalRecords(world) {
         .concat(...[
             'entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras',
             'threads', 'backgrounds', 'corrections',
-        ].map(category => world?.[category] || []))
+        ].map(category => ['threads', 'backgrounds'].includes(category) ? supportingRecords(world, category) : world?.[category] || []))
         .filter(Boolean);
 }
 
@@ -1488,25 +1489,18 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     });
     addSection('Recent continuity', capsuleRows);
 
-    const openThreadItems = newestRecordsBy(
-        (world.threads || []).filter(sourceIsCurrent),
-        item => ledgerTitleKey(item.title),
-        chatKey,
-    ).filter(item => item.status === 'open');
-    const rankedOpenThreads = rank(openThreadItems.filter(item => !whollyRaw(item)), queryTerms, () => 4, 'thread', semanticRanks);
-    const activeThreadResults = recordSelections('Open matters', 'thread', rankedOpenThreads
-        .filter(result => result.eligible || result.semanticRank > 0)
-        .slice(0, 10));
-    const activeThreads = activeThreadResults
-        .map(({ item }) => memoryRow('thread', item, `- OPEN — ${anchoredRelativeText(plain(item.detail) || plain(item.title), item)}${item.participants?.length ? ` [${item.participants.join(', ')}]` : ''}`));
-    addSection('Open matters', activeThreads);
-
-    const backgrounds = takeMatches('Background', 'background', (world.backgrounds || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)), 12, item => item.status === 'active' ? 1 : 0)
-        .map(({ item }) => {
-            const qualifiers = [item.status, item.certainty].map(plain).filter(Boolean).join(', ');
-            return `- ${anchoredRelativeText(`${item.topic}${qualifiers ? ` [${qualifiers}]` : ''}: ${item.summary}`, item)}${item.participants?.length ? ` [${item.participants.join(', ')}]` : ''}`;
-        });
-    addSection('Background', backgrounds);
+    const supportingThreadItems = supportingRecords(world, 'threads').filter(sourceIsCurrent);
+    const supportingBackgroundItems = supportingRecords(world, 'backgrounds').filter(sourceIsCurrent);
+    const rankedSupporting = [
+        ...rank(supportingThreadItems.filter(item => !whollyRaw(item)), queryTerms, () => 0, 'thread', semanticRanks)
+            .map(result => ({ ...result, category: 'thread' })),
+        ...rank(supportingBackgroundItems.filter(item => !whollyRaw(item)), queryTerms, () => 0, 'background', semanticRanks)
+            .map(result => ({ ...result, category: 'background' })),
+    ].filter(result => result.eligible || result.semanticRank > 0)
+        .sort((a, b) => b.score - a.score).slice(0, 16);
+    for (const result of rankedSupporting) recordSelections('Supporting memories', result.category, [result]);
+    addSection('Supporting memories', rankedSupporting.map(({ category, item }) =>
+        memoryRow(category, item, `- ${supportingEvidenceText(item)}`)));
 
     const entityPool = (world.entities || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item));
     const matchedEntities = takeMatches('Entities', 'entity', entityPool, 12);
@@ -1597,8 +1591,8 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         ...((world.relationships || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)).map(item => ({ category: 'relationship', item }))),
         ...((world.events || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)).map(item => ({ category: 'event', item }))),
         ...((hasChronicle ? [] : chronological).map(item => ({ category: 'capsule', item }))),
-        ...(openThreadItems.filter(item => !whollyRaw(item)).map(item => ({ category: 'thread', item }))),
-        ...((world.backgrounds || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)).map(item => ({ category: 'background', item }))),
+        ...(supportingThreadItems.filter(item => !whollyRaw(item)).map(item => ({ category: 'thread', item }))),
+        ...(supportingBackgroundItems.filter(item => !whollyRaw(item)).map(item => ({ category: 'background', item }))),
     ].filter(candidate => candidate.item?.id && !selectedIds.has(candidate.item.id));
     const supportRelevanceByItem = new Map();
     // A bounded supporting envelope, not a second recap growing to hundreds
@@ -1723,8 +1717,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
                 .filter(Boolean).join(' ');
             return `- [relationship] ${item.from} ↔ ${item.to}: ${anchoredRelativeText(body, item)}`;
         }
-        if (category === 'thread') return `- [open matter] ${anchoredRelativeText(`${item.title}: ${item.detail}`, item)}${item.participants?.length ? ` [${item.participants.join(', ')}]` : ''}`;
-        if (category === 'background') return `- [background] ${anchoredRelativeText(`${item.topic}: ${item.summary}`, item)}${item.participants?.length ? ` [${item.participants.join(', ')}]` : ''}`;
+        if (category === 'thread' || category === 'background') return `- ${supportingEvidenceText(item)}`;
         if (category === 'event') {
             const storyTime = anchoredStoryTime(item);
             const detail = `${item.summary}${item.consequences ? ` Consequence: ${item.consequences}` : ''}`;
@@ -1767,23 +1760,8 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         chatKey,
         world.capsules || [],
     );
-    const compactThreadCandidates = openThreadItems.filter(item => !admitted.has(memoryRowKey('thread', item)));
-    const priorityThreads = [...compactThreadCandidates]
-        .sort((left, right) => Number(right.importance || 0) - Number(left.importance || 0)
-            || compareRecordFreshness(right, left, chatKey))
-        .slice(0, 4);
-    const compactThreads = [
-        ...priorityThreads,
-        ...[...compactThreadCandidates].sort((left, right) => compareRecordFreshness(right, left, chatKey)),
-    ]
-        .filter((item, index, all) => all.findIndex(other => other.id === item.id) === index)
-        .slice(0, 6);
-    // Pack reminders independently, priority first. Never clip an unresolved
-    // condition/deadline to make room, nor substitute a possibly fulfilled title
-    // for a stored residual question. The full record remains available on query.
+    // No unconditional plan or background reminders: stored evidence is recalled by relevance.
     addFairSections(parts, [{ title: 'Compact continuity ledger', rows: [
-        ...compactThreads.map(item => memoryRow('thread', item,
-            `- Open-thread ledger (priority + latest): ${whollyRaw(item) ? plain(item.title) : anchoredRelativeText(plain(item.detail) || plain(item.title), item)}`)),
         ...compactEvents.map(item => memoryRow('event', item, `- Event ledger (latest): ${plain(item.title)}`)),
     ] }], budget, admitted);
     parts.value += scenarioBlock;
@@ -1791,7 +1769,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.14';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.15';
 import { collectScenarioContext, renderScenarioContext } from './scenario-context.js';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';

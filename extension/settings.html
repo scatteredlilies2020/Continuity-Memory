@@ -40,7 +40,7 @@
                         <label class="menu_button continuity-file-label"><i class="fa-solid fa-broom"></i> Clean exported chat<input id="continuity_clean_chat" type="file" accept="application/json,.json,.jsonl"></label>
                     </div>
                     <small>When Keep portable memory is on, SillyTavern JSONL chat exports automatically include their matching Continuity memory. Manual memory import accepts only the same conversation history, verified by message fingerprints; unrelated chats and changed branches are blocked.</small>
-                    <small>Continue in new chat downloads one ordinary JSON file containing a portable copy of this memory. In the destination chat, choose Start continuation arc and select it. Old message fingerprints are detached while inherited facts, perspectives, chronology, relationships, and open threads remain available.</small>
+                    <small>Continue in new chat downloads one ordinary JSON file containing a portable copy of this memory. In the destination chat, choose Start continuation arc and select it. Old message fingerprints are detached while inherited facts, perspectives, chronology, relationships, and source-linked supporting memories remain available.</small>
                     <small>The cleaner removes embedded Continuity data locally and downloads a replacement chat file. Your original export is not modified.</small>
                 </details>
             </div>
@@ -402,8 +402,7 @@
                             <option value="states">States</option>
                             <option value="relationships">Relationships</option>
                             <option value="events">Events</option>
-                            <option value="threads">Open threads</option>
-                            <option value="backgrounds">Background developments</option>
+                            <option value="supporting">Supporting memories</option>
                             <option value="digest" selected>Digest</option>
                             <option value="corrections">Corrections</option>
                         </select>

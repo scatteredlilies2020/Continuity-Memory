@@ -1,3 +1,4 @@
+import { supportingRecords } from './supporting-memories.js';
 import { formatEntityProfile } from './entity-profile.js';
 import { activeChronicleNodes } from './chronicle.js';
 
@@ -9,8 +10,7 @@ export const MEMORY_VIEW_CATEGORIES = Object.freeze([
     { key: 'states', label: 'States' },
     { key: 'relationships', label: 'Relationships' },
     { key: 'events', label: 'Events' },
-    { key: 'threads', label: 'Open threads' },
-    { key: 'backgrounds', label: 'Background developments' },
+    { key: 'supporting', label: 'Supporting memories' },
     { key: 'corrections', label: 'Corrections' },
     { key: 'digest', label: 'Digest' },
     { key: 'chronicle', label: 'Chronicle' },
@@ -54,6 +54,7 @@ function addTemporal(fields, item) {
 
 function categoryItems(world, category, chatKey = '') {
     if (!world) return [];
+    if (category === 'supporting') return [...supportingRecords(world, 'threads'), ...supportingRecords(world, 'backgrounds')];
     if (category === 'scene') return world.scene ? [world.scene] : [];
     if (category === 'story') {
         const keys = [...new Set([world.continuation?.inheritedChatKey, chatKey].filter(Boolean))];
@@ -69,7 +70,7 @@ function categoryItems(world, category, chatKey = '') {
 
 function entry(category, item, index) {
     const fields = [];
-    let title = item.title || item.name || `${MEMORY_VIEW_CATEGORIES.find(value => value.key === category)?.label || 'Memory'} ${index + 1}`;
+    let title = item.title || item.topic || item.name || `${MEMORY_VIEW_CATEGORIES.find(value => value.key === category)?.label || 'Memory'} ${index + 1}`;
     if (category === 'scene') {
         const latestSource = Math.max(-1, ...(item.sources || []).map(source => Number(source?.to)).filter(Number.isFinite));
         title = `Latest extracted checkpoint${latestSource >= 0 ? ` (through message ${latestSource})` : ''}`;
@@ -142,17 +143,11 @@ function entry(category, item, index) {
         add(fields, 'Story time', item.storyTime);
         add(fields, 'Consequences', item.consequences);
         addTemporal(fields, item);
-    } else if (category === 'threads') {
-        add(fields, 'Status', item.status);
-        add(fields, 'Details', item.detail);
-        add(fields, 'Participants', item.participants);
-        addTemporal(fields, item);
-    } else if (category === 'backgrounds') {
-        title = item.topic || title;
-        add(fields, 'Summary', item.summary);
-        add(fields, 'Status', item.status);
+    } else if (category === 'supporting') {
+        add(fields, 'Historical observation (not a current-status assertion)', item.detail || item.summary);
         add(fields, 'Certainty', item.certainty);
         add(fields, 'Participants / subjects', item.participants);
+        add(fields, 'Legacy label (audit only)', item.legacyStatus);
         addTemporal(fields, item);
     } else if (category === 'corrections') {
         title = item.summary || 'Memory correction';
@@ -193,8 +188,9 @@ function entry(category, item, index) {
 }
 
 export function memoryViewerPage(world, category = 'digest', query = '', page = 0, pageSize = 30, chatKey = '') {
-    const known = MEMORY_VIEW_CATEGORIES.some(item => item.key === category) ? category : 'digest';
-    const chronological = ['story', 'digest', 'chronicle', 'events'].includes(known);
+    const known = ['threads', 'backgrounds'].includes(category) ? 'supporting'
+        : MEMORY_VIEW_CATEGORIES.some(item => item.key === category) ? category : 'digest';
+    const chronological = ['story', 'digest', 'chronicle', 'events', 'supporting'].includes(known);
     let entries = categoryItems(world, known, chatKey).map((item, index) => entry(known, item, index));
     entries.sort((a, b) => chronological
         ? (Number.isFinite(a.from) ? a.from : Number.MAX_SAFE_INTEGER) - (Number.isFinite(b.from) ? b.from : Number.MAX_SAFE_INTEGER)

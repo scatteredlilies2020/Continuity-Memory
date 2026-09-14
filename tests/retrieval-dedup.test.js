@@ -117,15 +117,17 @@ test('a full event selected but not packed retains its ledger fallback', () => {
     assert.equal(count(result.prompt, 'Auric covenant oath'), 1);
 });
 
-test('unretrieved open matters keep their full unique condition and temporal anchor in the fallback ledger', () => {
+test('supporting recall keeps full unique conditions and temporal anchors without fallback reminders', () => {
     const target = world({ threads: [{
         id: 'delivery', title: 'Seal delivery', status: 'open', importance: 5,
         detail: 'Aster must deliver the blue seal tomorrow, but only if Beryl consents.',
         temporalAnchorId: 'Digest-delivery',
     }] });
-    const result = buildMemoryPrompt(target, user('An unrelated quiet scene.'), 6000, 'chat');
+    const unrelated = buildMemoryPrompt(target, user('An unrelated quiet scene.'), 6000, 'chat');
+    assert.doesNotMatch(unrelated.prompt, /Seal delivery|Open-thread ledger/);
+    const result = buildMemoryPrompt(target, user('Seal delivery'), 6000, 'chat');
 
-    assert.match(result.prompt, /Open-thread ledger/u);
+    assert.match(result.prompt, /Supporting memories/u);
     assert.match(result.prompt, /tomorrow.*relative to Digest-delivery/u);
     assert.match(result.prompt, /but only if Beryl consents/u);
 });
@@ -207,17 +209,19 @@ test('an explicit prerequisite reference preserves support without shared vocabu
     assert.match(result.prompt, /gatekeeper pledged silence/);
 });
 
-test('newer resolved thread suppresses old open copies in primary, support, and ledger', () => {
+test('later outcomes retain prior source observations without stale reminders', () => {
     const target = supportedWorld();
     const old = target.threads[0];
     target.threads.push({ ...old, id: 'closed-watch', status: 'resolved', detail: 'The second seal was found.',
         sources: [{ chatKey: 'chat', from: 8, to: 15 }] });
     const before = JSON.stringify(target);
-    for (const query of ['Lunar vigil', 'What is Aster’s singular boundary protocol?', 'An unrelated quiet scene.']) {
-        const result = buildMemoryPrompt(target, user(query), 6000, 'chat');
-        assert.ok(!result.retrievalDiagnostics.selections.some(row => row.id === old.id));
-        assert.ok(!result.prompt.includes(old.detail));
-    }
+    const result = buildMemoryPrompt(target, user('Lunar vigil'), 6000, 'chat');
+    assert.ok(result.prompt.includes(old.detail));
+    assert.match(result.prompt, /The second seal was found/);
+    assert.match(result.prompt, /Historical observation/);
+    const unrelated = buildMemoryPrompt(target, user('An unrelated quiet scene.'), 6000, 'chat');
+    assert.ok(!unrelated.prompt.includes(old.detail));
+    assert.doesNotMatch(unrelated.prompt, /The second seal was found/);
     assert.equal(JSON.stringify(target), before);
 });
 
@@ -227,8 +231,9 @@ test('a newer reopened thread remains visible after an older resolved record', (
         { id: 'reopened', title: 'Gate inspection', detail: 'Inspect the new fracture before dawn.', status: 'open',
             sources: [{ chatKey: 'chat', from: 8, to: 15 }] },
     ] });
-    const result = buildMemoryPrompt(target, user('An unrelated quiet scene.'), 6000, 'chat');
+    const result = buildMemoryPrompt(target, user('Gate inspection'), 6000, 'chat');
     assert.match(result.prompt, /Inspect the new fracture before dawn/);
+    assert.match(result.prompt, /Inspection completed/);
 });
 
 test('a rendered Chronicle replaces the unconditional event recap, not exact event recall', () => {
@@ -251,7 +256,7 @@ test('a rendered Chronicle replaces the unconditional event recap, not exact eve
     assert.equal(JSON.stringify(target), before);
 });
 
-test('ledger budget omits whole lower-priority reminders without clipping their conditions', () => {
+test('retrieval budget omits irrelevant observations without clipping selected conditions', () => {
     const target = world({ threads: [
         { id: 'urgent', title: 'Seal delivery', detail: 'Deliver tomorrow only if Beryl consents.',
             status: 'open', importance: 5, temporalAnchorId: 'delivery-anchor' },
@@ -259,7 +264,7 @@ test('ledger budget omits whole lower-priority reminders without clipping their 
             status: 'open', importance: 1 },
     ] });
     const before = JSON.stringify(target);
-    const result = buildMemoryPrompt(target, user('An unrelated quiet scene.'), 128, 'chat');
+    const result = buildMemoryPrompt(target, user('Seal delivery'), 128, 'chat');
     assert.match(result.prompt, /only if Beryl consents/);
     assert.match(result.prompt, /relative to delivery-anchor/);
     assert.doesNotMatch(result.prompt, /extended prerequisite/);

@@ -266,10 +266,10 @@ test('local retrieval handles a unique term and ordinary English morphology with
     assert.deepEqual(unique.retrievalDiagnostics.query.aiExpanded, []);
 
     const morphology = buildMemoryPrompt(target, user('What about the rehearsal?'), 2000);
-    assert.deepEqual(selections(morphology, 'Open matters').map(item => item.id), ['rehearsal']);
+    assert.deepEqual(selections(morphology, 'Supporting memories').map(item => item.id), ['rehearsal']);
 });
 
-test('open threads remain visible when the current message changes topics', () => {
+test('supporting observations are not forced into unrelated topics', () => {
     const threads = Array.from({ length: 12 }, (_, index) => ({
         id: `thread-${index}`,
         title: index === 7 ? 'Deliver the kyber to Segundus' : `Unresolved matter ${index}`,
@@ -282,14 +282,16 @@ test('open threads remain visible when the current message changes topics', () =
         updatedAt: new Date(2026, 0, index + 1).toISOString(),
     }));
     const result = buildMemoryPrompt(world({ threads }), user('Toska practices alone in the training hall.'), 4000);
-    const selected = selections(result, 'Open matters').map(item => item.id);
+    const selected = selections(result, 'Supporting memories').map(item => item.id);
 
     assert.deepEqual(selected, []);
-    assert.match(result.prompt, /Lucas will visit Darth Segundus at the palace within three days/);
-    assert.match(result.prompt, /Compact continuity ledger:[\s\S]*Open-thread ledger \(priority \+ latest\):/);
+    assert.doesNotMatch(result.prompt, /Lucas will visit Darth Segundus/);
+    const direct = buildMemoryPrompt(world({ threads }), user("Deliver the kyber to Segundus"), 4000);
+    assert.match(direct.prompt, /within three days/);
+    assert.doesNotMatch(result.prompt, /Open-thread ledger/);
 });
 
-test('the six-reminder open-thread ledger reserves four slots for important older threads', () => {
+test('importance does not force stale reminders but direct recall retains older observations', () => {
     const important = Array.from({ length: 4 }, (_, index) => ({
         id: `important-${index}`,
         title: `Critical commitment ${index}`,
@@ -305,11 +307,9 @@ test('the six-reminder open-thread ledger reserves four slots for important olde
         updatedAt: new Date(2026, 1, index + 1).toISOString(),
     }));
     const result = buildMemoryPrompt(world({ threads: [...important, ...recent] }), user('An unrelated quiet scene.'), 4000);
-    const ledger = result.prompt.split('Compact continuity ledger:')[1] || '';
-
-    for (let index = 0; index < 4; index++) assert.match(ledger, new RegExp(`Critical commitment ${index}`));
-    for (const label of ['K', 'L']) assert.match(ledger, new RegExp(`Recent side matter ${label}`));
-    for (const label of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']) assert.doesNotMatch(ledger, new RegExp(`Recent side matter ${label}(?:\\s|$)`));
+    assert.doesNotMatch(result.prompt, /Critical commitment|Recent side matter|Open-thread ledger/);
+    const direct = buildMemoryPrompt(world({ threads: [...important, ...recent] }), user('Critical commitment'), 4000);
+    for (let index = 0; index < 4; index++) assert.match(direct.prompt, new RegExp(`Critical commitment ${index}`));
 });
 
 test('strong completed events remain in the compact ledger when the current message changes topics', () => {
@@ -323,39 +323,40 @@ test('strong completed events remain in the compact ledger when the current mess
     assert.doesNotMatch(result.prompt, /kept the kyber crystal/);
 });
 
-test('the compact ledger collapses typographic duplicate thread titles', () => {
+test('similar headings do not erase distinct supporting details', () => {
     const target = world({ threads: [
         { id: 'curly', title: 'Toska’s transformation', detail: 'First wording.', status: 'open', importance: 4 },
         { id: 'straight', title: "Toska's transformation", detail: 'Duplicate wording.', status: 'open', importance: 4 },
     ] });
-    const result = buildMemoryPrompt(target, user('An unrelated quiet moment.'), 3000);
-    const ledger = result.prompt.match(/Open-thread ledger \(priority \+ latest\): ([^\n]+)/)?.[1] || '';
-
-    assert.equal((ledger.match(/wording/gu) || []).length, 1);
+    const result = buildMemoryPrompt(target, user("Toska's transformation"), 3000);
+    assert.match(result.prompt, /First wording/);
+    assert.match(result.prompt, /Duplicate wording/);
 });
 
-test('duplicate open-thread wording always uses the newest canonical record', () => {
+test('earlier and later observations both remain available as historical evidence', () => {
     const target = world({ threads: [
         { id: 'old', title: 'Audience confrontation', detail: 'Lucas is still traveling.', status: 'open', importance: 4, updatedAt: '2026-01-01T00:00:00Z' },
         { id: 'new', title: 'Audience confrontation', detail: 'Segundus must answer Lucas after the proof is presented.', status: 'open', importance: 4, updatedAt: '2026-01-02T00:00:00Z' },
     ] });
     const result = buildMemoryPrompt(target, user('What about the audience confrontation?'), 3000);
 
-    assert.deepEqual(selections(result, 'Open matters').map(item => item.id), ['new']);
-    assert.match(result.prompt, /OPEN — Segundus must answer Lucas/);
-    assert.doesNotMatch(result.prompt, /still traveling/);
+    assert.deepEqual(new Set(selections(result, 'Supporting memories').map(item => item.id)), new Set(['old', 'new']));
+    assert.match(result.prompt, /Historical observation/);
+    assert.match(result.prompt, /Segundus must answer Lucas/);
+    assert.match(result.prompt, /still traveling/);
+    assert.doesNotMatch(result.prompt, /OPEN —/);
 });
 
-test('an open-thread ledger uses the current unresolved description instead of a fulfilled title', () => {
+test('source wording is retained without unconditional unresolved reminders', () => {
     const target = world({ threads: [{
         id: 'identity', title: 'Determine Toska’s master’s true identity', status: 'open', importance: 4,
         detail: 'Caelen Veyr’s identity is established; why he concealed Toska’s potential remains unresolved.',
     }] });
-    const result = buildMemoryPrompt(target, user('An unrelated palace scene.'), 3000);
-    const ledger = result.prompt.match(/Open-thread ledger \(priority \+ latest\): ([^\n]+)/)?.[1] || '';
-
-    assert.match(ledger, /Caelen Veyr’s identity is established/);
-    assert.doesNotMatch(ledger, /Determine Toska’s master’s true identity/);
+    const unrelated = buildMemoryPrompt(target, user('An unrelated palace scene.'), 3000);
+    assert.doesNotMatch(unrelated.prompt, /Open-thread ledger|Caelen Veyr/);
+    const direct = buildMemoryPrompt(target, user('Toska master identity'), 3000);
+    assert.match(direct.prompt, /Caelen Veyr’s identity is established/);
+    assert.match(direct.prompt, /why he concealed Toska’s potential remains unresolved/);
 });
 
 test('a pending raw tail prevents an older stored scene from focusing unrelated knowledge', () => {
@@ -389,9 +390,9 @@ test('raw-tail threads and events retain only neutral latest ledger titles', () 
         rawTailRange: { from: 8, to: 15 },
     });
 
-    assert.deepEqual(selections(result, 'Open matters'), []);
+    assert.deepEqual(selections(result, 'Supporting memories'), []);
     assert.deepEqual(selections(result, 'Past events'), []);
-    assert.match(result.prompt, /Open-thread ledger \(priority \+ latest\): Audience confrontation/);
+    assert.doesNotMatch(result.prompt, /Open-thread ledger|Audience confrontation/);
     assert.match(result.prompt, /Event ledger \(latest\): Palace arrival/);
     assert.doesNotMatch(result.prompt, /Potentially duplicated raw/);
 });
@@ -569,14 +570,16 @@ test('tight recall targets preserve category representatives without repeating e
     const result = buildMemoryPrompt(target, user('Mara checks the beacon.'), 128, 'chat', [], undefined, new Map(), { includeStorySoFar: false });
 
     for (const section of [
-        'User corrections', 'Recent continuity', 'Open matters',
-        'Background', 'Entities', 'Current state', 'Relationships', 'Past events',
+        'User corrections', 'Recent continuity', 'Supporting memories',
+        'Entities', 'Current state', 'Relationships', 'Past events',
     ]) assert.match(result.prompt, new RegExp(`\\n${section}:\\n`, 'u'));
     for (const ending of [
         'COMPLETE_CORRECTION_END', 'COMPLETE_DIGEST_END',
-        'COMPLETE_THREAD_END', 'COMPLETE_BACKGROUND_END', 'COMPLETE_ENTITY_END', 'COMPLETE_STATE_END',
+        'COMPLETE_THREAD_END', 'COMPLETE_ENTITY_END', 'COMPLETE_STATE_END',
         'COMPLETE_RELATIONSHIP_END', 'COMPLETE_FACT_END', 'COMPLETE_EVENT_END',
     ]) assert.match(result.prompt, new RegExp(ending, 'u'));
+    const backgroundRecall = buildMemoryPrompt(target, user('Beacon history inherited duty'), 2000, 'chat');
+    assert.match(backgroundRecall.prompt, /COMPLETE_BACKGROUND_END/u);
     assert.ok(result.estimatedTokens > 128);
     assert.equal(result.prompt.split('COMPLETE_FACT_END').length - 1, 1);
     assert.doesNotMatch(result.prompt, /…/u);
@@ -762,7 +765,7 @@ test('one relevant AI seed cannot fan out across the entire support budget', () 
     );
     const support = selections(result, 'Supporting continuity');
 
-    assert.deepEqual(selections(result, 'Open matters').map(item => item.id), ['old-visit']);
+    assert.deepEqual(selections(result, 'Supporting memories').map(item => item.id), ['old-visit']);
     assert.ok(support.length < 10);
     assert.ok(support.length < Math.ceil(20000 / 80));
 });
