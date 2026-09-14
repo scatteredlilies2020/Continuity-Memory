@@ -115,8 +115,42 @@ function resultStrings(value, output = []) {
     return output;
 }
 
-export function authoritativeMetaProvenanceConflicts(result, boundaries) {
+function supportedAttribution(sentence, evidence, authorTerms) {
+    const normalized = words(sentence).join(' ');
+    const attribution = /\b(?:said|says|stated|asserted|claimed|revealed|disclosed|told|informed|admitted|announced|explained|mentioned|shared|communicated|declared|warned|asked|knew|knows|learned|realized|recognized|understood|discovered)\b/iu;
+    const signature = text => {
+        const match = ATTRIBUTION_VERB.exec(text) || attribution.exec(text);
+        if (!match) return null;
+        const actor = text.slice(0, match.index).match(/([\p{Lu}][\p{L}'’-]*)\s*$/u)?.[1];
+        if (!actor) return null;
+        return {
+            actor,
+            knowledge: /^(?:knew|knows|learned|realized|recognized|understood|discovered)$/iu.test(match[0]),
+            terms: words(text.slice(match.index + match[0].length)).filter(term => !PROVENANCE_STOP_WORDS.has(term)),
+        };
+    };
+    const candidate = signature(sentence);
+    return evidence.some(source => {
+        // Author context and negated disclosures cannot license new disclosure.
+        if (SAFE_PROVENANCE.test(source) || NEGATED_ATTRIBUTION.test(source)) return false;
+        if (normalized === words(source).join(' ')) return true;
+        const established = signature(source);
+        if (!candidate || !established || candidate.actor !== established.actor
+            || candidate.knowledge !== established.knowledge || candidate.terms.length < 2) return false;
+        const qualifiers = text => words(text).filter(term => /^(?:not|never|no|without|cannot|can't|couldn't|didn't|isn't|wasn't|won't|might|may|could|would|if|perhaps)$/u.test(term)).sort().join('|');
+        if (qualifiers(sentence) !== qualifiers(source)) return false;
+        const sourceTerms = new Set(established.terms);
+        // This check concerns author-only information, not word-for-word
+        // reproduction. Allow compression and new connecting prose, but every
+        // matched author term must already occur in this actor's attribution.
+        return authorTerms.every(term => sourceTerms.has(term))
+            && new Set(candidate.terms.filter(term => sourceTerms.has(term))).size >= 2;
+    });
+}
+
+export function authoritativeMetaProvenanceConflicts(result, boundaries, sourceEvidence = []) {
     const sentences = resultStrings(result).flatMap(value => String(value).split(/(?<=[.!?;])\s+|\n+/u)).filter(Boolean);
+    const evidence = resultStrings(sourceEvidence).flatMap(value => String(value).split(/(?<=[.!?;])\s+|\n+/u)).filter(Boolean);
     const conflicts = [];
     for (const boundary of boundaries || []) {
         const speaker = String(boundary?.speaker || '').trim();
@@ -126,14 +160,18 @@ export function authoritativeMetaProvenanceConflicts(result, boundaries) {
             const sentenceTerms = new Set(words(sentence));
             const overlap = (boundary.terms || []).filter(term => sentenceTerms.has(term));
             if (!overlap.length) continue;
+            // A parent may retain an attribution already established by its
+            // children. A shared word with an author note is not, by itself,
+            // evidence that the parent invented that speech or knowledge.
+            if (supportedAttribution(sentence, evidence, overlap)) continue;
             conflicts.push({ messageIndex: boundary.messageIndex, speaker, sentence: sentence.trim(), terms: overlap });
         }
     }
     return conflicts;
 }
 
-export function assertAuthoritativeMetaProvenance(result, boundaries) {
-    const conflicts = authoritativeMetaProvenanceConflicts(result, boundaries);
+export function assertAuthoritativeMetaProvenance(result, boundaries, sourceEvidence = []) {
+    const conflicts = authoritativeMetaProvenanceConflicts(result, boundaries, sourceEvidence);
     if (!conflicts.length) return result;
     const first = conflicts[0];
     throw new Error(`OOC provenance violation: generated memory attributes author-only canon as character speech or knowledge${first.speaker ? ` (source persona: ${first.speaker})` : ''}: “${first.sentence.slice(0, 220)}”`);

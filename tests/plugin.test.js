@@ -462,6 +462,65 @@ test('detached jobs report source tokens and promote Recursive Chronicle without
     assert.equal(loaded.payload.world.chronicle.filter(item => Number(item.level) === 1).length, 1);
 });
 
+test('Chronicle-only jobs recover transport and validation failures without re-extracting Digest', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-promotion-retry-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const router = mockRouter();
+    let calls = 0;
+    let worldId;
+    const fetchImpl = async (_url, options) => {
+        calls++;
+        const loaded = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: worldId } });
+        assert.equal(loaded.payload.world.capsules.length, 30);
+        assert.equal(loaded.payload.world.chronicle.length, 30, 'failed candidates must not be saved');
+        const prompt = JSON.parse(options.body).messages[0].content;
+        if (calls <= 5) return Response.json({ error: true });
+        if (calls === 6) return Response.json({ choices: [{ message: { content: '{' } }] });
+        if (calls === 7) {
+            assert.match(prompt, /previous parent failed validation:.*valid JSON object/);
+            return Response.json({ choices: [{ message: { content: JSON.stringify({ summary: 'Alice revealed the secret route.' }) } }] });
+        }
+        assert.match(prompt, /previous parent failed validation: OOC provenance violation/);
+        return Response.json({ choices: [{ message: { content: JSON.stringify({ title: 'Journey', summary: 'Alice continues her journey.' }) } }] });
+    };
+    await init(router, { syncExtension: false, fetchImpl, detachedRetryDelayMs: 10, detachedMaxRetryDelayMs: 10 });
+    const created = await call(router.routes.get('POST /worlds'), root, { body: { name: 'Pending promotion' } });
+    const world = created.payload.world;
+    worldId = world.id;
+    world.capsules = Array.from({ length: 30 }, (_, index) => ({
+        id: `capsule-${index}`, chatKey: 'character:chat', from: index, to: index,
+        title: `Journey ${index}`, opening: 'Alice travels.', beats: ['The journey continues.'], sources: [],
+        provenanceBoundaries: index ? [] : [{ messageIndex: 0, speaker: 'Narrator', terms: ['secret', 'route'] }],
+    }));
+    assert.equal((await call(router.routes.get('PUT /worlds/:id'), root, { params: { id: worldId }, body: world })).status, 200);
+    const placeholder = '__CHRONICLE_PROMPT__';
+    const started = await call(router.routes.get('POST /extraction-jobs'), root, { body: {
+        worldId, chatKey: 'character:chat', reason: 'chronicle', tasks: [],
+        hierarchy: { settings: { chronicleLayerCapacity: 24, chroniclePromotionSize: 10 }, chronicle: {
+            request: { model: 'test', messages: [{ role: 'user', content: placeholder }] },
+            placeholder, taskTemplate: '{{format}}\n{{nodes}}', valueKey: 'nodes', shapeExample: '{"summary":""}',
+        } },
+    } });
+    assert.equal(started.status, 202);
+    let job;
+    for (let attempt = 0; attempt < 200; attempt++) {
+        job = (await call(router.routes.get('GET /extraction-jobs/:id'), root, { params: { id: started.payload.job.id } })).payload.job;
+        if (job.status === 'complete' || job.status === 'error') break;
+        await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    assert.equal(job.status, 'complete', job.error || job.validation);
+    assert.equal(job.hierarchyError, '');
+    assert.equal(job.chronicle, 1);
+    assert.equal(job.chunks, 0);
+    assert.equal(calls, 8);
+    const loaded = (await call(router.routes.get('GET /worlds/:id'), root, { params: { id: worldId } })).payload.world;
+    assert.equal(loaded.capsules.length, 30);
+    assert.equal(loaded.chronicle.filter(node => node.level === 0).length, 30);
+    assert.equal(loaded.chronicle.filter(node => node.level === 1).length, 1);
+    const covered = new Set(loaded.chronicle.flatMap(node => node.childIds));
+    assert.equal(loaded.chronicle.filter(node => node.level === 0 && !covered.has(node.id)).length, 20);
+});
+
 test('server plugin installs and updates its bundled frontend without overwriting an unmanaged install', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-frontend-test-'));
     t.after(() => fs.rm(root, { recursive: true, force: true }));

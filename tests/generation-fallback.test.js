@@ -77,18 +77,28 @@ test('opening an externally updated chat drains pending Digest after mutation re
     assert.ok(reconciliation.indexOf('syncChangedExtractions()') < reconciliation.indexOf('backgroundMemoryWork.schedule(0)'));
 });
 
-test('background memory enforces Chronicle capacity even when no Digest is pending', async () => {
+test('background memory checks pending Chronicle before extraction and also with no new Digest', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
     const start = source.indexOf('const backgroundMemoryWork = createBackgroundScheduler');
     const end = source.indexOf('onRuntimeStop(', start);
     const worker = source.slice(start, end);
     assert.ok(start >= 0 && end > start);
-    assert.match(source, /maintainChronicleHierarchy/u);
-    assert.match(worker, /const result = await maybeAutoExtract\(false\);/u);
-    assert.match(worker, /const hierarchy = await maintainChronicleHierarchy\(\);/u);
-    assert.match(worker, /if \(!result && !hierarchy\) return;/u);
-    assert.ok(worker.indexOf('await maybeAutoExtract(false)') < worker.indexOf('await maintainChronicleHierarchy()'));
-    assert.ok(worker.indexOf('await maintainChronicleHierarchy()') < worker.indexOf('if (!result && !hierarchy) return'));
+    const { runInNewContext } = await import('node:vm');
+    for (const extractionFails of [false, true]) {
+        const calls = [];
+        let run;
+        runInNewContext(worker, {
+            createBackgroundScheduler: callback => { run = callback; return {}; },
+            runtime: { stopSequence: 0, paused: false }, backgroundCancelled: false,
+            getSettings: () => ({ extractionBatchMessages: 8 }),
+            getContext: () => ({ chat: [] }), collectMemoryEligibleMessages: () => [], getBoundWorldId: () => 'world',
+            maintainChronicleHierarchy: async () => { calls.push('promote'); return null; },
+            maybeAutoExtract: async () => { calls.push('extract'); if (extractionFails) throw new Error('400 invalid model'); return null; },
+            isRuntimeCancellation: () => false, isTransientApiError: () => false, updateRuntime: () => {},
+        });
+        await run();
+        assert.deepEqual(calls, extractionFails ? ['promote', 'extract'] : ['promote', 'extract', 'promote']);
+    }
 });
 
 test('automatic Chronicle maintenance owns the processing lock and drains recursively', async () => {

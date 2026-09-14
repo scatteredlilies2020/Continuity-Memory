@@ -1,26 +1,27 @@
-import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, setExtensionPrompt } from '/script.js';
+import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, isGenerating, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.15.0-testing.11';
+import { api } from './api.js?v=0.15.0-testing.12';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maintainChronicleHierarchy, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.15.0-testing.11';
-import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.15.0-testing.11';
-import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.11';
-import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.15.0-testing.11';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.11';
+import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maintainChronicleHierarchy, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.15.0-testing.12';
+import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.15.0-testing.12';
+import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.12';
+import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.15.0-testing.12';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.12';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.15.0-testing.11';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.11';
-import { purgeEmbeddingIndex, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.15.0-testing.11';
-import { isTransientApiError } from './errors.js?v=0.15.0-testing.11';
-import { roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.15.0-testing.11';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.15.0-testing.12';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.12';
+import { purgeEmbeddingIndex, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.15.0-testing.12';
+import { isTransientApiError } from './errors.js?v=0.15.0-testing.12';
+import { roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.15.0-testing.12';
 import { isDigestStabilityProtectedMessage, latestCompleteDigestMessageIndex } from './digest-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
-import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.15.0-testing.11';
+import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.15.0-testing.12';
 import { createBackgroundScheduler } from './background-scheduler.js';
-import { buildPlanningEvidence, createContinuityContextBridge } from './context-bridge.js?v=0.15.0-testing.11';
+import { nextChroniclePromotion } from './chronicle.js';
+import { buildPlanningEvidence, createContinuityContextBridge } from './context-bridge.js?v=0.15.0-testing.12';
 
 const PROMPT_KEY = 'continuity_memory_context';
 const continuityContextBridge = createContinuityContextBridge(getContext);
@@ -115,6 +116,9 @@ const backgroundMemoryWork = createBackgroundScheduler(async () => {
             if (!getBoundWorldId() && processableMessages >= settings.extractionBatchMessages) {
                 await ensureCurrentChatMemory(true);
             }
+            // An extraction failure must not strand an already over-capacity Chronicle.
+            const priorHierarchy = await maintainChronicleHierarchy();
+            if (runtime.stopSequence !== stopSequence || runtime.paused) return;
             // Drain stable, complete Digest groups. The stability buffer remains
             // protected by maybeAutoExtract/selectAutomaticDigestMessages.
             const result = await maybeAutoExtract(false);
@@ -125,7 +129,7 @@ const backgroundMemoryWork = createBackgroundScheduler(async () => {
             const hierarchy = await maintainChronicleHierarchy();
             if (runtime.stopSequence !== stopSequence || runtime.paused) return;
             failures = 0;
-            if (!result && !hierarchy) return;
+            if (!result && !hierarchy && !priorHierarchy) return;
         } catch (error) {
             if (backgroundCancelled || isRuntimeCancellation(error) || error?.code === 'CONTINUITY_BACKGROUND_CANCELLED' || runtime.stopSequence !== stopSequence) return;
             if (!isTransientApiError(error)) {
@@ -462,6 +466,7 @@ async function onChatChanged() {
     setExtensionPrompt(PROMPT_KEY, '', placement.position, placement.depth, false, placement.role);
     updateRuntime({
         world: null,
+        chronicleBlocked: false,
         lastInjection: '',
         lastInjectionTokens: 0,
         injectionStatus: 'Loading this chat’s memory…',
@@ -538,7 +543,7 @@ async function onChatRenamed(eventData) {
 }
 
 async function init() {
-    const templateResponse = await fetch(new URL('./settings.html?v=0.15.0-testing.11', import.meta.url));
+    const templateResponse = await fetch(new URL('./settings.html?v=0.15.0-testing.12', import.meta.url));
     if (!templateResponse.ok) throw new Error(`Could not load settings template: ${templateResponse.status} ${templateResponse.statusText}`);
     const html = $(await templateResponse.text());
     const container = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
@@ -642,7 +647,20 @@ async function init() {
         eventSource.on(eventName, refreshModelProfiles);
     }
 
+    let wasProcessing = false;
+    const schedulePendingChronicle = () => {
+        const settings = getSettings();
+        if (!settings.enabled || settings.hierarchyMode === 'off' || runtime.paused
+            || runtime.processing || runtime.queue.length || runtime.chronicleBlocked || activeGenerationReadiness || isGenerating()
+            || runtime.world?.id !== getBoundWorldId()) return;
+        if (nextChroniclePromotion(runtime.world, settings)) backgroundMemoryWork.schedule(0);
+    };
+    // Recover pending work after a busy pass, a disconnected tab, or a server
+    // restart even when no new message event arrives to wake the scheduler.
+    globalThis.setInterval(schedulePendingChronicle, 60000);
     onRuntimeChange(state => {
+        const becameIdle = wasProcessing && !state.processing;
+        wasProcessing = state.processing;
         const worldId = state.world?.id || null;
         const worldRevision = state.world?.revision ?? null;
         if (!state.world) pendingEmbeddingSync = null;
@@ -667,6 +685,7 @@ async function init() {
             pendingEmbeddingSync = null;
             scheduleEmbeddingIndexSync(world, 300, allowAutomaticBuild);
         }
+        if (becameIdle) schedulePendingChronicle();
     });
 
     scheduleInjectionRefresh();

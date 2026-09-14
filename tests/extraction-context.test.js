@@ -99,6 +99,31 @@ test('neutral institutional narration does not trip provenance on an OOC schedul
 });
 
 const greetingNote = '**Note: This is Pre-mages flight, Pre-Zoltraak, Pre modern-magic, Pre-Demon King and Seven Sages of Destruction defeat';
+
+test('Chronicle parents preserve source-supported dialogue despite overlapping OOC vocabulary', () => {
+    const boundaries = [{ messageIndex: 0, speaker: 'Frieren', terms: ['defeat', 'mages', 'zoltraak'] }];
+    const evidence = ['When Elizabeth asked where the group was going, Himmel stated that the newly formed Hero Party intends to travel to Ende and defeat the Demon King to restore peace.'];
+    assert.doesNotThrow(() => assertAuthoritativeMetaProvenance({ summary: evidence[0] }, boundaries, evidence));
+    assert.doesNotThrow(() => assertAuthoritativeMetaProvenance({ summary: 'Himmel said that the Hero Party intends to defeat the Demon King.' }, boundaries, evidence));
+    assert.doesNotThrow(() => assertAuthoritativeMetaProvenance({ summary: "Himmel stated the party's purpose—reaching Ende to defeat the Demon King and restore peace—and answered Elizabeth's questions about demons farther north." }, boundaries, evidence));
+    assert.throws(() => assertAuthoritativeMetaProvenance({ summary: 'Frieren said that the Hero Party intends to defeat the Demon King.' }, boundaries, evidence), /OOC provenance violation/);
+    assert.throws(() => assertAuthoritativeMetaProvenance({ summary: 'Himmel learned that the Hero Party intends to defeat the Demon King.' }, boundaries, evidence), /OOC provenance violation/);
+    assert.throws(() => assertAuthoritativeMetaProvenance({ summary: 'Frieren revealed that Zoltraak was unavailable.' }, boundaries, evidence), /OOC provenance violation/);
+});
+
+test('source support cannot remove negation or turn author context into disclosure', () => {
+    const boundaries = [{ messageIndex: 0, terms: ['secret', 'route'] }];
+    const result = { summary: 'Alice said the secret route was safe.' };
+    for (const evidence of [
+        ['Alice said the secret route was not safe.'],
+        ['Alice said the secret route might be safe.'],
+        ['OOC: Alice said the secret route was safe.'],
+        ['Alice did not say the secret route was safe.'],
+    ]) assert.throws(() => assertAuthoritativeMetaProvenance(result, boundaries, evidence), /OOC provenance violation/);
+    assert.throws(() => assertAuthoritativeMetaProvenance({ summary: 'Alice said her midichlorian count was exceptionally high.' },
+        [{ terms: ['exceptionally', 'high', 'midichlorian', 'count'] }],
+        ['Alice said her midichlorian count was low.']), /OOC provenance violation/);
+});
 const greetingSetup = `**Timeline:** The Ten-Year Journey (Pre-Series)\r\n**Scene:** One Day After the King's Decree\r\n**Location:** The Outskirts of the Royal Capital\r\n${greetingNote}`;
 
 test('greeting setup includes the exact unclosed-bold era note without swallowing narration', () => {

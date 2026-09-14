@@ -18,6 +18,10 @@ export function isRateLimitError(error) {
 
 export function isTransientApiError(error) {
     const message = errorChainText(error);
+    if (/\b(?:401|403)\b|unauthori[sz]ed|forbidden|invalid (?:api )?key|incorrect (?:api )?key/iu.test(message)) return false;
+    // Older SillyTavern backends hide transport failures behind HTTP 200
+    // and { error: true }; do not turn those into terminal promotion errors.
+    if (/\bAPI\b/iu.test(message) && /(?:^|: | · )true(?:$| ·)/u.test(message)) return true;
     if (isRateLimitError(error)) return true;
     if (/\b(?:408|425|500|502|503|504|520|521|522|523|524)\b/.test(message)) return true;
     return /bad gateway|gateway timeout|aborted|connection (?:closed|reset)|econnreset|econnrefused|enotfound|fetch failed|failed to fetch|network error|socket hang up|temporarily unavailable|timed? ?out|timeout/i.test(message);

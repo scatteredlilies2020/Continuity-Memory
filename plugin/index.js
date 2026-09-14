@@ -10,7 +10,7 @@ import { cancelDetachedJob, createDetachedJob, getDetachedJob, listDetachedJobs 
 import { registerVectorRoutes } from './vector-store.js';
 
 const PLUGIN = 'continuity-memory';
-const VERSION = '0.15.0-testing.11';
+const VERSION = '0.15.0-testing.12';
 const SCHEMA_VERSION = 12;
 const STORAGE_VERSION = 2;
 const SHARD_CHUNK_SIZE = 128;
@@ -501,7 +501,7 @@ export async function init(router, {
         try {
             const dirs = await ensureStorage(req);
             const files = (await fs.readdir(dirs.worlds)).filter(canonicalWorldFilename);
-            res.json({ ok: true, plugin: PLUGIN, version: VERSION, schemaVersion: SCHEMA_VERSION, storageVersion: STORAGE_VERSION, detachedJobs: true, worlds: files.length, storage: dirs.root });
+            res.json({ ok: true, plugin: PLUGIN, version: VERSION, schemaVersion: SCHEMA_VERSION, storageVersion: STORAGE_VERSION, detachedJobs: true, detachedChronicle: true, worlds: files.length, storage: dirs.root });
         } catch (error) {
             sendError(res, error);
         }
