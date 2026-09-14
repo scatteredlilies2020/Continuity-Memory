@@ -3,6 +3,7 @@ import { randomUuid } from './uuid.js';
 export const CHRONICLE_VERSION = 1;
 export const DEFAULT_CHRONICLE_CAPACITY = 24;
 export const DEFAULT_CHRONICLE_FAN_IN = 10;
+export const CHRONICLE_READING_GUIDE = 'Historical accounts in source order, not a current-status ledger. Plans, conditions, and uncertainty belong to their recorded point; later evidence may supersede them. Preserve character knowledge boundaries when reading across intervals.';
 
 function clean(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -190,19 +191,29 @@ export function renderChronicleFrontier(world, chatKey, include = () => true, ma
         const label = `C${Number(node.level) || 0}`;
         const heading = [clean(node.title), clean(node.storyTime)].filter(Boolean).join(' — ');
         const body = clean(node.text || node.summary);
-        const details = [
-            ...(node.turningPoints || []),
-            clean(node.emotionalArc),
-            clean(node.closingState),
-            ...(node.openThreads || []).map(item => `Open: ${clean(item)}`),
-        ].map(clean).filter(Boolean);
+        // Legacy openThreads remains stored for compatibility, but represents
+        // historical context at this node's boundary, never a live status list.
+        // Suppress only identical whole fields within this node; similar wording
+        // across intervals can describe a real change and must survive.
+        const seen = new Set([body]);
+        const details = [];
+        const addDetail = (value, prefix = '') => {
+            const text = clean(value);
+            if (!text || seen.has(text)) return;
+            seen.add(text);
+            details.push(`${prefix}${text}`);
+        };
+        for (const point of node.turningPoints || []) addDetail(point);
+        addDetail(node.emotionalArc);
+        addDetail(node.closingState);
+        for (const note of node.openThreads || []) addDetail(note, 'Context at that point: ');
         return `[${label}] ${[heading, body, ...details].filter(Boolean).join('\n')}`;
     }).join('\n\n');
     // The configured allowance is a planning target, never permission to alter
     // canonical Chronicle prose. SillyTavern may manage the surrounding context,
     // but every active Chronicle node is injected whole and in source order.
     void maximumTokens;
-    return full;
+    return `${CHRONICLE_READING_GUIDE}\n${full}`;
 }
 
 export function refreshChronicleStory(world, chatKey) {

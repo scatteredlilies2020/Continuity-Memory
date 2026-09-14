@@ -121,8 +121,9 @@ export function latestSourceRange(item, chatKey = '') {
 
 export function sourcedWhollyInRawTail(item, chatKey, rawTailRange) {
     if (!rawTailRange || !Number.isFinite(rawTailRange.from) || !Number.isFinite(rawTailRange.to)) return false;
-    const sources = sourceRanges(item, chatKey);
-    return Boolean(sources.length && sources.every(source => source.from >= rawTailRange.from && source.to <= rawTailRange.to));
+    const sources = sourceRanges(item);
+    return Boolean(sources.length && sources.every(source => source.chatKey === chatKey
+        && source.from >= rawTailRange.from && source.to <= rawTailRange.to));
 }
 
 export function latestSourceInRawTail(item, chatKey, rawTailRange) {

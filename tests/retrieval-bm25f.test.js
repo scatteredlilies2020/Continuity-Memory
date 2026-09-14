@@ -289,7 +289,7 @@ test('open threads remain visible when the current message changes topics', () =
     assert.match(result.prompt, /Compact continuity ledger:[\s\S]*Open-thread ledger \(priority \+ latest\):/);
 });
 
-test('the open-thread ledger reserves four slots for important older threads', () => {
+test('the six-reminder open-thread ledger reserves four slots for important older threads', () => {
     const important = Array.from({ length: 4 }, (_, index) => ({
         id: `important-${index}`,
         title: `Critical commitment ${index}`,
@@ -305,11 +305,11 @@ test('the open-thread ledger reserves four slots for important older threads', (
         updatedAt: new Date(2026, 1, index + 1).toISOString(),
     }));
     const result = buildMemoryPrompt(world({ threads: [...important, ...recent] }), user('An unrelated quiet scene.'), 4000);
-    const ledger = result.prompt.match(/Open-thread ledger \(priority \+ latest\): ([^\n]+)/)?.[1] || '';
+    const ledger = result.prompt.split('Compact continuity ledger:')[1] || '';
 
     for (let index = 0; index < 4; index++) assert.match(ledger, new RegExp(`Critical commitment ${index}`));
-    for (const label of ['E', 'F', 'G', 'H', 'I', 'J', 'K', 'L']) assert.match(ledger, new RegExp(`Recent side matter ${label}`));
-    for (const label of ['A', 'B', 'C', 'D']) assert.doesNotMatch(ledger, new RegExp(`Recent side matter ${label}(?:\\s|$)`));
+    for (const label of ['K', 'L']) assert.match(ledger, new RegExp(`Recent side matter ${label}`));
+    for (const label of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']) assert.doesNotMatch(ledger, new RegExp(`Recent side matter ${label}(?:\\s|$)`));
 });
 
 test('strong completed events remain in the compact ledger when the current message changes topics', () => {
@@ -537,7 +537,7 @@ test('a deliberately small recall target soft-overflows to preserve a complete c
     assert.match(result.prompt, /<\/continuity>$/);
 });
 
-test('tight recall targets present every populated selected category without clipping its representative', () => {
+test('tight recall targets preserve category representatives without repeating entity canon as a fact', () => {
     const source = [{ chatKey: 'chat', from: 8, to: 15 }];
     const target = world({
         entities: [{ id: 'entity', name: 'Mara', type: 'person', description: 'Beacon keeper COMPLETE_ENTITY_END', sources: source }],
@@ -570,7 +570,7 @@ test('tight recall targets present every populated selected category without cli
 
     for (const section of [
         'User corrections', 'Recent continuity', 'Open matters',
-        'Background', 'Entities', 'Current state', 'Relationships', 'Facts', 'Past events',
+        'Background', 'Entities', 'Current state', 'Relationships', 'Past events',
     ]) assert.match(result.prompt, new RegExp(`\\n${section}:\\n`, 'u'));
     for (const ending of [
         'COMPLETE_CORRECTION_END', 'COMPLETE_DIGEST_END',
@@ -578,6 +578,7 @@ test('tight recall targets present every populated selected category without cli
         'COMPLETE_RELATIONSHIP_END', 'COMPLETE_FACT_END', 'COMPLETE_EVENT_END',
     ]) assert.match(result.prompt, new RegExp(ending, 'u'));
     assert.ok(result.estimatedTokens > 128);
+    assert.equal(result.prompt.split('COMPLETE_FACT_END').length - 1, 1);
     assert.doesNotMatch(result.prompt, /…/u);
 });
 

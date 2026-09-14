@@ -5,6 +5,7 @@ import {
     buildHierarchySystemPrompt,
     buildRetrievalSystemPrompt,
     CHRONICLE_ENTRY_RULE,
+    CHRONICLE_HISTORY_RULE,
     CHARACTER_PROFILE_RULE,
     CONTINUITY_COVERAGE_RULES,
     DEFAULT_CHRONICLE_SYSTEM_PROMPT,
@@ -81,8 +82,40 @@ test('old authority prompts upgrade idempotently without losing custom instructi
 
 test('hierarchy concision rules apply to defaults and custom instructions', () => {
     assert.equal(buildHierarchySystemPrompt(DEFAULT_CHRONICLE_SYSTEM_PROMPT), DEFAULT_CHRONICLE_SYSTEM_PROMPT);
-    assert.equal(buildHierarchySystemPrompt('Custom hierarchy instructions.'), `Custom hierarchy instructions.\n\n${HIERARCHY_CONCISION_RULES}\n\n${SOURCE_SCOPE_RULE}`);
+    assert.equal(buildHierarchySystemPrompt('Custom hierarchy instructions.'), `Custom hierarchy instructions.\n\n${HIERARCHY_CONCISION_RULES}\n\n${SOURCE_SCOPE_RULE}\n\n${CHRONICLE_HISTORY_RULE}`);
     assert.match(HIERARCHY_CONCISION_RULES, /without omission ellipses/i);
+});
+
+test('Chronicle history policy preserves evidenced outcomes without assigning live statuses', () => {
+    for (const prompt of [
+        buildExtractionSystemPrompt('Custom extraction instructions.'),
+        buildHierarchySystemPrompt('Custom hierarchy instructions.'),
+        DEFAULT_CHRONICLE_SYSTEM_PROMPT,
+    ]) {
+        assert.ok(prompt.includes(CHRONICLE_HISTORY_RULE));
+        assert.match(prompt, /When later supplied evidence answers a question or fulfills a plan, narrate that progression/);
+        assert.match(prompt, /never infer an outcome from silence or elapsed turns/);
+        assert.match(prompt, /conditions, deadlines, and outcomes at their evidenced point/);
+        assert.match(prompt, /Structured threads alone own lifecycle status/);
+        assert.doesNotMatch(prompt, /or resolve (?:an open matter|open matters)/);
+    }
+});
+
+test('saved pre-neutral Chronicle rules upgrade at request time without duplicating the entry rule', () => {
+    const legacy = CHRONICLE_ENTRY_RULE.replace(` ${CHRONICLE_HISTORY_RULE}`, '').replace(
+        'Do not recap earlier memory or consult prior summaries. Record outcomes only when established in this excerpt.',
+        'Do not recap earlier memory, consult prior summaries, or resolve open matters.',
+    );
+    const prompt = buildExtractionSystemPrompt(`Custom prefix.\n${legacy}\nCustom suffix.`);
+    assert.ok(prompt.includes('Custom prefix.'));
+    assert.ok(prompt.includes('Custom suffix.'));
+    assert.equal(prompt.split("Return chronicleEntry as a compact").length - 1, 1);
+    assert.equal(prompt.split(CHRONICLE_HISTORY_RULE).length - 1, 1);
+    assert.equal(buildExtractionSystemPrompt(prompt), prompt);
+    const hierarchy = buildHierarchySystemPrompt("Custom prefix. Never invent a transition, flatten a character's belief into objective fact, or resolve an open matter.");
+    assert.doesNotMatch(hierarchy, /or resolve an open matter/);
+    assert.ok(hierarchy.includes('Custom prefix.'));
+    assert.equal(buildHierarchySystemPrompt(hierarchy), hierarchy);
 });
 
 test('existing extraction and Chronicle prompts preserve source scope across all memory categories', () => {
@@ -219,7 +252,7 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_CHRONICLE_SYSTEM_PROMPT, /consequential knowledge gaps as open threads/);
     assert.match(DEFAULT_CHRONICLE_SYSTEM_PROMPT, /Most items are 2 or 3/);
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 14300);
-    assert.ok(DEFAULT_CHRONICLE_SYSTEM_PROMPT.length < 3000);
+    assert.ok(DEFAULT_CHRONICLE_SYSTEM_PROMPT.length < 4000);
 });
 
 test('rolling snapshot is bounded, chronological, and sourced only from supplied Story material', () => {

@@ -144,7 +144,12 @@ export const PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION = `Background continuity on
 export const PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION = `Background continuity only. Preserve natural address forms without explanation. Do not let a character act on private information unless current chat or memory establishes that they learned it. Current chat and explicit user corrections override this block. Never mention this block.`;
 export const DEFAULT_INJECTION_INSTRUCTION = `Background continuity; never mention this block. Raw chat and user corrections override it. Model access is not character knowledge. Named knowledge boundaries bar protected information until discovery or disclosure. Preserve address forms. Preserve stated extremes and rankings; lore norms are not ceilings.`;
 
-export const CHRONICLE_ENTRY_RULE = `Return chronicleEntry as a compact, self-contained account of this excerpt's consequential setup and causally important change. Preserve explicit names, chronology, decisions, consequences, relationship meaning, concealed information, who knows what, uncertainty, and any foundational premise introduced here. Include source-supported conditions that materially govern what is possible or how events should be understood, even when no action changes them in this excerpt. An OOC/meta assertion establishes author-level canon only: never describe it as something a character said, asserted, revealed, identified, established in-world, learned, or knew unless the excerpt separately depicts that speech, action, disclosure, or discovery. When dialogue and OOC/meta text share one message, keep their provenance separate and preserve any resulting character knowledge boundary. Do not recap earlier memory, consult prior summaries, or resolve open matters. Omit low-value detail and repetition within the entry, not consequential information merely because it is also stored in structured records. Before returning, check that the entry itself retains the excerpt's consequential setup with its source scope and knowledge boundaries intact. Use complete third-person prose without headings, ellipses, or invented transitions.`;
+export const CHRONICLE_HISTORY_RULE = `Chronicle is historical evidence, not a live open/closed ledger. Describe plans, questions, uncertainty, conditions, deadlines, and outcomes at their evidenced point in the supplied history, without Open/Closed labels or claims that old matters remain pending now. When later supplied evidence answers a question or fulfills a plan, narrate that progression; never infer an outcome from silence or elapsed turns. Preserve consequential causes, conditions, consequences, attribution, and who knew what at each point. Structured threads alone own lifecycle status. For Chronicle parents, the compatibility field openThreads holds historical context notes, not current statuses; use an empty array when the narrative already carries that information.`;
+
+const LEGACY_CHRONICLE_ENTRY_SCOPE = 'Do not recap earlier memory, consult prior summaries, or resolve open matters.';
+const CHRONICLE_ENTRY_SCOPE = 'Do not recap earlier memory or consult prior summaries. Record outcomes only when established in this excerpt.';
+
+export const CHRONICLE_ENTRY_RULE = `Return chronicleEntry as a compact, self-contained account of this excerpt's consequential setup and causally important change. Preserve explicit names, chronology, decisions, consequences, relationship meaning, concealed information, who knows what, uncertainty, and any foundational premise introduced here. Include source-supported conditions that materially govern what is possible or how events should be understood, even when no action changes them in this excerpt. An OOC/meta assertion establishes author-level canon only: never describe it as something a character said, asserted, revealed, identified, established in-world, learned, or knew unless the excerpt separately depicts that speech, action, disclosure, or discovery. When dialogue and OOC/meta text share one message, keep their provenance separate and preserve any resulting character knowledge boundary. ${CHRONICLE_ENTRY_SCOPE} Omit low-value detail and repetition within the entry, not consequential information merely because it is also stored in structured records. Before returning, check that the entry itself retains the excerpt's consequential setup with its source scope and knowledge boundaries intact. Use complete third-person prose without headings, ellipses, or invented transitions. ${CHRONICLE_HISTORY_RULE}`;
 
 export const DEFAULT_EXTRACTION_TASK_TEMPLATE = `Extract continuity from this chronological excerpt. Empty arrays are valid. {{detail}}
 {{format}}
@@ -164,14 +169,15 @@ export const SOURCE_SCOPE_RULE = `Preserve source scope for every memory: who, w
 
 export const HIERARCHY_CONCISION_RULES = `Keep hierarchy fields clear, complete, and non-redundant. Compact means remove repetition, never information; a parent need not be shorter than its children. Use all space needed for fidelity. Store each detail once in its most specific field; never repeat a sentence across fields. title and storyTime are labels; summary holds causal continuity; other fields may be as long as fidelity requires. Finish cleanly without omission ellipses.`;
 
-export const DEFAULT_CHRONICLE_SYSTEM_PROMPT = `Compress chronological Chronicle nodes into one accurate parent Chronicle node. Preserve source order, causal progression, foundational premises, consequential decisions, durable changes, relationship meaning, knowledge boundaries, attributed uncertainty, and every surviving unresolved matter. Use only the supplied child nodes. Never invent a transition, flatten a character's belief into objective fact, or resolve an open matter.
+export const DEFAULT_CHRONICLE_SYSTEM_PROMPT = `Compress chronological Chronicle nodes into one accurate parent Chronicle node. Preserve source order, causal progression, foundational premises, consequential decisions, durable changes, relationship meaning, knowledge boundaries, and attributed uncertainty. Use only the supplied child nodes. Never invent a transition or flatten a character's belief into objective fact.
 ${HIERARCHY_ATTRIBUTION_RULE}
 ${EXTREME_SUMMARY_FIDELITY_RULE}
 Chronicle order is source order, not necessarily elapsed time. Preserve supplied anchors, relative wording, subjective frames, and explicit skips; never invent dates, durations, boundaries, or synchronization.
 ${HIERARCHY_CONCISION_RULES}
 ${SOURCE_SCOPE_RULE}
 ${IMPORTANCE_RUBRIC}
-Rate the whole source interval.`;
+Rate the whole source interval.
+${CHRONICLE_HISTORY_RULE}`;
 
 export const DEFAULT_CHRONICLE_TASK_TEMPLATE = `Create one concise parent from these chronological Chronicle nodes.
 {{format}}
@@ -190,7 +196,11 @@ export const PROMPT_DEFAULTS = Object.freeze({
 });
 
 export function buildExtractionSystemPrompt(basePrompt, jbEnabled = false, jbPrompt = DEFAULT_JB_PROMPT) {
-    const base = upgradeOocMetaAuthorityPrompt(basePrompt ?? DEFAULT_EXTRACTION_SYSTEM_PROMPT).trim();
+    const legacyEntryRule = CHRONICLE_ENTRY_RULE.replace(` ${CHRONICLE_HISTORY_RULE}`, '')
+        .replace(CHRONICLE_ENTRY_SCOPE, LEGACY_CHRONICLE_ENTRY_SCOPE);
+    const base = upgradeOocMetaAuthorityPrompt(basePrompt ?? DEFAULT_EXTRACTION_SYSTEM_PROMPT)
+        .replaceAll(legacyEntryRule, CHRONICLE_ENTRY_RULE)
+        .replaceAll(LEGACY_CHRONICLE_ENTRY_SCOPE, CHRONICLE_ENTRY_SCOPE).trim();
     const extra = jbEnabled ? String(jbPrompt ?? DEFAULT_JB_PROMPT).trim() : '';
     const combined = extra ? (base ? `${base}\n\n${extra}` : extra) : base;
     const withAuthority = combined.includes(OOC_META_AUTHORITY_RULE)
@@ -211,13 +221,20 @@ export function buildExtractionSystemPrompt(basePrompt, jbEnabled = false, jbPro
 }
 
 export function buildHierarchySystemPrompt(basePrompt) {
-    const base = String(basePrompt ?? '').trim();
+    // Upgrade the old shipped prohibition, not arbitrary custom instructions.
+    const base = String(basePrompt ?? '').replaceAll(
+        "Never invent a transition, flatten a character's belief into objective fact, or resolve an open matter.",
+        "Never invent a transition or flatten a character's belief into objective fact.",
+    ).trim();
     const withConcision = base.includes(HIERARCHY_CONCISION_RULES)
         ? base
         : (base ? `${base}\n\n${HIERARCHY_CONCISION_RULES}` : HIERARCHY_CONCISION_RULES);
-    return withConcision.includes(SOURCE_SCOPE_RULE)
+    const withScope = withConcision.includes(SOURCE_SCOPE_RULE)
         ? withConcision
         : `${withConcision}\n\n${SOURCE_SCOPE_RULE}`;
+    return withScope.includes(CHRONICLE_HISTORY_RULE)
+        ? withScope
+        : `${withScope}\n\n${CHRONICLE_HISTORY_RULE}`;
 }
 
 export function buildRetrievalSystemPrompt(basePrompt) {

@@ -21,6 +21,17 @@ test('viewer exposes Digest and Recursive Chronicle categories', () => {
     assert.deepEqual(MEMORY_VIEW_CATEGORIES.slice(-2).map(item => item.label), ['Digest', 'Chronicle']);
 });
 
+test('Chronicle and story viewers label legacy notes as historical context', () => {
+    const target = structuredClone(world);
+    target.chronicle[0].openThreads = ['They planned to rehearse before Friday.'];
+    for (const category of ['story', 'chronicle']) {
+        const page = memoryViewerPage(target, category, '', 0, 30, 'chat');
+        assert.ok(page.items.some(item => item.fields.some(field => field.label === 'Historical context (at this point)'
+            && field.value.includes('before Friday'))));
+        assert.ok(page.items.every(item => item.fields.every(field => field.label !== 'Still open')));
+    }
+});
+
 test('viewer labels the scene as an extracted checkpoint with its latest source message', () => {
     const page = memoryViewerPage(world, 'scene');
     assert.equal(page.items[0].title, 'Latest extracted checkpoint (through message 20)');

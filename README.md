@@ -22,10 +22,24 @@ Continuity combines several forms of memory instead:
 - Digest records retain detailed source-linked scene history.
 - Recursive Chronicle nodes keep the covered narrative compact across C0, C1, C2, and higher layers.
 - Retrieval selects relevant older memories for each response.
-- Relevant events and open threads receive full detail, while a small always-present continuity ledger retains strong completed-event and unresolved-thread titles through unrelated scenes.
+- Relevant events and open threads receive full detail. The fallback ledger offers up to six unresolved reminders (four priority slots, then latest), packed individually without clipping conditions or deadlines. Without a rendered Chronicle it also offers up to three recent event titles; with the Chronicle, that extra event recap is omitted. Only records not already supplied by full recall qualify.
 - Reviewed corrections remain authoritative when extraction gets something wrong.
 
 This produces a compact working context backed by a searchable and traceable history.
+
+The Chronicle is a lossy narrative backbone; structured records remain its detailed, retrievable support. Prompt assembly avoids repeating the same record across entity canon, facts, supporting recall, and the fallback ledger. This is presentation-only: records and source links are not deleted or merged, Chronicle coverage is not evidence that a detail is redundant, and similar wording alone never justifies discarding different conditions, timelines, or character perspectives. Duplicate suppression happens only after a complete row is actually packed, so a budget-excluded row cannot hide its other retrieval path.
+
+Supporting continuity requires a topical/contextual connection or an explicit record reference; sharing a source batch or temporal anchor and a character name alone is insufficient. Its one-hop envelope is capped at 24 records (smaller for tight budgets), not a fill target. Records outside that envelope remain directly retrievable. Open-thread retrieval, support, and the ledger all use the newest same-title lifecycle record, so a newer resolved record cannot resurrect an older open copy. These are read-only prompt policies, not semantic corrections to saved records: differently titled stale threads still need evidence-backed reconciliation, and ambiguous reminder details are preserved rather than guessed or shortened.
+
+### Historical memory and the raw-chat handoff
+
+The aim is to approximate access to the whole conversation: older history is carried by the Chronicle and retrievable structured detail, while the retained recent messages provide verbatim continuation. Context reduction removes eligible, fingerprint-matched extracted messages from the outgoing prompt, not from the saved chat; unprocessed or changed messages stay available. Compression and retrieval remain imperfect, not lossless replacements for the original history.
+
+The Chronicle describes what was established **at each point in history**, not a live list of open or closed tasks. For example, an earlier entry can say “Aster planned to inspect the bridge before dawn, if Beryl consented”; a later entry can describe consent, the inspection, and its result. Neither entry assigns a current lifecycle status. Uncertainty, conditions, deadlines, consequences, and character knowledge remain explicit. Structured threads and their ledger own lifecycle status separately.
+
+Existing Chronicle `openThreads` fields remain readable for compatibility and are presented as **Context at that point**, never as an “Open” list. New generation uses that field only for historical context not already carried by the narrative. Identical whole fields within one rendered node appear once; stored nodes and their source links are not rewritten or deleted. Default and custom prompt builders apply the historical policy on future requests, but do not automatically rewrite old prose or rebuild saved history.
+
+Durable lore and Chronicle nodes are excluded as raw-message duplicates only when all their sources are inside the retained interval in this chat. Mixed-source records and nodes crossing the boundary stay eligible, because a recent mention does not prove their older details are present verbatim. Some overlap is preferable to a missing condition or cause. Transient states/checkpoints keep their separate latest-source freshness rules.
 
 Continuity also exposes the already-prepared prompt through a small read-only browser bridge for compatible extensions such as Tale Fairy. The bridge never starts retrieval or extraction, exposes no mutation methods, and marks its snapshot stale as soon as the active chat changes.
 

@@ -208,7 +208,10 @@ const chronicleParentSchema = {
         turningPoints: { type: 'array', items: { type: 'string' }, maxItems: 8 },
         emotionalArc: { type: 'string' },
         closingState: { type: 'string' },
-        openThreads: { type: 'array', items: { type: 'string' }, maxItems: 12 },
+        openThreads: {
+            type: 'array', items: { type: 'string' }, maxItems: 12,
+            description: 'Compatibility field: historical context notes at the covered point, not live open/closed statuses. Preserve evidenced plans, questions, conditions and deadlines without repeating the narrative.',
+        },
         importance: { type: 'integer', minimum: 1, maximum: 5 },
     },
 };

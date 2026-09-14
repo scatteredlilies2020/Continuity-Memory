@@ -157,3 +157,36 @@ test('Chronicle promotion stores complete model output without character caps', 
     assert.equal(parent.closingState.length, 900);
     assert.equal(parent.openThreads[0].length, 500);
 });
+
+test('legacy Chronicle questions are historical context, not live lifecycle labels', () => {
+    const value = { chronicle: [
+        { id: 'earlier', chatKey: 'chat', level: 0, from: 0, to: 7,
+            text: 'Aster planned to inspect the bridge before dawn, only if Beryl consented.',
+            openThreads: ['The cause of the fracture remained unknown to Aster.'] },
+        { id: 'later', chatKey: 'chat', level: 0, from: 8, to: 15,
+            text: 'Beryl consented. Aster inspected the bridge and discovered sabotage.' },
+    ] };
+    const before = JSON.stringify(value);
+    const rendered = renderChronicleFrontier(value, 'chat');
+    assert.match(rendered, /Historical accounts in source order, not a current-status ledger/);
+    assert.match(rendered, /Context at that point: The cause of the fracture remained unknown to Aster/);
+    assert.doesNotMatch(rendered, /(?:^|\n)(?:Open|Closed):/);
+    assert.match(rendered, /before dawn, only if Beryl consented/);
+    assert.ok(rendered.indexOf('planned to inspect') < rendered.indexOf('discovered sabotage'));
+    assert.equal(JSON.stringify(value), before);
+});
+
+test('Chronicle rendering omits identical fields, not distinct conditions or knowledge holders', () => {
+    const value = { chronicle: [{ id: 'one', chatKey: 'chat', level: 1, from: 0, to: 15,
+        text: 'Aster discovered sabotage.', turningPoints: ['Aster discovered sabotage.'],
+        closingState: 'Beryl was not told about the sabotage.',
+        openThreads: ['Aster discovered sabotage.', 'Beryl was not told about the sabotage.',
+            'Aster promised silence unless Beryl asked.', 'Aster promised silence unless Beryl asked.'],
+    }] };
+    const before = JSON.stringify(value);
+    const rendered = renderChronicleFrontier(value, 'chat');
+    for (const detail of [value.chronicle[0].text, value.chronicle[0].closingState, value.chronicle[0].openThreads[2]]) {
+        assert.equal(rendered.split(detail).length - 1, 1);
+    }
+    assert.equal(JSON.stringify(value), before);
+});

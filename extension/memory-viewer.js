@@ -90,7 +90,7 @@ function entry(category, item, index) {
             add(fields, 'Turning points', item.turningPoints);
             add(fields, 'Overall progression', item.emotionalArc);
             add(fields, 'Closing state', item.closingState);
-            add(fields, 'Still open', item.openThreads);
+            add(fields, 'Historical context (at this point)', item.openThreads);
             add(fields, 'Direct source nodes', item.childIds);
             add(fields, 'Canonical Digest sources', item.capsuleIds);
         } else {
@@ -174,7 +174,7 @@ function entry(category, item, index) {
         add(fields, 'Turning points', item.turningPoints);
         add(fields, 'Overall progression', item.emotionalArc);
         add(fields, 'Closing state', item.closingState);
-        add(fields, 'Still open', item.openThreads);
+        add(fields, category === 'chronicle' ? 'Historical context (at this point)' : 'Still open', item.openThreads);
         addTemporal(fields, item);
     }
     const sources = sourceLabels(item);
