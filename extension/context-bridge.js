@@ -1,3 +1,5 @@
+import { sourcedFromInvalidExtraction } from './state-lifecycle.js';
+
 function bridgeSourceRange(record, chatKey) {
     const sources = Array.isArray(record?.sources) ? record.sources : [];
     const source = sources.filter(item => !chatKey || !item?.chatKey || item.chatKey === chatKey)
@@ -19,7 +21,7 @@ function bridgeRecordText(record, category) {
     return values.filter(value => value != null && String(value).trim()).map(value => String(value).trim()).join(' — ').replace(/\s+/gu, ' ').slice(0, 700);
 }
 
-export function buildPlanningEvidence(world, chatKey, coverage) {
+export function buildPlanningEvidence(world, chatKey, coverage, { invalidSourceRanges = [] } = {}) {
     // Internal coverage uses latestIndex; throughMessageIndex is only the
     // published bridge-v2 field. Do not treat ordinary covered facts as future.
     const latestIndex = Number(coverage?.latestIndex ?? -1);
@@ -28,6 +30,7 @@ export function buildPlanningEvidence(world, chatKey, coverage) {
     const evidence = [];
     for (const category of categories) {
         for (const record of Array.isArray(world?.[category]) ? world[category] : []) {
+            if (sourcedFromInvalidExtraction(record, invalidSourceRanges)) continue;
             const sourceRange = bridgeSourceRange(record, chatKey);
             if (sourceRange?.to != null && Number(sourceRange.to) > throughMessageIndex) continue;
             const text = bridgeRecordText(record, category);

@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildPlanningEvidence, createContinuityContextBridge } from '../extension/context-bridge.js';
 import { analyzeCoverage } from '../extension/coverage.js';
+import { findInvalidExtractionRanges, fingerprintMessage } from '../extension/message-digest.js';
+import { buildMemoryPrompt } from '../extension/retrieval.js';
 
 function testContext() {
     return {
@@ -10,6 +12,46 @@ function testContext() {
         chat: [{ name: 'User', is_user: true, mes: 'Hello' }],
     };
 }
+
+test('an edited source cannot reappear through planning evidence after main-prompt filtering', () => {
+    const original = { index: 0, name: 'Narrator', text: 'The gate is locked.' };
+    const edited = { ...original, text: 'The gate is open.' };
+    const world = {
+        revision: 1, entities: [], states: [], events: [], relationships: [], threads: [], backgrounds: [], capsules: [], sources: {},
+        facts: [{ id: 'gate', subject: 'Gate', predicate: 'condition', value: 'locked', importance: 5,
+            sources: [{ chatKey: 'chat-1', from: 0, to: 0 }] }],
+        extractions: [{ id: 'old', chatKey: 'chat-1', from: 0, to: 0,
+            messageFingerprints: [{ index: 0, fingerprint: fingerprintMessage(original) }] }],
+    };
+    const invalidSourceRanges = findInvalidExtractionRanges(world, [edited], 'chat-1');
+    assert.equal(invalidSourceRanges.length, 1);
+    const before = structuredClone(world);
+    const { prompt } = buildMemoryPrompt(structuredClone(world), [{ mes: edited.text }], 2500,
+        'chat-1', [], undefined, new Map(), { invalidSourceRanges, includeStorySoFar: false });
+    const evidence = buildPlanningEvidence(world, 'chat-1', analyzeCoverage([edited]), { invalidSourceRanges });
+    assert.doesNotMatch(prompt, /locked/);
+    assert.deepEqual(evidence, []);
+    const { bridge, publish } = createContinuityContextBridge(() => ({ ...testContext(), chat: [{ mes: edited.text }] }));
+    publish(prompt, { planningEvidence: evidence });
+    assert.deepEqual(bridge.getContextSnapshot().planningEvidence, []);
+    assert.deepEqual(world, before);
+});
+
+test('planning evidence filters all affected categories but retains unrelated sources and reviewed corrections', () => {
+    const world = {};
+    for (const category of ['threads', 'facts', 'states', 'relationships', 'events', 'entities', 'backgrounds']) {
+        world[category] = [{ id: category, name: 'Old detail', title: 'Old detail', topic: 'Old detail',
+            from: 'A', to: 'B', sources: [{ chatKey: 'chat-1', from: 0, to: 7 }, { chatKey: 'chat-1', from: 8, to: 15 }] }];
+    }
+    world.facts.push(
+        { id: 'valid', value: 'Retain this', sources: [{ chatKey: 'chat-1', from: 8, to: 15 }] },
+        { id: 'corrected', value: 'Reviewed correction', correctionId: 'review', sources: [{ chatKey: 'chat-1', from: 0, to: 7 }] },
+        { id: 'direct', value: 'Invalid direct source', chatKey: 'chat-1', from: 0, to: 7 },
+    );
+    const evidence = buildPlanningEvidence(world, 'chat-1', { latestIndex: 15 },
+        { invalidSourceRanges: [{ chatKey: 'chat-1', from: 0, to: 7 }, { chatKey: 'other-chat', from: 8, to: 15 }] });
+    assert.deepEqual(new Set(evidence.map(item => item.id)), new Set(['valid', 'corrected']));
+});
 
 test('planning evidence accepts actual coverage output and excludes records beyond the source boundary', () => {
     const context = testContext();

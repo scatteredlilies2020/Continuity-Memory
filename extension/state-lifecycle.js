@@ -1,5 +1,11 @@
 const ACTIVE_SCOPES = new Set(['scene', 'ongoing']);
 const GENERIC_NAME_TOKENS = new Set(['group', 'team', 'unit', 'party', 'squad', 'character', 'person', 'people']);
+const ROLE_NAME_TOKENS = new Set('a an the road checkpoint local village town city royal head chief warden guard soldier captain commander officer clerk merchant doctor healer priest king queen master servant man woman person stranger'.split(' '));
+
+function isRoleOnlyName(value) {
+    const tokens = normalized(value).match(/[\p{L}\p{N}]+/gu) || [];
+    return tokens.length > 0 && tokens.every(token => ROLE_NAME_TOKENS.has(token));
+}
 
 function text(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -11,7 +17,7 @@ function normalized(value) {
 
 function nameTokens(value) {
     return (normalized(value).match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu) || [])
-        .filter(token => token.length > 1 && !GENERIC_NAME_TOKENS.has(token));
+        .filter(token => token.length > 1);
 }
 
 function namesForEntity(entity) {
@@ -22,8 +28,12 @@ export function canonicalMemorySubject(world, value) {
     const source = text(value);
     if (!source) return '';
     const entities = world?.entities || [];
+    // A role can recur in another scene. A saved alias such as "road-warden"
+    // does not establish that every later warden is the same named person.
+    if (isRoleOnlyName(source)) return source;
     const exact = entities.filter(entity => namesForEntity(entity).some(name => normalized(name) === normalized(source)));
     if (exact.length === 1) return text(exact[0].name);
+    if (exact.length > 1) return source;
 
     // A possessive description names something related to its owner, not the
     // owner. Keep it unresolved until an exact alias or explicit identity
@@ -32,13 +42,15 @@ export function canonicalMemorySubject(world, value) {
     if (/['’]s\b/iu.test(source)) return source;
 
     const sourceTokens = nameTokens(source);
-    if (!sourceTokens.length) return source;
+    if (!sourceTokens.length || sourceTokens.every(token => GENERIC_NAME_TOKENS.has(token))) return source;
     const candidates = entities.filter(entity => namesForEntity(entity).some(name => {
+        if (isRoleOnlyName(name)) return false;
         const candidateTokens = nameTokens(name);
         if (!candidateTokens.length) return false;
         if (sourceTokens.length === 1) return candidateTokens.includes(sourceTokens[0]);
-        return sourceTokens.every(token => candidateTokens.includes(token))
-            || candidateTokens.every(token => sourceTokens.includes(token));
+        // Allow an unambiguous shortened name, but never discard additional
+        // words in the source (e.g. "checkpoint road-warden" or "Oddo's guard").
+        return sourceTokens.every(token => candidateTokens.includes(token));
     }));
     return candidates.length === 1 ? text(candidates[0].name) : source;
 }
@@ -92,6 +104,15 @@ function sourceRanges(item, chatKey = '') {
         .filter(source => (!chatKey || source?.chatKey === chatKey)
             && Number.isFinite(Number(source?.from)) && Number.isFinite(Number(source?.to)))
         .map(source => ({ chatKey: source.chatKey, from: Number(source.from), to: Number(source.to) }));
+}
+
+export function sourcedFromInvalidExtraction(item, invalidRanges = []) {
+    // Explicit reviewed corrections retain authority while source repair is pending.
+    if (item?.correctionId || !invalidRanges.length) return false;
+    return sourceRanges(item).some(source => invalidRanges.some(invalid =>
+        source.chatKey === invalid.chatKey
+        && source.from <= invalid.to
+        && source.to >= invalid.from));
 }
 
 export function latestSourceRange(item, chatKey = '') {

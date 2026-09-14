@@ -20,7 +20,7 @@ const RETRIEVAL_FIELDS = {
     body: { weight: 1, lengthWeight: 0.75 },
 };
 
-import { isFreshActiveState, latestSourceInRawTail, latestSourceRange, sourcedWhollyInRawTail } from './state-lifecycle.js';
+import { isFreshActiveState, latestSourceInRawTail, latestSourceRange, sourcedWhollyInRawTail, sourcedFromInvalidExtraction } from './state-lifecycle.js';
 import { anchoredRelativeText, anchoredStoryTime } from './temporal-anchors.js';
 import { retrievalMessageText } from './retrieval-query.js';
 import { formatEntityProfile } from './entity-profile.js';
@@ -1187,16 +1187,6 @@ export function orderEventsChronologically(items, chatKey = '', capsules = []) {
     return ordered.map(entry => entry.item);
 }
 
-function sourcedFromInvalidExtraction(item, invalidRanges) {
-    // Reviewed corrections remain authoritative even when their historical
-    // source range is awaiting repair.
-    if (item?.correctionId || !invalidRanges.length) return false;
-    return recordSourceRanges(item).some(source => invalidRanges.some(invalid =>
-        source.chatKey === invalid.chatKey
-        && source.from <= invalid.to
-        && source.to >= invalid.from));
-}
-
 function addFairSections(parts, sections, budget) {
     const populated = sections
         .map(section => ({ ...section, rows: section.rows.filter(Boolean) }))
@@ -1732,7 +1722,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.12';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.13';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';
