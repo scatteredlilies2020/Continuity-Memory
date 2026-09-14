@@ -339,7 +339,7 @@ test('detached extraction jobs remain separate from roleplay generation and save
     const created = await call(router.routes.get('POST /worlds'), root, { body: { name: 'Detached' } });
     const worldId = created.payload.world.id;
     const task = {
-        messages: [{ index: 0, name: 'Alice', text: 'I always take my tea without sugar.' }],
+        messages: [{ index: 0, name: 'Alice', text: 'Setting: Teleportation cannot cross salt water.\n\nI always take my tea without sugar.' }],
         request: { chat_completion_source: 'openai', model: 'test', messages: [] },
     };
     const started = await call(router.routes.get('POST /extraction-jobs'), root, {
@@ -364,6 +364,9 @@ test('detached extraction jobs remain separate from roleplay generation and save
     assert.equal(loaded.payload.world.storySoFar['character:chat'].to, 0);
     assert.equal(loaded.payload.world.facts.some(item => item.subject === 'Alice' && item.value === 'without sugar'), true);
     assert.equal(loaded.payload.world.sources['character:chat'].processedMessages.length, 1);
+    assert.equal(loaded.payload.world.capsules[0].sourceScenarioContext[0].text,
+        'Setting: Teleportation cannot cross salt water.');
+    assert.ok(!loaded.payload.world.capsules[0].chronicleText.includes('Teleportation'));
 });
 
 test('detached jobs report source tokens and promote Recursive Chronicle without a browser', async t => {

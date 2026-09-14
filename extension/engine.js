@@ -7,34 +7,35 @@ import { oai_settings, openai_setting_names, openai_settings, proxies } from '/s
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.13';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.14';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { normalizeHierarchyResult } from './hierarchy-result.js';
+import { captureScenarioContext } from './scenario-context.js';
 import { completeDigestMessages, latestCompleteDigestMessageIndex, digestStabilityRepairFrom, DIGEST_STABILITY_BUFFER_MESSAGES, partitionDigestStabilityBuffer, partitionPendingDigestMessages, resolveDigestGroupSize, selectAutomaticDigestMessages } from './digest-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.13';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.14';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedChronicle, freshResetResiduals, getLatestDigestUndoStatus as inspectLatestDigestUndo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.13';
-import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.13';
+import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.14';
+import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.14';
 import { embedWorldInChat } from './portable.js';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.13';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.13';
-import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.13';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.13';
-import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.13';
-import { isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.13';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.13';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.14';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.14';
+import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.14';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.14';
+import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.14';
+import { isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.14';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.14';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { resolveProfileThinkingMode } from './story-thinking.js?v=0.15.0-testing.13';
-import { stableStoryMessages } from './story-cadence.js?v=0.15.0-testing.13';
-import { compileRollingStorySnapshot } from './story-snapshot.js?v=0.15.0-testing.13';
-import { planStoryMutationRecovery } from './story-checkpoints.js?v=0.15.0-testing.13';
-import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.13';
+import { resolveProfileThinkingMode } from './story-thinking.js?v=0.15.0-testing.14';
+import { stableStoryMessages } from './story-cadence.js?v=0.15.0-testing.14';
+import { compileRollingStorySnapshot } from './story-snapshot.js?v=0.15.0-testing.14';
+import { planStoryMutationRecovery } from './story-checkpoints.js?v=0.15.0-testing.14';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.14';
 import { nextChroniclePromotion } from './chronicle.js';
 import { chronicleRetryFeedback, isRetryableChronicleError, retryChroniclePromotion } from './chronicle-retry.js';
 
@@ -387,10 +388,13 @@ function validateResult(result, world, messages) {
             || [result.sceneCapsule.opening, ...(result.sceneCapsule.beats || []), result.sceneCapsule.closing].filter(Boolean).join(' ');
     }
     const provenanceBoundaries = authoritativeMetaBoundaries(messages);
+    delete result._sourceScenarioContext;
     assertAuthoritativeMetaProvenance(result, provenanceBoundaries);
     const validation = sanitizeReconciliationMetadata(result, world, messages);
     assertAuthoritativeMetaProvenance(result, provenanceBoundaries);
     result._authoritativeMetaBoundaries = provenanceBoundaries;
+    // Overwrite any model-supplied field with source text captured by code.
+    result._sourceScenarioContext = captureScenarioContext(messages);
     return { result, validation };
 }
 

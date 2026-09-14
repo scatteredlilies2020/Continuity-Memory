@@ -3,7 +3,7 @@ function messageText(message) {
 }
 
 const META_LABEL = "(?:OOC|out[- ]of[- ]character|meta|canon(?:ical)?\\s+note|author(?:'s)?\\s+note|GM\\s+note|narrator\\s+note)";
-const SETUP_LABEL = '(?:timeline|era|setting|scenario|scene|location|notes?)';
+const SETUP_LABEL = '(?:timeline|era|setting|scenario|premise|worldbuilding|scene|location|notes?)';
 const NOTE_HEADER = new RegExp(`^[\\t ]*(?:#{1,6}[\\t ]+)?(?:\\*{1,2}|_{1,2})?[\\t ]*[\\[(]?(${META_LABEL}|${SETUP_LABEL})(?:\\*{1,2}|_{1,2})?[\\t ]*(?:[:—–-]|\\]|\\))[\\t ]*(?:\\*{1,2}|_{1,2})?[\\t ]*(.*)$`, 'iu');
 const EXPLICIT_META_LABEL = new RegExp(`^${META_LABEL}$`, 'iu');
 const INLINE_META = new RegExp(`[\\[(](?:${META_LABEL}|${SETUP_LABEL})[\\t ]*[:—–-][\\t ]*[^\\]\\)\\n]+[\\]\\)]|\\b${META_LABEL}[\\t ]*[:—–-][\\t ]*.+$`, 'giu');
@@ -28,7 +28,7 @@ export function splitAuthoritativeUserMeta(message) {
 
 // Role and position do not decide note authority. Keep source order and narrow
 // boundaries so a note never absorbs the dialogue or narration following it.
-export function splitScenarioNotes(message) {
+export function splitScenarioNotes(message, { preserveLabels = false } = {}) {
     if (message?.is_system) return null;
     const lines = messageText(message).split(/\r?\n/u);
     const spans = [];
@@ -58,7 +58,7 @@ export function splitScenarioNotes(message) {
         const boundedInlineHeader = /^[\t ]*[\[(][^\]\)]*[:—–-][^\]\)]*[\]\)]/u.test(line);
         if (header && !boundedInlineHeader) {
             // Retain setup labels (e.g. Timeline) as part of the evidence.
-            const text = EXPLICIT_META_LABEL.test(header[1]) && header[2].trim() ? header[2] : line.trim();
+            const text = !preserveLabels && EXPLICIT_META_LABEL.test(header[1]) && header[2].trim() ? header[2] : line.trim();
             append('meta', text);
             noteContinuation = true;
             continue;

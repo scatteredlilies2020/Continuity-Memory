@@ -1368,6 +1368,12 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     const latestIsRaw = item => latestSourceInRawTail(item, chatKey, rawTailRange);
     const whollyRaw = item => sourcedWhollyInRawTail(item, chatKey, rawTailRange);
     const sourceIsCurrent = item => !sourcedFromInvalidExtraction(item, invalidSourceRanges);
+    const scenarioContext = collectScenarioContext(world, chatKey, options);
+    // Foundational source context is not query-ranked, AI-selected, or clipped
+    // to the optional recall budget. It is rendered once, outside the Chronicle.
+    const scenarioBlock = renderScenarioContext(scenarioContext);
+    retrievalDiagnostics.scenarioContext = { count: scenarioContext.length,
+        characters: scenarioContext.reduce((sum, note) => sum + note.text.length, 0) };
     // A recent mention is not proof that raw chat contains every detail of a
     // merged lore record. Suppress durable recall only when all its sources are
     // in the retained tail; checkpoints/transient states still use latest scope.
@@ -1780,11 +1786,13 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
             `- Open-thread ledger (priority + latest): ${whollyRaw(item) ? plain(item.title) : anchoredRelativeText(plain(item.detail) || plain(item.title), item)}`)),
         ...compactEvents.map(item => memoryRow('event', item, `- Event ledger (latest): ${plain(item.title)}`)),
     ] }], budget, admitted);
+    parts.value += scenarioBlock;
     if (storyBlock) parts.value += storyBlock;
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.13';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.14';
+import { collectScenarioContext, renderScenarioContext } from './scenario-context.js';
 import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';

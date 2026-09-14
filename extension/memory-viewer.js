@@ -166,6 +166,8 @@ function entry(category, item, index) {
         add(fields, 'Key progression', item.beats);
         add(fields, 'Overall progression', item.emotionalArc);
         add(fields, 'Closing', item.closing);
+        add(fields, 'Source scenario context (verbatim)', (item.sourceScenarioContext || [])
+            .map(note => `Message ${note.messageIndex} · ${note.role}: ${note.text}`));
         addTemporal(fields, item);
     } else {
         add(fields, 'Story time', item.storyTime);

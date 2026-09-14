@@ -1,27 +1,27 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, isGenerating, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.15.0-testing.13';
+import { api } from './api.js?v=0.15.0-testing.14';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maintainChronicleHierarchy, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.15.0-testing.13';
-import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.15.0-testing.13';
-import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.13';
-import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.15.0-testing.13';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.13';
+import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maintainChronicleHierarchy, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.15.0-testing.14';
+import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.15.0-testing.14';
+import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.14';
+import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.15.0-testing.14';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.14';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.15.0-testing.13';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.13';
-import { purgeEmbeddingIndex, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.15.0-testing.13';
-import { isTransientApiError } from './errors.js?v=0.15.0-testing.13';
-import { roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.15.0-testing.13';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.15.0-testing.14';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.14';
+import { purgeEmbeddingIndex, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.15.0-testing.14';
+import { isTransientApiError } from './errors.js?v=0.15.0-testing.14';
+import { roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.15.0-testing.14';
 import { isDigestStabilityProtectedMessage, latestCompleteDigestMessageIndex } from './digest-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
-import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.15.0-testing.13';
+import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.15.0-testing.14';
 import { createBackgroundScheduler } from './background-scheduler.js';
 import { nextChroniclePromotion } from './chronicle.js';
-import { buildPlanningEvidence, createContinuityContextBridge } from './context-bridge.js?v=0.15.0-testing.13';
+import { buildPlanningEvidence, createContinuityContextBridge } from './context-bridge.js?v=0.15.0-testing.14';
 
 const PROMPT_KEY = 'continuity_memory_context';
 const continuityContextBridge = createContinuityContextBridge(getContext);
@@ -304,7 +304,10 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
         expandedTerms,
         settings.injectionInstruction,
         semanticRanks,
-        { ...memoryPromptOptions, invalidSourceRanges, includeSceneCheckpoint: coverage.pending === 0, includeStorySoFar: settings.storySoFarEnabled },
+        { ...memoryPromptOptions, invalidSourceRanges, includeSceneCheckpoint: coverage.pending === 0, includeStorySoFar: settings.storySoFarEnabled,
+            // Full original chat, never the reduced tail or retrieval query.
+            scenarioSourceMessages: collectFingerprintMessages(getContext().chat || []),
+        },
     );
     if (!refreshIsCurrent()) return;
     const managerApplied = useRetrievalAssist && getContext().mainApi === 'openai'
@@ -543,7 +546,7 @@ async function onChatRenamed(eventData) {
 }
 
 async function init() {
-    const templateResponse = await fetch(new URL('./settings.html?v=0.15.0-testing.13', import.meta.url));
+    const templateResponse = await fetch(new URL('./settings.html?v=0.15.0-testing.14', import.meta.url));
     if (!templateResponse.ok) throw new Error(`Could not load settings template: ${templateResponse.status} ${templateResponse.statusText}`);
     const html = $(await templateResponse.text());
     const container = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');

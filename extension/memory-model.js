@@ -1381,6 +1381,7 @@ export function mergeExtraction(world, result, meta) {
             importance: clampImportance(raw.importance),
             chronicleText: clipped(result.chronicleEntry || compileRollingStorySnapshot(result.storySoFar), 2400),
             provenanceBoundaries: structuredClone(result._authoritativeMetaBoundaries || []),
+            sourceScenarioContext: structuredClone(result._sourceScenarioContext || []),
             chatKey: meta.chatKey,
             from: meta.from,
             to: meta.to,

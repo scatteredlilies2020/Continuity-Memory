@@ -8,6 +8,7 @@ import { addDerivedChronicle, mergeExtraction } from '../extension/memory-model.
 import { isCurrentStorySnapshot } from '../extension/story-source.js';
 import { migrateLegacyBeliefs } from '../extension/attributed-beliefs.js';
 import { normalizeHierarchyResult } from '../extension/hierarchy-result.js';
+import { captureScenarioContext } from '../extension/scenario-context.js';
 import { renderPromptTemplate } from '../extension/prompts.js';
 import { sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
 import { isMandatoryThinkingError, isThinkingControlError } from '../extension/thinking-policy.js';
@@ -138,10 +139,12 @@ function validateResult(result, world, messages) {
         if (!Array.isArray(result[key])) throw new Error(`Extractor field "${key}" is not an array.`);
     }
     const provenanceBoundaries = authoritativeMetaBoundaries(messages);
+    delete result._sourceScenarioContext;
     assertAuthoritativeMetaProvenance(result, provenanceBoundaries);
     const validation = sanitizeReconciliationMetadata(result, world, messages);
     assertAuthoritativeMetaProvenance(result, provenanceBoundaries);
     result._authoritativeMetaBoundaries = provenanceBoundaries;
+    result._sourceScenarioContext = captureScenarioContext(messages);
     return { result, validation };
 }
 
