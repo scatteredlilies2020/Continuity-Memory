@@ -2117,3 +2117,28 @@ test('established identity history enriches a sparse relationship-backed person 
     assert.match(target.entities.find(item => item.name === 'Caelen Veyr').description, /High Council member/iu);
     assert.match(target.entities.find(item => item.name === 'Caelen Veyr').description, /Twelfth Reconnaissance Fleet/iu);
 });
+
+
+test('repeated facts retain every source range after more than twenty observations', () => {
+    const target = world();
+    for (let i = 0; i < 25; i++) {
+        mergeExtraction(target, extraction(), { chatKey: 'long-chat', from: i * 8, to: i * 8 + 7 });
+    }
+    const fact = target.facts.find(item => item.predicate === 'favorite snack');
+    assert.ok(fact);
+    assert.equal(fact.sources.length, 25);
+    assert.deepEqual(fact.sources.map(source => [source.from, source.to]), Array.from({ length: 25 }, (_, i) => [i * 8, i * 8 + 7]));
+    assert.equal(new Set(fact.sources.map(source => `${source.chatKey}:${source.from}:${source.to}`)).size, 25);
+});
+
+test('new extraction retains source fingerprints before the old 100000-message boundary', () => {
+    const target = world();
+    const fingerprints = Array.from({ length: 100000 }, (_, index) => ({ index, fingerprint: `hash-${index}`, version: EXTRACTION_VERSION }));
+    target.sources['long-chat'] = { processedMessages: fingerprints, lastProcessedIndex: 99999 };
+    mergeExtraction(target, extraction(), { chatKey: 'long-chat', from: 100000, to: 100000,
+        messageFingerprints: [{ index: 100000, fingerprint: 'new-hash' }] });
+    const saved = target.sources['long-chat'].processedMessages;
+    assert.equal(saved.length, 100001);
+    assert.deepEqual(saved[0], fingerprints[0]);
+    assert.deepEqual(saved.at(-1), { index: 100000, fingerprint: 'new-hash', version: EXTRACTION_VERSION });
+});

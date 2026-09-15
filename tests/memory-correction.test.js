@@ -179,3 +179,19 @@ test('correction review rejects missing targets instead of guessing', () => {
         operations: [{ action: 'delete', category: 'facts', targetId: 'missing', reason: '', recordJson: '{}' }],
     }, 'remove it'), /targeted a missing facts record/);
 });
+
+
+test('a reviewed correction retains all earlier source ranges beyond twenty', () => {
+    const world = memoryWorld();
+    const priorSources = Array.from({ length: 25 }, (_, i) => ({ chatKey: 'chat', from: i * 8, to: i * 8 + 7 }));
+    world.facts[0].sources = structuredClone(priorSources);
+    const proposal = validateCorrectionProposal(world, {
+        summary: 'Correct when Sasuke learned the identity.',
+        operations: [{ action: 'update', category: 'facts', targetId: 'fact-knowledge', reason: 'The earlier history establishes this.',
+            recordJson: JSON.stringify({ subject: 'Sasuke', predicate: 'knowledge of Elizabeth', value: 'Already knew her identity before the tower meeting', category: 'knowledge', importance: 4, persistence: 'persistent' }) }],
+    }, 'Sasuke already knew Elizabeth before the tower meeting.');
+    applyCorrectionProposal(world, proposal);
+    const fact = world.facts.find(item => item.id === 'fact-knowledge');
+    assert.deepEqual(fact.sources.slice(0, 25), priorSources);
+    assert.equal(fact.sources.length, 26);
+});

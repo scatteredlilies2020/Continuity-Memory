@@ -302,7 +302,7 @@ export function applyCorrectionProposal(world, proposal) {
                 updatedAt: timestamp,
                 correctedAt: timestamp,
                 correctionId,
-                sources: [...(before?.sources || []), correctionSource].slice(-20),
+                sources: [...(before?.sources || []), correctionSource],
             };
             if (['threads', 'backgrounds'].includes(operation.category)) {
                 // A correction rejects the old wording; retain it in the audit, not active recall.

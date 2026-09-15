@@ -671,3 +671,20 @@ test('server plugin installs and updates its bundled frontend without overwritin
     assert.equal((await syncBundledExtension({ source, target })).status, 'existing');
     assert.equal(await fs.readFile(path.join(target, 'index.js'), 'utf8'), 'user-owned');
 });
+
+
+test('server save and reload preserve records beyond the old 100000-item collection cap', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-large-world-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const router = mockRouter();
+    await init(router, { syncExtension: false });
+    const created = await call(router.routes.get('POST /worlds'), root, { body: { name: 'Large world' } });
+    const world = created.payload.world;
+    world.events = Array.from({ length: 100001 }, (_, i) => ({ id: `event-${i}`, title: `Event ${i}` }));
+    const saved = await call(router.routes.get('PUT /worlds/:id'), root, { params: { id: world.id }, body: world });
+    assert.equal(saved.status, 200);
+    assert.equal(saved.payload.world.events.length, 100001);
+    const loaded = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: world.id } });
+    assert.equal(loaded.status, 200);
+    assert.deepEqual(loaded.payload.world.events, world.events);
+});

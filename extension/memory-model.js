@@ -1,4 +1,4 @@
-import { supportingHistory, supportingIdentity, retainSupportingHistory, filterSupportingSources } from './supporting-memories.js?v=0.15.0-testing.22';
+import { supportingHistory, supportingIdentity, retainSupportingHistory, filterSupportingSources } from './supporting-memories.js?v=0.15.0-testing.23';
 import { LEGACY_DIGEST_RESCAN_MESSAGE } from './legacy-support.js';
 import { EXTRACTION_VERSION } from './coverage.js';
 import { isSuppressedByCorrection } from './memory-correction.js';
@@ -501,7 +501,7 @@ function mergedSources(...groups) {
         const identity = `${source.chatKey}|${Number(source.from)}|${Number(source.to)}`;
         sources.set(identity, { ...source, from: Number(source.from), to: Number(source.to) });
     }
-    return [...sources.values()].slice(-20);
+    return [...sources.values()];
 }
 
 function recordTimestamp(item) {
@@ -1423,7 +1423,7 @@ export function mergeExtraction(world, result, meta) {
         ...existingSource,
         lastProcessedIndex: Math.max(meta.to, world.sources[meta.chatKey]?.lastProcessedIndex ?? -1),
         lastProcessedAt: new Date().toISOString(),
-        processedMessages: [...processedByIndex.values()].sort((a, b) => a.index - b.index).slice(-100000),
+        processedMessages: [...processedByIndex.values()].sort((a, b) => a.index - b.index),
         requiredMemoryIndexes: (existingSource.requiredMemoryIndexes || [])
             .map(Number)
             .filter(index => Number.isFinite(index) && !completedIndexes.has(index)),
