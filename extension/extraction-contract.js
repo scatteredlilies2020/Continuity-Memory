@@ -148,6 +148,27 @@ export const extractionSchema = {
     },
 };
 
+export const chronicleParentSchema = {
+    type: 'object',
+    additionalProperties: false,
+    required: ['title', 'storyTime', 'participants', 'summary', 'turningPoints', 'emotionalArc', 'closingState', 'openThreads', 'importance'],
+    properties: {
+        title: { type: 'string', minLength: 1, pattern: '\\S' },
+        storyTime: { type: 'string' },
+        participants: { type: 'array', items: { type: 'string' } },
+        summary: { type: 'string', minLength: 1, pattern: '\\S' },
+        turningPoints: { type: 'array', items: { type: 'string' }, maxItems: 8 },
+        emotionalArc: { type: 'string' },
+        closingState: { type: 'string' },
+        openThreads: {
+            type: 'array', items: { type: 'string' }, maxItems: 12,
+            description: 'Compatibility field: historical context notes at the covered point, not live open/closed statuses. Preserve evidenced plans, questions, conditions and deadlines without repeating the narrative.',
+        },
+        importance: { type: 'integer', minimum: 1, maximum: 5 },
+    },
+};
+
+
 const requiredText = {
     entities: ['name', 'type'],
     identityResolutions: ['reference', 'canonical', 'evidence'],
@@ -170,10 +191,23 @@ extractionSchema.properties.recordMerges.items.properties.duplicateIds.minItems 
 function fieldGuide(schema) {
     if (schema.enum) return schema.enum.map(value => JSON.stringify(value)).join(' | ');
     if (schema.type === 'object') return Object.fromEntries(Object.entries(schema.properties).map(([key, value]) => [key, fieldGuide(value)]));
-    if (schema.type === 'array') return { arrayOf: fieldGuide(schema.items), emptyArrayAllowed: !schema.minItems, ...(schema.maxItems ? { maxItems: schema.maxItems } : {}) };
+    if (schema.type === 'array') return { arrayOf: fieldGuide(schema.items), emptyArrayAllowed: !schema.minItems, ...(schema.minItems ? { minItems: schema.minItems } : {}), ...(schema.maxItems ? { maxItems: schema.maxItems } : {}), ...(schema.description ? { description: schema.description } : {}) };
     return schema.type + (schema.minimum !== undefined ? ` (${schema.minimum}..${schema.maximum})` : '') + (schema.minLength ? ' (nonblank)' : '') + (schema.description ? ` — ${schema.description}` : '');
 }
-export const EXTRACTION_FIELD_GUIDE = 'Field definitions (type labels are not values). Return supported values; use [] for categories with no additions or changes.\n' + JSON.stringify(fieldGuide(extractionSchema));
+export function schemaFieldGuide(schema) {
+    return 'Field definitions (type labels are not values). Return all defined keys with supported values. Use actual JSON arrays, and [] when there are no items.\n' + JSON.stringify(fieldGuide(schema));
+}
+
+export function formatStructuredResponseGuide(guide, structured = false) {
+    if (structured) return 'Return one schema-valid JSON object with all required keys.';
+    return String(guide).startsWith('Field definitions')
+        ? `Return one JSON object following these definitions; arrayOf and type labels describe the format and are not output keys:\n${guide}`
+        : `Return one JSON object with this exact shape and all keys:\n${guide}`;
+}
+
+export const EXTRACTION_FIELD_GUIDE = schemaFieldGuide(extractionSchema);
+export const EXTRACTION_OUTPUT_CHECK = `Before sending this one response, silently check: each emitted record has its required identity and supported core content; unchanged categories are []; state set has a value and only explicit clear leaves it empty; characterProfile groups and all other list fields are arrays. Reuse supplied targetId only for the same record. Preserve distinct facts, attribution, conditions and chronology without repeating unchanged records. Unknown optional details stay empty, never guessed. Return complete JSON only; do not output field definitions or placeholder records.`;
+export const CHRONICLE_OUTPUT_CHECK = `Before sending this one response, silently check: title and summary contain supported content; participants, turningPoints and openThreads are arrays, even when empty; importance is an integer from 1 to 5. Preserve source order, attribution, uncertainty and distinct consequential details. Unknown time or optional context may stay empty; never invent missing transitions. Finish every sentence and close the JSON object. Return content, not field definitions or placeholders.`;
 
 export const EXTRACTION_COMPLETENESS_RULE = `Return complete source-supported records with nonblank identity and core content. Use [] for categories without additions or changes, never blank placeholder records. State set requires a nonblank value; only explicit clear allows an empty value. Unknown or missing values never imply clear. Leave unknown optional details empty; never invent dates, locations, ages, or previous state. Unknown characterProfile groups are []. Preserve distinct supported facts without repeating unchanged records.`;
 

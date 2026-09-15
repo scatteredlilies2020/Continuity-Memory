@@ -6,6 +6,10 @@ Continuity extracts events, facts, relationships, character states, and supporti
 
 Each chat has its own isolated memory. Continuity does not use, create, or modify SillyTavern Lorebooks or World Info, and it never edits chat messages.
 
+## What changes in 0.15.0-testing.22
+
+Extraction and Chronicle requests now include short first-response completion checks alongside their source material, including custom templates and detached jobs. Chronicle uses schema-derived field definitions instead of blank sample values; list descriptions and item limits remain visible in prompt-only requests. Unknown optional details stay unknown, while core summary text is requested explicitly. These changes aim to obtain usable output in the first request without extra model passes or removing distinct supported facts. Existing memory needs no rescan.
+
 ## What changes in 0.15.0-testing.21
 
 Extraction now requests complete supported records through shared field definitions instead of blank sample records. Prompt-only requests describe character profiles as arrays, matching the structured schema. Browser and detached jobs reject records with missing core identity or content before saving or advancing coverage; the existing two-attempt retry receives the missing field paths. Failed sections remain pending. Unknown optional details and explicit state clears remain valid, and unchanged categories use empty arrays.

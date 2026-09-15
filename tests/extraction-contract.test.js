@@ -62,3 +62,58 @@ test('browser extraction rejects incomplete records before reconciliation or sav
         sanitizeReconciliationMetadata: () => assert.fail('Incomplete output reached reconciliation'),
     }), { code: 'CM_INCOMPLETE_RECORDS' });
 });
+
+
+test('Chronicle field definitions require real core text without priming blank records', async () => {
+    const { chronicleParentSchema, schemaFieldGuide, formatStructuredResponseGuide } = await import('../extension/extraction-contract.js');
+    const guide = schemaFieldGuide(chronicleParentSchema);
+    const fields = JSON.parse(guide.slice(guide.indexOf('{')));
+    assert.equal(fields.title, 'string (nonblank)');
+    assert.equal(fields.summary, 'string (nonblank)');
+    assert.equal(fields.turningPoints.emptyArrayAllowed, true);
+    assert.equal(fields.turningPoints.maxItems, 8);
+    assert.match(fields.openThreads.description, /historical context/);
+    assert.match(formatStructuredResponseGuide(guide), /not output keys/);
+    assert.match(formatStructuredResponseGuide(guide, true), /schema-valid/);
+});
+
+test('custom and default extraction prompts include first-response checks in both transports', async () => {
+    const contract = await import('../extension/extraction-contract.js');
+    const prompts = await import('../extension/prompts.js');
+    const { readFileSync } = await import('node:fs');
+    const { runInNewContext } = await import('node:vm');
+    const engine = readFileSync(new URL('../extension/engine.js', import.meta.url), 'utf8');
+    for (const native of [false, true]) for (const template of [undefined, 'Custom task: {{messages}}']) {
+        const scope = { ...contract, ...prompts, runtime: { world: {} },
+            getSettings: () => ({ extractionTaskTemplate: template }), getContext: () => ({ chat: [] }),
+            extractionJsonSchema: {}, requestSupportsStructuredSchema: () => native,
+            precedingUserAttributionContext: () => '', formatExtractionMessages: () => 'SOURCE',
+            extractionStateContext: () => 'CANONICAL', extractionTemporalContext: () => 'TIME',
+            JSON_SHAPE_EXAMPLE: contract.EXTRACTION_FIELD_GUIDE,
+        };
+        const functions = ['renderStructuredTaskPrompt', 'prepareExtractionPrompts'].map(name => engine.match(new RegExp('function ' + name + '\\([^]*?^}', 'm'))[0]).join('\n');
+        const result = runInNewContext(functions + '\nprepareExtractionPrompts([], {});', scope);
+        for (const prompt of [result.prompt, result.fallbackPrompt]) {
+            assert.ok(prompt.includes(contract.EXTRACTION_OUTPUT_CHECK));
+            assert.ok(prompt.includes('SOURCE') && prompt.includes('CANONICAL') && prompt.includes('TIME'));
+        }
+    }
+});
+
+test('detached Chronicle and browser prompts use the same response definitions and first-response checks', async () => {
+    const contract = await import('../extension/extraction-contract.js');
+    const { renderPromptTemplate } = await import('../extension/prompts.js');
+    const { readFileSync } = await import('node:fs');
+    const { runInNewContext } = await import('node:vm');
+    const source = readFileSync(new URL('../plugin/detached-jobs.js', import.meta.url), 'utf8');
+    const layer = { taskTemplate: '{{format}}\n{{nodes}}\n' + contract.CHRONICLE_OUTPUT_CHECK,
+        valueKey: 'nodes', shapeExample: contract.schemaFieldGuide(contract.chronicleParentSchema) };
+    for (const withSchema of [false, true]) {
+        const prompt = runInNewContext(source.match(/function hierarchyPrompt\([^]*?^}/m)[0] + '\nhierarchyPrompt(layer, [], withSchema);', {
+            ...contract, renderPromptTemplate, formatChronicleNodes: () => 'SOURCE NODES', layer, withSchema,
+        });
+        assert.ok(prompt.includes(contract.CHRONICLE_OUTPUT_CHECK));
+        assert.ok(prompt.includes(contract.formatStructuredResponseGuide(layer.shapeExample, withSchema)));
+        assert.ok(prompt.includes('SOURCE NODES'));
+    }
+});

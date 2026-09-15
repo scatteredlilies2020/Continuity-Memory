@@ -1,4 +1,4 @@
-import { extractionSchema, EXTRACTION_FIELD_GUIDE, assertCompleteExtractionRecords, extractionCompletenessFeedback } from './extraction-contract.js?v=0.15.0-testing.21';
+import { extractionSchema, chronicleParentSchema, schemaFieldGuide, formatStructuredResponseGuide, EXTRACTION_OUTPUT_CHECK, CHRONICLE_OUTPUT_CHECK, EXTRACTION_FIELD_GUIDE, assertCompleteExtractionRecords, extractionCompletenessFeedback } from './extraction-contract.js?v=0.15.0-testing.22';
 import { LEGACY_DIGEST_RESCAN_MESSAGE } from './legacy-support.js';
 import { extractMessageFromData, generateRaw, getRequestHeaders } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
@@ -8,35 +8,35 @@ import { oai_settings, openai_setting_names, openai_settings, proxies } from '/s
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.21';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.22';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { normalizeHierarchyResult } from './hierarchy-result.js';
 import { captureScenarioContext } from './scenario-context.js';
 import { completeDigestMessages, latestCompleteDigestMessageIndex, digestStabilityRepairFrom, DIGEST_STABILITY_BUFFER_MESSAGES, partitionDigestStabilityBuffer, partitionPendingDigestMessages, resolveDigestGroupSize, selectAutomaticDigestMessages } from './digest-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.21';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.22';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedChronicle, freshResetResiduals, getLatestDigestUndoStatus as inspectLatestDigestUndo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.21';
-import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.21';
+import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.22';
+import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.22';
 import { embedWorldInChat } from './portable.js';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.21';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.21';
-import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.21';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.21';
-import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.21';
-import { isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.21';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.21';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.22';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.22';
+import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.22';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.22';
+import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.22';
+import { isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.22';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.22';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { resolveProfileThinkingMode } from './story-thinking.js?v=0.15.0-testing.21';
-import { stableStoryMessages } from './story-cadence.js?v=0.15.0-testing.21';
-import { compileRollingStorySnapshot } from './story-snapshot.js?v=0.15.0-testing.21';
-import { planStoryMutationRecovery } from './story-checkpoints.js?v=0.15.0-testing.21';
-import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.21';
+import { resolveProfileThinkingMode } from './story-thinking.js?v=0.15.0-testing.22';
+import { stableStoryMessages } from './story-cadence.js?v=0.15.0-testing.22';
+import { compileRollingStorySnapshot } from './story-snapshot.js?v=0.15.0-testing.22';
+import { planStoryMutationRecovery } from './story-checkpoints.js?v=0.15.0-testing.22';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.22';
 import { nextChroniclePromotion } from './chronicle.js';
 import { chronicleRetryFeedback, isRetryableChronicleError, retryChroniclePromotion } from './chronicle-retry.js';
 
@@ -49,25 +49,6 @@ const extractionJsonSchema = Object.freeze({
     value: extractionSchema,
 });
 
-const chronicleParentSchema = {
-    type: 'object',
-    additionalProperties: false,
-    required: ['title', 'storyTime', 'participants', 'summary', 'turningPoints', 'emotionalArc', 'closingState', 'openThreads', 'importance'],
-    properties: {
-        title: { type: 'string' },
-        storyTime: { type: 'string' },
-        participants: { type: 'array', items: { type: 'string' } },
-        summary: { type: 'string' },
-        turningPoints: { type: 'array', items: { type: 'string' }, maxItems: 8 },
-        emotionalArc: { type: 'string' },
-        closingState: { type: 'string' },
-        openThreads: {
-            type: 'array', items: { type: 'string' }, maxItems: 12,
-            description: 'Compatibility field: historical context notes at the covered point, not live open/closed statuses. Preserve evidenced plans, questions, conditions and deadlines without repeating the narrative.',
-        },
-        importance: { type: 'integer', minimum: 1, maximum: 5 },
-    },
-};
 
 const chronicleJsonSchema = Object.freeze({
     name: 'continuity_chronicle_parent',
@@ -117,10 +98,7 @@ Use exact category names and target IDs from the supplied candidate records. For
 Check every relevant representation of the mistake. In particular, update or remove a Digest capsule when it repeats the incorrect event; otherwise derived summaries can relearn the error.
 Do not alter unrelated details, invent unsupported events, create new Digest capsules, or edit chat messages. Return JSON only.`;
 
-const ARC_JSON_SHAPE_EXAMPLE = JSON.stringify({
-    title: '', storyTime: '', participants: [], summary: '', turningPoints: [],
-    emotionalArc: '', closingState: '', openThreads: [], importance: 3,
-});
+const ARC_JSON_SHAPE_EXAMPLE = schemaFieldGuide(chronicleParentSchema);
 
 const JSON_SHAPE_EXAMPLE = EXTRACTION_FIELD_GUIDE;
 
@@ -395,7 +373,7 @@ function prepareExtractionPrompts(messages, world = runtime.world) {
             : 'Capture major developments and useful recurring or persistent details without recording filler.';
     const profileId = settings.memoryProfileId;
     const usesStructuredSchema = requestSupportsStructuredSchema(extractionJsonSchema, profileId, 'extraction');
-    const taskTemplate = settings.extractionTaskTemplate ?? DEFAULT_EXTRACTION_TASK_TEMPLATE;
+    const taskTemplate = `${settings.extractionTaskTemplate ?? DEFAULT_EXTRACTION_TASK_TEMPLATE}\n\n${EXTRACTION_OUTPUT_CHECK}`;
     const attributionContext = precedingUserAttributionContext(getContext().chat || [], messages);
     const taskValues = {
         detail: detailInstruction,
@@ -482,11 +460,7 @@ function requestSupportsStructuredSchema(jsonSchema, profileId = getSettings().m
 function renderStructuredTaskPrompt(template, defaultTemplate, values, schemaExample, usesStructuredSchema, required = []) {
     const source = String(template ?? defaultTemplate);
     const usesFormatPlaceholder = source.includes('{{format}}');
-    const format = usesStructuredSchema
-        ? 'Return one schema-valid JSON object with all required keys.'
-        : schemaExample === EXTRACTION_FIELD_GUIDE
-            ? `Return one JSON object with all defined keys. Arrays contain records, not field-definition objects:\n${schemaExample}`
-            : `Return one JSON object with this exact shape and all keys:\n${schemaExample}`;
+    const format = formatStructuredResponseGuide(schemaExample, usesStructuredSchema);
     return renderPromptTemplate(source, {
         ...values,
         format,
@@ -859,7 +833,7 @@ function prepareDetachedChronicleLayer() {
         ...requests,
         placeholder,
         usesStructuredSchema,
-        taskTemplate: settings.chronicleTaskTemplate ?? DEFAULT_CHRONICLE_TASK_TEMPLATE,
+        taskTemplate: `${settings.chronicleTaskTemplate ?? DEFAULT_CHRONICLE_TASK_TEMPLATE}\n\n${CHRONICLE_OUTPUT_CHECK}`,
         shapeExample: ARC_JSON_SHAPE_EXAMPLE,
         valueKey: 'nodes',
     };
@@ -1283,7 +1257,7 @@ async function generateChroniclePromotion(nodes, previousError = null) {
     const directKind = settings.arcProfileId === DIRECT_PROFILE_ID ? 'summary' : 'extraction';
     const thinkingMode = settings.summaryThinkingMode;
     const usesStructuredSchema = requestSupportsStructuredSchema(chronicleJsonSchema, profileId, directKind, thinkingMode);
-    const task = settings.chronicleTaskTemplate ?? DEFAULT_CHRONICLE_TASK_TEMPLATE;
+    const task = `${settings.chronicleTaskTemplate ?? DEFAULT_CHRONICLE_TASK_TEMPLATE}\n\n${CHRONICLE_OUTPUT_CHECK}`;
     const values = { nodes: formatChronicleNodes(nodes) };
     const feedback = chronicleRetryFeedback(previousError);
     const prompt = renderStructuredTaskPrompt(task, task, values, ARC_JSON_SHAPE_EXAMPLE, usesStructuredSchema, ['nodes']) + feedback;

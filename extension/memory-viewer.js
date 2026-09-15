@@ -1,4 +1,4 @@
-import { supportingRecords } from './supporting-memories.js?v=0.15.0-testing.21';
+import { supportingRecords } from './supporting-memories.js?v=0.15.0-testing.22';
 import { formatEntityProfile } from './entity-profile.js';
 import { activeChronicleNodes } from './chronicle.js';
 

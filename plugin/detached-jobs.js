@@ -1,4 +1,4 @@
-import { assertCompleteExtractionRecords, extractionCompletenessFeedback } from '../extension/extraction-contract.js';
+import { assertCompleteExtractionRecords, extractionCompletenessFeedback, formatStructuredResponseGuide } from '../extension/extraction-contract.js';
 import crypto from 'node:crypto';
 
 import { isRateLimitError, isTransientApiError } from '../extension/errors.js';
@@ -190,9 +190,7 @@ function chronicleProvenanceBoundaries(nodes) {
 function hierarchyPrompt(layer, records, withSchema) {
     const source = String(layer.taskTemplate || '');
     const usesFormatPlaceholder = source.includes('{{format}}');
-    const format = withSchema
-        ? 'Return one schema-valid JSON object with all required keys.'
-        : `Return one JSON object with this exact shape and all keys:\n${layer.shapeExample}`;
+    const format = formatStructuredResponseGuide(layer.shapeExample, withSchema);
     return renderPromptTemplate(source, {
         [layer.valueKey]: formatChronicleNodes(records),
         format,
