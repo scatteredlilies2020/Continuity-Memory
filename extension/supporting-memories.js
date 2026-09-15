@@ -1,4 +1,4 @@
-import { anchoredRelativeText } from './temporal-anchors.js';
+import { anchoredRelativeText, anchoredStoryTime } from './temporal-anchors.js';
 // The two legacy collections remain on disk for import, replay and Git-upgrade compatibility.
 // Their contents are evidence at a source boundary, never an outstanding-task register.
 const text = value => String(value ?? '').trim();
@@ -105,15 +105,16 @@ export function supportingRecords(world, collection) {
     });
 }
 
-export function supportingEvidenceText(item) {
+export function supportingEvidenceText(item, { compact = false } = {}) {
     const ranges = unique((item.sources || []).filter(source => Number.isFinite(Number(source.from))
         && Number.isFinite(Number(source.to))).map(source => `${source.chatKey || 'source'} messages ${source.from}–${source.to}`));
     const at = ranges.length ? ranges.join('; ') : 'stored source; time unspecified';
     const anchorId = item.temporalAnchorId || item.temporal?.anchorId || item.temporal?.referenceId || item.temporalAnchorIds?.join(' … ');
     const raw = `${item.title || item.topic}: ${item.detail || item.summary}${item.participants?.length ? ` [${item.participants.join(', ')}]` : ''}`;
     const body = anchoredRelativeText(raw, item);
-    const anchor = anchorId && body === raw ? `; relative to ${anchorId}` : '';
-    const temporal = item.temporal ? `; time evidence ${JSON.stringify(item.temporal)}` : '';
+    const anchor = anchorId && body === raw && !(compact && item.temporal) ? `; relative to ${anchorId}` : '';
+    const timing = compact && item.temporal ? [anchoredStoryTime(item), item.temporal.certainty ? `${item.temporal.certainty} timing` : ''].filter(Boolean).join('; ') : '';
+    const temporal = item.temporal ? (compact ? `; ${timing || 'time unspecified'}` : `; time evidence ${JSON.stringify(item.temporal)}`) : '';
     const certainty = item.certainty ? `; ${item.certainty}` : '';
     return `[Historical observation — ${at}${anchor}${certainty}${temporal}] ${body}`;
 }

@@ -1,5 +1,5 @@
-import { supportingRecords, supportingEvidenceText } from './supporting-memories.js';
-const STOP_WORDS = new Set('a an the and that this with from into have has had was were are am can did does will shall may might must for but not never neither nor you your they them their she her him his its our out about just then than there here what when where who how why would could should been being also very more most some any all to of in on at as by or if it is be do we he me my up no so us during between through within without among around'.split(' '));
+import { supportingRecords, supportingEvidenceText } from './supporting-memories.js?v=0.15.0-testing.18';
+const STOP_WORDS = new Set('a an the and that this with from into have has had was were are am can did does will shall may might must for but not never neither nor you your they them their she her him his its our out about just then than there here what when where who how why would could should been being also very more most some any all to of in on at as by or if it is be do we he me my up no so us during between through within without among around these those having already enough still really much many someone something anything everything nothing themselves himself herself myself itself each every other another such both either same only even yet else once again now then'.split(' '));
 const IRREGULAR_NEGATIVE_BASES = new Map([
     ['ca', 'can'],
     ['wo', 'will'],
@@ -7,7 +7,7 @@ const IRREGULAR_NEGATIVE_BASES = new Map([
     ['ai', 'am'],
 ]);
 const CJK_RUN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
-const LIFECYCLE_GUIDANCE = 'Facts are objective canon within their stated scope unless corrected; perspectives and reports are not. Entity rows describe only their entity. Relationship ↔ has no directional role; use its Description and established facts. Current state describes confirmed excerpt-end conditions. Other records retain their stated timing, conditions, and certainty; plans are not outcomes. Do not infer past/current/future, permanence, expiry, resolution, or universal scope merely from storage, recency, or silence. Preserve explicit chronology and supported changes; leave unspecified timing unspecified.';
+const LIFECYCLE_GUIDANCE = 'Facts are objective canon within their stated scope unless corrected; perspectives and reports are not. Entity descriptions are recorded profiles of their named subject; newer evidence governs mutable conditions. Relationship ↔ has no directional role; use its Description and established facts. Current state describes confirmed excerpt-end conditions. Other records retain their stated timing, conditions, and certainty; plans are not outcomes. Do not infer past/current/future, permanence, expiry, resolution, or universal scope merely from storage, recency, or silence. Preserve explicit chronology and supported changes; leave unspecified timing unspecified.';
 // This is deliberately separate from the user-editable injection instruction.
 // Retrieval returns independent evidence rows; the roleplay model must not
 // turn nearby fragments into a new witnessed event or an invented date.
@@ -23,7 +23,8 @@ const RETRIEVAL_FIELDS = {
 
 import { isFreshActiveState, latestSourceInRawTail, latestSourceRange, sourcedWhollyInRawTail, sourcedFromInvalidExtraction } from './state-lifecycle.js';
 import { anchoredRelativeText, anchoredStoryTime } from './temporal-anchors.js';
-import { retrievalMessageText } from './retrieval-query.js';
+import { retrievalMessageText } from './retrieval-query.js?v=0.15.0-testing.18';
+import { compactPromptProvenance } from './prompt-provenance.js?v=0.15.0-testing.18';
 import { formatEntityProfile } from './entity-profile.js';
 import { renderChronicleFrontier } from './chronicle.js';
 
@@ -283,17 +284,16 @@ function containsTokenSequence(source, sequence) {
     return source.some((_, start) => sequence.every((term, offset) => source[start + offset] === term));
 }
 
+function resolvedIdentities(world, values) {
+    const sources = (values || []).map(value => tokenList(value));
+    return (world?.entities || []).filter(entity => {
+        const variants = [entity?.name, ...(entity?.aliases || [])].map(value => tokenList(value)).filter(value => value.length);
+        return variants.some(variant => sources.some(source => containsTokenSequence(source, variant)));
+    });
+}
+
 function resolvedIdentityTerms(world, values) {
-    const source = (values || []).flatMap(value => tokenList(value));
-    const resolved = new Set();
-    for (const entity of world?.entities || []) {
-        const variants = [entity?.name, ...(entity?.aliases || [])]
-            .map(value => tokenList(value))
-            .filter(value => value.length);
-        if (!variants.some(variant => containsTokenSequence(source, variant))) continue;
-        for (const term of terms(entity?.name, true)) resolved.add(term);
-    }
-    return resolved;
+    return new Set(resolvedIdentities(world, values).flatMap(entity => [...terms(entity.name, true)]));
 }
 
 function retrievalRecords(world) {
@@ -400,6 +400,12 @@ function retrievalProfile(world, recentMessages, expandedTerms) {
         .filter(group => group.size >= 2)
         .filter(group => !directIdentities.length || directIdentities.some(term => group.has(term)))
         .slice(-64);
+    const recentIdentityGroups = resolvedIdentities(world, recent.slice(-2).map(retrievalMessageText))
+        .map(entity => [...terms(entity.name)])
+        .filter(group => group.length);
+    const recentIdentityFocus = new Set(recentIdentityGroups.flat());
+    const speakerIdentities = resolvedIdentityTerms(world, [latestUser?.name]);
+    for (const term of speakerIdentities) if (!direct.has(term)) recentIdentityFocus.delete(term);
     const identityFocus = new Set([...direct, ...resolvedIdentityTerms(world, [latestUser?.name, directText])]);
     for (const term of speaker) {
         if (queryTermVariants(term, true).some(variant => identityVocabulary.has(variant))) identityFocus.add(term);
@@ -414,6 +420,8 @@ function retrievalProfile(world, recentMessages, expandedTerms) {
         context,
         contextGroups,
         directIdentities,
+        recentIdentityFocus,
+        recentIdentityGroups: recentIdentityGroups.filter(group => group.every(term => recentIdentityFocus.has(term))),
         focus,
         identityFocus,
         documentCount,
@@ -658,6 +666,23 @@ function contextualEvidence(stats, profile) {
     return best;
 }
 
+function semanticFocusMatch(stats, profile, position) {
+    if (!position) return false;
+    // A small discovery allowance preserves semantic recall without literal
+    // keyword overlap. Lower-ranked candidates need independent current focus;
+    // top-K is a candidate pool, not a quota for every category to fill.
+    const discoveryLimit = 8;
+    if (position <= discoveryLimit) return true;
+    const identityMatch = (profile.recentIdentityGroups || []).some(group => group.every(term =>
+        fieldHasQueryTerm(stats.fields.identity, term, true) || fieldHasQueryTerm(stats.fields.anchor, term, true)));
+    if (!identityMatch) return false;
+    const frequencyLimit = Math.max(4, Math.ceil(profile.documentCount * 0.02));
+    return (profile.contextGroups || []).some(group => [...group].some(term =>
+        !profile.identityVocabulary.has(term) && !term.startsWith('~')
+        && (profile.documentFrequency.get(term) || 0) <= frequencyLimit
+        && (fieldHasQueryTerm(stats.fields.heading, term, true) || fieldHasQueryTerm(stats.fields.body, term, true))));
+}
+
 function rank(items, query, extra = () => 0, category = '', semanticRanks = new Map()) {
     const profile = query?.focus instanceof Set
         ? query
@@ -745,6 +770,9 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
             .sort((a, b) => b.score - a.score)[0] || { score: 0, terms: [] };
         const contextEligible = contextual.score > 0 && (!isAddressFact(item)
             || (profile.contextGroups || []).some(group => pairedIdentityMatch(item, group, true)));
+        const vectorPosition = semanticRank(semanticRanks, category, item);
+        const semanticEligible = vectorPosition > 0 && (directEligible || expandedEligible || contextEligible
+            || semanticFocusMatch(stats, profile, vectorPosition));
         const eligible = directEligible || expandedEligible || contextEligible;
         const directContentMatches = directMatches.filter(term => !queryTermVariants(term, true)
             .some(variant => profile.identityVocabulary.has(variant)));
@@ -783,7 +811,8 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
             directScore,
             expandedScore,
             localScore,
-            semanticRank: semanticRank(semanticRanks, category, item),
+            semanticRank: vectorPosition,
+            semanticEligible,
         };
     });
     const sourceRanks = (scoreKey, eligibilityKey) => new Map(prepared
@@ -811,7 +840,7 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
             ? result.directDiminishingMultiplier / (RRF_OFFSET + result.directRank)
             : 0;
         const expandedRrf = result.expandedRank ? 1 / (RRF_OFFSET + result.expandedRank) : 0;
-        const semanticRrf = result.semanticRank > 0 ? 1 / (RRF_OFFSET + result.semanticRank) : 0;
+        const semanticRrf = result.semanticEligible ? 1 / (RRF_OFFSET + result.semanticRank) : 0;
         const contextRrf = result.contextRank ? 0.5 / (RRF_OFFSET + result.contextRank) : 0;
         result.score = (directRrf + expandedRrf + semanticRrf + contextRrf) * 1000 + result.localScore * 0.01;
     }
@@ -820,7 +849,7 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
 
 function matching(items, query, extra = () => 0, category = '', semanticRanks = new Map()) {
     return rank(items, query, extra, category, semanticRanks)
-        .filter(result => result.eligible || result.semanticRank > 0);
+        .filter(result => result.eligible || result.semanticEligible);
 }
 
 function limitRelationshipPairs(results, maximumPerPair = 1) {
@@ -1011,12 +1040,15 @@ function retainSupportForSeed(seedSelection, ranked, profile, depthScale = 1) {
     // query or a rare bridge from recent context. A shared source alone is not
     // enough. This avoids turning an AI-assigned importance value into a hard
     // retrieval decision.
-    const contextOnly = seedSelection.result?.contextEligible
-        && !seedSelection.result?.directEligible && !seedSelection.result?.expandedEligible
-        && !(seedSelection.result?.semanticRank > 0);
-    const contextRelevant = contextOnly
-        ? ranked.filter(result => result.connection.explicitRecordLinked
-            || contextualEvidence(profile.recordStats.get(result.item) || retrievalFieldStats(result.item), profile).score > 0)
+    const indirectSeed = !seedSelection.result?.directEligible
+        && (seedSelection.result?.contextEligible || seedSelection.result?.semanticEligible || seedSelection.result?.expandedEligible);
+    const contextRelevant = indirectSeed && !indirectRelationship
+        ? ranked.filter(result => {
+            const stats = profile.recordStats.get(result.item) || retrievalFieldStats(result.item);
+            return result.connection.explicitRecordLinked || contextualEvidence(stats, profile).score > 0
+                || coherentConceptMatch(stats, profile, profile.expandedGroups)
+                || compactConceptMatch(stats, profile, profile.expandedGroups);
+        })
         : ranked;
     const eligibleRanked = indirectRelationship
         ? contextRelevant.filter(result => queryEvidenceConfidence({ item: result.item, result }, profile) >= 0.2
@@ -1262,11 +1294,27 @@ function memoryRowKey(category, item) {
     return item?.id ? `${category}:${item.id}` : '';
 }
 
-function memoryRow(category, item, text) {
-    return { text, key: memoryRowKey(category, item) };
+function factEvidenceKey(item) {
+    // Ignore storage bookkeeping only. Subject, scope, timing, certainty, and
+    // every other evidence field must match exactly before sharing a row.
+    const bookkeeping = new Set(['id', 'sources', 'createdAt', 'updatedAt', 'importance', 'revision']);
+    const canonical = value => Array.isArray(value) ? value.map(canonical)
+        : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+    const evidence = Object.fromEntries(Object.entries(item || {}).filter(([key]) => !bookkeeping.has(key)));
+    const hasAnchor = [item?.temporalAnchorId, item?.temporal?.anchorId, item?.temporal?.referenceId, ...(item?.temporalAnchorIds || [])].some(Boolean);
+    if (!hasAnchor && anchoredRelativeText(item?.value, item) !== plain(item?.value)) {
+        // Legacy 'tomorrow' assertions from different excerpts need not refer
+        // to the same day. Preserve their provenance until an anchor is known.
+        evidence.unresolvedTemporalSources = item?.sources || [];
+    }
+    return `fact-evidence:${JSON.stringify(canonical(evidence))}`;
 }
 
-function addFairSections(parts, sections, budget, admitted = new Set(), packed = []) {
+function memoryRow(category, item, text) {
+    return { text, key: memoryRowKey(category, item), ...(category === 'fact' ? { equivalenceKey: factEvidenceKey(item) } : {}) };
+}
+
+function addFairSections(parts, sections, budget, admitted = new Set(), packed = [], formatText = text => text) {
     const populated = sections.filter(section => section.rows.length > 0);
     if (!populated.length) return admitted;
 
@@ -1279,9 +1327,10 @@ function addFairSections(parts, sections, budget, admitted = new Set(), packed =
         while (nextRows[index] < populated[index].rows.length) {
             const candidate = populated[index].rows[nextRows[index]];
             const rendered = typeof candidate === 'function' ? candidate(admitted) : candidate;
-            const row = typeof rendered === 'string' ? { text: rendered } : rendered;
+            const original = typeof rendered === 'string' ? { text: rendered } : rendered;
+            const row = original?.text ? { ...original, text: formatText(original.text) } : original;
             const textKey = `text:${plain(row?.text).toLocaleLowerCase()}`;
-            if (row?.text && !admitted.has(textKey) && !(row.key && admitted.has(row.key))) {
+            if (row?.text && (row.equivalenceKey || !admitted.has(textKey)) && !(row.key && admitted.has(row.key)) && !(row.equivalenceKey && admitted.has(row.equivalenceKey))) {
                 return { ...row, textKey };
             }
             nextRows[index]++;
@@ -1291,9 +1340,9 @@ function addFairSections(parts, sections, budget, admitted = new Set(), packed =
     const admit = (index, row) => {
         selected[index].push(row.text);
         packed.push({ section: populated[index].title, key: row.key || null,
-            provides: row.provides || [], kind: row.kind || 'record', characters: row.text.length });
+            provides: [...(row.provides || []), ...(row.equivalenceKey ? [row.equivalenceKey] : [])], kind: row.kind || 'record', characters: row.text.length });
         nextRows[index]++;
-        for (const key of [row.textKey, row.key, ...(row.provides || [])].filter(Boolean)) admitted.add(key);
+        for (const key of [row.textKey, row.key, row.equivalenceKey, ...(row.provides || [])].filter(Boolean)) admitted.add(key);
     };
 
     // The recall allowance is a soft packing target, not a text-cutting
@@ -1358,6 +1407,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
             aiExpanded: [...queryTerms.expanded],
             aiExpandedGroups: queryTerms.expandedGroups.map(group => [...group]),
             recentContextGroups: queryTerms.contextGroups.map(group => [...group]),
+            recentIdentityFocus: [...queryTerms.recentIdentityFocus],
         },
         selections: [],
         packed: [],
@@ -1398,6 +1448,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
                 aiExpandedRank: result?.expandedRank || 0,
                 score: Number.isFinite(result?.score) ? Number(result.score.toFixed(4)) : null,
                 semanticRank: result?.semanticRank || 0,
+                semanticEligible: Boolean(result?.semanticEligible),
                 supportSeedConfidence: Number.isFinite(result?.seedConfidence)
                     ? Number(result.seedConfidence.toFixed(4))
                     : null,
@@ -1441,7 +1492,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     ].map(plain).filter(Boolean).join(' ').toLocaleLowerCase();
     const explicitlyFocused = value => {
         const needle = plain(value).toLocaleLowerCase();
-        return Boolean(needle && currentFocusText.includes(needle));
+        return Boolean(needle && containsTokenSequence(tokenList(currentFocusText), tokenList(needle)));
     };
 
     let storyBlock = '';
@@ -1502,7 +1553,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         () => 20,
         'fact',
         semanticRanks,
-    ).filter(result => result.eligible || result.semanticRank > 0 || boundaryHolderIsInContext(result.item, queryTerms)).slice(0, 12));
+    ).filter(result => result.eligible || result.semanticEligible || boundaryHolderIsInContext(result.item, queryTerms)).slice(0, 12));
     addSection('Knowledge boundaries — hard constraints', knowledgeBoundaryResults.map(({ item }) => memoryRow('fact', item,
         `- ${plain(item.subject)} — ${plain(item.predicate)}: ${plain(item.value)} [HARD LIMIT: world truth elsewhere does not grant this character knowledge.]`)));
 
@@ -1551,11 +1602,11 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
             .map(result => ({ ...result, category: 'thread' })),
         ...rank(supportingBackgroundItems.filter(item => !whollyRaw(item)), queryTerms, () => 0, 'background', semanticRanks)
             .map(result => ({ ...result, category: 'background' })),
-    ].filter(result => result.eligible || result.semanticRank > 0)
+    ].filter(result => result.eligible || result.semanticEligible)
         .sort((a, b) => b.score - a.score).slice(0, 16);
     for (const result of rankedSupporting) recordSelections('Supporting memories', result.category, [result]);
     addSection('Supporting memories', rankedSupporting.map(({ category, item }) =>
-        memoryRow(category, item, `- ${supportingEvidenceText(item)}`)));
+        memoryRow(category, item, `- ${supportingEvidenceText(item, { compact: true })}`)));
 
     const entityPool = (world.entities || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item));
     const matchedEntities = takeMatches('Entities', 'entity', entityPool, 12);
@@ -1572,20 +1623,29 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     recordSelections('Entities', 'entity', focusedEntities, 'explicit current mention');
     const entities = [...matchedEntities, ...focusedEntities]
         .map(({ item }) => admitted => {
+            const explicitlyAskedIdentity = [...identityTerms(item)].some(term => queryTerms.direct.has(term));
             const identityFacts = availableFacts
                 .filter(fact => !isAttributedBeliefFact(fact) && !isAddressFact(fact) && !isKnowledgeBoundaryFact(fact)
                     && plain(fact.subject).toLocaleLowerCase() === plain(item.name).toLocaleLowerCase()
                     && fact.persistence === 'persistent'
                     && Number(fact.importance || 0) >= 4)
+                .filter(fact => explicitlyAskedIdentity || selectedMemoryRecords.some(selection => selection.item.id === fact.id))
                 .sort((left, right) => Number(right.importance || 0) - Number(left.importance || 0))
-                .slice(0, 2)
-                .filter(fact => !admitted.has(memoryRowKey('fact', fact)));
-            const canon = identityFacts.length ? `; established canon: ${identityFacts
+                .filter((fact, index, all) => all.findIndex(other => factEvidenceKey(other) === factEvidenceKey(fact)) === index)
+                .filter(fact => !admitted.has(memoryRowKey('fact', fact)) && !admitted.has(factEvidenceKey(fact)))
+                .slice(0, 2);
+            const canon = identityFacts.length ? `established canon: ${identityFacts
                 .map(fact => `${plain(fact.predicate)}: ${anchoredRelativeText(fact.value, fact)}`).join(' | ')}` : '';
             const description = formatEntityProfile(item) || plain(item.description);
+            const source = latestSourceRange(item, chatKey);
+            const sourceLabel = description && source
+                ? ` [profile source: ${source.chatKey || 'source'} messages ${source.from}–${source.to}]` : '';
+            const detail = [description ? `${description}${sourceLabel}` : '', canon,
+                item.aliases?.length ? `aliases: ${item.aliases.join(', ')}` : ''].filter(Boolean).join('; ');
+            if (!detail) return null;
             return {
-                ...memoryRow('entity', item, `- ${item.name}${item.type ? ` (${item.type})` : ''}: ${description}${canon}${item.aliases?.length ? `; aliases: ${item.aliases.join(', ')}` : ''}`),
-                provides: identityFacts.map(fact => memoryRowKey('fact', fact)),
+                ...memoryRow('entity', item, `- ${item.name}${item.type ? ` (${item.type})` : ''}: ${detail}`),
+                provides: identityFacts.flatMap(fact => [memoryRowKey('fact', fact), factEvidenceKey(fact)]),
             };
         });
     addSection('Entities', entities);
@@ -1775,7 +1835,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
                 .filter(Boolean).join(' ');
             return `- [relationship] ${item.from} ↔ ${item.to}: ${anchoredRelativeText(body, item)}`;
         }
-        if (category === 'thread' || category === 'background') return `- ${supportingEvidenceText(item)}`;
+        if (category === 'thread' || category === 'background') return `- ${supportingEvidenceText(item, { compact: true })}`;
         if (category === 'event') {
             const storyTime = anchoredStoryTime(item);
             const detail = `${item.summary}${item.consequences ? ` Consequence: ${item.consequences}` : ''}`;
@@ -1802,7 +1862,8 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         supportRow(result),
     )));
 
-    const admitted = addFairSections(parts, sections, budget, new Set(), retrievalDiagnostics.packed);
+    const formatPromptText = text => compactPromptProvenance(text, world, chatKey);
+    const admitted = addFairSections(parts, sections, budget, new Set(), retrievalDiagnostics.packed, formatPromptText);
     // The ledger is a fallback, not a second rendering of full recall. Wait
     // until packing finishes so supporting records count too, while records
     // selected but not packed still keep their fallback. Chronicle coverage
@@ -1821,17 +1882,18 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     // No unconditional plan or background reminders: stored evidence is recalled by relevance.
     addFairSections(parts, [{ title: 'Compact continuity ledger', rows: [
         ...compactEvents.map(item => ({ ...memoryRow('event', item, `- Event ledger (latest): ${plain(item.title)}`), kind: 'title' })),
-    ] }], budget, admitted, retrievalDiagnostics.packed);
+    ] }], budget, admitted, retrievalDiagnostics.packed, formatPromptText);
     const packedKeys = new Set(retrievalDiagnostics.packed.filter(row => row.kind !== 'title').flatMap(row => [row.key, ...row.provides]).filter(Boolean));
     for (const selection of retrievalDiagnostics.selections) {
         const category = ['address', 'perspective'].includes(selection.category) ? 'fact' : selection.category;
-        selection.injected = packedKeys.has(memoryRowKey(category, selection));
+        const fact = category === 'fact' ? availableFacts.find(item => item.id === selection.id) : null;
+        selection.injected = packedKeys.has(memoryRowKey(category, selection)) || Boolean(fact && packedKeys.has(factEvidenceKey(fact)));
     }
-    if (storyBlock) parts.value += storyBlock;
+    if (storyBlock) parts.value += formatPromptText(storyBlock);
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.17';
-import { embeddingRecordKey } from './embedding-index.js?v=0.15.0-testing.17';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.18';
+import { embeddingRecordKey } from './embedding-index.js?v=0.15.0-testing.18';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';

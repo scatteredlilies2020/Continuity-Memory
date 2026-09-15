@@ -50,8 +50,8 @@ test('deictic wording remains bound to the immutable Digest where it was recorde
     assert.equal(target.facts[0].temporalAnchorId, firstAnchor);
     assert.equal(target.threads[0].temporalAnchorId, firstAnchor);
     const prompt = buildMemoryPrompt(target, [{ name: 'User', mes: 'What about the meeting and call?' }], 3000, chatKey).prompt;
-    assert.match(prompt, new RegExp(`yesterday[^\\n]*relative to ${firstAnchor}`, 'i'));
-    assert.match(prompt, new RegExp(`tomorrow \\(relative to ${firstAnchor}\\)`, 'i'));
+    assert.match(prompt, /yesterday[^\n]*relative to this chat messages 0–7/i);
+    assert.match(prompt, /tomorrow \(relative to this chat messages 0–7\)/i);
 });
 
 test('retrieval injection forbids cross-record event and time fusion', () => {
