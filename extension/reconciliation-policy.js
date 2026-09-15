@@ -1,10 +1,10 @@
-import { normalizeSupportingResult } from './supporting-memories.js?v=0.15.0-testing.19';
+import { normalizeSupportingResult } from './supporting-memories.js?v=0.15.0-testing.20';
 import { canonicalMemorySubject, canonicalStateAttribute, isActiveState, stateIdentity } from './state-lifecycle.js';
 import { canonicalCharacterProfileField, characterProfileDetailIsAdmissible, durableCharacterProfileDetail, entityProfile as storedEntityProfile, formatEntityProfile, normalizeEntityProfile } from './entity-profile.js';
 import { canonicalProseIsThirdPerson, thirdPersonOnlyProse } from './canonical-prose.js';
 import { EXTRACTION_VERSION } from './coverage.js';
 import { randomUuid } from './uuid.js';
-import { splitScenarioNotes } from './extraction-context.js?v=0.15.0-testing.19';
+import { splitScenarioNotes } from './extraction-context.js?v=0.15.0-testing.20';
 
 export const TARGET_RECORD_CATEGORIES = Object.freeze(['entities', 'facts', 'states', 'relationships', 'threads', 'backgrounds']);
 

@@ -1,5 +1,5 @@
 import { getRequestHeaders } from '/script.js';
-import { createFileStorageApi } from './file-storage.js?v=0.15.0-testing.19';
+import { createFileStorageApi } from './file-storage.js?v=0.15.0-testing.20';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 
 const BASE = '/api/plugins/continuity-memory';
@@ -49,10 +49,15 @@ async function getBackend() {
                 const health = await pluginApi.health();
                 return { api: pluginApi, health };
             } catch (error) {
-                if (error.status !== 404) console.warn('[Continuity] Server storage plugin unavailable; using SillyTavern file storage.', error);
+                // A disconnected phone or restarting server does not prove
+                // the plugin is absent. Retry discovery on the next call.
+                if (error.status !== 404) throw error;
                 return { api: fileApi, health: null };
             }
-        })();
+        })().catch(error => {
+            backendPromise = null;
+            throw error;
+        });
     }
     return await backendPromise;
 }

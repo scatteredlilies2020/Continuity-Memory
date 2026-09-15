@@ -5,34 +5,34 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.19';
+import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.20';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.19';
-import { clearRetrievalExpansionCache, expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.19';
-import { resolveRetrievalAssist } from './retrieval-assist.js?v=0.15.0-testing.19';
+import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.20';
+import { clearRetrievalExpansionCache, expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.20';
+import { resolveRetrievalAssist } from './retrieval-assist.js?v=0.15.0-testing.20';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
 import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.19';
-import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.15.0-testing.19';
-import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.19';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.20';
+import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.15.0-testing.20';
+import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.20';
 import { completeDigestMessageCount, latestCompleteDigestMessageIndex, resolveDigestGroupSize, validateDigestGroupSize } from './digest-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.19';
-import { queryEmbeddingMemory, embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.19';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.19';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.20';
+import { queryEmbeddingMemory, embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.20';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.20';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.19';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.19';
-import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.15.0-testing.19';
-import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.15.0-testing.19';
+import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.20';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.20';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.15.0-testing.20';
+import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.15.0-testing.20';
 import { createRenderScheduler } from './render-scheduler.js';
-import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.19';
-import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.19';
+import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.20';
+import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.20';
 import { isTransientApiError } from './errors.js';
 
 let worlds = [];
@@ -52,6 +52,7 @@ let liveUiRecoveryNeeded = false;
 let liveUiRecoveryPromise = null;
 let lastLiveUiRecoveryAt = Date.now();
 const LIVE_UI_RECOVERY_INTERVAL = 30000;
+let scheduleResumedMemoryMaintenance = null;
 const DIRECT_KINDS = Object.freeze(['extraction', 'retrieval', 'correction', 'summary']);
 const DIRECT_PROFILE_SETTINGS = Object.freeze({
     extraction: 'memoryProfileId',
@@ -484,6 +485,8 @@ function recoverLiveUiAfterResume(forceReload = false) {
     if (!forceReload && !liveUiRecoveryNeeded && !stale) return;
     liveUiRecoveryNeeded = false;
     if (liveUiRecoveryPromise) return;
+    const recoveryChatKey = getChatKey();
+    const stopSequence = runtime.stopSequence;
     liveUiRecoveryPromise = (async () => {
         await new Promise(resolve => requestAnimationFrame(resolve));
         const world = await refreshWorlds();
@@ -493,6 +496,8 @@ function recoverLiveUiAfterResume(forceReload = false) {
             await inspectEmbeddingIndex(world);
         }
         lastLiveUiRecoveryAt = Date.now();
+        if (getSettings().enabled && !runtime.paused && runtime.stopSequence === stopSequence
+            && getChatKey() === recoveryChatKey) scheduleResumedMemoryMaintenance?.();
         repaintLiveSettings();
     })().catch(error => {
         updateRuntime({ lastError: `Could not restore Continuity after browser resume: ${error.message}` });
@@ -519,6 +524,7 @@ function installLiveUiRecoveryListeners() {
         recoverLiveUiAfterResume(Boolean(event.persisted) || liveUiRecoveryNeeded);
     });
     window.addEventListener('focus', () => recoverLiveUiAfterResume(false));
+    window.addEventListener('online', () => recoverLiveUiAfterResume(true));
 }
 
 function settingWarning(message) {
@@ -1864,6 +1870,7 @@ function cancelCorrection() {
 }
 
 export function initUI({ scheduleMemoryMaintenance = null } = {}) {
+    scheduleResumedMemoryMaintenance = scheduleMemoryMaintenance;
     const settings = getSettings();
     installNativeChatExportBridge();
     installReviewRecoveryListeners();

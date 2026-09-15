@@ -7,35 +7,35 @@ import { oai_settings, openai_setting_names, openai_settings, proxies } from '/s
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.19';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.20';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { normalizeHierarchyResult } from './hierarchy-result.js';
 import { captureScenarioContext } from './scenario-context.js';
 import { completeDigestMessages, latestCompleteDigestMessageIndex, digestStabilityRepairFrom, DIGEST_STABILITY_BUFFER_MESSAGES, partitionDigestStabilityBuffer, partitionPendingDigestMessages, resolveDigestGroupSize, selectAutomaticDigestMessages } from './digest-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.19';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.20';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedChronicle, freshResetResiduals, getLatestDigestUndoStatus as inspectLatestDigestUndo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.19';
-import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.19';
+import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.20';
+import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.20';
 import { embedWorldInChat } from './portable.js';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.19';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.19';
-import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.19';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.19';
-import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.19';
-import { isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.19';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.19';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.20';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.20';
+import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.20';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.20';
+import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.20';
+import { isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.20';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.20';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { resolveProfileThinkingMode } from './story-thinking.js?v=0.15.0-testing.19';
-import { stableStoryMessages } from './story-cadence.js?v=0.15.0-testing.19';
-import { compileRollingStorySnapshot } from './story-snapshot.js?v=0.15.0-testing.19';
-import { planStoryMutationRecovery } from './story-checkpoints.js?v=0.15.0-testing.19';
-import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.19';
+import { resolveProfileThinkingMode } from './story-thinking.js?v=0.15.0-testing.20';
+import { stableStoryMessages } from './story-cadence.js?v=0.15.0-testing.20';
+import { compileRollingStorySnapshot } from './story-snapshot.js?v=0.15.0-testing.20';
+import { planStoryMutationRecovery } from './story-checkpoints.js?v=0.15.0-testing.20';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.20';
 import { nextChroniclePromotion } from './chronicle.js';
 import { chronicleRetryFeedback, isRetryableChronicleError, retryChroniclePromotion } from './chronicle-retry.js';
 
@@ -1044,11 +1044,33 @@ function prepareDetachedHierarchyPlan() {
 
 async function waitForDetachedJob(id, worldId = '', expectedEpoch = null) {
     let syncedChunks = 0;
-    while (true) {
-        const { job } = await api.getExtractionJob(id);
-        if (expectedEpoch !== null && (runtime.generation !== expectedEpoch || runtime.paused)) {
+    let connectionFailures = 0;
+    const epoch = expectedEpoch ?? runtime.generation;
+    const chatKey = getChatKey();
+    const assertCurrent = () => {
+        if (runtime.generation !== epoch || runtime.paused || getChatKey() !== chatKey
+            || worldId && getBoundWorldId() !== worldId) {
             throw Object.assign(new Error('Processing stopped; detached progress will be reloaded with its chat.'), { code: RUNTIME_CANCELLED_CODE });
         }
+    };
+    while (true) {
+        assertCurrent();
+        let job;
+        try {
+            ({ job } = await api.getExtractionJob(id));
+            connectionFailures = 0;
+        } catch (error) {
+            assertCurrent();
+            if (!isTransientApiError(error)) throw error;
+            const delay = Math.min(30000, 2000 * (2 ** Math.min(4, connectionFailures++)));
+            updateRuntime({ status: 'reconnecting', lastError: '',
+                lastValidation: 'Connection interrupted; checking the existing server memory job again. Saved chunks are safe.' });
+            // Poll the same job after a transport loss; never start another AI
+            // request merely because its status could not reach the browser.
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+        }
+        assertCurrent();
         const hierarchyPhase = job.phase === 'chronicle';
         updateRuntime({
             status: job.status === 'complete' ? 'processing' : job.status,
@@ -1067,10 +1089,12 @@ async function waitForDetachedJob(id, worldId = '', expectedEpoch = null) {
         if (worldId && detachedProgressNeedsRefresh(syncedChunks, job)) {
             try {
                 const world = (await api.getWorld(worldId)).world;
+                assertCurrent();
                 updateRuntime({ world });
                 await embedWorldInChat(world);
                 syncedChunks = Number(job.chunks) || syncedChunks;
             } catch (error) {
+                if (isRuntimeCancellation(error)) throw error;
                 // Canonical Digest is already safe in server storage. A temporary
                 // browser refresh failure must not cancel the detached job.
                 console.warn('[Continuity] Could not refresh saved detached Digest progress yet.', error);
@@ -1088,11 +1112,16 @@ async function waitForDetachedJob(id, worldId = '', expectedEpoch = null) {
 }
 
 async function reconnectDetachedExtraction(worldId, chatKey) {
+    const epoch = runtime.generation;
+    const current = () => runtime.generation === epoch && getChatKey() === chatKey && getBoundWorldId() === worldId;
     try {
+        if (runtime.paused || !current()) return;
         const health = runtime.health || await api.health();
+        if (!current()) return;
         updateRuntime({ health });
         if (!health?.detachedJobs) return;
         const { jobs } = await api.listExtractionJobs({ worldId, chatKey });
+        if (!current()) return;
         const active = jobs.find(job => job.status === 'queued' || job.status === 'processing');
         if (!active) {
             // A detached job can finish between the initial world load and
@@ -1102,6 +1131,7 @@ async function reconnectDetachedExtraction(worldId, chatKey) {
             const completed = latestCompletedDetachedJob(jobs);
             if (!completed) return;
             const world = (await api.getWorld(worldId)).world;
+            if (!current()) return;
             if (!completedDetachedWorldIsNewer(runtime.world, world, completed)) return;
             updateRuntime({
                 world,
@@ -1124,8 +1154,9 @@ async function reconnectDetachedExtraction(worldId, chatKey) {
             status: active.status,
             lastValidation: 'Reconnected to a detached CM extraction running in SillyTavern.',
         });
-        const completed = await waitForDetachedJob(active.id, worldId);
+        const completed = await waitForDetachedJob(active.id, worldId, epoch);
         const world = (await api.getWorld(worldId)).world;
+        if (!current()) return;
         updateRuntime({
             world,
             status: 'idle',
@@ -1138,6 +1169,7 @@ async function reconnectDetachedExtraction(worldId, chatKey) {
         });
         await embedWorldInChat(world);
     } catch (error) {
+        if (!current()) return;
         if (runtime.paused && isRuntimeCancellation(error)) {
             updateRuntime({ status: 'paused', progress: null, lastError: '', lastValidation: runtime.retryStatus || 'Processing paused safely.' });
         } else {
