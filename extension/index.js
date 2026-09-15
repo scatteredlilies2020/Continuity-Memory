@@ -1,30 +1,30 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, isGenerating, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.15.0-testing.24';
+import { api } from './api.js?v=0.15.0-testing.25';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maintainChronicleHierarchy, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.15.0-testing.24';
-import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.15.0-testing.24';
-import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.24';
-import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.15.0-testing.24';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.24';
+import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maintainChronicleHierarchy, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.15.0-testing.25';
+import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.15.0-testing.25';
+import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.25';
+import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.15.0-testing.25';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.25';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.15.0-testing.24';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.24';
-import { queryEmbeddingMemory, purgeEmbeddingIndex, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.15.0-testing.24';
-import { isTransientApiError } from './errors.js?v=0.15.0-testing.24';
-import { roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.15.0-testing.24';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.15.0-testing.25';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.25';
+import { queryEmbeddingMemory, purgeEmbeddingIndex, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.15.0-testing.25';
+import { isTransientApiError } from './errors.js?v=0.15.0-testing.25';
+import { roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.15.0-testing.25';
 import { isDigestStabilityProtectedMessage, latestCompleteDigestMessageIndex } from './digest-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
-import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.15.0-testing.24';
+import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.15.0-testing.25';
 import { createBackgroundScheduler } from './background-scheduler.js';
 import { nextChroniclePromotion } from './chronicle.js';
-import { buildPlanningEvidence, createContinuityContextBridge } from './context-bridge.js?v=0.15.0-testing.24';
+import { buildPlanningEvidence, createContinuityContextBridge } from './context-bridge.js?v=0.15.0-testing.25';
 
-import { resolveRetrievalAssist } from './retrieval-assist.js?v=0.15.0-testing.24';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.24';
+import { resolveRetrievalAssist } from './retrieval-assist.js?v=0.15.0-testing.25';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.25';
 
 const PROMPT_KEY = 'continuity_memory_context';
 const continuityContextBridge = createContinuityContextBridge(getContext);
@@ -547,7 +547,7 @@ async function onChatRenamed(eventData) {
 }
 
 async function init() {
-    const templateResponse = await fetch(new URL('./settings.html?v=0.15.0-testing.24', import.meta.url));
+    const templateResponse = await fetch(new URL('./settings.html?v=0.15.0-testing.25', import.meta.url));
     if (!templateResponse.ok) throw new Error(`Could not load settings template: ${templateResponse.status} ${templateResponse.statusText}`);
     const html = $(await templateResponse.text());
     const container = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
@@ -656,7 +656,7 @@ async function init() {
     const schedulePendingChronicle = () => {
         const settings = getSettings();
         if (!settings.enabled || settings.hierarchyMode === 'off' || runtime.paused
-            || runtime.processing || runtime.queue.length || runtime.chronicleBlocked || activeGenerationReadiness || isGenerating()
+            || runtime.processing || runtime.queue.length || (runtime.chronicleBlocked && Date.now() < runtime.chronicleRetryAt) || activeGenerationReadiness || isGenerating()
             || runtime.world?.id !== getBoundWorldId()) return;
         if (nextChroniclePromotion(runtime.world, settings)) backgroundMemoryWork.schedule(0);
     };
@@ -668,6 +668,7 @@ async function init() {
         wasProcessing = state.processing;
         const worldId = state.world?.id || null;
         const worldRevision = state.world?.revision ?? null;
+        const worldChanged = worldId !== lastObservedWorldId || worldRevision !== lastObservedWorldRevision;
         if (!state.world) pendingEmbeddingSync = null;
         if (worldId !== lastObservedWorldId || worldRevision !== lastObservedWorldRevision) {
             const changedDuringSession = Boolean(worldId && worldId === lastObservedWorldId && lastObservedWorldRevision !== null);
@@ -690,7 +691,12 @@ async function init() {
             pendingEmbeddingSync = null;
             scheduleEmbeddingIndexSync(world, 300, allowAutomaticBuild);
         }
-        if (becameIdle) schedulePendingChronicle();
+        if (worldChanged) {
+            // A replacement C0 or repaired source invalidates a previous block.
+            state.chronicleBlocked = false;
+            state.chronicleRetryAt = 0;
+        }
+        if (becameIdle || worldChanged) schedulePendingChronicle();
     });
 
     scheduleInjectionRefresh();

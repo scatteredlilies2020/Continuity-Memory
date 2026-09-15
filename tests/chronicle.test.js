@@ -73,6 +73,30 @@ test('promotion is oldest-first, same-layer, non-destructive, and capacity-gated
     assert.equal(nextChroniclePromotion(value, settings), null);
 });
 
+test('missing and source-invalidated parents regenerate recursively through C3 without new Digest', () => {
+    const value = world(150);
+    const settings = { chronicleLayerCapacity: 8, chroniclePromotionSize: 3 };
+    const drain = () => {
+        let count = 0;
+        for (let children; (children = nextChroniclePromotion(value, settings));) {
+            promote(value, children);
+            assert.ok(++count < 200);
+        }
+        assert.ok(value.chronicle.some(node => node.level === 3));
+        assert.equal(nextChroniclePromotion(value, settings), null);
+        return count;
+    };
+    assert.ok(drain() > 0);
+    const oldParents = new Set(value.chronicle.filter(node => node.level > 0).map(node => node.id));
+    value.capsules[0].chronicleText = 'Corrected first scene.';
+    syncChronicleBase(value);
+    assert.ok(drain() > 0);
+    assert.ok(value.chronicle.some(node => node.level === 3 && !oldParents.has(node.id)));
+    value.chronicle = value.chronicle.filter(node => node.level === 0);
+    assert.ok(drain() > 0);
+    assert.equal(value.chronicle.filter(node => node.level === 0).length, 150);
+});
+
 test('OOC provenance boundaries survive C0 creation and every recursive promotion', () => {
     const value = world(3);
     value.capsules[0].provenanceBoundaries = [{ messageIndex: 17, speaker: 'Lucia', terms: ['midichlorian', 'count'] }];

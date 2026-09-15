@@ -6,6 +6,12 @@ Continuity extracts events, facts, relationships, character states, and supporti
 
 Each chat has its own isolated memory. Continuity does not use, create, or modify SillyTavern Lorebooks or World Info, and it never edits chat messages.
 
+## What changes in 0.15.0-testing.25
+
+Fixes the vector purge Bad Request during rebuilding: collection-only resets now work without embedding-provider settings, clear every CM provider index for that collection, and prevent old native indexes from being imported again. Vector errors include the server's validation message. Fresh C0 rebuilds recover incomplete model responses by splitting source groups, retaining each completed save. Replacement Chronicle builds use cancellable retries, and automatic maintenance takes its processing lock before loading memory to avoid racing manual builds. Missing or invalidated eligible C1, C2, and higher parents are checked after memory changes and on the idle timer; failed work is retried after a five-minute cooldown instead of remaining blocked indefinitely. Existing layer-capacity thresholds, pause controls, and Recursive mode still apply.
+
+Restart SillyTavern and reload the browser to activate both the server and browser fixes. Existing memory does not need to be erased.
+
 ## What changes in 0.15.0-testing.24
 
 Stored history now compacts automatically on save once existing Chronicle summaries cover at least eight child nodes. Covered Chronicle children, their Digest capsules and matching extraction replay records move to separate immutable archive shards; active shards retain the summary parents and uncovered history. This applies to both server storage and the browser's SillyTavern file backend, without another model call. Archive files must pass read-back verification before the new manifest replaces the old one.

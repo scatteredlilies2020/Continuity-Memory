@@ -1,4 +1,4 @@
-import { extractionSchema, chronicleParentSchema, schemaFieldGuide, formatStructuredResponseGuide, EXTRACTION_OUTPUT_CHECK, CHRONICLE_OUTPUT_CHECK, EXTRACTION_FIELD_GUIDE, assertCompleteExtractionRecords, extractionCompletenessFeedback } from './extraction-contract.js?v=0.15.0-testing.24';
+import { extractionSchema, chronicleParentSchema, schemaFieldGuide, formatStructuredResponseGuide, EXTRACTION_OUTPUT_CHECK, CHRONICLE_OUTPUT_CHECK, EXTRACTION_FIELD_GUIDE, assertCompleteExtractionRecords, extractionCompletenessFeedback } from './extraction-contract.js?v=0.15.0-testing.25';
 import { LEGACY_DIGEST_RESCAN_MESSAGE } from './legacy-support.js';
 import { extractMessageFromData, generateRaw, getRequestHeaders } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
@@ -8,35 +8,35 @@ import { oai_settings, openai_setting_names, openai_settings, proxies } from '/s
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.24';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.25';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { normalizeHierarchyResult } from './hierarchy-result.js';
 import { captureScenarioContext } from './scenario-context.js';
 import { completeDigestMessages, latestCompleteDigestMessageIndex, digestStabilityRepairFrom, DIGEST_STABILITY_BUFFER_MESSAGES, partitionDigestStabilityBuffer, partitionPendingDigestMessages, resolveDigestGroupSize, selectAutomaticDigestMessages } from './digest-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.24';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.25';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedChronicle, freshResetResiduals, getLatestDigestUndoStatus as inspectLatestDigestUndo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.24';
-import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.24';
+import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.25';
+import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.25';
 import { embedWorldInChat } from './portable.js';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.24';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.24';
-import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.24';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.24';
-import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.24';
-import { isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.24';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.24';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.25';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.25';
+import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.25';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.25';
+import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.25';
+import { isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.25';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.25';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { resolveProfileThinkingMode } from './story-thinking.js?v=0.15.0-testing.24';
-import { stableStoryMessages } from './story-cadence.js?v=0.15.0-testing.24';
-import { compileRollingStorySnapshot } from './story-snapshot.js?v=0.15.0-testing.24';
-import { planStoryMutationRecovery } from './story-checkpoints.js?v=0.15.0-testing.24';
-import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.24';
+import { resolveProfileThinkingMode } from './story-thinking.js?v=0.15.0-testing.25';
+import { stableStoryMessages } from './story-cadence.js?v=0.15.0-testing.25';
+import { compileRollingStorySnapshot } from './story-snapshot.js?v=0.15.0-testing.25';
+import { planStoryMutationRecovery } from './story-checkpoints.js?v=0.15.0-testing.25';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.25';
 import { nextChroniclePromotion } from './chronicle.js';
 import { chronicleRetryFeedback, isRetryableChronicleError, retryChroniclePromotion } from './chronicle-retry.js';
 
@@ -1291,14 +1291,7 @@ async function saveChroniclePromotion(world, result, nodes, embed = true) {
     return created;
 }
 
-export async function buildNextChronicle(worldId = getBoundWorldId(), expectedEpoch = null, { embed = true } = {}) {
-    if (!worldId) throw new Error('Open a chat and prepare its memory first.');
-    let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
-    const nodes = nextChroniclePromotion(world, getSettings());
-    if (!nodes) return null;
-    const destination = (Number(nodes[0].level) || 0) + 1;
-    updateRuntime({ arcStatus: `Promoting ${nodes.length} C${nodes[0].level} nodes into Chronicle C${destination}…`, arcError: '' });
-    const epoch = expectedEpoch ?? runtime.generation;
+async function generateChronicleWithRetry(nodes, epoch) {
     const controller = new AbortController();
     const inspect = state => {
         if (state.paused || state.generation !== epoch) {
@@ -1320,6 +1313,18 @@ export async function buildNextChronicle(worldId = getBoundWorldId(), expectedEp
         unsubscribe();
     }
     if (runtime.generation !== epoch || runtime.paused) throw new Error('Processing stopped; pending Chronicle result was discarded.');
+    return result;
+}
+
+export async function buildNextChronicle(worldId = getBoundWorldId(), expectedEpoch = null, { embed = true } = {}) {
+    if (!worldId) throw new Error('Open a chat and prepare its memory first.');
+    let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
+    const nodes = nextChroniclePromotion(world, getSettings());
+    if (!nodes) return null;
+    const destination = (Number(nodes[0].level) || 0) + 1;
+    updateRuntime({ arcStatus: `Promoting ${nodes.length} C${nodes[0].level} nodes into Chronicle C${destination}…`, arcError: '' });
+    const epoch = expectedEpoch ?? runtime.generation;
+    let result = await generateChronicleWithRetry(nodes, epoch);
     result = await reviewHierarchyBeforeSave(result, `C${destination}`, nodes, 'hierarchy', () => generateChroniclePromotion(nodes));
     if (runtime.generation !== epoch || runtime.paused) throw new Error('Processing stopped; pending Chronicle result was discarded.');
     return saveChroniclePromotion(world, result, nodes, embed);
@@ -1333,20 +1338,26 @@ export async function maintainChronicleHierarchy() {
     // background pass will re-check the invariant after either one finishes.
     if (runtime.processing || runtime.queue.length) return null;
 
-    let world = (await api.getWorld(worldId)).world;
-    if (!nextChroniclePromotion(world, settings)) return null;
-
     const epoch = runtime.generation;
     let chroniclePromotions = 0;
-    updateRuntime({
-        processing: true,
-        status: 'building',
-        lastError: '',
-        retryStatus: 'Repairing the Recursive Chronicle frontier automatically…',
-        world,
-        chronicleBlocked: false,
-    });
+    // Take the lock before storage I/O: a manual C0 rebuild can otherwise start
+    // during getWorld and race a second writer using the old hierarchy.
+    updateRuntime({ processing: true });
     try {
+        let world = (await api.getWorld(worldId)).world;
+        if (runtime.generation !== epoch || runtime.paused || getBoundWorldId() !== worldId) {
+            throw Object.assign(new Error('Processing stopped; active memory changed.'), { code: RUNTIME_CANCELLED_CODE });
+        }
+        updateRuntime({ world });
+        if (!nextChroniclePromotion(world, settings)) return null;
+        updateRuntime({
+            status: 'building',
+            lastError: '',
+            retryStatus: 'Repairing the Recursive Chronicle frontier automatically…',
+            world,
+            chronicleBlocked: false,
+            chronicleRetryAt: 0,
+        });
         // This is an invariant repair, not a Digest side effect: it must run
         // even when there are no new messages eligible for extraction.
         const detached = await processDetachedRange({ worldId, chatKey: getChatKey(), reason: 'chronicle' }, [], world);
@@ -1365,11 +1376,13 @@ export async function maintainChronicleHierarchy() {
         });
         return { chroniclePromotions, world };
     } catch (error) {
+        if (isRuntimeCancellation(error)) throw error;
         updateRuntime({
             status: 'error',
             arcStatus: 'Chronicle promotion deferred; C0 and structured memory are safe.',
             arcError: error.message,
             chronicleBlocked: !isRetryableChronicleError(error) && !isRuntimeCancellation(error),
+            chronicleRetryAt: Date.now() + 5 * 60 * 1000,
         });
         throw error;
     } finally {
@@ -1616,33 +1629,45 @@ export async function restartDigestFromScratch(afterReset = null) {
         if (typeof afterReset === 'function') afterReset(world);
 
         const chunks = await chunkMessages(messages, resolveExtractionChunk(getSettings().extractionChunkTokens, getContext().maxContext), groupSize);
-        for (let index = 0; index < chunks.length; index++) {
+        const assertRebuildCurrent = () => {
             if (runtime.paused || runtime.generation !== epoch) throw new Error('Fresh rebuild stopped. Completed chunks remain saved; use Build to resume.');
-            const chunk = chunks[index].messages;
-            updateRuntime({
-                progress: { current: index + 1, total: chunks.length, from: chunk[0].index, to: chunk.at(-1).index, inputTokens: chunks[index].tokens },
-                retryStatus: `Rebuilding fresh Digest chunk ${index + 1}/${chunks.length}; each completed chunk is saved.`,
-            });
-            let result = await extractChunk(chunk);
-            result = await reviewExtractionBeforeSave(result, runtime.world, chunk, { from: chunk[0].index, to: chunk.at(-1).index, reason: 'fresh-rebuild' }, () => extractChunk(chunk));
-            if (runtime.paused || runtime.generation !== epoch) throw new Error('Fresh rebuild stopped. Completed chunks remain saved; use Build to resume.');
-            await saveExtraction(worldId, result, {
-                chatKey,
-                from: chunk[0].index,
-                to: chunk.at(-1).index,
-                allowStateUpdates: true,
-                messageFingerprints: chunk.map(message => ({ index: message.index, fingerprint: fingerprintMessage(message) })),
-                embed: false,
-            });
-            completedChunks++;
-        }
+        };
+        const adaptive = await processAdaptiveExtractionChunks(chunks, {
+            measureMessages: chunk => getTokenCountAsync(formatMessages(chunk)),
+            onAttempt: ({ messages: chunk, tokens, current, total }) => {
+                assertRebuildCurrent();
+                updateRuntime({
+                    progress: { current, total, from: chunk[0].index, to: chunk.at(-1).index, inputTokens: tokens },
+                    retryStatus: `Rebuilding fresh Digest chunk ${current}/${total}; each completed chunk is saved.`,
+                });
+            },
+            extract: async chunk => {
+                let result = await extractChunk(chunk);
+                result = await reviewExtractionBeforeSave(result, runtime.world, chunk, { from: chunk[0].index, to: chunk.at(-1).index, reason: 'fresh-rebuild' }, () => extractChunk(chunk));
+                assertRebuildCurrent();
+                return result;
+            },
+            onSplit: () => updateRuntime({ retryStatus: 'Fresh Digest response was incomplete; retrying smaller source groups without losing saved chunks.' }),
+            save: async (result, chunk) => {
+                assertRebuildCurrent();
+                await saveExtraction(worldId, result, {
+                    chatKey,
+                    from: chunk[0].index,
+                    to: chunk.at(-1).index,
+                    allowStateUpdates: true,
+                    messageFingerprints: chunk.map(message => ({ index: message.index, fingerprint: fingerprintMessage(message) })),
+                    embed: false,
+                });
+                completedChunks++;
+            },
+        });
         if (completedChunks && runtime.world?.id === worldId) await embedWorldInChat(runtime.world);
         updateRuntime({
             status: 'idle',
             progress: null,
-            retryStatus: `Fresh Digest build complete: ${messages.length} messages in ${chunks.length} saved chunk(s)${pendingTail ? `; ${pendingTail} recent message(s) remain raw, including the ${stability.buffered.length}-message stability buffer` : ''}.`,
+            retryStatus: `Fresh Digest build complete: ${messages.length} messages in ${completedChunks} saved chunk(s)${pendingTail ? `; ${pendingTail} recent message(s) remain raw, including the ${stability.buffered.length}-message stability buffer` : ''}.`,
         });
-        return { messages: messages.length, chunks: chunks.length, completedChunks, pendingTail, bufferedMessages: stability.buffered.length };
+        return { messages: messages.length, chunks: completedChunks, completedChunks, adaptiveSplits: adaptive.splits, pendingTail, bufferedMessages: stability.buffered.length };
     } catch (error) {
         const paused = runtime.paused || isRateLimitError(error) || /stopped/i.test(error.message);
         updateRuntime({
@@ -1686,7 +1711,7 @@ export async function restartHierarchyFromDigest() {
                 arcStatus: `Promoting ${nodes.length} C${nodes[0].level} nodes into replacement Chronicle C${destination}…`,
                 retryStatus: `Building replacement Chronicle in memory; the currently saved hierarchy remains untouched (${chroniclePromotions} promotion(s) ready)…`,
             });
-            let result = await generateChroniclePromotion(nodes);
+            let result = await generateChronicleWithRetry(nodes, epoch);
             if (runtime.generation !== epoch) throw new Error('Chronicle rebuild was stopped; the previously saved hierarchy was kept.');
             result = await reviewHierarchyBeforeSave(result, `C${destination}`, nodes, 'hierarchy', () => generateChroniclePromotion(nodes));
             if (runtime.generation !== epoch) throw new Error('Chronicle rebuild was stopped; the previously saved hierarchy was kept.');

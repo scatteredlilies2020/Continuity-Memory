@@ -1,10 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createVectorStorageRequester } from '../extension/vector-storage-client.js';
+import { createVectorStorageRequester, vectorStorageError } from '../extension/vector-storage-client.js';
 
 function response(status) {
     return { ok: status >= 200 && status < 300, status };
 }
+
+test('vector errors expose server validation details and preserve HTTP status', async () => {
+    const error = await vectorStorageError('purge', {
+        status: 400, statusText: 'Bad Request',
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ error: 'Collection ID is invalid' }),
+    });
+    assert.equal(error.status, 400);
+    assert.match(error.message, /purge failed \(400 Bad Request\): Collection ID is invalid/);
+    const malformed = await vectorStorageError('list', {
+        status: 503, headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => { throw new SyntaxError('bad JSON'); },
+    });
+    assert.equal(malformed.status, 503);
+});
 
 test('vector client falls back to native SillyTavern storage when the optional CM plugin is absent', async () => {
     const calls = [];

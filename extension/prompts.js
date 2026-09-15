@@ -1,4 +1,4 @@
-import { EXTRACTION_COMPLETENESS_RULE } from './extraction-contract.js?v=0.15.0-testing.24';
+import { EXTRACTION_COMPLETENESS_RULE } from './extraction-contract.js?v=0.15.0-testing.25';
 export const IMPORTANCE_RUBRIC = `Rate likely future continuity value, not prose intensity, fame, or detail: 1 minor or short-lived; 2 local or temporary; 3 recurring or persistent and likely relevant; 4 a major durable turning point, commitment, or broad change; 5 a rare foundational premise, identity, rule, central objective, or irreversible overall transformation. Most items are 2 or 3; use 4 sparingly and 5 only for foundational continuity. Repetition alone never raises importance.`;
 
 export const CANONICAL_THIRD_PERSON_RULE = `Canonical memory prose uses explicit names and third person, never I/we/you or player-facing advice. Exact address-form values may preserve source wording.`;

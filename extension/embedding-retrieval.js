@@ -1,9 +1,9 @@
 import { getRequestHeaders } from '/script.js';
-import { buildEmbeddingDocuments, buildEmbeddingQuery, semanticRanksFromResponse } from './embedding-index.js?v=0.15.0-testing.24';
-import { resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.24';
-import { getSettings } from './settings.js?v=0.15.0-testing.24';
-import { runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.24';
-import { createVectorStorageRequester } from './vector-storage-client.js?v=0.15.0-testing.24';
+import { buildEmbeddingDocuments, buildEmbeddingQuery, semanticRanksFromResponse } from './embedding-index.js?v=0.15.0-testing.25';
+import { resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.25';
+import { getSettings } from './settings.js?v=0.15.0-testing.25';
+import { runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.25';
+import { createVectorStorageRequester, vectorStorageError } from './vector-storage-client.js?v=0.15.0-testing.25';
 
 const syncedIndexes = new Map();
 const activeSyncs = new Map();
@@ -44,7 +44,7 @@ async function vectorRequest(route, payload, signal) {
             body: JSON.stringify(payload),
             signal: requestController.signal,
         });
-        if (!response.ok) throw new Error(`Vector Storage ${route} failed (${response.status} ${response.statusText})`);
+        if (!response.ok) throw await vectorStorageError(route, response);
         if (response.status === 204 || response.headers.get('content-length') === '0') return null;
         const contentType = response.headers.get('content-type') || '';
         return contentType.includes('application/json') ? response.json() : null;

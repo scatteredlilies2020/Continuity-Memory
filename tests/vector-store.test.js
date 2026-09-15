@@ -81,6 +81,54 @@ test('CM vector routes persist, query, delete, and purge their own atomic store'
     assert.deepEqual((await call(router.routes.get('POST /vectors/list'), root, base)).payload, []);
 });
 
+test('collection-only purge clears all providers, prevents legacy resurrection, and preserves other worlds', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-vector-purge-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const router = mockRouter();
+    registerVectorRoutes(router, { embedTexts: async ({ texts }) => texts.map(vectorFor) });
+    const invoke = (route, body) => call(router.routes.get(`POST /vectors/${route}`), root, body, { vectors: path.join(root, 'legacy') });
+    const secondProvider = { ...base, model: 'other-model' };
+    const otherWorld = { ...base, collectionId: 'continuity_unrelated' };
+    for (const scope of [base, secondProvider, otherWorld]) {
+        await invoke('insert', { ...scope, items: [{ hash: 11, text: 'north memory', index: 0 }] });
+    }
+    const legacyProvider = { ...base, model: 'legacy-only-model' };
+    const legacyFile = path.join(root, 'legacy', base.source, base.collectionId, legacyProvider.model, 'index.json');
+    await fs.mkdir(path.dirname(legacyFile), { recursive: true });
+    const legacy = JSON.stringify({ items: [{ vector: [1, 0], metadata: { hash: 99, text: 'north legacy', index: 0 } }] });
+    await fs.writeFile(legacyFile, legacy);
+    // Reproduce the browser's actual payload, with no model or API URL.
+    assert.equal((await invoke('purge', { collectionId: base.collectionId })).status, 200);
+    for (const scope of [base, secondProvider, legacyProvider]) {
+        assert.deepEqual((await invoke('list', scope)).payload, []);
+    }
+    assert.deepEqual((await invoke('list', otherWorld)).payload, [11]);
+    assert.equal(await fs.readFile(legacyFile, 'utf8'), legacy);
+    assert.equal((await invoke('purge', { collectionId: base.collectionId })).status, 200);
+    assert.equal((await invoke('purge', { collectionId: '../escape' })).status, 400);
+    assert.equal((await invoke('purge', {})).status, 400);
+    await invoke('insert', { ...base, items: [{ hash: 22, text: 'east fresh', index: 0 }] });
+    assert.deepEqual((await invoke('list', base)).payload, [22]);
+});
+
+test('purge waits for an in-flight embedding insert so old vectors cannot return afterward', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-vector-purge-race-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const router = mockRouter();
+    let release;
+    const blocked = new Promise(resolve => { release = resolve; });
+    let started;
+    const embeddingStarted = new Promise(resolve => { started = resolve; });
+    registerVectorRoutes(router, { embedTexts: async ({ texts }) => { started(); await blocked; return texts.map(vectorFor); } });
+    const inserting = call(router.routes.get('POST /vectors/insert'), root, { ...base, items: [{ hash: 11, text: 'north old', index: 0 }] });
+    await embeddingStarted;
+    const purging = call(router.routes.get('POST /vectors/purge'), root, { collectionId: base.collectionId });
+    release();
+    assert.equal((await inserting).status, 200);
+    assert.equal((await purging).status, 200);
+    assert.deepEqual((await call(router.routes.get('POST /vectors/list'), root, base)).payload, []);
+});
+
 test('failed embeddings cannot erase or partially replace stored vectors', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-vector-failure-'));
     t.after(() => fs.rm(root, { recursive: true, force: true }));

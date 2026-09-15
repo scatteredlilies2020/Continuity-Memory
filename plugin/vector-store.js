@@ -48,6 +48,11 @@ function storeLocation(req, body) {
     return { collectionId, provider, directory, file: path.join(directory, `${fingerprint(provider)}.json`) };
 }
 
+async function collectionWasPurged(directory) {
+    try { await fs.access(path.join(directory, '.purged')); return true; }
+    catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+}
+
 function emptyStore(location) {
     return { version: STORE_VERSION, provider: location.provider, items: [] };
 }
@@ -164,7 +169,8 @@ async function readStore(req, location, { create = true } = {}) {
     } catch (error) {
         if (error.code !== 'ENOENT') throw error;
     }
-    const legacy = await legacyStore(req, location);
+    // A collection reset must not resurrect an old provider's native index.
+    const legacy = await collectionWasPurged(location.directory) ? null : await legacyStore(req, location);
     const store = legacy?.store || emptyStore(location);
     if (create) {
         await atomicWrite(location.file, store);
@@ -248,7 +254,7 @@ export function registerVectorRoutes(router, { embedTexts = hostEmbedTexts } = {
     router.post('/vectors/list', async (req, res) => {
         try {
             const location = storeLocation(req, req.body);
-            const hashes = await withLock(location.file, async () => (await readStore(req, location)).items.map(item => item.hash));
+            const hashes = await withLock(location.directory, async () => (await readStore(req, location)).items.map(item => item.hash));
             res.json(hashes);
         } catch (error) { sendVectorError(res, error); }
     });
@@ -264,13 +270,13 @@ export function registerVectorRoutes(router, { embedTexts = hostEmbedTexts } = {
                 if (!Number.isFinite(hash) || !text || !Number.isFinite(index)) throw httpError('Vector item is invalid');
                 return { hash, text, index };
             });
-            const vectors = await embedTexts({ provider: location.provider, texts: items.map(item => item.text), directories: req.user.directories, isQuery: false });
-            if (vectors.length !== items.length) throw new Error(`Embedding provider returned ${vectors.length} vectors for ${items.length} texts`);
-            const additions = items.map((item, index) => {
-                if (!validVector(vectors[index])) throw new Error(`Embedding provider returned an invalid vector at index ${index}`);
-                return { ...item, vector: vectors[index] };
-            });
-            await withLock(location.file, async () => {
+            await withLock(location.directory, async () => {
+                const vectors = await embedTexts({ provider: location.provider, texts: items.map(item => item.text), directories: req.user.directories, isQuery: false });
+                if (vectors.length !== items.length) throw new Error(`Embedding provider returned ${vectors.length} vectors for ${items.length} texts`);
+                const additions = items.map((item, index) => {
+                    if (!validVector(vectors[index])) throw new Error(`Embedding provider returned an invalid vector at index ${index}`);
+                    return { ...item, vector: vectors[index] };
+                });
                 const store = await readStore(req, location);
                 const dimensions = store.items[0]?.vector.length || additions[0]?.vector.length || 0;
                 if (additions.some(item => !validVector(item.vector, dimensions))) throw new Error('Embedding vector dimensions do not match the stored index');
@@ -279,7 +285,7 @@ export function registerVectorRoutes(router, { embedTexts = hostEmbedTexts } = {
                 store.items = [...byHash.values()];
                 await atomicWrite(location.file, store);
             });
-            res.json({ ok: true, inserted: additions.length });
+            res.json({ ok: true, inserted: items.length });
         } catch (error) { sendVectorError(res, error); }
     });
 
@@ -289,7 +295,7 @@ export function registerVectorRoutes(router, { embedTexts = hostEmbedTexts } = {
             if (!Array.isArray(req.body.hashes)) throw httpError('Vector hashes must be an array');
             const hashes = new Set(req.body.hashes.map(Number).filter(Number.isFinite));
             let removed = 0;
-            await withLock(location.file, async () => {
+            await withLock(location.directory, async () => {
                 const store = await readStore(req, location);
                 const retained = store.items.filter(item => !hashes.has(item.hash));
                 removed = store.items.length - retained.length;
@@ -307,7 +313,7 @@ export function registerVectorRoutes(router, { embedTexts = hostEmbedTexts } = {
             const threshold = Math.min(1, Math.max(-1, Number(req.body.threshold) || 0));
             const [queryVector] = await embedTexts({ provider: location.provider, texts: [searchText], directories: req.user.directories, isQuery: true });
             if (!validVector(queryVector)) throw new Error('Embedding provider returned an invalid query vector');
-            const results = await withLock(location.file, async () => {
+            const results = await withLock(location.directory, async () => {
                 const store = await readStore(req, location);
                 return store.items
                     .map(item => ({ item, score: cosine(queryVector, item.vector) }))
@@ -324,8 +330,18 @@ export function registerVectorRoutes(router, { embedTexts = hostEmbedTexts } = {
 
     router.post('/vectors/purge', async (req, res) => {
         try {
-            const location = storeLocation(req, req.body);
-            await withLock(location.file, () => atomicWrite(location.file, emptyStore(location)));
+            // Match the native API: purge the collection, not only the current
+            // provider. This must also work with embeddings disabled/unconfigured.
+            const collectionId = collectionFromBody(req.body);
+            const directory = path.join(req.user.directories.root, 'continuity-memory', 'vectors', collectionId);
+            await withLock(directory, async () => {
+                await atomicWrite(path.join(directory, '.purged'), { purged: true });
+                for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+                    if (entry.isFile() && /^[a-f0-9]{64}\.json$/.test(entry.name)) {
+                        await fs.unlink(path.join(directory, entry.name));
+                    }
+                }
+            });
             res.json({ ok: true });
         } catch (error) { sendVectorError(res, error); }
     });
