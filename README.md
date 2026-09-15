@@ -6,6 +6,12 @@ Continuity extracts events, facts, relationships, character states, and supporti
 
 Each chat has its own isolated memory. Continuity does not use, create, or modify SillyTavern Lorebooks or World Info, and it never edits chat messages.
 
+## What changes in 0.15.0-testing.21
+
+Extraction now requests complete supported records through shared field definitions instead of blank sample records. Prompt-only requests describe character profiles as arrays, matching the structured schema. Browser and detached jobs reject records with missing core identity or content before saving or advancing coverage; the existing two-attempt retry receives the missing field paths. Failed sections remain pending. Unknown optional details and explicit state clears remain valid, and unchanged categories use empty arrays.
+
+Existing memories need no rescan. Reload the browser for the new prompt; restart SillyTavern when convenient to load the detached-server validation changes.
+
 ## Why Continuity exists
 
 Long chats create two different memory problems:

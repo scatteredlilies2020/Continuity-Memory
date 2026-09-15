@@ -369,6 +369,130 @@ test('detached extraction jobs remain separate from roleplay generation and save
     assert.ok(!loaded.payload.world.capsules[0].chronicleText.includes('Teleportation'));
 });
 
+test('detached incomplete records retry with feedback before committing any coverage', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-detached-test-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const extracted = {
+        storySoFar: 'Alice begins the morning by making tea without sugar.',
+        scene: { location: 'Kitchen', time: 'Morning', participants: ['Alice'], activity: 'Making tea', mood: 'calm' },
+        sceneCapsule: {
+            title: 'Morning tea', storyTime: 'Morning', location: 'Kitchen', participants: ['Alice'],
+            opening: 'Alice enters the kitchen.', beats: ['Alice makes tea without sugar.'], emotionalArc: '', closing: 'Alice finishes making tea.', importance: 2,
+            temporal: { frame: 'main narrative', relation: 'same-period', elapsed: '', certainty: 'implicit' },
+        },
+        entities: [], identityResolutions: [], recordMerges: [],
+        facts: [{ targetId: '', subject: 'Alice', predicate: 'takes tea', value: 'without sugar', category: 'preference', importance: 2, persistence: 'persistent' }],
+        states: [], relationships: [], events: [], threads: [], backgrounds: [],
+    };
+    let attempts = 0;
+    const fetchImpl = async (_url, options) => {
+        attempts++;
+        if (attempts === 1) {
+            const incomplete = structuredClone(extracted);
+            incomplete.facts.push({ ...incomplete.facts[0], value: '  ' });
+            return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(incomplete) }, finish_reason: 'stop' }] }), { status: 200 });
+        }
+        assert.match(JSON.parse(options.body).messages.at(-1).content, /facts\[1\].value/);
+        const pending = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: worldId } });
+        assert.equal(pending.payload.world.capsules.length, 0);
+        assert.equal(pending.payload.world.facts.length, 0);
+        return new Response(JSON.stringify({
+            choices: [{ message: { content: JSON.stringify(extracted) }, finish_reason: 'stop' }],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+    const router = mockRouter();
+    await init(router, { syncExtension: false, fetchImpl, detachedRequestTimeoutMs: 10, detachedRetryDelayMs: 10 });
+    assert.equal(router.routes.has('POST /extraction-jobs'), true);
+    assert.equal(router.routes.has('POST /generation-jobs'), false);
+
+    const created = await call(router.routes.get('POST /worlds'), root, { body: { name: 'Detached' } });
+    const worldId = created.payload.world.id;
+    const task = {
+        messages: [{ index: 0, name: 'Alice', text: 'Setting: Teleportation cannot cross salt water.\n\nI always take my tea without sugar.' }],
+        request: { chat_completion_source: 'openai', model: 'test', messages: [] },
+    };
+    const started = await call(router.routes.get('POST /extraction-jobs'), root, {
+        body: { worldId, chatKey: 'character:chat', tasks: [task], reason: 'manual' },
+        headers: { cookie: 'session=test', 'x-csrf-token': 'test' },
+    });
+    assert.equal(started.status, 202);
+    const jobId = started.payload.job.id;
+    let job;
+    for (let attempt = 0; attempt < 50; attempt++) {
+        const status = await call(router.routes.get('GET /extraction-jobs/:id'), root, { params: { id: jobId } });
+        job = status.payload.job;
+        if (job.status === 'complete' || job.status === 'error') break;
+        await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    assert.equal(job.status, 'complete', job.error);
+    assert.equal(attempts, 2);
+    assert.equal(job.messages, 1);
+    const loaded = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: worldId } });
+    assert.equal(loaded.payload.world.capsules.length, 1);
+    assert.match(loaded.payload.world.storySoFar['character:chat'].text, /Alice begins the morning/);
+    assert.equal(loaded.payload.world.storySoFar['character:chat'].to, 0);
+    assert.equal(loaded.payload.world.facts.some(item => item.subject === 'Alice' && item.value === 'without sugar'), true);
+    assert.equal(loaded.payload.world.sources['character:chat'].processedMessages.length, 1);
+    assert.equal(loaded.payload.world.capsules[0].sourceScenarioContext[0].text,
+        'Setting: Teleportation cannot cross salt water.');
+    assert.ok(!loaded.payload.world.capsules[0].chronicleText.includes('Teleportation'));
+});
+
+test('detached repeated incomplete output leaves the entire section pending', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-detached-test-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const extracted = {
+        storySoFar: 'Alice begins the morning by making tea without sugar.',
+        scene: { location: 'Kitchen', time: 'Morning', participants: ['Alice'], activity: 'Making tea', mood: 'calm' },
+        sceneCapsule: {
+            title: 'Morning tea', storyTime: 'Morning', location: 'Kitchen', participants: ['Alice'],
+            opening: 'Alice enters the kitchen.', beats: ['Alice makes tea without sugar.'], emotionalArc: '', closing: 'Alice finishes making tea.', importance: 2,
+            temporal: { frame: 'main narrative', relation: 'same-period', elapsed: '', certainty: 'implicit' },
+        },
+        entities: [], identityResolutions: [], recordMerges: [],
+        facts: [{ targetId: '', subject: 'Alice', predicate: 'takes tea', value: 'without sugar', category: 'preference', importance: 2, persistence: 'persistent' }],
+        states: [], relationships: [], events: [], threads: [], backgrounds: [],
+    };
+    let attempts = 0;
+    const fetchImpl = async (_url, options) => {
+        attempts++;
+        const incomplete = structuredClone(extracted);
+        incomplete.facts.push({ ...incomplete.facts[0], value: '  ' });
+        return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(incomplete) }, finish_reason: 'stop' }] }), { status: 200 });
+    };
+    const router = mockRouter();
+    await init(router, { syncExtension: false, fetchImpl, detachedRequestTimeoutMs: 10, detachedRetryDelayMs: 10 });
+    assert.equal(router.routes.has('POST /extraction-jobs'), true);
+    assert.equal(router.routes.has('POST /generation-jobs'), false);
+
+    const created = await call(router.routes.get('POST /worlds'), root, { body: { name: 'Detached' } });
+    const worldId = created.payload.world.id;
+    const task = {
+        messages: [{ index: 0, name: 'Alice', text: 'Setting: Teleportation cannot cross salt water.\n\nI always take my tea without sugar.' }],
+        request: { chat_completion_source: 'openai', model: 'test', messages: [] },
+    };
+    const started = await call(router.routes.get('POST /extraction-jobs'), root, {
+        body: { worldId, chatKey: 'character:chat', tasks: [task], reason: 'manual' },
+        headers: { cookie: 'session=test', 'x-csrf-token': 'test' },
+    });
+    assert.equal(started.status, 202);
+    const jobId = started.payload.job.id;
+    let job;
+    for (let attempt = 0; attempt < 50; attempt++) {
+        const status = await call(router.routes.get('GET /extraction-jobs/:id'), root, { params: { id: jobId } });
+        job = status.payload.job;
+        if (job.status === 'complete' || job.status === 'error') break;
+        await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    assert.equal(job.status, 'error');
+    assert.match(job.error, /Incomplete extraction records/);
+    assert.equal(attempts, 2);
+    const loaded = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: worldId } });
+    assert.equal(loaded.payload.world.capsules.length, 0);
+    assert.equal(loaded.payload.world.facts.length, 0);
+    assert.equal(loaded.payload.world.sources['character:chat']?.processedMessages?.length || 0, 0);
+});
+
 test('detached jobs report source tokens and promote Recursive Chronicle without a browser', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-detached-hierarchy-test-'));
     t.after(() => fs.rm(root, { recursive: true, force: true }));

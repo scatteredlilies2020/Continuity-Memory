@@ -1,3 +1,4 @@
+import { extractionSchema, EXTRACTION_FIELD_GUIDE, assertCompleteExtractionRecords, extractionCompletenessFeedback } from './extraction-contract.js?v=0.15.0-testing.21';
 import { LEGACY_DIGEST_RESCAN_MESSAGE } from './legacy-support.js';
 import { extractMessageFromData, generateRaw, getRequestHeaders } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
@@ -7,187 +8,38 @@ import { oai_settings, openai_setting_names, openai_settings, proxies } from '/s
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.20';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.21';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { normalizeHierarchyResult } from './hierarchy-result.js';
 import { captureScenarioContext } from './scenario-context.js';
 import { completeDigestMessages, latestCompleteDigestMessageIndex, digestStabilityRepairFrom, DIGEST_STABILITY_BUFFER_MESSAGES, partitionDigestStabilityBuffer, partitionPendingDigestMessages, resolveDigestGroupSize, selectAutomaticDigestMessages } from './digest-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.20';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.21';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedChronicle, freshResetResiduals, getLatestDigestUndoStatus as inspectLatestDigestUndo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.20';
-import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.20';
+import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.21';
+import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.21';
 import { embedWorldInChat } from './portable.js';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.20';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.20';
-import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.20';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.20';
-import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.20';
-import { isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.20';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.20';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.21';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.21';
+import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.21';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.21';
+import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.21';
+import { isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.21';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.21';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { resolveProfileThinkingMode } from './story-thinking.js?v=0.15.0-testing.20';
-import { stableStoryMessages } from './story-cadence.js?v=0.15.0-testing.20';
-import { compileRollingStorySnapshot } from './story-snapshot.js?v=0.15.0-testing.20';
-import { planStoryMutationRecovery } from './story-checkpoints.js?v=0.15.0-testing.20';
-import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.20';
+import { resolveProfileThinkingMode } from './story-thinking.js?v=0.15.0-testing.21';
+import { stableStoryMessages } from './story-cadence.js?v=0.15.0-testing.21';
+import { compileRollingStorySnapshot } from './story-snapshot.js?v=0.15.0-testing.21';
+import { planStoryMutationRecovery } from './story-checkpoints.js?v=0.15.0-testing.21';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.21';
 import { nextChroniclePromotion } from './chronicle.js';
 import { chronicleRetryFeedback, isRetryableChronicleError, retryChroniclePromotion } from './chronicle-retry.js';
 
-const temporalRelationSchema = {
-    type: 'object',
-    additionalProperties: false,
-    required: ['frame', 'relation', 'elapsed', 'certainty'],
-    properties: {
-        frame: { type: 'string' },
-        relation: { type: 'string', enum: ['same-period', 'after', 'before', 'overlaps', 'detached', 'unknown'] },
-        elapsed: { type: 'string' },
-        certainty: { type: 'string', enum: ['explicit', 'implicit', 'unknown'] },
-    },
-};
-
-const extractionSchema = {
-    type: 'object',
-    additionalProperties: false,
-    required: ['scene', 'sceneCapsule', 'entities', 'identityResolutions', 'recordMerges', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds', 'chronicleEntry'],
-    properties: {
-        scene: {
-            type: 'object', additionalProperties: false,
-            required: ['location', 'time', 'participants', 'activity', 'mood'],
-            properties: {
-                location: { type: 'string' }, time: { type: 'string' }, participants: { type: 'array', items: { type: 'string' } },
-                activity: { type: 'string' }, mood: { type: 'string' },
-            },
-        },
-        sceneCapsule: {
-            type: 'object', additionalProperties: false,
-            required: ['title', 'storyTime', 'location', 'participants', 'opening', 'beats', 'emotionalArc', 'closing', 'importance', 'temporal'],
-            properties: {
-                title: { type: 'string' }, storyTime: { type: 'string' }, location: { type: 'string' },
-                participants: { type: 'array', items: { type: 'string' } }, opening: { type: 'string' },
-                beats: { type: 'array', items: { type: 'string' }, maxItems: 10 },
-                emotionalArc: { type: 'string' }, closing: { type: 'string' },
-                importance: { type: 'integer', minimum: 1, maximum: 5 },
-                temporal: temporalRelationSchema,
-            },
-        },
-        entities: {
-            type: 'array', items: {
-                type: 'object', additionalProperties: false,
-                required: ['targetId', 'name', 'type', 'aliases', 'description', 'characterProfile', 'importance'],
-                properties: {
-                    targetId: { type: 'string' }, name: { type: 'string' }, type: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } },
-                    description: { type: 'string', description: 'Durable description for a non-person entity. Leave empty for a person; characterProfile is validated and formatted into the stored description.' },
-                    characterProfile: {
-                        type: 'object', additionalProperties: false,
-                        required: ['roleBackground', 'ageDemographics', 'appearance', 'personalityQuirks'],
-                        properties: {
-                            roleBackground: { type: 'array', maxItems: 8, items: { type: 'string' }, description: 'Atomic established roles, identity-defining history, and durable social functions grammatically attributed to this named person. Never copy a nearby person. Ground in narrative or accepted memory, never status/control-panel fields. Empty when unknown or not a person.' },
-                            ageDemographics: { type: 'array', maxItems: 8, items: { type: 'string' }, description: 'Atomic established age, life-stage, and demographic identity details grammatically attributed to this named person. Never treat age as personality or copy another person. Ground in narrative or accepted memory, never status/control-panel fields. Exclude guesses unless the narrative itself establishes the estimate.' },
-                            appearance: { type: 'array', maxItems: 8, items: { type: 'string' }, description: 'Atomic concise physical traits grammatically attributed to this named person. Never copy another person, an internal reaction, or narrative action. Ground in narrative or accepted memory, never status/control-panel fields. Exclude temporary clothing, wounds, emotion, and pose.' },
-                            personalityQuirks: { type: 'array', maxItems: 8, items: { type: 'string' }, description: 'Atomic established recurring temperament, habits, speech patterns, and quirks grammatically attributed to this named person. Never copy another person or a physical comparison. Ground in narrative or accepted memory, never status/control-panel fields. Exclude one-off reactions.' },
-                        },
-                    },
-                    importance: { type: 'integer', minimum: 1, maximum: 5 },
-                },
-            },
-        },
-        identityResolutions: {
-            type: 'array', items: {
-                type: 'object', additionalProperties: false,
-                required: ['reference', 'canonical', 'evidence'],
-                properties: {
-                    reference: { type: 'string' }, canonical: { type: 'string' }, evidence: { type: 'string' },
-                },
-            },
-        },
-        recordMerges: {
-            type: 'array', maxItems: 20, items: {
-                type: 'object', additionalProperties: false,
-                required: ['category', 'canonicalId', 'duplicateIds', 'evidence'],
-                properties: {
-                    category: { type: 'string', enum: ['facts', 'states', 'relationships', 'threads', 'backgrounds'] },
-                    canonicalId: { type: 'string' },
-                    duplicateIds: { type: 'array', maxItems: 12, items: { type: 'string' } },
-                    evidence: { type: 'string' },
-                },
-            },
-        },
-        facts: {
-            type: 'array', items: {
-                type: 'object', additionalProperties: false,
-                required: ['targetId', 'subject', 'predicate', 'value', 'category', 'importance', 'persistence'],
-                properties: {
-                    targetId: { type: 'string' }, subject: { type: 'string' }, predicate: { type: 'string' }, value: { type: 'string' }, category: { type: 'string' },
-                    importance: { type: 'integer', minimum: 1, maximum: 5 }, persistence: { type: 'string', enum: ['temporary', 'recurring', 'persistent'] },
-                },
-            },
-        },
-        states: {
-            type: 'array', items: {
-                type: 'object', additionalProperties: false,
-                required: ['targetId', 'subject', 'attribute', 'value', 'previous', 'importance', 'scope', 'operation'],
-                properties: {
-                    targetId: { type: 'string' }, subject: { type: 'string' }, attribute: { type: 'string' }, value: { type: 'string' }, previous: { type: 'string' },
-                    importance: { type: 'integer', minimum: 1, maximum: 5 },
-                    scope: { type: 'string', enum: ['scene', 'ongoing'] },
-                    operation: { type: 'string', enum: ['set', 'clear'] },
-                },
-            },
-        },
-        relationships: {
-            type: 'array', items: {
-                type: 'object', additionalProperties: false,
-                required: ['targetId', 'from', 'to', 'kind', 'status', 'dynamic', 'importance'],
-                properties: {
-                    targetId: { type: 'string' }, from: { type: 'string' }, to: { type: 'string' }, kind: { type: 'string' }, status: { type: 'string' },
-                    dynamic: { type: 'string' }, importance: { type: 'integer', minimum: 1, maximum: 5 },
-                },
-            },
-        },
-        events: {
-            type: 'array', items: {
-                type: 'object', additionalProperties: false,
-                required: ['title', 'summary', 'participants', 'location', 'storyTime', 'consequences', 'importance', 'temporal'],
-                properties: {
-                    title: { type: 'string' }, summary: { type: 'string' }, participants: { type: 'array', items: { type: 'string' } },
-                    location: { type: 'string' }, storyTime: { type: 'string' }, consequences: { type: 'string' },
-                    importance: { type: 'integer', minimum: 1, maximum: 5 },
-                    temporal: temporalRelationSchema,
-                },
-            },
-        },
-        threads: {
-            type: 'array', items: {
-                type: 'object', additionalProperties: false,
-                required: ['targetId', 'title', 'detail', 'status', 'participants', 'importance'],
-                properties: {
-                    targetId: { type: 'string' }, title: { type: 'string' }, detail: { type: 'string' }, status: { type: 'string', enum: ['recorded'] },
-                    participants: { type: 'array', items: { type: 'string' } }, importance: { type: 'integer', minimum: 1, maximum: 5 },
-                },
-            },
-        },
-        backgrounds: {
-            type: 'array', items: {
-                type: 'object', additionalProperties: false,
-                required: ['targetId', 'topic', 'summary', 'status', 'certainty', 'participants', 'importance'],
-                properties: {
-                    targetId: { type: 'string' }, topic: { type: 'string' }, summary: { type: 'string' },
-                    status: { type: 'string', enum: ['recorded'] },
-                    certainty: { type: 'string', enum: ['confirmed', 'reported', 'rumored', 'uncertain'] },
-                    participants: { type: 'array', items: { type: 'string' } },
-                    importance: { type: 'integer', minimum: 1, maximum: 5 },
-                },
-            },
-        },
-        chronicleEntry: { type: 'string' },
-    },
-};
 
 const extractionJsonSchema = Object.freeze({
     name: 'continuity_memory_extraction',
@@ -270,20 +122,7 @@ const ARC_JSON_SHAPE_EXAMPLE = JSON.stringify({
     emotionalArc: '', closingState: '', openThreads: [], importance: 3,
 });
 
-const JSON_SHAPE_EXAMPLE = JSON.stringify({
-    scene: { location: '', time: '', participants: [], activity: '', mood: '' },
-    sceneCapsule: { title: '', storyTime: '', location: '', participants: [], opening: '', beats: [], emotionalArc: '', closing: '', importance: 3, temporal: { frame: 'main narrative', relation: 'unknown', elapsed: '', certainty: 'unknown' } },
-    entities: [{ targetId: '', name: '', type: '', aliases: [], description: '', characterProfile: { roleBackground: '', ageDemographics: '', appearance: '', personalityQuirks: '' }, importance: 3 }],
-    identityResolutions: [{ reference: '', canonical: '', evidence: '' }],
-    recordMerges: [{ category: 'facts', canonicalId: '', duplicateIds: [], evidence: '' }],
-    facts: [{ targetId: '', subject: '', predicate: '', value: '', category: '', importance: 3, persistence: 'persistent' }],
-    states: [{ targetId: '', subject: '', attribute: '', value: '', previous: '', importance: 3, scope: 'scene', operation: 'set' }],
-    relationships: [{ targetId: '', from: '', to: '', kind: '', status: '', dynamic: '', importance: 3 }],
-    events: [{ title: '', summary: '', participants: [], location: '', storyTime: '', consequences: '', importance: 3, temporal: { frame: 'main narrative', relation: 'same-period', elapsed: '', certainty: 'implicit' } }],
-    threads: [{ targetId: '', title: '', detail: '', status: 'recorded', participants: [], importance: 3 }],
-    backgrounds: [{ targetId: '', topic: '', summary: '', status: 'recorded', certainty: 'reported', participants: [], importance: 2 }],
-    chronicleEntry: '',
-});
+const JSON_SHAPE_EXAMPLE = EXTRACTION_FIELD_GUIDE;
 
 let activeExtractionThinkingMode = null;
 const watchedDetachedJobs = new Set();
@@ -375,6 +214,7 @@ function validateResult(result, world, messages) {
     if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('Extractor returned no JSON object.');
     if (!Array.isArray(result.facts)) throw new Error('Extractor field "facts" is not an array.');
     migrateLegacyBeliefs(result);
+    assertCompleteExtractionRecords(result);
     if (!result.sceneCapsule || typeof result.sceneCapsule !== 'object' || !Array.isArray(result.sceneCapsule.beats)) {
         throw new Error('Extractor returned no valid chronological scene capsule.');
     }
@@ -505,7 +345,8 @@ async function extractChunk(messages, world = runtime.world) {
     let lastError;
     for (let attempt = 1; attempt <= 2; attempt++) {
         try {
-            const raw = await requestExtraction(prompt, systemPrompt, fallbackPrompt);
+            const feedback = extractionCompletenessFeedback(lastError);
+            const raw = await requestExtraction(prompt + feedback, systemPrompt, fallbackPrompt ? fallbackPrompt + feedback : fallbackPrompt);
             updateRuntime({ lastRawResponse: String(raw).slice(0, 30000) });
             const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
             const { result, validation } = validateResult(parsed, world, messages);
@@ -643,7 +484,9 @@ function renderStructuredTaskPrompt(template, defaultTemplate, values, schemaExa
     const usesFormatPlaceholder = source.includes('{{format}}');
     const format = usesStructuredSchema
         ? 'Return one schema-valid JSON object with all required keys.'
-        : `Return one JSON object with this exact shape and all keys:\n${schemaExample}`;
+        : schemaExample === EXTRACTION_FIELD_GUIDE
+            ? `Return one JSON object with all defined keys. Arrays contain records, not field-definition objects:\n${schemaExample}`
+            : `Return one JSON object with this exact shape and all keys:\n${schemaExample}`;
     return renderPromptTemplate(source, {
         ...values,
         format,

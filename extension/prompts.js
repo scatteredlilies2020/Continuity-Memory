@@ -1,3 +1,4 @@
+import { EXTRACTION_COMPLETENESS_RULE } from './extraction-contract.js?v=0.15.0-testing.21';
 export const IMPORTANCE_RUBRIC = `Rate likely future continuity value, not prose intensity, fame, or detail: 1 minor or short-lived; 2 local or temporary; 3 recurring or persistent and likely relevant; 4 a major durable turning point, commitment, or broad change; 5 a rare foundational premise, identity, rule, central objective, or irreversible overall transformation. Most items are 2 or 3; use 4 sparingly and 5 only for foundational continuity. Repetition alone never raises importance.`;
 
 export const CANONICAL_THIRD_PERSON_RULE = `Canonical memory prose uses explicit names and third person, never I/we/you or player-facing advice. Exact address-form values may preserve source wording.`;
@@ -73,6 +74,7 @@ ${DURABLE_MEMORY_RULES}
 ${EPISTEMIC_MEMORY_RULES}
 ${IDENTITY_RESOLUTION_RULES}
 ${CANONICAL_RECORD_RULES}
+${EXTRACTION_COMPLETENESS_RULE}
 ${CONTINUITY_COVERAGE_RULES}
 ${IMPORTANCE_RUBRIC}
 sceneCapsule importance rates the whole excerpt.`;
@@ -218,9 +220,10 @@ export function buildExtractionSystemPrompt(basePrompt, jbEnabled = false, jbPro
     const withChronicle = withExtremeFidelity.includes(CHRONICLE_ENTRY_RULE)
         ? withExtremeFidelity
         : `${withExtremeFidelity}\n\n${CHRONICLE_ENTRY_RULE}`;
-    return withChronicle.includes(SOURCE_SCOPE_RULE)
+    const withScope = withChronicle.includes(SOURCE_SCOPE_RULE)
         ? withChronicle
         : `${withChronicle}\n\n${SOURCE_SCOPE_RULE}`;
+    return withScope.includes(EXTRACTION_COMPLETENESS_RULE) ? withScope : `${withScope}\n\n${EXTRACTION_COMPLETENESS_RULE}`;
 }
 
 export function buildHierarchySystemPrompt(basePrompt) {

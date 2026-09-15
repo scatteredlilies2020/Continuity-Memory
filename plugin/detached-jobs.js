@@ -1,3 +1,4 @@
+import { assertCompleteExtractionRecords, extractionCompletenessFeedback } from '../extension/extraction-contract.js';
 import crypto from 'node:crypto';
 
 import { isRateLimitError, isTransientApiError } from '../extension/errors.js';
@@ -132,6 +133,7 @@ function validateResult(result, world, messages) {
     if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('Extractor returned no JSON object.');
     if (!Array.isArray(result.facts)) throw new Error('Extractor field "facts" is not an array.');
     migrateLegacyBeliefs(result);
+    assertCompleteExtractionRecords(result);
     if (!result.sceneCapsule || typeof result.sceneCapsule !== 'object' || !Array.isArray(result.sceneCapsule.beats)) {
         throw new Error('Extractor returned no valid chronological scene capsule.');
     }
@@ -386,22 +388,26 @@ async function extractTask(job, task, world) {
     let lastError;
     for (let attempt = 1; attempt <= 2; attempt++) {
         try {
+            const feedback = extractionCompletenessFeedback(lastError);
+            const retryRequest = body => !body || !feedback ? body : {
+                ...body, messages: [...body.messages, { role: 'user', content: feedback.trim() }],
+            };
             let raw;
             try {
-                raw = await backendRequest(job, request);
+                raw = await backendRequest(job, retryRequest(request));
             } catch (error) {
                 if (mandatoryRequest && isMandatoryThinkingError(error)) {
-                    raw = await backendRequest(job, mandatoryRequest);
+                    raw = await backendRequest(job, retryRequest(mandatoryRequest));
                 } else if (uncontrolledRequest && isThinkingControlError(error)) {
-                    raw = await backendRequest(job, uncontrolledRequest);
+                    raw = await backendRequest(job, retryRequest(uncontrolledRequest));
                 } else if (fallbackRequest && shouldRetryWithoutSchema(error)) {
                     try {
-                        raw = await backendRequest(job, fallbackRequest);
+                        raw = await backendRequest(job, retryRequest(fallbackRequest));
                     } catch (fallbackError) {
                         if (mandatoryFallbackRequest && isMandatoryThinkingError(fallbackError)) {
-                            raw = await backendRequest(job, mandatoryFallbackRequest);
+                            raw = await backendRequest(job, retryRequest(mandatoryFallbackRequest));
                         } else if (uncontrolledRequest && isThinkingControlError(fallbackError)) {
-                            raw = await backendRequest(job, uncontrolledRequest);
+                            raw = await backendRequest(job, retryRequest(uncontrolledRequest));
                         } else {
                             throw fallbackError;
                         }

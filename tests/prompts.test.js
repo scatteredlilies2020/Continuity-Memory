@@ -1,3 +1,4 @@
+import { EXTRACTION_COMPLETENESS_RULE } from '../extension/extraction-contract.js';
 import { SUPPORTING_MEMORY_RULES } from '../extension/prompts.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -39,13 +40,13 @@ import {
 } from '../extension/prompts.js';
 
 test('JB prompt is appended to extraction instructions only when enabled', () => {
-    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', false, '<rules>custom</rules>'), `Base extraction instructions.\n\n${SUPPORTING_MEMORY_RULES}\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', false, '<rules>custom</rules>'), `Base extraction instructions.\n\n${SUPPORTING_MEMORY_RULES}\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}\n\n${EXTRACTION_COMPLETENESS_RULE}`);
     assert.equal(
         buildExtractionSystemPrompt('Base extraction instructions.', true, '<rules>custom</rules>'),
-        `Base extraction instructions.\n\n<rules>custom</rules>\n\n${SUPPORTING_MEMORY_RULES}\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}`,
+        `Base extraction instructions.\n\n<rules>custom</rules>\n\n${SUPPORTING_MEMORY_RULES}\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}\n\n${EXTRACTION_COMPLETENESS_RULE}`,
     );
-    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', true, '   '), `Base extraction instructions.\n\n${SUPPORTING_MEMORY_RULES}\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}`);
-    assert.equal(buildExtractionSystemPrompt('', true, '<rules>custom</rules>'), `<rules>custom</rules>\n\n${SUPPORTING_MEMORY_RULES}\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', true, '   '), `Base extraction instructions.\n\n${SUPPORTING_MEMORY_RULES}\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}\n\n${EXTRACTION_COMPLETENESS_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('', true, '<rules>custom</rules>'), `<rules>custom</rules>\n\n${SUPPORTING_MEMORY_RULES}\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}\n\n${EXTRACTION_COMPLETENESS_RULE}`);
     assert.match(DEFAULT_JB_PROMPT, /^<rules>[\s\S]*<\/rules>$/);
 });
 
@@ -252,7 +253,7 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_CHRONICLE_SYSTEM_PROMPT, /chronological Chronicle nodes/);
     assert.match(DEFAULT_CHRONICLE_SYSTEM_PROMPT, /consequential knowledge gaps and later disclosures at their respective historical points/);
     assert.match(DEFAULT_CHRONICLE_SYSTEM_PROMPT, /Most items are 2 or 3/);
-    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 14300);
+    assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.length < 14800);
     assert.ok(DEFAULT_CHRONICLE_SYSTEM_PROMPT.length < 4000);
 });
 
