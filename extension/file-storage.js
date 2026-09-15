@@ -1,3 +1,4 @@
+import { ARCHIVE_SHARDS, COMPACT_STORAGE_VERSION, compactWorldStorage, restoreWorldStorage } from './storage-compaction.js';
 import { unsupportedStorageVersion } from './legacy-support.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { discardLegacyStorySnapshots } from './story-source.js';
@@ -13,7 +14,7 @@ const FILE_RE = /^[a-z0-9][a-z0-9_.-]{0,220}\.json$/i;
 const ARRAY_SHARDS = ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'chronicle', 'extractions', 'threads', 'backgrounds', 'corrections'];
 const LEGACY_ARRAY_SHARDS = ['beliefs'];
 const SINGLE_SHARDS = ['scene', 'sources', 'continuation', 'storySoFar'];
-const ALL_SHARDS = [...SINGLE_SHARDS, ...ARRAY_SHARDS];
+const ALL_SHARDS = [...SINGLE_SHARDS, ...ARRAY_SHARDS, ...ARCHIVE_SHARDS];
 const READ_SHARDS = [...ALL_SHARDS, ...LEGACY_ARRAY_SHARDS];
 
 function storageError(message, status = 500) {
@@ -90,7 +91,7 @@ function normalizeWorld(input, expectedId) {
     const id = assertWorldId(expectedId || input.id);
     const base = emptyWorld(id, input.name);
     for (const key of ARRAY_SHARDS) {
-        base[key] = Array.isArray(input[key]) ? input[key].slice(0, 100000) : [];
+        base[key] = Array.isArray(input[key]) ? [...input[key]] : [];
     }
     base.scene = input.scene && typeof input.scene === 'object' ? input.scene : null;
     base.sources = input.sources && typeof input.sources === 'object' && !Array.isArray(input.sources) ? input.sources : {};
@@ -142,7 +143,7 @@ function valueHash(value) {
 }
 
 function isShardManifest(value) {
-    return Boolean(value && value.shardedStorage?.version === STORAGE_VERSION
+    return Boolean(value && [STORAGE_VERSION, COMPACT_STORAGE_VERSION].includes(value.shardedStorage?.version)
         && value.shards && typeof value.shards === 'object' && !Array.isArray(value.shards));
 }
 
@@ -151,7 +152,7 @@ function splitShardValue(world, category) {
     if (category === 'sources') return Object.keys(world.sources || {}).length ? [world.sources] : [];
     if (category === 'continuation') return world.continuation ? [world.continuation] : [];
     if (category === 'storySoFar') return Object.keys(world.storySoFar || {}).length ? [world.storySoFar] : [];
-    if (!ARRAY_SHARDS.includes(category)) return [world[category]];
+    if (!ARRAY_SHARDS.includes(category) && !ARCHIVE_SHARDS.includes(category)) return [world[category]];
     const values = world[category] || [];
     const parts = [];
     for (let index = 0; index < values.length; index += SHARD_CHUNK_SIZE) {
@@ -291,7 +292,7 @@ export function createFileStorageApi({ fetchFn = globalThis.fetch, requestHeader
     }
 
     async function materializeStoredWorld(stored, expectedId) {
-        if (stored?.shardedStorage && stored.shardedStorage.version !== STORAGE_VERSION) {
+        if (stored?.shardedStorage && ![STORAGE_VERSION, COMPACT_STORAGE_VERSION].includes(stored.shardedStorage.version)) {
             throw unsupportedStorageVersion(stored.shardedStorage.version);
         }
         if (stored?.shardedStorage && !isShardManifest(stored)) {
@@ -324,9 +325,11 @@ export function createFileStorageApi({ fetchFn = globalThis.fetch, requestHeader
                 }
                 return shard.data;
             });
-            if (ARRAY_SHARDS.includes(category) || LEGACY_ARRAY_SHARDS.includes(category)) world[category] = parts.flat();
+            if (ARRAY_SHARDS.includes(category) || ARCHIVE_SHARDS.includes(category) || LEGACY_ARRAY_SHARDS.includes(category)) world[category] = parts.flat();
             else world[category] = parts.length ? parts[0] : (['sources', 'storySoFar'].includes(category) ? {} : null);
         }
+        if (stored.shardedStorage.version === COMPACT_STORAGE_VERSION) restoreWorldStorage(world, stored.compaction);
+        else for (const key of ARCHIVE_SHARDS) delete world[key];
         migrateLegacyBeliefs(world);
         discardLegacyStorySnapshots(world);
         syncChronicleBase(world);
@@ -358,11 +361,17 @@ export function createFileStorageApi({ fetchFn = globalThis.fetch, requestHeader
     }
 
     async function writeShardedWorld(world, previousManifest = null) {
+        const partition = compactWorldStorage(world);
+        world = partition.world;
         const manifest = { ...manifestMetadata(world), shards: {} };
+        if (partition.compaction) {
+            manifest.storageVersion = manifest.shardedStorage.version = COMPACT_STORAGE_VERSION;
+            manifest.compaction = partition.compaction;
+        }
         const candidateFiles = [];
 
         try {
-            for (const category of ALL_SHARDS) {
+            for (const category of ALL_SHARDS.filter(key => partition.compaction || !ARCHIVE_SHARDS.includes(key))) {
                 const oldEntries = Array.isArray(previousManifest?.shards?.[category]) ? previousManifest.shards[category] : [];
                 const parts = splitShardValue(world, category);
                 manifest.shards[category] = [];
@@ -387,6 +396,13 @@ export function createFileStorageApi({ fetchFn = globalThis.fetch, requestHeader
                             await writeJsonFile(file, shard);
                         }
                         if (!existing) candidateFiles.push(file);
+                    }
+                    if (ARCHIVE_SHARDS.includes(category)) {
+                        const verified = await readJsonFile(file);
+                        if (verified?.worldId !== world.id || verified.category !== category || verified.part !== part
+                            || verified.hash !== hash || JSON.stringify(verified.data) !== JSON.stringify(data)) {
+                            throw new Error(`Storage archive verification failed (${category})`);
+                        }
                     }
                     manifest.shards[category].push({ file, hash, count: Array.isArray(data) ? data.length : 1 });
                 }

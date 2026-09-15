@@ -1,5 +1,5 @@
-import { retrievalMessageText } from './retrieval-query.js?v=0.15.0-testing.23';
-import { supportingRecords, supportingEvidenceText } from './supporting-memories.js?v=0.15.0-testing.23';
+import { retrievalMessageText } from './retrieval-query.js?v=0.15.0-testing.24';
+import { supportingRecords, supportingEvidenceText } from './supporting-memories.js?v=0.15.0-testing.24';
 import { isFreshActiveState } from './state-lifecycle.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 

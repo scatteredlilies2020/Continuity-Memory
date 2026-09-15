@@ -307,3 +307,70 @@ test('built-in file storage migrates the legacy index copy name', async () => {
     assert.equal(server.files.has('continuity-memory-index-backup.json'), false);
     assert.equal(server.files.has('continuity-memory-index-redundant.json'), true);
 });
+
+test('file backend compacts summary-covered history on disk and restores exact logical records', async () => {
+    const { summarizedWorld } = await import('./helpers/compaction-world.js');
+    const server = memoryFileServer();
+    const api = createFileStorageApi({ fetchFn: server.fetchFn });
+    const { world: base } = await api.createWorld('Compacted');
+    const { world: saved } = await api.saveWorld(summarizedWorld(base));
+    const filename = `continuity-memory-world-${base.id}.json`;
+    const manifest = JSON.parse(server.files.get(filename));
+    assert.equal(manifest.shardedStorage.version, 3);
+    assert.equal(manifest.shards.chronicle.reduce((n, entry) => n + entry.count, 0), 1);
+    assert.equal(manifest.shards.capsules.length, 0);
+    assert.equal(manifest.shards['archive-capsules'][0].count, 10);
+    const loaded = (await api.getWorld(base.id)).world;
+    for (const key of ['chronicle', 'capsules', 'extractions', 'facts', 'threads']) assert.deepEqual(loaded[key], saved[key]);
+    server.clearActivity();
+    await api.saveWorld(loaded);
+    assert.equal(server.uploads.filter(upload => upload.name.includes('-archive-')).length, 0, 'unchanged archives reused');
+    const archiveFile = manifest.shards['archive-capsules'][0].file;
+    server.files.delete(archiveFile);
+    const before = server.files.get(filename);
+    await assert.rejects(api.getWorld(base.id));
+    await assert.rejects(api.saveWorld(loaded));
+    assert.equal(server.files.get(filename), before);
+});
+
+test('file archive upload or read-back failure cannot replace the previous manifest', async () => {
+    const { summarizedWorld } = await import('./helpers/compaction-world.js');
+    for (const corrupt of [false, true]) {
+        const server = memoryFileServer();
+        const fetchFn = async (url, options = {}) => {
+            const response = await server.fetchFn(url, options);
+            if (corrupt && url === '/api/files/upload') {
+                const { name } = JSON.parse(options.body);
+                if (/-archive-(chronicle|capsules|extractions)-/.test(name)) server.files.set(name, '{}');
+            }
+            return response;
+        };
+        const api = createFileStorageApi({ fetchFn });
+        const { world } = await api.createWorld('Archive failure');
+        const filename = `continuity-memory-world-${world.id}.json`;
+        const before = server.files.get(filename);
+        if (!corrupt) server.failUploadsWhen(name => name.includes('-archive-'));
+        await assert.rejects(api.saveWorld(summarizedWorld(world)));
+        assert.equal(server.files.get(filename), before);
+        assert.equal((await api.getWorld(world.id)).world.capsules.length, 0);
+    }
+});
+
+test('correcting an archived Digest restores detail and removes only dependent summaries', async () => {
+    const { summarizedWorld } = await import('./helpers/compaction-world.js');
+    const server = memoryFileServer();
+    const api = createFileStorageApi({ fetchFn: server.fetchFn });
+    const { world: base } = await api.createWorld('Archive correction');
+    await api.saveWorld(summarizedWorld(base));
+    const loaded = (await api.getWorld(base.id)).world;
+    loaded.capsules[0].beats = ['The district refused the agreement.'];
+    await api.saveWorld(loaded);
+    const corrected = (await api.getWorld(base.id)).world;
+    assert.equal(corrected.capsules.length, 10);
+    assert.deepEqual(corrected.capsules[0].beats, ['The district refused the agreement.']);
+    assert.equal(corrected.chronicle.some(node => node.level > 0), false);
+    assert.equal(corrected.extractions.length, 10);
+    assert.deepEqual(corrected.facts, loaded.facts);
+    const manifest = JSON.parse(server.files.get(`continuity-memory-world-${base.id}.json`));
+    assert.equal(manifest.shardedStorage.version, 2, 'without valid parent coverage, all detail stays active');
+});

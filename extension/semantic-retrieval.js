@@ -1,14 +1,14 @@
 import { extractMessageFromData } from '/script.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
-import { isThinkingControlError, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.23';
-import { generateWithThinkingPolicy, requestDirectText, resolveThinkingModeForProfile } from './engine.js?v=0.15.0-testing.23';
-import { parseExpandedTerms } from './semantic-terms.js?v=0.15.0-testing.23';
-import { recentRetrievalQuery } from './retrieval-query.js?v=0.15.0-testing.23';
-import { getSettings } from './settings.js?v=0.15.0-testing.23';
-import { buildThinkingRequest } from './thinking-policy.js?v=0.15.0-testing.23';
-import { buildRetrievalSystemPrompt, DEFAULT_RETRIEVAL_QUERY_TEMPLATE, DEFAULT_RETRIEVAL_SYSTEM_PROMPT, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.23';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.23';
-import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.23';
+import { isThinkingControlError, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.24';
+import { generateWithThinkingPolicy, requestDirectText, resolveThinkingModeForProfile } from './engine.js?v=0.15.0-testing.24';
+import { parseExpandedTerms } from './semantic-terms.js?v=0.15.0-testing.24';
+import { recentRetrievalQuery } from './retrieval-query.js?v=0.15.0-testing.24';
+import { getSettings } from './settings.js?v=0.15.0-testing.24';
+import { buildThinkingRequest } from './thinking-policy.js?v=0.15.0-testing.24';
+import { buildRetrievalSystemPrompt, DEFAULT_RETRIEVAL_QUERY_TEMPLATE, DEFAULT_RETRIEVAL_SYSTEM_PROMPT, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.24';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.24';
+import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.24';
 
 const cache = new Map();
 const pending = new Map();

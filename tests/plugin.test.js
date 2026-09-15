@@ -688,3 +688,30 @@ test('server save and reload preserve records beyond the old 100000-item collect
     assert.equal(loaded.status, 200);
     assert.deepEqual(loaded.payload.world.events, world.events);
 });
+
+test('server storage archives covered detail and restores it for reads, edits and branch replay', async t => {
+    const { summarizedWorld } = await import('./helpers/compaction-world.js');
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-compaction-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const router = mockRouter(); await init(router, { syncExtension: false });
+    const created = await call(router.routes.get('POST /worlds'), root, { body: { name: 'Compacted' } });
+    const world = summarizedWorld(created.payload.world);
+    const saved = await call(router.routes.get('PUT /worlds/:id'), root, { params: { id: world.id }, body: world });
+    assert.equal(saved.status, 200);
+    const filename = path.join(root, 'continuity-memory', 'worlds', `${world.id}.json`);
+    const manifest = JSON.parse(await fs.readFile(filename, 'utf8'));
+    assert.equal(manifest.shardedStorage.version, 3);
+    assert.equal(manifest.shards.chronicle[0].count, 1);
+    assert.equal(manifest.shards.capsules.length, 0);
+    const loaded = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: world.id } });
+    assert.equal(loaded.status, 200);
+    for (const key of ['chronicle', 'capsules', 'extractions', 'facts', 'threads']) assert.deepEqual(loaded.payload.world[key], saved.payload.world[key]);
+    const archive = path.join(root, 'continuity-memory', 'worlds', `${world.id}.shards`, manifest.shards['archive-capsules'][0].file);
+    await fs.writeFile(archive, '{}');
+    const before = await fs.readFile(filename, 'utf8');
+    for (const route of ['GET /worlds/:id', 'PUT /worlds/:id']) {
+        const failed = await call(router.routes.get(route), root, { params: { id: world.id }, body: loaded.payload.world });
+        assert.equal(failed.status, 503);
+        assert.equal(await fs.readFile(filename, 'utf8'), before);
+    }
+});

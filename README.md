@@ -6,6 +6,14 @@ Continuity extracts events, facts, relationships, character states, and supporti
 
 Each chat has its own isolated memory. Continuity does not use, create, or modify SillyTavern Lorebooks or World Info, and it never edits chat messages.
 
+## What changes in 0.15.0-testing.24
+
+Stored history now compacts automatically on save once existing Chronicle summaries cover at least eight child nodes. Covered Chronicle children, their Digest capsules and matching extraction replay records move to separate immutable archive shards; active shards retain the summary parents and uncovered history. This applies to both server storage and the browser's SillyTavern file backend, without another model call. Archive files must pass read-back verification before the new manifest replaces the old one.
+
+Facts, states, relationships, supporting observations, corrections, exact provenance and unresolved records remain unchanged. Reads reconstruct the complete logical world from its archives, preserving detailed retrieval, correction, Undo, export and branch repair. Consequently this release reduces active storage files; it does not yet reduce the full world loaded into memory. Retained archives and previous immutable shard versions mean total disk usage can still grow.
+
+Compact worlds use storage format 3; existing format 2 remains readable. Update both extension and optional server plugin before using compact worlds across devices. Reload the browser and restart SillyTavern when convenient for server changes. Existing histories compact on their next save after Chronicle promotion, without a rescan. The browser backend also now preserves collections beyond 100,000 records, matching the server fix in the previous release.
+
 ## What changes in 0.15.0-testing.23
 
 Server saves no longer trim each collection to 100,000 records; the existing sharded storage retains the complete collection. Record merging and reviewed corrections preserve all valid source ranges instead of only the latest 20, and extraction retains source fingerprints beyond 100,000 messages. Prompt selection remains bounded independently of stored history. These changes prevent future truncation; they do not reconstruct records or provenance already discarded by older versions.
