@@ -391,6 +391,15 @@ function retrievalProfile(world, recentMessages, expandedTerms) {
         .join(' '));
     const corpus = retrievalCorpus(world);
     const { recordStats, documentFrequency, identityVocabulary } = corpus;
+    // Use the immediate exchange as an independent evidence source. Passage
+    // boundaries prevent old topics from combining into a synthetic query.
+    const directIdentities = [...terms(directText)].filter(term => identityVocabulary.has(term));
+    const contextGroups = recent.filter(message => message !== latestUser && !message?.is_system).slice(-2)
+        .flatMap(message => retrievalMessageText(message).split(/(?<=[.!?。！？])\s*|\n+/u))
+        .map(text => terms(text))
+        .filter(group => group.size >= 2)
+        .filter(group => !directIdentities.length || directIdentities.some(term => group.has(term)))
+        .slice(-64);
     const identityFocus = new Set([...direct, ...resolvedIdentityTerms(world, [latestUser?.name, directText])]);
     for (const term of speaker) {
         if (queryTermVariants(term, true).some(variant => identityVocabulary.has(variant))) identityFocus.add(term);
@@ -403,6 +412,8 @@ function retrievalProfile(world, recentMessages, expandedTerms) {
         expanded,
         expandedGroups,
         context,
+        contextGroups,
+        directIdentities,
         focus,
         identityFocus,
         documentCount,
@@ -626,6 +637,27 @@ function directConceptMatch(stats, profile, category = '') {
         || orderedPairWithin(stats.fields.body.tokens, matchedSurfaceBody);
 }
 
+function contextualEvidence(stats, profile) {
+    let best = { score: 0, terms: [] };
+    for (const group of profile.contextGroups || []) {
+        const identities = [...group].filter(term => profile.identityVocabulary.has(term));
+        const concepts = [...group].filter(term => !profile.identityVocabulary.has(term));
+        const matched = concepts.filter(term => fieldHasQueryTerm(stats.fields.heading, term, true)
+            || fieldHasQueryTerm(stats.fields.body, term, true));
+        const anchored = identities.some(term => fieldHasQueryTerm(stats.fields.identity, term, true)
+            || fieldHasQueryTerm(stats.fields.anchor, term, true));
+        if (matched.length < (anchored ? 2 : 3)) continue;
+        // A few incidental adjectives in a long sentence do not identify its
+        // subject. Unanchored evidence needs substantial passage coverage.
+        if (!anchored && matched.length / Math.max(1, concepts.length) < 0.5) continue;
+        if (!orderedCoverageWithin(stats.fields.heading.tokens, matched, 2, 10, true)
+            && !orderedCoverageWithin(stats.fields.body.tokens, matched, 2, 10, true)) continue;
+        const score = queryScore(stats, profile, new Set(matched), true);
+        if (score > best.score) best = { score, terms: matched };
+    }
+    return best;
+}
+
 function rank(items, query, extra = () => 0, category = '', semanticRanks = new Map()) {
     const profile = query?.focus instanceof Set
         ? query
@@ -652,7 +684,6 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
         const contextMatches = matchingTerms(profile.context);
         const focusMatches = new Set([...directMatches, ...expandedMatches]);
         const directFields = matchingFields(stats, profile.direct);
-        const directIdentityFields = matchingFields(stats, profile.identityFocus || profile.direct);
         const expandedFields = matchingFields(stats, profile.expanded, true);
         const directMatch = directConceptMatch(stats, profile, category);
         const coherentMatch = coherentConceptMatch(stats, profile, profile.expandedGroups);
@@ -665,7 +696,6 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
             ? localizedPassages.some(passage => coherentConceptMatch(passage, profile, profile.expandedGroups)
                 || compactConceptMatch(passage, profile, profile.expandedGroups))
             : coherentMatch || compactMatch;
-        const directIdentityMatches = new Set(directIdentityFields.identity || []);
         const directPairedIdentityMatch = pairedIdentityMatch(item, profile.identityFocus || profile.direct);
         const expandedPairedIdentityMatch = profile.expandedGroups
             .some(group => pairedIdentityMatch(item, group, true));
@@ -693,7 +723,7 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
                 ? identityMatchCount === 1
                 : identityMatchCount >= 2 || coversCanonicalName || conciseAliasMention;
         });
-        const directIdentityCentral = (category === 'entity' && directIdentityMatches.size > 0)
+        const directIdentityCentral = (category === 'entity' && (directFields.identity || []).length > 0)
             || (category === 'relationship' && directPairedIdentityMatch)
             || (isAddressFact(item) && directPairedIdentityMatch);
         const expandedIdentityCentral = (category === 'entity' && expandedEntityMatch)
@@ -710,7 +740,12 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
         const expandedEligible = isAddressFact(item)
             ? (coherentMatch || compactMatch) && addressExpandedContentMatch
             : passageExpandedMatch || expandedIdentityCentral;
-        const eligible = directEligible || expandedEligible;
+        const contextual = (category === 'capsule' ? localizedPassages : [stats])
+            .map(passage => contextualEvidence(passage, profile))
+            .sort((a, b) => b.score - a.score)[0] || { score: 0, terms: [] };
+        const contextEligible = contextual.score > 0 && (!isAddressFact(item)
+            || (profile.contextGroups || []).some(group => pairedIdentityMatch(item, group, true)));
+        const eligible = directEligible || expandedEligible || contextEligible;
         const directContentMatches = directMatches.filter(term => !queryTermVariants(term, true)
             .some(variant => profile.identityVocabulary.has(variant)));
         const weakDirectEvidenceKey = directEligible
@@ -739,6 +774,9 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
             eligible,
             directEligible,
             expandedEligible,
+            contextEligible,
+            contextScore: contextEligible ? contextual.score : 0,
+            contextualMatches: contextEligible ? contextual.terms : [],
             passageLocalized: category === 'capsule',
             weakDirectEvidenceKey,
             directDiminishingMultiplier: 1,
@@ -754,6 +792,7 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
         .map((result, index) => [result.item, index + 1]));
     const directRanks = sourceRanks('directScore', 'directEligible');
     const expandedRanks = sourceRanks('expandedScore', 'expandedEligible');
+    const contextRanks = sourceRanks('contextScore', 'contextEligible');
     const repeatedDirectEvidence = new Map();
     const directOrder = prepared
         .filter(result => result.directEligible && result.directScore > 0)
@@ -767,12 +806,14 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
     for (const result of prepared) {
         result.directRank = directRanks.get(result.item) || 0;
         result.expandedRank = expandedRanks.get(result.item) || 0;
+        result.contextRank = contextRanks.get(result.item) || 0;
         const directRrf = result.directRank
             ? result.directDiminishingMultiplier / (RRF_OFFSET + result.directRank)
             : 0;
         const expandedRrf = result.expandedRank ? 1 / (RRF_OFFSET + result.expandedRank) : 0;
         const semanticRrf = result.semanticRank > 0 ? 1 / (RRF_OFFSET + result.semanticRank) : 0;
-        result.score = (directRrf + expandedRrf + semanticRrf) * 1000 + result.localScore * 0.01;
+        const contextRrf = result.contextRank ? 0.5 / (RRF_OFFSET + result.contextRank) : 0;
+        result.score = (directRrf + expandedRrf + semanticRrf + contextRrf) * 1000 + result.localScore * 0.01;
     }
     return prepared.sort((a, b) => b.score - a.score);
 }
@@ -921,6 +962,7 @@ function supportConnection(seed, candidate, profile) {
         sourceLinked,
         hierarchyLinked,
         contextBridged,
+        explicitRecordLinked,
     };
 }
 
@@ -952,7 +994,9 @@ function queryEvidenceConfidence(selection, profile) {
     const direct = evidenceQuality(profile.direct);
     const expanded = Math.max(0, ...profile.expandedGroups.map(evidenceQuality));
     const semantic = result.semanticRank > 0 ? 1 / Math.sqrt(result.semanticRank) : 0;
-    return Math.min(1, Math.max(direct, expanded, semantic));
+    const contextual = result.contextEligible
+        ? Math.min(0.6, 1 - Math.exp(-(result.contextScore || 0) / 12)) : 0;
+    return Math.min(1, Math.max(direct, expanded, semantic, contextual));
 }
 
 function retainSupportForSeed(seedSelection, ranked, profile, depthScale = 1) {
@@ -967,10 +1011,17 @@ function retainSupportForSeed(seedSelection, ranked, profile, depthScale = 1) {
     // query or a rare bridge from recent context. A shared source alone is not
     // enough. This avoids turning an AI-assigned importance value into a hard
     // retrieval decision.
-    const eligibleRanked = indirectRelationship
-        ? ranked.filter(result => queryEvidenceConfidence({ item: result.item, result }, profile) >= 0.2
-            || result.connection.contextBridged)
+    const contextOnly = seedSelection.result?.contextEligible
+        && !seedSelection.result?.directEligible && !seedSelection.result?.expandedEligible
+        && !(seedSelection.result?.semanticRank > 0);
+    const contextRelevant = contextOnly
+        ? ranked.filter(result => result.connection.explicitRecordLinked
+            || contextualEvidence(profile.recordStats.get(result.item) || retrievalFieldStats(result.item), profile).score > 0)
         : ranked;
+    const eligibleRanked = indirectRelationship
+        ? contextRelevant.filter(result => queryEvidenceConfidence({ item: result.item, result }, profile) >= 0.2
+            || result.connection.contextBridged)
+        : contextRelevant;
     if (!eligibleRanked.length) return [];
     // A weak primary may remain useful on its own, but it should not unlock a
     // large historical neighborhood. Stronger query evidence earns a wider,
@@ -1215,7 +1266,7 @@ function memoryRow(category, item, text) {
     return { text, key: memoryRowKey(category, item) };
 }
 
-function addFairSections(parts, sections, budget, admitted = new Set()) {
+function addFairSections(parts, sections, budget, admitted = new Set(), packed = []) {
     const populated = sections.filter(section => section.rows.length > 0);
     if (!populated.length) return admitted;
 
@@ -1239,6 +1290,8 @@ function addFairSections(parts, sections, budget, admitted = new Set()) {
     };
     const admit = (index, row) => {
         selected[index].push(row.text);
+        packed.push({ section: populated[index].title, key: row.key || null,
+            provides: row.provides || [], kind: row.kind || 'record', characters: row.text.length });
         nextRows[index]++;
         for (const key of [row.textKey, row.key, ...(row.provides || [])].filter(Boolean)) admitted.add(key);
     };
@@ -1295,15 +1348,19 @@ function addFairSections(parts, sections, budget, admitted = new Set()) {
 export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, chatKey = '', expandedTerms = [], injectionInstruction = DEFAULT_INJECTION_INSTRUCTION, semanticRanks = new Map(), options = {}) {
     migrateLegacyBeliefs(world);
     if (!world) return { prompt: '', estimatedTokens: 0 };
-    const semanticAnchors = [...terms(embeddingAnchorText(world, semanticRanks))];
-    const queryTerms = retrievalProfile(world, recentMessages, [...(expandedTerms || []), ...semanticAnchors]);
+    // A semantic hit is evidence for that record, not permission to turn all
+    // of its names and historical topics into new user queries. Related detail
+    // must still qualify through the bounded support connections below.
+    const queryTerms = retrievalProfile(world, recentMessages, expandedTerms || []);
     const retrievalDiagnostics = {
         query: {
             direct: [...queryTerms.direct],
             aiExpanded: [...queryTerms.expanded],
             aiExpandedGroups: queryTerms.expandedGroups.map(group => [...group]),
+            recentContextGroups: queryTerms.contextGroups.map(group => [...group]),
         },
         selections: [],
+        packed: [],
     };
     const selectedMemoryRecords = [];
     const diagnosticLabel = item => plain(
@@ -1329,6 +1386,8 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
                 directMatches: result?.directMatches || [],
                 aiExpandedMatches: result?.expandedMatches || [],
                 contextMatches: result?.contextMatches || [],
+                contextualMatches: result?.contextualMatches || [],
+                contextRank: result?.contextRank || 0,
                 matchedFields: result?.matchedFields || {},
                 directScore: Number.isFinite(result?.directScore) ? Number(result.directScore.toFixed(4)) : null,
                 aiExpandedScore: Number.isFinite(result?.expandedScore) ? Number(result.expandedScore.toFixed(4)) : null,
@@ -1369,12 +1428,6 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     const latestIsRaw = item => latestSourceInRawTail(item, chatKey, rawTailRange);
     const whollyRaw = item => sourcedWhollyInRawTail(item, chatKey, rawTailRange);
     const sourceIsCurrent = item => !sourcedFromInvalidExtraction(item, invalidSourceRanges);
-    const scenarioContext = collectScenarioContext(world, chatKey, options);
-    // Foundational source context is not query-ranked, AI-selected, or clipped
-    // to the optional recall budget. It is rendered once, outside the Chronicle.
-    const scenarioBlock = renderScenarioContext(scenarioContext);
-    retrievalDiagnostics.scenarioContext = { count: scenarioContext.length,
-        characters: scenarioContext.reduce((sum, note) => sum + note.text.length, 0) };
     // A recent mention is not proof that raw chat contains every detail of a
     // merged lore record. Suppress durable recall only when all its sources are
     // in the retained tail; checkpoints/transient states still use latest scope.
@@ -1426,9 +1479,11 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         ]);
     }
 
-    const addressForms = takeMatches('Addresses', 'fact', availableFacts.filter(isAddressFact), 12, () => 12)
+    const addressMatches = takeMatches('Addresses', 'fact', availableFacts.filter(isAddressFact), 12, () => 12);
+    const addressForms = addressMatches
         .map(({ item }) => `${plain(item.subject)}→${plain(addressFactAddressee(item))}: ${plain(item.value)}`);
-    addSection('Addresses', addressForms.length ? [`- ${addressForms.join(' | ')}`] : []);
+    addSection('Addresses', addressForms.length ? [{ text: `- ${addressForms.join(' | ')}`,
+        provides: addressMatches.map(({ item }) => memoryRowKey('fact', item)) }] : []);
 
     const correctionRecords = world.corrections || [];
     const recentCorrections = correctionRecords.slice(-2);
@@ -1439,7 +1494,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     const selectedCorrections = [...relevantCorrections, ...recentCorrections]
         .filter((item, index, all) => all.findIndex(other => other.id === item.id) === index);
     addSection('User corrections', selectedCorrections.map(item =>
-        `- ${plain(item.summary || item.instruction)}`));
+        memoryRow('correction', item, `- ${plain(item.summary || item.instruction)}`)));
 
     const knowledgeBoundaryResults = recordSelections('Knowledge boundaries — hard constraints', 'fact', rank(
         availableFacts.filter(isKnowledgeBoundaryFact),
@@ -1485,7 +1540,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         const sequence = [item.opening, ...(item.beats || []), item.closing].map(plain).filter(Boolean).join(' → ');
         const emotion = plain(item.emotionalArc);
         const body = `${plain(item.title)}: ${sequence}${emotion ? ` Overall movement: ${emotion}` : ''}`;
-        return `- ${storyTime ? `[${storyTime}] ` : ''}${storyTimeAnchored ? body : anchoredRelativeText(body, item)}`;
+        return memoryRow('capsule', item, `- ${storyTime ? `[${storyTime}] ` : ''}${storyTimeAnchored ? body : anchoredRelativeText(body, item)}`);
     });
     addSection('Recent continuity', capsuleRows);
 
@@ -1508,6 +1563,8 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     const focusedEntities = entityPool
         .filter(item => !matchedEntityIds.has(item.id))
         .filter(item => [item.name, ...(item.aliases || [])].some(explicitlyFocused))
+        .filter(item => !queryTerms.directIdentities.length
+            || queryTerms.directIdentities.some(term => identityTerms(item).has(term)))
         .sort((left, right) => Number(right.importance || 0) - Number(left.importance || 0)
             || compareRecordFreshness(right, left, chatKey))
         .slice(0, Math.max(0, 12 - matchedEntities.length))
@@ -1534,7 +1591,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     addSection('Entities', entities);
 
     const states = takeMatches('Current state', 'state', (world.states || []).filter(item => sourceIsCurrent(item) && isFreshActiveState(world, item, chatKey) && !latestIsRaw(item)), 16, item => item.value ? 2 : 0)
-        .map(({ item }) => `- ${item.subject} — ${item.attribute}: ${anchoredRelativeText(item.value, item)}`);
+        .map(({ item }) => memoryRow('state', item, `- ${item.subject} — ${item.attribute}: ${anchoredRelativeText(item.value, item)}`));
     addSection('Current state', states);
 
     const relationshipMatches = limitRelationshipPairs(matching(
@@ -1551,12 +1608,12 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
             const status = plain(item.status);
             const body = [description ? `Description: ${description}` : '', type ? `Type: ${type}.` : '', status ? `Status: ${status}.` : '']
                 .filter(Boolean).join(' ');
-            return `- ${item.from} ↔ ${item.to}: ${anchoredRelativeText(body, item)}`;
+            return memoryRow('relationship', item, `- ${item.from} ↔ ${item.to}: ${anchoredRelativeText(body, item)}`);
         });
     addSection('Relationships', relationships);
 
     const perspectives = takeMatches('Character perspectives (not established facts)', 'fact', availableFacts.filter(isAttributedBeliefFact), 16, item => item.persistence === 'persistent' ? 2 : 0)
-        .map(({ item }) => `- ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)} [subjective; not an established fact]`);
+        .map(({ item }) => memoryRow('fact', item, `- ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)} [subjective; not an established fact]`));
     addSection('Character perspectives (not established facts)', perspectives);
 
     const facts = takeMatches('Facts', 'fact', availableFacts.filter(item => !isAttributedBeliefFact(item) && !isAddressFact(item) && !isKnowledgeBoundaryFact(item) && !isEstablishedKnowledgeFact(item)), 18, item => item.persistence === 'persistent' ? 2 : 0)
@@ -1612,6 +1669,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         .filter(selection => selection.category !== 'thread'
             || selection.result?.directEligible
             || selection.result?.semanticRank > 0
+            || selection.result?.contextEligible
             || queryEvidenceConfidence(selection, queryTerms) >= 0.75)
         .filter((selection, index, all) => all.findIndex(other => other.item.id === selection.item.id) === index)
         .map(selection => selection);
@@ -1744,7 +1802,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         supportRow(result),
     )));
 
-    const admitted = addFairSections(parts, sections, budget);
+    const admitted = addFairSections(parts, sections, budget, new Set(), retrievalDiagnostics.packed);
     // The ledger is a fallback, not a second rendering of full recall. Wait
     // until packing finishes so supporting records count too, while records
     // selected but not packed still keep their fallback. Chronicle coverage
@@ -1762,15 +1820,18 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     );
     // No unconditional plan or background reminders: stored evidence is recalled by relevance.
     addFairSections(parts, [{ title: 'Compact continuity ledger', rows: [
-        ...compactEvents.map(item => memoryRow('event', item, `- Event ledger (latest): ${plain(item.title)}`)),
-    ] }], budget, admitted);
-    parts.value += scenarioBlock;
+        ...compactEvents.map(item => ({ ...memoryRow('event', item, `- Event ledger (latest): ${plain(item.title)}`), kind: 'title' })),
+    ] }], budget, admitted, retrievalDiagnostics.packed);
+    const packedKeys = new Set(retrievalDiagnostics.packed.filter(row => row.kind !== 'title').flatMap(row => [row.key, ...row.provides]).filter(Boolean));
+    for (const selection of retrievalDiagnostics.selections) {
+        const category = ['address', 'perspective'].includes(selection.category) ? 'fact' : selection.category;
+        selection.injected = packedKeys.has(memoryRowKey(category, selection));
+    }
     if (storyBlock) parts.value += storyBlock;
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.15';
-import { collectScenarioContext, renderScenarioContext } from './scenario-context.js';
-import { embeddingAnchorText, embeddingRecordKey } from './embedding-index.js';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.17';
+import { embeddingRecordKey } from './embedding-index.js?v=0.15.0-testing.17';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';

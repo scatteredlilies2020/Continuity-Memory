@@ -114,6 +114,8 @@ test('a full event selected but not packed retains its ledger fallback', () => {
     assert.match(result.prompt, /Aster swore the oath/u);
     assert.doesNotMatch(result.prompt, /Complete voyage account/u);
     assert.match(result.prompt, /Event ledger \(latest\): Auric covenant voyage/u);
+    assert.equal(result.retrievalDiagnostics.selections.find(row => row.id === 'second').injected, false);
+    assert.ok(result.retrievalDiagnostics.packed.some(row => row.key === 'event:second' && row.kind === 'title'));
     assert.equal(count(result.prompt, 'Auric covenant oath'), 1);
 });
 

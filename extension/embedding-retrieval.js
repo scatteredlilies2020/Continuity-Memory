@@ -1,9 +1,9 @@
 import { getRequestHeaders } from '/script.js';
-import { buildEmbeddingDocuments, buildEmbeddingQuery, semanticRanksFromResponse } from './embedding-index.js';
-import { resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.15';
-import { getSettings } from './settings.js?v=0.15.0-testing.15';
-import { runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.15';
-import { createVectorStorageRequester } from './vector-storage-client.js?v=0.15.0-testing.15';
+import { buildEmbeddingDocuments, buildEmbeddingQuery, semanticRanksFromResponse } from './embedding-index.js?v=0.15.0-testing.17';
+import { resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.17';
+import { getSettings } from './settings.js?v=0.15.0-testing.17';
+import { runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.17';
+import { createVectorStorageRequester } from './vector-storage-client.js?v=0.15.0-testing.17';
 
 const syncedIndexes = new Map();
 const activeSyncs = new Map();
@@ -144,7 +144,7 @@ export function embeddingProviderDescription() {
     catch (error) { return error.message; }
 }
 
-export async function inspectEmbeddingIndex(world) {
+export async function inspectEmbeddingIndex(world, { signal } = {}) {
     if (!world?.id) throw new Error('No Continuity memory is open for embedding indexing.');
     const provider = providerRequest();
     const documents = buildEmbeddingDocuments(world);
@@ -158,7 +158,7 @@ export async function inspectEmbeddingIndex(world) {
         worldId: world.id,
         error: '',
     });
-    const saved = await vectorRequest('list', base) || [];
+    const saved = await vectorRequest('list', base, signal) || [];
     const desiredHashes = new Set(documents.map(document => document.hash));
     const savedHashes = [...new Set((Array.isArray(saved) ? saved : []).map(Number).filter(Number.isFinite))];
     const retained = savedHashes.filter(hash => desiredHashes.has(hash)).length;
@@ -349,19 +349,19 @@ export function scheduleEmbeddingIndexSync(world, delay = 300, allowAutomaticBui
     }, Math.max(0, delay)));
 }
 
-export async function queryEmbeddingMemory(world, messages) {
+export async function queryEmbeddingMemory(world, messages, { signal } = {}) {
     const settings = getSettings();
     const provider = providerRequest();
     const signature = indexSignature(world, provider);
     let index = syncedIndexes.get(world.id) === signature
         ? { status: 'ready' }
-        : await inspectEmbeddingIndex(world);
+        : await inspectEmbeddingIndex(world, { signal });
     const indexed = Number(index.indexed ?? index.existing ?? 0);
     const total = Number(index.total ?? 0);
     if (index.status !== 'ready' || indexed !== total) {
         throw new Error(`Embedding index is ${index.status}; local retrieval will be used until all ${total} records are ready.`);
     }
-    const query = buildEmbeddingQuery(messages, settings.embeddingQueryMessages, 6000);
+    const query = buildEmbeddingQuery(messages, settings.retrievalQueryMessages, 6000);
     if (!query) return new Map();
     const topK = Math.min(200, Math.max(10, Number(settings.embeddingTopK) || 100));
     const threshold = Math.min(1, Math.max(0, Number(settings.embeddingThreshold) || 0));
@@ -374,7 +374,7 @@ export async function queryEmbeddingMemory(world, messages) {
         searchText: query,
         topK,
         threshold,
-    });
+    }, signal);
     const ranks = semanticRanksFromResponse(response, documents);
     queryCache.set(cacheKey, [...ranks.entries()]);
     if (queryCache.size > 100) queryCache.delete(queryCache.keys().next().value);

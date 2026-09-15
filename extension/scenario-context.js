@@ -55,12 +55,3 @@ export function collectScenarioContext(world, chatKey, options = {}) {
     }).sort((left, right) => Number(left.chatKey !== inheritedKey) - Number(right.chatKey !== inheritedKey)
         || left.messageIndex - right.messageIndex || left.noteIndex - right.noteIndex);
 }
-
-export function renderScenarioContext(notes) {
-    if (!notes.length) return '';
-    const guidance = 'Source-authored setup, preserved independently of summaries. Explicit scenario-note assertions define RP canon within their stated scope and time; later explicit corrections override conflicting earlier assertions. Explicit user corrections take precedence over conflicting assistant notes. Questions, hypotheticals, and writing requests are not world facts. Scenario notes do not establish character speech or knowledge. Unlabelled opening excerpts retain their original narration/dialogue attribution, not blanket author-level authority. Do not expand ambiguous era labels using outside lore.';
-    return `\nSource scenario context (verbatim):\n${guidance}\n${notes.map(note => JSON.stringify({
-        source: note.chatKey, message: note.messageIndex, kind: note.kind || 'scenario-note', role: note.role,
-        speaker: note.speaker, text: note.text,
-    })).join('\n')}\n`;
-}

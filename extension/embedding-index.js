@@ -1,3 +1,4 @@
+import { retrievalMessageText } from './retrieval-query.js';
 import { supportingRecords, supportingEvidenceText } from './supporting-memories.js';
 import { isFreshActiveState } from './state-lifecycle.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
@@ -74,7 +75,7 @@ export function buildEmbeddingQuery(messages, messageLimit = 4, characterLimit =
     const text = (messages || [])
         .filter(message => !message?.is_system)
         .slice(-limit)
-        .map(message => `${clean(message.name || (message.is_user ? 'User' : 'Assistant'))}: ${clean(message.mes)}`)
+        .map(message => `${clean(message.name || (message.is_user ? 'User' : 'Assistant'))}: ${retrievalMessageText(message)}`)
         .filter(line => line.replace(/^[^:]+:\s*/, ''))
         .join('\n');
     return text.slice(-Math.max(1000, Number(characterLimit) || 6000));

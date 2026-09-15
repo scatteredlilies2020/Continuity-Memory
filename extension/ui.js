@@ -5,33 +5,34 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.15';
+import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.17';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.15';
-import { clearRetrievalExpansionCache } from './semantic-retrieval.js';
+import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.17';
+import { clearRetrievalExpansionCache, expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.17';
+import { resolveRetrievalAssist } from './retrieval-assist.js?v=0.15.0-testing.17';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
 import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages } from './message-digest.js?v=0.15.0-testing.15';
-import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.15.0-testing.15';
-import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.15';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.17';
+import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.15.0-testing.17';
+import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.17';
 import { completeDigestMessageCount, latestCompleteDigestMessageIndex, resolveDigestGroupSize, validateDigestGroupSize } from './digest-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.15';
-import { embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.15';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.15';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.17';
+import { queryEmbeddingMemory, embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.17';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.17';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.15';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.15';
-import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.15.0-testing.15';
-import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.15.0-testing.15';
+import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.17';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.17';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.15.0-testing.17';
+import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.15.0-testing.17';
 import { createRenderScheduler } from './render-scheduler.js';
-import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.15';
-import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.15';
+import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.17';
+import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.17';
 import { isTransientApiError } from './errors.js';
 
 let worlds = [];
@@ -51,20 +52,22 @@ let liveUiRecoveryNeeded = false;
 let liveUiRecoveryPromise = null;
 let lastLiveUiRecoveryAt = Date.now();
 const LIVE_UI_RECOVERY_INTERVAL = 30000;
-const DIRECT_KINDS = Object.freeze(['extraction', 'correction', 'summary']);
+const DIRECT_KINDS = Object.freeze(['extraction', 'retrieval', 'correction', 'summary']);
 const DIRECT_PROFILE_SETTINGS = Object.freeze({
     extraction: 'memoryProfileId',
+    retrieval: 'retrievalProfileId',
     correction: 'correctionProfileId',
     summary: 'arcProfileId',
 });
 const DIRECT_PROFILE_SELECTORS = Object.freeze({
     extraction: '#continuity_model_profile',
+    retrieval: '#continuity_retrieval_profile',
     correction: '#continuity_correction_profile',
     summary: '#continuity_arc_profile',
 });
 
 function directLabel(kind) {
-    return kind === 'summary' ? 'Chronicle promotion' : kind === 'correction' ? 'correction' : 'extraction';
+    return kind === 'retrieval' ? 'AI retrieval' : kind === 'summary' ? 'Chronicle promotion' : kind === 'correction' ? 'correction' : 'extraction';
 }
 
 function directControl(kind, suffix) {
@@ -925,6 +928,7 @@ export function refreshModelProfiles() {
     const settings = getSettings();
     const selections = {
         extraction: $(DIRECT_PROFILE_SELECTORS.extraction).empty().append($('<option>').val('').text('Current active SillyTavern model')),
+        retrieval: $(DIRECT_PROFILE_SELECTORS.retrieval).empty().append($('<option>').val('').text('Same as extraction model')),
         correction: $(DIRECT_PROFILE_SELECTORS.correction).empty().append($('<option>').val('').text('Same as extraction model')),
         summary: $(DIRECT_PROFILE_SELECTORS.summary).empty().append($('<option>').val('').text('Same as extraction model')),
     };
@@ -1165,7 +1169,10 @@ export function renderRuntime(refreshSettings = true) {
         $('#continuity_story_so_far').prop('checked', settings.storySoFarEnabled);
         $('#continuity_summary_thinking').val(settings.summaryThinkingMode);
         $('.continuity-embedding-setting').toggle(settings.retrievalMode === 'embedding-hybrid');
+        $('.continuity-ai-setting').toggle(settings.retrievalMode === 'ai-expanded');
         $('#continuity_retrieval_messages').val(settings.retrievalQueryMessages);
+        $('#continuity_embedding_top_k').val(settings.embeddingTopK);
+        $('#continuity_embedding_threshold').val(settings.embeddingThreshold);
         updateEmbeddingProviderUI(settings);
         $('#continuity_embedding_provider').text(`Provider: ${embeddingProviderDescription()}`);
     }
@@ -1252,6 +1259,9 @@ export function renderRuntime(refreshSettings = true) {
         $('#continuity_chronicle_capacity').val(settings.chronicleLayerCapacity);
         $('#continuity_chronicle_fan_in').val(settings.chroniclePromotionSize);
         $('#continuity_thinking').val(settings.thinkingMode);
+        $('#continuity_retrieval_thinking').val(settings.retrievalThinkingMode);
+        setControlValue('#continuity_retrieval_prompt', settings.retrievalSystemPrompt);
+        setControlValue('#continuity_retrieval_template', settings.retrievalQueryTemplate);
         for (const kind of DIRECT_KINDS) renderDirectCategory(settings, kind);
         // These fields can contain tens of thousands of characters. Reassigning an
         // unchanged textarea value forces browsers to redo selection and layout work.
@@ -1878,7 +1888,7 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
     });
     setSetting('#continuity_enabled', 'enabled', Boolean, () => scheduleMemoryMaintenance?.());
     setSetting('#continuity_notifications', 'showNotifications', Boolean);
-    setSetting('#continuity_retrieval_mode', 'retrievalMode', value => value === 'embedding-hybrid' ? 'embedding-hybrid' : 'local');
+    setSetting('#continuity_retrieval_mode', 'retrievalMode', value => ['ai-expanded', 'embedding-hybrid'].includes(value) ? value : 'local');
     setSetting('#continuity_story_so_far', 'storySoFarEnabled', Boolean);
     setSetting('#continuity_summary_thinking', 'summaryThinkingMode');
     $('#continuity_retrieval_mode').on('change', () => {
@@ -1891,6 +1901,8 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
     setSetting('#continuity_embedding_openrouter_url', 'embeddingOpenRouterUrl', value => String(value || '').trim());
     setSetting('#continuity_embedding_proxy_model', 'embeddingProxyModel', value => String(value || '').trim());
     setSetting('#continuity_embedding_openrouter_model', 'embeddingOpenRouterModel', value => String(value || '').trim());
+    setSetting('#continuity_embedding_top_k', 'embeddingTopK', value => Math.min(200, Math.max(10, Number(value) || 100)));
+    setSetting('#continuity_embedding_threshold', 'embeddingThreshold', value => Math.min(1, Math.max(0, Number(value) || 0)));
     setSetting('#continuity_embedding_auto_sync', 'embeddingAutoSync', Boolean);
     $('#continuity_embedding_auto_sync').on('change', () => {
         if (getSettings().embeddingAutoSync && runtime.world) scheduleEmbeddingIndexSync(runtime.world, 0);
@@ -1965,6 +1977,9 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
         return Math.min(capacity, Math.max(3, Number(value) || 10));
     }, scheduleChronicleMaintenance);
     setSetting('#continuity_thinking', 'thinkingMode');
+    setSetting('#continuity_retrieval_thinking', 'retrievalThinkingMode');
+    setSetting('#continuity_retrieval_prompt', 'retrievalSystemPrompt', String);
+    setSetting('#continuity_retrieval_template', 'retrievalQueryTemplate', String);
     for (const kind of DIRECT_KINDS) {
         bindModelProfileSelector(kind);
         $(directControl(kind, 'provider')).on('change', function () {
@@ -2131,15 +2146,21 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
     return {};
 }
 
-export function previewInjection() {
+export async function previewInjection() {
     const context = getContext();
     const settings = getSettings();
     const recent = (context.chat || []).filter(message => !message?.is_system)
         .slice(-Math.min(50, Math.max(2, Number(settings.retrievalQueryMessages) || 6)));
     const budget = resolveInjectionBudget(settings.injectionBudgetTokens, context.maxContext);
     const coverage = getProcessingCoverage(runtime.world);
-    return buildMemoryPrompt(runtime.world, recent, budget.tokens, getChatKey(), [], settings.injectionInstruction, new Map(), {
-        includeSceneCheckpoint: coverage.pending === 0,
-        includeStorySoFar: settings.storySoFarEnabled,
+    const world = runtime.world;
+    const chatKey = getChatKey();
+    const sourceMessages = collectMemoryEligibleMessages(context.chat || []);
+    const invalidSourceRanges = findInvalidExtractionRanges(world, sourceMessages, chatKey);
+    const { ranks, terms } = await resolveRetrievalAssist({ mode: settings.retrievalMode, phase: 'preview',
+        world, messages: recent, query: queryEmbeddingMemory, expand: expandRetrievalTerms });
+    return buildMemoryPrompt(world, recent, budget.tokens, chatKey, terms, settings.injectionInstruction, ranks, {
+        includeSceneCheckpoint: coverage.pending === 0, includeStorySoFar: settings.storySoFarEnabled,
+        invalidSourceRanges,
     });
 }

@@ -134,15 +134,78 @@
                 </details>
 
                 <h4>Retrieval &amp; embeddings</h4>
-                <label>Local retrieval &amp; optional index
+                <label>Memory retrieval
                     <select id="continuity_retrieval_mode" class="text_pole">
                         <option value="local">Local matching (default; no vector index maintenance)</option>
-                        <option value="embedding-hybrid">Local matching + optional embedding index maintenance</option>
+                        <option value="ai-expanded">AI-assisted search + local matching</option>
+                        <option value="embedding-hybrid">Semantic embeddings + local matching</option>
                     </select>
                 </label>
-                <small>Replies and previews use local matching with no AI expansion or vector queries. The optional embedding index can be built and maintained, but does not improve reply retrieval in this version. Existing provider settings are preserved.</small>
+                <small>Choose one mode. All modes use the current conversation and the same memory categories. Optional AI or embedding lookups have a ten-second deadline, then fall back to local recall.</small>
+                <div class="continuity-ai-setting continuity-card-inset">
+                    <small>Uses an AI model to turn the current conversation into search phrases, then retrieves existing memory. It does not generate replacement memories or query embeddings. Failed or slow requests fall back to local recall.</small>
+                    <label>AI retrieval model
+                        <select id="continuity_retrieval_profile" class="text_pole">
+                            <option value="">Same as extraction model</option>
+                            <option value="__direct_custom__">Direct OpenAI-compatible / proxy</option>
+                            <option value="__direct_openrouter__">Direct OpenRouter</option>
+                        </select>
+                    </label>
+                    <div class="continuity-retrieval-direct-setting continuity-card-inset">
+                        <b>Direct AI retrieval API</b>
+                        <label>Provider
+                            <select id="continuity_retrieval_direct_provider" class="text_pole">
+                                <option value="custom">Custom / OpenAI-compatible / proxy</option>
+                                <option value="openrouter">OpenRouter</option>
+                            </select>
+                        </label>
+                        <label>API URL
+                            <input id="continuity_retrieval_direct_url" class="text_pole" type="url" placeholder="https://api.openai.com/v1">
+                        </label>
+                        <label>API password / key
+                            <input id="continuity_retrieval_direct_key" class="text_pole" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved password">
+                        </label>
+                        <div class="continuity-button-row">
+                            <button id="continuity_retrieval_direct_save_key" class="menu_button"><i class="fa-solid fa-key"></i> Save retrieval password</button>
+                            <button id="continuity_retrieval_direct_fetch_models" class="menu_button"><i class="fa-solid fa-arrows-rotate"></i> Fetch models</button>
+                        </div>
+                        <div id="continuity_retrieval_direct_key_status" class="continuity-progress">No retrieval password saved.</div>
+                        <select id="continuity_retrieval_direct_model_select" class="text_pole" style="display: none;"></select>
+                        <div id="continuity_retrieval_direct_models_status" class="continuity-progress">Model list not fetched yet.</div>
+                        <label>Model
+                            <input id="continuity_retrieval_direct_model" class="text_pole" type="text" placeholder="gpt-4.1-mini">
+                        </label>
+                    </div>
+                    <details>
+                        <summary>AI retrieval options</summary>
+                        <label>Reasoning / thinking
+                            <select id="continuity_retrieval_thinking" class="text_pole">
+                            <option value="auto">Auto (selected profile)</option>
+                            <option value="off">Off</option>
+                            <option value="minimum">Minimum</option>
+                            <option value="low">Low</option>
+                            <option value="medium">Medium</option>
+                            <option value="high">High</option>
+                            <option value="max">Maximum</option>
+                        </select>
+                        </label>
+                        <label>Search instructions
+                            <textarea id="continuity_retrieval_prompt" class="text_pole continuity-prompt-editor" rows="7"></textarea>
+                        </label>
+                        <label>Conversation template
+                            <textarea id="continuity_retrieval_template" class="text_pole continuity-prompt-editor" rows="4"></textarea>
+                        </label>
+                    </details>
+                </div>
                 <div class="continuity-embedding-setting continuity-card-inset">
-                    <b>Optional embedding index maintenance</b>
+                    <b>Semantic memory index</b>
+                    <label>Maximum semantic candidates
+                        <input id="continuity_embedding_top_k" class="text_pole" type="number" min="10" max="200" step="1">
+                    </label>
+                    <label>Minimum similarity
+                        <input id="continuity_embedding_threshold" class="text_pole" type="number" min="0" max="1" step="0.01">
+                    </label>
+                    <small>Candidates compete with local matches for the recall budget. Higher similarity thresholds return fewer matches; an empty result adds no semantic records.</small>
                     <label>Embedding provider
                         <select id="continuity_embedding_provider_choice" class="text_pole">
                             <option value="proxy">Custom / OpenAI-compatible proxy</option>
@@ -213,7 +276,7 @@
                     <summary>Advanced retrieval history</summary>
                     <label>Recent messages
                         <input id="continuity_retrieval_messages" class="text_pole" type="number" min="2" max="50" step="1">
-                        <small>complete messages; default 6. Visible roleplay matching processes them on-device. Long messages are not truncated.</small>
+                        <small>complete messages; default 6. Local recall also checks the immediate exchange for short follow-ups. AI search uses this conversation; embedding queries use its last 6,000 characters.</small>
                     </label>
                 </details>
                 <details>

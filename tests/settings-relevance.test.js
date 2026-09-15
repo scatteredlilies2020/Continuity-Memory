@@ -20,7 +20,7 @@ test('fresh settings use local retrieval and do not create retired Story control
     const { getSettings } = await loadSettings();
     const settings = getSettings();
     assert.equal(settings.retrievalMode, 'local');
-    assert.equal(settings.retrievalDefaultVersion, 2);
+    assert.equal(settings.retrievalDefaultVersion, 3);
     assert.equal(settings.retrievalQueryMessages, 6);
     assert.equal(settings.storySoFarEnabled, true);
     for (const key of ['storySoFarTokens', 'storySourceMode', 'storyBatchMessages', 'storyThinkingMode', 'storyProfileId', 'storyDirectUrl', 'storyDirectModel']) {
@@ -43,7 +43,7 @@ for (const mode of ['local', 'ai-expanded', 'embedding-hybrid']) {
         };
         const { getSettings } = await loadSettings(saved);
         const settings = getSettings();
-        assert.equal(settings.retrievalMode, mode === 'embedding-hybrid' ? mode : 'local');
+        assert.equal(settings.retrievalMode, mode);
         for (const [key, value] of Object.entries(saved)) {
             if (['retrievalMode', 'retrievalDefaultVersion'].includes(key)) continue;
             assert.deepEqual(settings[key], value, key);
@@ -73,18 +73,19 @@ test('visible retrieval controls describe only active behavior', () => {
     const html = readFileSync(new URL('../extension/settings.html', import.meta.url), 'utf8');
     const ui = readFileSync(new URL('../extension/ui.js', import.meta.url), 'utf8');
     const index = readFileSync(new URL('../extension/index.js', import.meta.url), 'utf8');
-    for (const id of ['story_so_far_tokens', 'retrieval_profile', 'retrieval_thinking', 'retrieval_prompt', 'retrieval_template', 'embedding_messages', 'embedding_top_k', 'embedding_threshold']) {
+    for (const id of ['story_so_far_tokens', 'embedding_messages']) {
         assert.doesNotMatch(html, new RegExp(`id="continuity_${id}"`));
         assert.doesNotMatch(ui, new RegExp(`#continuity_${id}['"]`));
     }
-    assert.doesNotMatch(html, /value="ai-expanded"/);
+    assert.match(html, /value="ai-expanded"/);
     assert.match(html, /Local matching \(default/);
-    assert.match(html, /does not improve reply retrieval in this version/);
+    assert.match(html, /Semantic embeddings &amp;|Semantic embeddings \+/);
+    for (const key of ['embedding_top_k', 'embedding_threshold']) assert.ok(html.includes(`id="continuity_${key}"`));
     assert.match(html, /complete active Chronicle frontier is included without token clipping/);
     assert.match(html, /Soft packing target/);
     assert.match(html, /id="continuity_retrieval_messages"/);
-    assert.doesNotMatch(index, /expandRetrievalTerms|embeddingQueryMessages|resolveStoryBudget/);
+    assert.doesNotMatch(index, /embeddingQueryMessages|resolveStoryBudget/);
     assert.doesNotMatch(ui, /embeddingQueryMessages|resolveStoryBudget/);
-    assert.match(index, /mode: 'local', phase, executed: true/);
-    assert.match(ui.slice(ui.indexOf('export function previewInjection')), /settings\.retrievalQueryMessages/);
+    assert.match(index, /await resolveRetrievalAssist/);
+    assert.match(ui.slice(ui.indexOf('export async function previewInjection')), /settings\.retrievalQueryMessages/);
 });

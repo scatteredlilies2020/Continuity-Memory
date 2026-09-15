@@ -62,13 +62,7 @@ The legacy `threads` and `backgrounds` storage channels remain compatible; new o
 
 This does not recover text already absent from both saved records and extraction replay; recovering that requires the original source. Retrieval is selective, not a promise that every stored detail appears in every reply.
 
-Explicit scenario notes anywhere in the chat—including greetings, assistant messages, and user messages, with Markdown-formatted `Note:`, `Timeline:`, `Premise:`, and OOC/meta labels—are preserved directly from source, independently of what the extraction model remembers to write. Each Digest stores those source excerpts, roles, and message positions; opening-message prose is also retained, including prose around labelled notes. This uses generic source structure, not hard-coded settings or lore.
-
-Prompt assembly includes this **Source scenario context (verbatim)** separately from the lossy Chronicle and budgeted structured recall. Copies of the same source appear once, and excerpts already present in the retained raw-message tail are omitted. Distinct later corrections and reassertions retain their order. Labels, conditions, and source wording are not semantically deduplicated or clipped; whitespace around spans and line endings are normalized. Explicit user corrections override conflicting assistant notes. Unlabelled opening prose retains its narration/dialogue attribution; quoted documents, questions, hypotheticals, and writing requests are not blanket world facts or character knowledge.
-
-Existing memory does not require a rebuild: when the original chat remains available, injection reads its source excerpts directly, also respecting source edits and deletions. This does not rewrite old generated prose or reconstruct source text already deleted before it was stored; existing exports missing these excerpts still need the original chat or a new scan before transfer. Newly stored excerpts survive Chronicle promotion, hierarchy rebuilds, and continuation exports. Reload the updated extension and restart SillyTavern to load the updated server extraction worker.
-
-This channel prevents model omissions from erasing recognized scenario notes or the opening message from assembled continuity context. It does not guarantee perfect downstream AI compliance or lossless recall of every unlabelled detail later in the conversation. Large openings or many notes add to the prompt outside the soft recall budget; the model/provider's finite context window still applies.
+Saved source excerpts remain available in Digests and continuation exports for provenance. Prompt assembly no longer appends the automatic **Source scenario context (verbatim)** block of openings and labelled notes. The Chronicle supplies the continuity overview; current conversation and relevant structured records supply supporting detail. No OOC, director, or other special labels are required for retrieval, and unrelated excerpts do not fill empty categories.
 
 Extraction distinguishes the current focus from other continuity-bearing strands. Focused characters, goals, decisions, relationships, and directly consequential subplots receive normal detailed records. Each meaningful non-focused theater or process receives a source-grounded supporting observation with its condition at that point and certainty. This applies equally to simulation and ordinary roleplay; it does not assume that geographic or political material is background when it directly affects the active story.
 
@@ -92,21 +86,21 @@ Relevant existing mutable records are supplied to each extraction with stable ID
 
 ## Memory retrieval
 
-Replies and previews use latency-safe local matching by default, so an LLM or vector provider can never hold the reply open. The optional embedding-index maintenance mode does not change reply retrieval. Automatic embedding updates are triggered only by actual structured-memory revisions, not by every visible reply.
+Replies and previews use the selected retrieval mode: local matching, AI-assisted search with local matching, or semantic embeddings with local matching. All three retrieve structured categories and supporting memories alongside the Chronicle. Optional provider lookups have a ten-second deadline and fall back to contextual local recall on failure or timeout. Semantic lookup also falls back when the index is incomplete; it never waits for index building. Automatic embedding updates are triggered only by actual structured-memory revisions, not by every visible reply.
 
 Retrieval supplements the active Recursive Chronicle frontier rather than replacing it. Each Digest extraction returns a source-linked C0 Chronicle entry in the same response as structured memory, so normal processing does not need a second request for that entry. Older nodes are recursively promoted into compact parents while their source-linked children remain available for inspection. The complete active frontier is included without token clipping, in addition to the soft structured-recall target. Layer capacity and promotion group size control when older nodes are summarized; neither is a hard token limit.
 
 ### Local matching
 
-Deterministic multilingual text matching with no additional model request. This is the active retrieval method for both selectable modes. The recent-message setting controls how much conversation local matching considers, including when optional index maintenance is enabled.
+Deterministic multilingual text matching with no additional model request. It runs in all three modes. The latest user message and coherent passages from the immediate exchange supply relevance, so a short reply can still retrieve details about the subject being discussed. An explicit change of named topic limits carryover from the previous exchange. A speaker name alone does not select their entire inventory, and incidental words scattered across messages do not form a supporting-memory query. The recent-message setting controls the conversation available to retrieval. Decorative status panels and background-update blocks are excluded from query text.
 
-### Legacy AI-expanded settings
+### AI-assisted search with local matching
 
-The inactive AI-expanded mode and its model, reasoning, and prompt controls are no longer shown. Existing installations using that mode migrate to local matching. Saved provider configuration is preserved; no credentials or memory are deleted.
+Select **AI-assisted search + local matching** to ask a model for relevant search phrases from recent conversation. These phrases supplement local evidence across the same structured categories and supporting memories. This mode does not query embeddings. Its model can inherit Extraction or use a separate connection profile or direct endpoint; reasoning and search prompts are configurable. Failed or late requests leave local recall available. Saved AI mode selections are preserved.
 
-### Optional embedding index maintenance
+### Semantic embeddings with local matching
 
-Select **Local matching + optional embedding index maintenance** to build or maintain the derived vector index. This does not enable vector queries or improve reply retrieval in this version, and provider calls for indexing may incur costs. Unused vector-query tuning controls are no longer shown. When auto-sync is enabled, changed structured or Chronicle records are embedded after a memory revision; unchanged replies do not request or retry embeddings. Existing index opt-ins remain enabled after updating.
+Select **Semantic embeddings + local matching** to retrieve by meaning as well as wording. Queries use the existing configured provider and index; repeated identical queries for the same memory revision reuse cached ranks. Maximum semantic candidates and minimum similarity control vector selection. Search-hit titles and names never become new query terms. Results map back to current canonical records, with normal invalid-source, raw-tail, freshness, deduplication and packing rules still applied. With auto-sync enabled, memory revisions update the index in the background. Retrieval diagnostics distinguish selected candidates from records actually injected, including facts supplied inside entity rows. Supporting details accompany the Chronicle in the roleplay prompt; they are not another generated summary.
 
 Embeddings are optional. The vector index is derived from canonical Continuity memory, stored separately, and never included in memory exports or portable chat snapshots. It can be deleted or rebuilt at any time. Indexing failures never affect visible roleplay, which already uses local matching.
 
@@ -156,11 +150,11 @@ Recent conversation remains verbatim. Extracted records sourced wholly from that
 
 If extraction fails or coverage is incomplete, Continuity keeps the uncovered messages in context. Stored ranges whose source messages were edited, swiped, hidden, or deleted are excluded from retrieval immediately and repaired before later use.
 
-Roleplay never waits for extraction, hierarchy building, embedding synchronization, or an embedding query. Continuity injects the latest safe snapshot using local matching on the generation path; unfinished memory and revision-triggered vector work continues in the background, while recent unprocessed messages remain available as raw chat.
+Roleplay never waits for extraction, hierarchy building, or embedding synchronization. In either optional retrieval mode, only the bounded search lookup can delay prompt assembly (up to ten seconds); local mode makes no retrieval provider request. Unfinished memory and revision-triggered indexing continue in the background, while recent unprocessed messages remain available as raw chat.
 
 ## Models and connections
 
-Digest extraction, correction review, and Chronicle promotion can each independently use:
+Digest extraction, correction review, Chronicle promotion, and AI retrieval can each independently use:
 
 - the active SillyTavern connection
 - a SillyTavern Connection Profile

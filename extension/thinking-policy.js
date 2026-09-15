@@ -1,4 +1,4 @@
-import { minimumReasoningEffort } from './model-compatibility.js?v=0.15.0-testing.15';
+import { minimumReasoningEffort } from './model-compatibility.js?v=0.15.0-testing.17';
 
 function normalizedMode(mode) {
     const value = String(mode || '').toLowerCase();

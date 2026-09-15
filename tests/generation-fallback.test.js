@@ -7,10 +7,11 @@ test('roleplay readiness failures are configured to fall back instead of abortin
     assert.doesNotMatch(source, /Roleplay generation stopped until Continuity is ready/iu);
 });
 
-test('roleplay uses latency-safe local retrieval without starting embeddings', async () => {
+test('roleplay uses bounded optional semantic retrieval without starting index builds', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
-    assert.match(source, /localOnly: true/u);
-    assert.match(source, /reason: 'latency-safe'/u);
+    assert.doesNotMatch(source, /localOnly: true/u);
+    assert.match(source, /await resolveRetrievalAssist/u);
+    assert.match(source, /mode: settings.retrievalMode, phase, world, messages: recent, query: queryEmbeddingMemory/u);
     assert.doesNotMatch(source, /continueEmbeddingAfterReplyRelease|ensureEmbeddingCoverage|queryEmbeddingWithRetries|Vector retrieval timed out/u);
     assert.doesNotMatch(source, /required 99% embedding coverage|Reply pending while Continuity/u);
 });

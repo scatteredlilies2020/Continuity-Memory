@@ -7,35 +7,35 @@ import { oai_settings, openai_setting_names, openai_settings, proxies } from '/s
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.15';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.17';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { normalizeHierarchyResult } from './hierarchy-result.js';
 import { captureScenarioContext } from './scenario-context.js';
 import { completeDigestMessages, latestCompleteDigestMessageIndex, digestStabilityRepairFrom, DIGEST_STABILITY_BUFFER_MESSAGES, partitionDigestStabilityBuffer, partitionPendingDigestMessages, resolveDigestGroupSize, selectAutomaticDigestMessages } from './digest-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.15';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.17';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedChronicle, freshResetResiduals, getLatestDigestUndoStatus as inspectLatestDigestUndo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.15';
-import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.15';
+import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.17';
+import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.17';
 import { embedWorldInChat } from './portable.js';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.15';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.15';
-import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.15';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.15';
-import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.15';
-import { isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.15';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.15';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.17';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.17';
+import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.17';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.17';
+import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.17';
+import { isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.17';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.17';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { resolveProfileThinkingMode } from './story-thinking.js?v=0.15.0-testing.15';
-import { stableStoryMessages } from './story-cadence.js?v=0.15.0-testing.15';
-import { compileRollingStorySnapshot } from './story-snapshot.js?v=0.15.0-testing.15';
-import { planStoryMutationRecovery } from './story-checkpoints.js?v=0.15.0-testing.15';
-import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.15';
+import { resolveProfileThinkingMode } from './story-thinking.js?v=0.15.0-testing.17';
+import { stableStoryMessages } from './story-cadence.js?v=0.15.0-testing.17';
+import { compileRollingStorySnapshot } from './story-snapshot.js?v=0.15.0-testing.17';
+import { planStoryMutationRecovery } from './story-checkpoints.js?v=0.15.0-testing.17';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.17';
 import { nextChroniclePromotion } from './chronicle.js';
 import { chronicleRetryFeedback, isRetryableChronicleError, retryChroniclePromotion } from './chronicle-retry.js';
 
@@ -652,7 +652,7 @@ function renderStructuredTaskPrompt(template, defaultTemplate, values, schemaExa
     }, [usesFormatPlaceholder ? 'format' : 'schema', ...required]);
 }
 
-async function requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, kind, withSchema = true, thinkingMode = getSettings().thinkingMode) {
+async function requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, kind, withSchema = true, thinkingMode = getSettings().thinkingMode, signal = undefined) {
     thinkingMode = resolveThinkingModeForProfile(thinkingMode, DIRECT_PROFILE_ID);
     const config = directRequestConfig(kind);
     const thinking = buildThinkingRequest({
@@ -678,6 +678,7 @@ async function requestDirectStructured(prompt, systemPrompt, jsonSchema, respons
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify(body),
+        signal,
     });
     const text = await response.text();
     let payload;
@@ -757,8 +758,8 @@ function extractProfileResponse(response, apiMap, profileName) {
     return result;
 }
 
-export async function requestDirectText(prompt, systemPrompt, responseLength = 300, kind = 'extraction', thinkingMode = getSettings().thinkingMode) {
-    return requestDirectStructured(prompt, systemPrompt, null, responseLength, kind, false, thinkingMode);
+export async function requestDirectText(prompt, systemPrompt, responseLength = 300, kind = 'extraction', thinkingMode = getSettings().thinkingMode, { signal } = {}) {
+    return requestDirectStructured(prompt, systemPrompt, null, responseLength, kind, false, thinkingMode, signal);
 }
 
 async function requestStructured(prompt, systemPrompt, jsonSchema, responseLength = null, profileId = getSettings().memoryProfileId, directKind = 'extraction', fallbackPrompt = prompt, thinkingMode = getSettings().thinkingMode) {

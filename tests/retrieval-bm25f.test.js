@@ -823,8 +823,9 @@ test('AI-selected relationships may recover history bridged by rare recent conte
         { name: 'User', is_user: true, mes: 'Next.' },
     ];
     const result = buildMemoryPrompt(target, recent, 10000, 'chat', ['Aster and Beryl trade playful banter']);
-    const supportIds = selections(result, 'Supporting continuity').map(item => item.id);
+    const injectedIds = result.retrievalDiagnostics.selections.filter(item => item.injected).map(item => item.id);
 
-    assert.ok(supportIds.includes('pass-history'));
-    assert.ok(!supportIds.includes('unrelated-history'));
+    assert.ok(injectedIds.includes('pass-history'));
+    assert.ok(!injectedIds.includes('unrelated-history'));
+    assert.match(result.prompt, /crossed the northern pass together/);
 });

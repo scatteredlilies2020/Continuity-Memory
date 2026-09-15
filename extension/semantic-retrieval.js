@@ -1,14 +1,14 @@
 import { extractMessageFromData } from '/script.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
-import { isThinkingControlError, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.15';
-import { generateWithThinkingPolicy, requestDirectText, resolveThinkingModeForProfile } from './engine.js?v=0.15.0-testing.15';
-import { parseExpandedTerms } from './semantic-terms.js?v=0.15.0-testing.15';
+import { isThinkingControlError, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.17';
+import { generateWithThinkingPolicy, requestDirectText, resolveThinkingModeForProfile } from './engine.js?v=0.15.0-testing.17';
+import { parseExpandedTerms } from './semantic-terms.js?v=0.15.0-testing.17';
 import { recentRetrievalQuery } from './retrieval-query.js';
-import { getSettings } from './settings.js?v=0.15.0-testing.15';
-import { buildThinkingRequest } from './thinking-policy.js?v=0.15.0-testing.15';
-import { buildRetrievalSystemPrompt, DEFAULT_RETRIEVAL_QUERY_TEMPLATE, DEFAULT_RETRIEVAL_SYSTEM_PROMPT, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.15';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.15';
-import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.15';
+import { getSettings } from './settings.js?v=0.15.0-testing.17';
+import { buildThinkingRequest } from './thinking-policy.js?v=0.15.0-testing.17';
+import { buildRetrievalSystemPrompt, DEFAULT_RETRIEVAL_QUERY_TEMPLATE, DEFAULT_RETRIEVAL_SYSTEM_PROMPT, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.17';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.17';
+import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.17';
 
 const cache = new Map();
 const pending = new Map();
@@ -22,7 +22,7 @@ export function clearRetrievalExpansionCache() {
     return removed;
 }
 
-async function requestExpansion(prompt) {
+async function requestExpansion(prompt, signal) {
     const settings = getSettings();
     const systemPrompt = buildRetrievalSystemPrompt(settings.retrievalSystemPrompt ?? DEFAULT_RETRIEVAL_SYSTEM_PROMPT);
     const profileId = settings.retrievalProfileId || settings.memoryProfileId;
@@ -30,12 +30,12 @@ async function requestExpansion(prompt) {
     if (!profileId) {
         return await generateWithThinkingPolicy({ prompt, systemPrompt, responseLength: 300 }, thinkingMode);
     }
-    if (profileId === '__direct__') return requestDirectText(prompt, systemPrompt, 300, 'retrieval', thinkingMode);
+    if (profileId === '__direct__') return requestDirectText(prompt, systemPrompt, 300, settings.retrievalProfileId ? 'retrieval' : 'extraction', thinkingMode, { signal });
     const profile = ConnectionManagerRequestService.getProfile(profileId);
     const apiMap = ConnectionManagerRequestService.validateProfile(profile);
     const model = connectionProfileModel(profile, 'AI retrieval');
     const messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }];
-    const options = isolatedProfileOptions();
+    const options = isolatedProfileOptions({ signal });
     const thinking = buildThinkingRequest({
         mode: thinkingMode,
         source: apiMap.source,
@@ -61,23 +61,28 @@ async function requestExpansion(prompt) {
     return result;
 }
 
-export async function expandRetrievalTerms(recentMessages) {
+export async function expandRetrievalTerms(recentMessages, { signal } = {}) {
+    signal?.throwIfAborted();
     const settings = getSettings();
     const query = recentRetrievalQuery(recentMessages, settings.retrievalQueryMessages);
     const profileId = settings.retrievalProfileId || settings.memoryProfileId;
     const thinkingMode = resolveThinkingModeForProfile(settings.retrievalThinkingMode, profileId);
+    const kind = settings.retrievalProfileId ? 'retrieval' : 'extraction';
     const directConfig = profileId === '__direct__'
-        ? `${settings.retrievalDirectProvider}|${settings.retrievalDirectUrl}|${settings.retrievalDirectModel}|${settings.retrievalOpenRouterUrl}|${settings.retrievalOpenRouterModel}`
+        ? `${settings[`${kind}DirectProvider`]}|${settings[`${kind}DirectUrl`]}|${settings[`${kind}DirectModel`]}|${settings[`${kind}OpenRouterUrl`]}|${settings[`${kind}OpenRouterModel`]}|${settings[`${kind}DirectSecretId`]}|${settings[`${kind}OpenRouterSecretId`]}`
         : '';
-    const key = `${profileId}|${directConfig}|${thinkingMode}|${settings.retrievalSystemPrompt}|${query}`;
-    if (cache.has(key)) return [...cache.get(key)];
+    const profileConfig = profileId && profileId !== '__direct__'
+        ? JSON.stringify(ConnectionManagerRequestService.getProfile(profileId)) : '';
+    const key = `${profileId}|${profileConfig}|${directConfig}|${thinkingMode}|${settings.retrievalSystemPrompt}|${settings.retrievalQueryTemplate}|${query}`;
+    if (profileId && cache.has(key)) return [...cache.get(key)];
     if (pending.has(key)) return [...await pending.get(key)];
     const epoch = cacheEpoch;
     const operation = (async () => {
         const prompt = renderPromptTemplate(settings.retrievalQueryTemplate ?? DEFAULT_RETRIEVAL_QUERY_TEMPLATE, { conversation: query }, ['conversation']);
-        const raw = await requestExpansion(prompt);
+        const raw = await requestExpansion(prompt, signal);
+        signal?.throwIfAborted();
         const terms = parseExpandedTerms(raw);
-        if (cacheEpoch === epoch) {
+        if (profileId && cacheEpoch === epoch) {
             cache.set(key, [...terms]);
             if (cache.size > 100) cache.delete(cache.keys().next().value);
         }

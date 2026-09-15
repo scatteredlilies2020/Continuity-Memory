@@ -1,27 +1,30 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, isGenerating, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.15.0-testing.15';
+import { api } from './api.js?v=0.15.0-testing.17';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js';
-import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maintainChronicleHierarchy, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.15.0-testing.15';
-import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.15.0-testing.15';
-import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.15';
-import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.15.0-testing.15';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.15';
+import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maintainChronicleHierarchy, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.15.0-testing.17';
+import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.15.0-testing.17';
+import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.17';
+import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.15.0-testing.17';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.17';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.15.0-testing.15';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.15';
-import { purgeEmbeddingIndex, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.15.0-testing.15';
-import { isTransientApiError } from './errors.js?v=0.15.0-testing.15';
-import { roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.15.0-testing.15';
+import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.15.0-testing.17';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.17';
+import { queryEmbeddingMemory, purgeEmbeddingIndex, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.15.0-testing.17';
+import { isTransientApiError } from './errors.js?v=0.15.0-testing.17';
+import { roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.15.0-testing.17';
 import { isDigestStabilityProtectedMessage, latestCompleteDigestMessageIndex } from './digest-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
-import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.15.0-testing.15';
+import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.15.0-testing.17';
 import { createBackgroundScheduler } from './background-scheduler.js';
 import { nextChroniclePromotion } from './chronicle.js';
-import { buildPlanningEvidence, createContinuityContextBridge } from './context-bridge.js?v=0.15.0-testing.15';
+import { buildPlanningEvidence, createContinuityContextBridge } from './context-bridge.js?v=0.15.0-testing.17';
+
+import { resolveRetrievalAssist } from './retrieval-assist.js?v=0.15.0-testing.17';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.17';
 
 const PROMPT_KEY = 'continuity_memory_context';
 const continuityContextBridge = createContinuityContextBridge(getContext);
@@ -195,7 +198,6 @@ globalThis.continuityMemoryGenerateInterceptor = async (coreChat, contextSize, a
         const reduction = await reduceChatContext(coreChat, contextSize, abort, type);
         await refreshInjection(true, readiness.sourceMessages, readiness.recentMessages, {
             rawTailRange: reduction?.rawTailRange || null,
-            localOnly: true,
         });
         if (readiness.notification) showGenerationNotification('success', readiness.notification);
     } catch (error) {
@@ -280,9 +282,10 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
         : (getContext().chat || []).filter(message => !message?.is_system);
     const queryMessageLimit = Math.min(50, Math.max(2, Number(settings.retrievalQueryMessages) || 6));
     const recent = availableRecent.slice(-queryMessageLimit);
-    const expandedTerms = [];
-    const semanticRanks = new Map();
-    const retrievalAssist = { mode: 'local', phase, executed: true, terms: [], fallback: false, reason: 'latency-safe' };
+    const { ranks: semanticRanks, terms: expandedTerms, assist: retrievalAssist } = await resolveRetrievalAssist({
+        mode: settings.retrievalMode, phase, world, messages: recent, query: queryEmbeddingMemory, expand: expandRetrievalTerms,
+    });
+    if (!refreshIsCurrent()) return;
     updateRuntime({ retrievalAssist });
     const budget = resolveInjectionBudget(settings.injectionBudgetTokens, getContext().maxContext);
     const sourceMessages = Array.isArray(coverageMessages)
@@ -305,8 +308,6 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
         settings.injectionInstruction,
         semanticRanks,
         { ...memoryPromptOptions, invalidSourceRanges, includeSceneCheckpoint: coverage.pending === 0, includeStorySoFar: settings.storySoFarEnabled,
-            // Full original chat, never the reduced tail or retrieval query.
-            scenarioSourceMessages: collectFingerprintMessages(getContext().chat || []),
         },
     );
     if (!refreshIsCurrent()) return;
@@ -546,7 +547,7 @@ async function onChatRenamed(eventData) {
 }
 
 async function init() {
-    const templateResponse = await fetch(new URL('./settings.html?v=0.15.0-testing.15', import.meta.url));
+    const templateResponse = await fetch(new URL('./settings.html?v=0.15.0-testing.17', import.meta.url));
     if (!templateResponse.ok) throw new Error(`Could not load settings template: ${templateResponse.status} ${templateResponse.statusText}`);
     const html = $(await templateResponse.text());
     const container = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
