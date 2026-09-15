@@ -168,3 +168,14 @@ test('unanchored relative facts from different excerpts are not assumed to share
     const result = buildMemoryPrompt(target, [{ is_user: true, mes: 'Rolf clamp delivery' }], 8000, 'chat');
     for (const fact of target.facts) assert.ok(result.retrievalDiagnostics.selections.some(row => row.id === fact.id && row.injected));
 });
+
+test('weak semantic hits cannot combine one person with another person’s topic', () => {
+    const target = world();
+    target.entities = [{ id: 'rolf', name: 'Rolf' }, { id: 'eisen', name: 'Eisen' }];
+    target.facts = [{ id: 'repair', subject: 'Eisen', predicate: 'cart repair', value: 'Eisen chose sound oak for the replacement wheel pin.' }];
+    target.threads = [{ id: 'tally', title: 'Old tally investigation', detail: 'The markings reveal a plundering pattern. UNRELATED_TALLY', participants: ['Eisen'], status: 'recorded' }];
+    const exchange = [{ mes: 'Rolf shows the decorative pattern on his ironwork. Eisen chose sound oak for the cart repair.' }, messages[1]];
+    const result = buildMemoryPrompt(target, exchange, 12000, '', [], undefined, new Map([['thread:tally', 35], ['fact:repair', 36]]));
+    assert.match(result.prompt, /sound oak for the replacement wheel pin/);
+    assert.doesNotMatch(result.prompt, /UNRELATED_TALLY/);
+});

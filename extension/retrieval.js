@@ -1,4 +1,4 @@
-import { supportingRecords, supportingEvidenceText } from './supporting-memories.js?v=0.15.0-testing.18';
+import { supportingRecords, supportingEvidenceText } from './supporting-memories.js?v=0.15.0-testing.19';
 const STOP_WORDS = new Set('a an the and that this with from into have has had was were are am can did does will shall may might must for but not never neither nor you your they them their she her him his its our out about just then than there here what when where who how why would could should been being also very more most some any all to of in on at as by or if it is be do we he me my up no so us during between through within without among around these those having already enough still really much many someone something anything everything nothing themselves himself herself myself itself each every other another such both either same only even yet else once again now then'.split(' '));
 const IRREGULAR_NEGATIVE_BASES = new Map([
     ['ca', 'can'],
@@ -23,8 +23,8 @@ const RETRIEVAL_FIELDS = {
 
 import { isFreshActiveState, latestSourceInRawTail, latestSourceRange, sourcedWhollyInRawTail, sourcedFromInvalidExtraction } from './state-lifecycle.js';
 import { anchoredRelativeText, anchoredStoryTime } from './temporal-anchors.js';
-import { retrievalMessageText } from './retrieval-query.js?v=0.15.0-testing.18';
-import { compactPromptProvenance } from './prompt-provenance.js?v=0.15.0-testing.18';
+import { retrievalMessageText } from './retrieval-query.js?v=0.15.0-testing.19';
+import { compactPromptProvenance } from './prompt-provenance.js?v=0.15.0-testing.19';
 import { formatEntityProfile } from './entity-profile.js';
 import { renderChronicleFrontier } from './chronicle.js';
 
@@ -673,14 +673,18 @@ function semanticFocusMatch(stats, profile, position) {
     // top-K is a candidate pool, not a quota for every category to fill.
     const discoveryLimit = 8;
     if (position <= discoveryLimit) return true;
-    const identityMatch = (profile.recentIdentityGroups || []).some(group => group.every(term =>
+    const matchingIdentities = (profile.recentIdentityGroups || []).filter(group => group.every(term =>
         fieldHasQueryTerm(stats.fields.identity, term, true) || fieldHasQueryTerm(stats.fields.anchor, term, true)));
-    if (!identityMatch) return false;
+    if (!matchingIdentities.length) return false;
     const frequencyLimit = Math.max(4, Math.ceil(profile.documentCount * 0.02));
-    return (profile.contextGroups || []).some(group => [...group].some(term =>
-        !profile.identityVocabulary.has(term) && !term.startsWith('~')
-        && (profile.documentFrequency.get(term) || 0) <= frequencyLimit
-        && (fieldHasQueryTerm(stats.fields.heading, term, true) || fieldHasQueryTerm(stats.fields.body, term, true))));
+    // Bind the identity and topical evidence to the same passage. A mention
+    // of one person cannot borrow a topic from another person's passage to
+    // recall unrelated history involving the first person.
+    return (profile.contextGroups || []).some(group =>
+        matchingIdentities.some(identity => identity.some(term => group.has(term)))
+        && [...group].some(term => !profile.identityVocabulary.has(term) && !term.startsWith('~')
+            && (profile.documentFrequency.get(term) || 0) <= frequencyLimit
+            && (fieldHasQueryTerm(stats.fields.heading, term, true) || fieldHasQueryTerm(stats.fields.body, term, true))));
 }
 
 function rank(items, query, extra = () => 0, category = '', semanticRanks = new Map()) {
@@ -1893,7 +1897,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.18';
-import { embeddingRecordKey } from './embedding-index.js?v=0.15.0-testing.18';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.19';
+import { embeddingRecordKey } from './embedding-index.js?v=0.15.0-testing.19';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';
