@@ -1,4 +1,4 @@
-import { supportingRecords, supportingEvidenceText } from './supporting-memories.js?v=0.15.0-testing.25';
+import { supportingRecords, supportingEvidenceText } from './supporting-memories.js?v=0.15.0-testing.26';
 const STOP_WORDS = new Set('a an the and that this with from into have has had was were are am can did does will shall may might must for but not never neither nor you your they them their she her him his its our out about just then than there here what when where who how why would could should been being also very more most some any all to of in on at as by or if it is be do we he me my up no so us during between through within without among around these those having already enough still really much many someone something anything everything nothing themselves himself herself myself itself each every other another such both either same only even yet else once again now then'.split(' '));
 const IRREGULAR_NEGATIVE_BASES = new Map([
     ['ca', 'can'],
@@ -11,7 +11,8 @@ const LIFECYCLE_GUIDANCE = 'Facts are objective canon within their stated scope 
 // This is deliberately separate from the user-editable injection instruction.
 // Retrieval returns independent evidence rows; the roleplay model must not
 // turn nearby fragments into a new witnessed event or an invented date.
-const EVIDENCE_FIDELITY_GUARD = 'Evidence handling: each retrieved row is atomic. Do not merge locations, actions, people, reports, or times from different rows into one event, itinerary, witness statement, or first-person memory. Keep reports and last-known status as reports; do not convert them into personal experience. A relative date or duration is valid only when that exact row (or an explicit temporal relation) establishes it; otherwise leave the timing unknown. Raw chat and explicit user corrections override memory.';
+const EVIDENCE_FIDELITY_GUARD = 'Evidence handling: preserve the attribution, timing, and certainty of each retrieved row. You may synthesize connected evidence, but do not invent links between unrelated locations, actions, people, reports, or times, or present them as one witnessed event or first-person memory. Keep reports and last-known status as reports; do not convert them into personal experience or confirmed current conditions. Relative timing requires source evidence or an explicit temporal relation. Raw chat and explicit user corrections override memory within their stated scope.';
+const RESPONSE_FLEXIBILITY_GUIDANCE = 'Response use: memory is context, not a script or a checklist. Follow the current request and the configured character, style, and format; weave in only relevant details without reciting this block. Continue naturally with new dialogue, actions, and developments consistent with established facts and character knowledge. Old plans, moods, reactions, and relationships do not force repetition or prevent supported change; plans are not obligations. Distinguish new developments from claims about the recorded past. Last-known ongoing conditions are historical observations, not proof of either persistence or recovery. Corrections protect their stated scope, not every future condition.';
 const BM25_K1 = 1.2;
 const RRF_OFFSET = 20;
 const RETRIEVAL_FIELDS = {
@@ -21,10 +22,10 @@ const RETRIEVAL_FIELDS = {
     body: { weight: 1, lengthWeight: 0.75 },
 };
 
-import { isFreshActiveState, latestSourceInRawTail, latestSourceRange, sourcedWhollyInRawTail, sourcedFromInvalidExtraction } from './state-lifecycle.js';
+import { isFreshActiveState, isLastKnownActiveState, latestSourceInRawTail, latestSourceRange, sourcedWhollyInRawTail, sourcedFromInvalidExtraction } from './state-lifecycle.js';
 import { anchoredRelativeText, anchoredStoryTime } from './temporal-anchors.js';
-import { retrievalMessageText } from './retrieval-query.js?v=0.15.0-testing.25';
-import { compactPromptProvenance } from './prompt-provenance.js?v=0.15.0-testing.25';
+import { retrievalMessageText } from './retrieval-query.js?v=0.15.0-testing.26';
+import { compactPromptProvenance } from './prompt-provenance.js?v=0.15.0-testing.26';
 import { formatEntityProfile } from './entity-profile.js';
 import { renderChronicleFrontier } from './chronicle.js';
 
@@ -1475,7 +1476,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     );
     const budget = Math.max(128, Number(budgetTokens));
     const guidance = String(injectionInstruction ?? DEFAULT_INJECTION_INSTRUCTION).trim();
-    const parts = { value: `<continuity>\n${guidance}${guidance ? '\n' : ''}${EVIDENCE_FIDELITY_GUARD}\n${LIFECYCLE_GUIDANCE}\n` };
+    const parts = { value: `<continuity>\n${guidance}${guidance ? '\n' : ''}${EVIDENCE_FIDELITY_GUARD}\n${LIFECYCLE_GUIDANCE}\n${RESPONSE_FLEXIBILITY_GUIDANCE}\n` };
     const sections = [];
     const addSection = (title, rows) => sections.push({ title, rows: rows.filter(Boolean) });
     const rawTailRange = options.rawTailRange || null;
@@ -1549,7 +1550,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     const selectedCorrections = [...relevantCorrections, ...recentCorrections]
         .filter((item, index, all) => all.findIndex(other => other.id === item.id) === index);
     addSection('User corrections', selectedCorrections.map(item =>
-        memoryRow('correction', item, `- ${plain(item.summary || item.instruction)}`)));
+        memoryRow('correction', item, `- ${plain(item.summary || item.instruction)}${(item.operations || []).some(operation => operation.futurePolicy === 'allow-supported-change') ? ' [corrects recorded scope; permitted later changes do not rewrite this history]' : ''}`)));
 
     const knowledgeBoundaryResults = recordSelections('Knowledge boundaries — hard constraints', 'fact', rank(
         availableFacts.filter(isKnowledgeBoundaryFact),
@@ -1658,6 +1659,11 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         .map(({ item }) => memoryRow('state', item, `- ${item.subject} — ${item.attribute}: ${anchoredRelativeText(item.value, item)}`));
     addSection('Current state', states);
 
+    const lastKnownStates = takeMatches('Last-known ongoing conditions (not reconfirmed)', 'state', (world.states || [])
+        .filter(item => sourceIsCurrent(item) && isLastKnownActiveState(world, item, chatKey) && !latestIsRaw(item)), 12)
+        .map(({ item }) => memoryRow('state', item, `- [last-known; not confirmed current] ${item.subject} — ${item.attribute}: ${anchoredRelativeText(item.value, item)}`));
+    addSection('Last-known ongoing conditions (not reconfirmed)', lastKnownStates);
+
     const relationshipMatches = limitRelationshipPairs(matching(
         (world.relationships || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)),
         queryTerms,
@@ -1708,7 +1714,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
             category: isAddressFact(item) ? 'address' : (isAttributedBeliefFact(item) ? 'perspective' : 'fact'),
             item,
         }))),
-        ...((world.states || []).filter(item => sourceIsCurrent(item) && isFreshActiveState(world, item, chatKey) && !latestIsRaw(item)).map(item => ({ category: 'state', item }))),
+        ...((world.states || []).filter(item => sourceIsCurrent(item) && (isFreshActiveState(world, item, chatKey) || isLastKnownActiveState(world, item, chatKey)) && !latestIsRaw(item)).map(item => ({ category: 'state', item }))),
         ...((world.relationships || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)).map(item => ({ category: 'relationship', item }))),
         ...((world.events || []).filter(item => sourceIsCurrent(item) && !whollyRaw(item)).map(item => ({ category: 'event', item }))),
         ...((hasChronicle ? [] : chronological).map(item => ({ category: 'capsule', item }))),
@@ -1830,7 +1836,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         if (category === 'address') return `- [address] ${plain(item.subject)}→${plain(addressFactAddressee(item))}: ${plain(item.value)}`;
         if (category === 'perspective') return `- [perspective; subjective] ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)}`;
         if (category === 'fact') return `- [fact] ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)}`;
-        if (category === 'state') return `- [state] ${item.subject} — ${item.attribute}: ${anchoredRelativeText(item.value, item)}`;
+        if (category === 'state') return `- [${isLastKnownActiveState(world, item, chatKey) ? 'last-known; not confirmed current' : 'state'}] ${item.subject} — ${item.attribute}: ${anchoredRelativeText(item.value, item)}`;
         if (category === 'relationship') {
             const description = plain(item.dynamic);
             const type = plain(item.kind);
@@ -1897,7 +1903,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.25';
-import { embeddingRecordKey } from './embedding-index.js?v=0.15.0-testing.25';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.26';
+import { embeddingRecordKey } from './embedding-index.js?v=0.15.0-testing.26';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';

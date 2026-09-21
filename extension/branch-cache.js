@@ -1,4 +1,4 @@
-import { fingerprintMessage } from './message-digest.js?v=0.15.0-testing.25';
+import { fingerprintMessage } from './message-digest.js?v=0.15.0-testing.26';
 import { digestStabilityRepairFrom } from './digest-policy.js';
 import { mergeExtraction, removeChatContributions, restoreRetainedReplayRecords } from './memory-model.js';
 import { refreshChronicleStory, syncChronicleBase } from './chronicle.js';
@@ -22,10 +22,25 @@ function remapWorldChatKey(world, from, to) {
         for (const source of item.sources || []) {
             if (source?.chatKey === from) source.chatKey = to;
         }
+        for (const source of item.observationSources || []) {
+            if (source?.chatKey === from) source.chatKey = to;
+        }
+        for (const entry of item.history || []) remapRefs(entry);
     };
     remapRefs(remapped.scene);
     for (const key of ['entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'chronicle', 'extractions', 'threads', 'backgrounds']) {
         for (const item of remapped[key] || []) remapRefs(item);
+    }
+    for (const correction of remapped.corrections || []) for (const operation of correction.operations || []) {
+        if (Object.hasOwn(operation.protectedThrough || {}, from)) {
+            operation.protectedThrough[to] = operation.protectedThrough[from];
+            delete operation.protectedThrough[from];
+        }
+        remapRefs(operation.afterRecord);
+        remapRefs(operation.supportingHistoryBefore);
+        if (operation.category === 'capsules' && operation.beforeSelector?.startsWith(`${from}|`)) {
+            operation.beforeSelector = `${to}${operation.beforeSelector.slice(from.length)}`;
+        }
     }
     return remapped;
 }
@@ -113,6 +128,18 @@ export function forkWorldToBranch(world, currentMessages, targetChatKey, sourceC
     }
 
     const previousWorld = remapWorldChatKey(world, sourceKey, targetChatKey);
+    // Parent-only future messages are not this branch's corrected past. Limit
+    // temporal locks to its fingerprint-verified shared prefix.
+    let sharedThrough = -1;
+    for (const [index, fingerprint] of [...stored].sort((a, b) => a[0] - b[0])) {
+        if (current.get(index) !== fingerprint) break;
+        sharedThrough = index;
+    }
+    for (const correction of previousWorld.corrections || []) for (const operation of correction.operations || []) {
+        if (Number.isInteger(operation.protectedThrough?.[targetChatKey])) {
+            operation.protectedThrough[targetChatKey] = Math.min(operation.protectedThrough[targetChatKey], sharedThrough);
+        }
+    }
     const branchedWorld = structuredClone(previousWorld);
     removeChatContributions(branchedWorld, targetChatKey);
     for (const item of retained) {

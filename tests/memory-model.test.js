@@ -1418,7 +1418,7 @@ test('newer historical ranges advance durable records without allowing older ran
     assert.equal(target.threads[0].status, 'recorded');
 });
 
-test('state lifecycle expires scenes and fails closed when ongoing state is not reconfirmed', () => {
+test('state lifecycle expires scenes and recalls unreconfirmed ongoing state as last-known', () => {
     const target = world();
     const chatKey = 'chat';
     mergeExtraction(target, extraction({
@@ -1438,7 +1438,8 @@ test('state lifecycle expires scenes and fails closed when ongoing state is not 
     assert.equal(target.states.some(item => item.value === 'Bandaged shoulder'), true);
     const prompt = buildMemoryPrompt(target, [{ name: 'User', mes: 'Where is Yui now, and what is her injury?' }], 2400, chatKey);
     assert.match(prompt.prompt, /Riverside park/);
-    assert.doesNotMatch(prompt.prompt, /Bandaged shoulder/);
+    assert.match(prompt.prompt, /Last-known ongoing conditions \(not reconfirmed\)/);
+    assert.match(prompt.prompt, /\[last-known; not confirmed current\] Yui — injury: Bandaged shoulder/);
 
     mergeExtraction(target, extraction({
         states: [{ subject: 'Yui', attribute: 'injury', value: '', previous: 'Bandaged shoulder', importance: 3, scope: 'ongoing', operation: 'clear' }],

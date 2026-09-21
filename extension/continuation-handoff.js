@@ -1,4 +1,4 @@
-import { retainSupportingHistory } from './supporting-memories.js?v=0.15.0-testing.25';
+import { retainSupportingHistory } from './supporting-memories.js?v=0.15.0-testing.26';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 
 export const CONTINUATION_PACKAGE_KIND = 'continuity-arc-handoff';
@@ -93,6 +93,16 @@ export function prepareContinuationWorld(value, { chatKey, attachedAt = new Date
     for (const collection of INHERITED_COLLECTIONS) {
         world[collection] = (Array.isArray(source[collection]) ? source[collection] : [])
             .map(record => remapRecord(record, inheritedKey));
+    }
+    for (const correction of world.corrections || []) for (const operation of correction.operations || []) {
+        if (operation.afterRecord) operation.afterRecord = remapRecord(operation.afterRecord, inheritedKey);
+        if (operation.supportingHistoryBefore) operation.supportingHistoryBefore = remapRecord(operation.supportingHistoryBefore, inheritedKey);
+        if (operation.protectedThrough) {
+            const boundaries = Object.values(operation.protectedThrough).filter(Number.isInteger);
+            // This is an explicit chronological continuation, not an arbitrary
+            // foreign chat. New messages may change mutable inherited records.
+            operation.protectedThrough = { [inheritedKey]: Math.max(-1, ...boundaries), [clean(chatKey)]: -1 };
+        }
     }
     world.scene = source.scene ? remapRecord(source.scene, inheritedKey) : null;
     world.extractions = [];

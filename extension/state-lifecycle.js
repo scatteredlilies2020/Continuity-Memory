@@ -106,6 +106,11 @@ function sourceRanges(item, chatKey = '') {
         .map(source => ({ chatKey: source.chatKey, from: Number(source.from), to: Number(source.to) }));
 }
 
+export function isLastKnownActiveState(world, item, chatKey = '') {
+    return isActiveState(item) && item.scope === 'ongoing'
+        && Boolean(latestSourceRange(item, chatKey)) && !isFreshActiveState(world, item, chatKey);
+}
+
 export function sourcedFromInvalidExtraction(item, invalidRanges = []) {
     // Explicit reviewed corrections retain authority while source repair is pending.
     if (item?.correctionId || !invalidRanges.length) return false;

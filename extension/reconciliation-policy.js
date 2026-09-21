@@ -1,10 +1,10 @@
-import { normalizeSupportingResult } from './supporting-memories.js?v=0.15.0-testing.25';
+import { normalizeSupportingResult } from './supporting-memories.js?v=0.15.0-testing.26';
 import { canonicalMemorySubject, canonicalStateAttribute, isActiveState, stateIdentity } from './state-lifecycle.js';
 import { canonicalCharacterProfileField, characterProfileDetailIsAdmissible, durableCharacterProfileDetail, entityProfile as storedEntityProfile, formatEntityProfile, normalizeEntityProfile } from './entity-profile.js';
 import { canonicalProseIsThirdPerson, thirdPersonOnlyProse } from './canonical-prose.js';
 import { EXTRACTION_VERSION } from './coverage.js';
 import { randomUuid } from './uuid.js';
-import { splitScenarioNotes } from './extraction-context.js?v=0.15.0-testing.25';
+import { splitScenarioNotes } from './extraction-context.js?v=0.15.0-testing.26';
 
 export const TARGET_RECORD_CATEGORIES = Object.freeze(['entities', 'facts', 'states', 'relationships', 'threads', 'backgrounds']);
 
@@ -2610,34 +2610,15 @@ export function normalizeCompositeStateSubjects(result, world) {
     return split;
 }
 
-const SCENE_ONLY_STATE = /\b(?:attending|dressed|escorting|freshly|kneeling|lying|outfit|positioned|seated|sitting|standing|waiting|wearing)\b/iu;
-const DURABLE_CONDITION_STATE = /\b(?:assigned|bound|broken|burned|chronic|disabled|duty|healing|injured|missing|ordered|paralyzed|pregnant|recovering|scarred|sworn|wounded)\b/iu;
-const NEGATIVE_ONLY_STATE = /\b(?:no|not|none|without)\b[^.!?]{0,80}\b(?:change|condition|injury|wound)\b|\b(?:nothing|no change)\s+(?:new|established)\b/iu;
-
 export function sanitizeStateDurability(result) {
     if (!Array.isArray(result?.states)) return { discarded: 0, demoted: 0 };
-    let discarded = 0;
-    let demoted = 0;
-    result.states = result.states.filter(state => {
-        if (normalized(state?.operation) === 'clear') return true;
-        const value = cleanText(state?.value);
-        const attribute = cleanText(state?.attribute);
-        if (!value) return true;
-        const clothingOrNegativeCondition = /\b(?:physical condition|health|injury|wounds?)\b/iu.test(attribute)
-            && (NEGATIVE_ONLY_STATE.test(value) || (/\b(?:dressed|outfit|wearing|robes?|armor)\b/iu.test(value)
-                && !DURABLE_CONDITION_STATE.test(value)));
-        if (clothingOrNegativeCondition) {
-            discarded++;
-            return false;
-        }
-        if (normalized(state?.scope) === 'ongoing' && SCENE_ONLY_STATE.test(value)
-            && !DURABLE_CONDITION_STATE.test(value)) {
-            state.scope = 'scene';
-            demoted++;
-        }
-        return true;
-    });
-    return { discarded, demoted };
+    // Lifetime comes from source-aware extraction, not an English vocabulary
+    // test. "Wearing" can describe a permanent curse; a negative condition can
+    // establish immunity. Structural validation handles missing content.
+    for (const state of result.states) {
+        if (state && ['scene', 'ongoing'].includes(normalized(state.scope))) state.scope = normalized(state.scope);
+    }
+    return { discarded: 0, demoted: 0 };
 }
 
 // A stable state ID owns one subject/attribute pair. Models sometimes preserve

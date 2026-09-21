@@ -6,6 +6,17 @@ Continuity extracts events, facts, relationships, character states, and supporti
 
 Each chat has its own isolated memory. Continuity does not use, create, or modify SillyTavern Lorebooks or World Info, and it never edits chat messages.
 
+## What changes in 0.15.0-testing.26
+
+Memory informs continuation without scripting it. Response guidance now explicitly allows natural new dialogue, actions, and supported changes, follows the configured style/format, and treats old plans as context rather than obligations. Connected evidence may be synthesized without inventing historical links or granting characters knowledge they never acquired. Continuity supplies context to your response model; it does not generate the roleplay reply itself.
+
+- Reviewed corrections expose a future-change policy in their preview. Mutable records can accept source-supported changes from wholly later message ranges, while corrected history, overlapping/backfilled ranges, fixed canon, and explicit standing constraints stay protected. The review boundary includes visible unextracted messages. Snapshots preserve the actual correction through Undo, reset-with-corrections, branches, and continuation arcs. Old corrections without this metadata remain protected; review them again to permit future changes.
+- Ongoing conditions not reconfirmed in the latest Digest remain relevant recall candidates under **Last-known ongoing conditions**, explicitly not confirmed current. Scene snapshots still expire, explicit clears still remove conditions, and raw-tail/invalid-source exclusions still apply.
+- State duration follows source-aware extraction rather than English keyword blacklists. This avoids deleting or shortening permanent clothing/curse states, long waits, negative conditions, or differently worded/non-English equivalents. Incorrect extraction can still require review.
+- Chronicle guidance respects custom length, format, and detail preferences while retaining source scope and knowledge boundaries. Existing custom prompt text is preserved; only the exact old shipped concision rule is upgraded.
+
+Reload the browser to activate the extension changes. No memory wipe is needed. Automated regression tests verify storage, replay, retrieval, and prompt construction; they do not guarantee creative quality from every response model.
+
 ## What changes in 0.15.0-testing.25
 
 Fixes the vector purge Bad Request during rebuilding: collection-only resets now work without embedding-provider settings, clear every CM provider index for that collection, and prevent old native indexes from being imported again. Vector errors include the server's validation message. Fresh C0 rebuilds recover incomplete model responses by splitting source groups, retaining each completed save. Replacement Chronicle builds use cancellable retries, and automatic maintenance takes its processing lock before loading memory to avoid racing manual builds. Missing or invalidated eligible C1, C2, and higher parents are checked after memory changes and on the idle timer; failed work is retried after a five-minute cooldown instead of remaining blocked indefinitely. Existing layer-capacity thresholds, pause controls, and Recursive mode still apply.
@@ -106,7 +117,7 @@ Continuity detects edits, deletions, swipes, and branch changes. A checkpoint is
 
 When a SillyTavern branch or checkpoint is created, Continuity verifies and locally replays the parent chat's unchanged Digest prefix into a separate memory for the new chat. Only the Digest containing the fork point and the later suffix need fresh extraction; the two-message stability buffer is still preserved.
 
-Mutable state is fail-closed. Scene-local locations, activities, emotions, and plans expire when the next Digest range advances. Longer-running conditions are stored for reconciliation, but are injected as current only when the newest Digest reconfirms them. Predicted or scheduled events are retained as historical plans; later outcomes add evidence rather than erasing those plans. Legacy state records without lifecycle metadata are never injected as current.
+Mutable state distinguishes confirmed current from last-known. Scene-local locations, activities, emotions, and plans expire when the next Digest range advances. Longer-running conditions are current only when the newest Digest reconfirms them; otherwise relevant conditions can be recalled as explicitly last-known, without asserting persistence or recovery. Predicted or scheduled events are retained as historical plans, not obligations; later outcomes add evidence rather than erasing those plans. Legacy state records without lifecycle metadata are never injected as current.
 
 When the narrative later identifies an earlier unknown, disguised, or descriptive reference, Continuity migrates matching structured references to the canonical entity and merges duplicates. The identification must be supported by the chat; outside franchise knowledge, resemblance, suspicion, and unconfirmed claims do not establish identity.
 

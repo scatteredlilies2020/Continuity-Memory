@@ -1,7 +1,7 @@
-import { supportingHistory, supportingIdentity, retainSupportingHistory, filterSupportingSources } from './supporting-memories.js?v=0.15.0-testing.25';
+import { supportingHistory, supportingIdentity, retainSupportingHistory, filterSupportingSources } from './supporting-memories.js?v=0.15.0-testing.26';
 import { LEGACY_DIGEST_RESCAN_MESSAGE } from './legacy-support.js';
 import { EXTRACTION_VERSION } from './coverage.js';
-import { isSuppressedByCorrection } from './memory-correction.js';
+import { correctionBaselines, correctionProtectsRecord, isSuppressedByCorrection, releaseAdvancedCorrection } from './memory-correction.js';
 import { addressFactAddressee, addressFactIdentity, enrichEntityDescriptionsFromEstablishedFacts, entityIsPersonLike, entityTypesAreCompatible, isAddressFact, mergeAddressValues, normalizeKnowledgePredicateTaxonomy, normalizeRelationalKnowledgeTopics, reconcileGenericAddressDuplicates, reconcileStoredMemoryRecords, reconciliationMergeIsCompatible, reconciliationTargetIsCompatible, reconciliationTargetWasRejected, recoverRelationshipBackedEntityDescriptions, relationshipPairIdentity, removeInvalidAddressFacts } from './reconciliation-policy.js';
 import { canonicalMemorySubject, canonicalStateAttribute, stateIdentity, stateScope } from './state-lifecycle.js';
 import { buildDigestTemporalAnchor, buildRelativeTemporalAnchor } from './temporal-anchors.js';
@@ -236,7 +236,9 @@ function mergeArray(world, collection, target, incoming, identity, meta, prefix,
             const preserve = typeof preserveExisting === 'function'
                 ? preserveExisting(target[index], normalized)
                 : preserveExisting;
-            const merged = preserve || target[index].correctionId
+            const correctionLocked = correctionProtectsRecord(world, target[index], meta);
+            if (!preserve && !correctionLocked && target[index].correctionId) target[index] = releaseAdvancedCorrection(target[index]);
+            const merged = preserve || correctionLocked
                 ? { ...normalized, ...target[index] }
                 : { ...target[index], ...normalized };
             if (collection === 'entities') {
@@ -247,17 +249,17 @@ function mergeArray(world, collection, target, incoming, identity, meta, prefix,
                 );
             }
             if (collection === 'facts'
-                && !target[index].correctionId
+                && !correctionLocked
                 && (isAddressFact(target[index]) || isAddressFact(normalized))) {
                 merged.value = mergeAddressValues(target[index].value, normalized.value);
             }
             if (collection === 'threads' || collection === 'backgrounds') {
                 const observation = { ...normalized, observationSources: [sourceRef(meta)] };
                 merged.history = supportingHistory(target[index], observation);
-                merged.observationSources = preserve || target[index].correctionId
+                merged.observationSources = preserve || correctionLocked
                     ? target[index].observationSources || target[index].sources || []
                     : observation.observationSources;
-                if (target[index].correctionId) merged.history = target[index].history || [];
+                if (correctionLocked) merged.history = target[index].history || [];
             }
             target[index] = common({ ...merged, id: target[index].id, createdAt: target[index].createdAt }, meta, prefix);
             raw.targetId = target[index].id;
@@ -1106,8 +1108,8 @@ function applyActiveStates(world, result, meta, digestTemporal) {
     // Scene state is a replaceable snapshot, not historical memory. Advancing
     // the active timeline retires the previous scene snapshot automatically.
     // Ongoing state is retained for reconciliation until an explicit update
-    // or clear; retrieval still requires confirmation in the newest Digest.
-    world.states = world.states.filter(item => item.correctionId || item.scope === 'ongoing');
+    // or clear; older observations are recalled as last-known, not current.
+    world.states = world.states.filter(item => correctionProtectsRecord(world, item, meta) || item.scope === 'ongoing');
     for (const raw of result.states || []) {
         if (!raw || typeof raw !== 'object') continue;
         if (reconciliationTargetWasRejected(raw)) continue;
@@ -1140,13 +1142,14 @@ function applyActiveStates(world, result, meta, digestTemporal) {
         const index = requestedIndex >= 0 ? requestedIndex : world.states.findIndex(item => stateIdentity(world, item) === identity);
         if (normalized.operation === 'clear') {
             if (index >= 0) raw.targetId = world.states[index].id;
-            world.states = world.states.filter(item => item.correctionId || stateIdentity(world, item) !== identity);
+            world.states = world.states.filter(item => correctionProtectsRecord(world, item, meta) || stateIdentity(world, item) !== identity);
             continue;
         }
         if (!normalized.value) continue;
         if (index >= 0) {
-            const existing = world.states[index];
-            const merged = existing.correctionId ? { ...normalized, ...existing } : { ...existing, ...normalized };
+            const correctionLocked = correctionProtectsRecord(world, world.states[index], meta);
+            const existing = correctionLocked ? world.states[index] : releaseAdvancedCorrection(world.states[index]);
+            const merged = correctionLocked ? { ...normalized, ...existing } : { ...existing, ...normalized };
             world.states[index] = common({ ...merged, id: existing.id, createdAt: existing.createdAt }, meta, 'state');
             raw.targetId = world.states[index].id;
         } else {
@@ -1495,6 +1498,11 @@ export function removeChatContributions(world, chatKey) {
         world.scene = sources.length ? { ...world.scene, sources } : null;
     }
     if (world.sources) delete world.sources[chatKey];
+    // Replaying/undoing future observations must start from the reviewed
+    // baseline, not preserve their newer value as though it were the correction.
+    for (const { category, record } of correctionBaselines(world, chatKey)) {
+        if (!(world[category] || []).some(item => item.id === record.id)) (world[category] ||= []).push(record);
+    }
     removeChronicleChat(world, chatKey);
     return world;
 }
@@ -1669,6 +1677,10 @@ export function resetWorldMemory(world, { preserveCorrections = false } = {}) {
         for (const category of ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'threads', 'backgrounds']) {
             correctedRecords[category] = structuredClone((world[category] || [])
                 .filter(item => correctionIds.has(item.correctionId)));
+        }
+        for (const { category, record } of correctionBaselines(world)) {
+            correctedRecords[category] = (correctedRecords[category] || []).filter(item => item.id !== record.id);
+            correctedRecords[category].push(record);
         }
     }
     world.scene = null;

@@ -1,4 +1,4 @@
-import { EXTRACTION_COMPLETENESS_RULE } from './extraction-contract.js?v=0.15.0-testing.25';
+import { EXTRACTION_COMPLETENESS_RULE } from './extraction-contract.js?v=0.15.0-testing.26';
 export const IMPORTANCE_RUBRIC = `Rate likely future continuity value, not prose intensity, fame, or detail: 1 minor or short-lived; 2 local or temporary; 3 recurring or persistent and likely relevant; 4 a major durable turning point, commitment, or broad change; 5 a rare foundational premise, identity, rule, central objective, or irreversible overall transformation. Most items are 2 or 3; use 4 sparingly and 5 only for foundational continuity. Repetition alone never raises importance.`;
 
 export const CANONICAL_THIRD_PERSON_RULE = `Canonical memory prose uses explicit names and third person, never I/we/you or player-facing advice. Exact address-form values may preserve source wording.`;
@@ -171,7 +171,8 @@ export const DEFAULT_RETRIEVAL_QUERY_TEMPLATE = `Current conversation:
 
 export const SOURCE_SCOPE_RULE = `Preserve source scope for every memory: who, what, certainty, conditions, and any stated time. Keep consequential setup from supplied sources in summaries even if stored as facts, backgrounds, or other records; separate storage does not justify omission. Do not add past/current/future, permanent, expired, resolved, or universal status without evidence. Retain explicit chronology and plans as plans; leave unspecified timing unspecified. Represent supported changes without erasing what earlier sources established; update only the affected claim. Recency, elapsed turns, silence, and outside lore do not prove a change or continued applicability.`;
 
-export const HIERARCHY_CONCISION_RULES = `Keep hierarchy fields clear, complete, and non-redundant. Compact means remove repetition, never information; a parent need not be shorter than its children. Use all space needed for fidelity. Store each detail once in its most specific field; never repeat a sentence across fields. title and storyTime are labels; summary holds causal continuity; other fields may be as long as fidelity requires. Finish cleanly without omission ellipses.`;
+export const PRE_FLEXIBLE_HIERARCHY_CONCISION_RULES = `Keep hierarchy fields clear, complete, and non-redundant. Compact means remove repetition, never information; a parent need not be shorter than its children. Use all space needed for fidelity. Store each detail once in its most specific field; never repeat a sentence across fields. title and storyTime are labels; summary holds causal continuity; other fields may be as long as fidelity requires. Finish cleanly without omission ellipses.`;
+export const HIERARCHY_CONCISION_RULES = `Keep hierarchy fields clear and non-redundant. Respect the requested length, format, and level of detail; prioritize consequential continuity within that space rather than requiring every source sentence. Compress repetition and incidental detail, not the meaning, attribution, conditions, or knowledge boundaries of retained claims. Put each detail in its most useful field; titles and storyTime remain labels. Finish complete sentences without omission ellipses. These are fidelity guidelines, not a fixed prose style or minimum length.`;
 
 export const DEFAULT_CHRONICLE_SYSTEM_PROMPT = `Compress chronological Chronicle nodes into one accurate parent Chronicle node. Preserve source order, causal progression, foundational premises, consequential decisions, durable changes, relationship meaning, knowledge boundaries, and attributed uncertainty. Use only the supplied child nodes. Never invent a transition or flatten a character's belief into objective fact.
 ${HIERARCHY_ATTRIBUTION_RULE}
@@ -231,7 +232,7 @@ export function buildHierarchySystemPrompt(basePrompt) {
     const base = String(basePrompt ?? '').replaceAll(
         "Never invent a transition, flatten a character's belief into objective fact, or resolve an open matter.",
         "Never invent a transition or flatten a character's belief into objective fact.",
-    ).trim();
+    ).replaceAll(PRE_FLEXIBLE_HIERARCHY_CONCISION_RULES, HIERARCHY_CONCISION_RULES).trim();
     const withConcision = base.includes(HIERARCHY_CONCISION_RULES)
         ? base
         : (base ? `${base}\n\n${HIERARCHY_CONCISION_RULES}` : HIERARCHY_CONCISION_RULES);

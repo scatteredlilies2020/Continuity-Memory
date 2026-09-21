@@ -1721,7 +1721,7 @@ test('state transitions use the canonical stored value as their previous value',
     assert.equal(result.states[0].targetId, 'state_alice_location');
 });
 
-test('state durability gate removes non-conditions and demotes scene actions', () => {
+test('state durability respects source-assigned scope instead of English keyword guesses', () => {
     const result = extraction();
     result.states.push(
         { targetId: '', subject: 'Lucas', attribute: 'physical condition', value: 'Freshly dressed in dark robes and armor; no new injury is established.', previous: '', importance: 2, scope: 'ongoing', operation: 'set' },
@@ -1732,11 +1732,11 @@ test('state durability gate removes non-conditions and demotes scene actions', (
         entities: [], facts: [], states: [], relationships: [], threads: [], backgrounds: [],
     }, []);
 
-    assert.equal(result.states.some(item => item.subject === 'Lucas'), false);
-    assert.equal(result.states.find(item => item.subject === 'Pilot').scope, 'scene');
+    assert.equal(result.states.some(item => item.subject === 'Lucas'), true);
+    assert.equal(result.states.find(item => item.subject === 'Pilot').scope, 'ongoing');
     assert.equal(result.states.find(item => item.subject === 'Toska').scope, 'ongoing');
-    assert.equal(validation.discardedNonDurableStates, 1);
-    assert.equal(validation.demotedSceneStates, 1);
+    assert.equal(validation.discardedNonDurableStates, 0);
+    assert.equal(validation.demotedSceneStates, 0);
 });
 
 test('major event consequences require a durable typed record', () => {

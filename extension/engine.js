@@ -1,4 +1,4 @@
-import { extractionSchema, chronicleParentSchema, schemaFieldGuide, formatStructuredResponseGuide, EXTRACTION_OUTPUT_CHECK, CHRONICLE_OUTPUT_CHECK, EXTRACTION_FIELD_GUIDE, assertCompleteExtractionRecords, extractionCompletenessFeedback } from './extraction-contract.js?v=0.15.0-testing.25';
+import { extractionSchema, chronicleParentSchema, schemaFieldGuide, formatStructuredResponseGuide, EXTRACTION_OUTPUT_CHECK, CHRONICLE_OUTPUT_CHECK, EXTRACTION_FIELD_GUIDE, assertCompleteExtractionRecords, extractionCompletenessFeedback } from './extraction-contract.js?v=0.15.0-testing.26';
 import { LEGACY_DIGEST_RESCAN_MESSAGE } from './legacy-support.js';
 import { extractMessageFromData, generateRaw, getRequestHeaders } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
@@ -8,35 +8,35 @@ import { oai_settings, openai_setting_names, openai_settings, proxies } from '/s
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
-import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.25';
+import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.26';
 import { resolveExtractionChunk } from './extraction-budget.js';
 import { normalizeHierarchyResult } from './hierarchy-result.js';
 import { captureScenarioContext } from './scenario-context.js';
 import { completeDigestMessages, latestCompleteDigestMessageIndex, digestStabilityRepairFrom, DIGEST_STABILITY_BUFFER_MESSAGES, partitionDigestStabilityBuffer, partitionPendingDigestMessages, resolveDigestGroupSize, selectAutomaticDigestMessages } from './digest-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.25';
+import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.26';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedChronicle, freshResetResiduals, getLatestDigestUndoStatus as inspectLatestDigestUndo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from './memory-model.js';
 import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
-import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.25';
-import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.25';
+import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.26';
+import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.26';
 import { embedWorldInChat } from './portable.js';
-import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.25';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.25';
-import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.25';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.25';
-import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.25';
-import { isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.25';
-import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.25';
+import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.26';
+import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.26';
+import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.26';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.26';
+import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.26';
+import { isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.26';
+import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.26';
 import { isActiveState, latestSourceRange } from './state-lifecycle.js';
 import { temporalContext } from './temporal-anchors.js';
-import { resolveProfileThinkingMode } from './story-thinking.js?v=0.15.0-testing.25';
-import { stableStoryMessages } from './story-cadence.js?v=0.15.0-testing.25';
-import { compileRollingStorySnapshot } from './story-snapshot.js?v=0.15.0-testing.25';
-import { planStoryMutationRecovery } from './story-checkpoints.js?v=0.15.0-testing.25';
-import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.25';
+import { resolveProfileThinkingMode } from './story-thinking.js?v=0.15.0-testing.26';
+import { stableStoryMessages } from './story-cadence.js?v=0.15.0-testing.26';
+import { compileRollingStorySnapshot } from './story-snapshot.js?v=0.15.0-testing.26';
+import { planStoryMutationRecovery } from './story-checkpoints.js?v=0.15.0-testing.26';
+import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.26';
 import { nextChroniclePromotion } from './chronicle.js';
 import { chronicleRetryFeedback, isRetryableChronicleError, retryChroniclePromotion } from './chronicle-retry.js';
 
@@ -70,13 +70,14 @@ const correctionSchema = {
             items: {
                 type: 'object',
                 additionalProperties: false,
-                required: ['action', 'category', 'targetId', 'reason', 'recordJson'],
+                required: ['action', 'category', 'targetId', 'reason', 'recordJson', 'futurePolicy'],
                 properties: {
                     action: { type: 'string', enum: ['add', 'update', 'delete'] },
                     category: { type: 'string', enum: ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds', 'capsules'] },
                     targetId: { type: 'string' },
                     reason: { type: 'string' },
                     recordJson: { type: 'string' },
+                    futurePolicy: { type: 'string', enum: ['allow-supported-change', 'keep-until-corrected'] },
                 },
             },
         },
@@ -94,6 +95,7 @@ const correctionJsonSchema = Object.freeze({
 const CORRECTION_SYSTEM_PROMPT = `You repair structured roleplay continuity memory from an explicit user correction.
 The correction is authoritative only for the scope it states. Distinguish established facts from attributed facts whose category is "character belief". "That never happened" can change facts, events, and chronology; "Alice was wrong about it" changes only the fact about Alice's belief and does not establish what actually happened. "Bob was never told" adds or updates a persistent fact with Bob as subject, predicate "knowledge of CANONICAL_TOPIC", category "knowledge boundary", and an explicit value describing what Bob does not know; it may also add a source-bound supporting observation when the knowledge gap is consequential. "Bob learned it" updates that same boundary fact and records the later disclosure without discarding the earlier observation. Supporting entries in threads/backgrounds use status "recorded", never an inferred open/closed lifecycle. If the roleplay has not established what happened, do not invent a fact or event about it.
 Change only records that conflict with the correction or are necessary to preserve it.
+Choose futurePolicy for the reviewed patch: allow-supported-change for mutable conditions, relationships, perspectives, or observations that later source evidence may change; keep-until-corrected for fixed historical claims, identity, immutable canon, and explicit standing user constraints. Events and Digest capsules always use keep-until-corrected. A later source can establish a new condition, not rewrite the corrected past. Explain the policy in the reason when ambiguous.
 Use exact category names and target IDs from the supplied candidate records. For update, return the complete corrected public record as JSON encoded inside recordJson. For delete, use "{}". For add, leave targetId empty and return the complete new record.
 Check every relevant representation of the mistake. In particular, update or remove a Digest capsule when it repeats the incorrect event; otherwise derived summaries can relearn the error.
 Do not alter unrelated details, invent unsupported events, create new Digest capsules, or edit chat messages. Return JSON only.`;
@@ -1072,6 +1074,7 @@ export async function reviewMemoryCorrection(instruction) {
     if (Number(health.schemaVersion) < 7) throw new Error('Restart SillyTavern once to activate durable memory corrections.');
     const world = runtime.world?.id === worldId ? runtime.world : (await api.getWorld(worldId)).world;
     const candidates = selectCorrectionContext(world, request);
+    const reviewedSource = { chatKey: getChatKey(), to: (getContext().chat || []).length - 1 };
     if (!candidates.length) throw new Error('No matching stored memories were found. Include specific names, places, or event details.');
     const prompt = `AUTHORITATIVE USER CORRECTION:\n${request}\n\nCANDIDATE STORED RECORDS:\n${candidates.map(item => JSON.stringify(item)).join('\n')}\n\nPropose the smallest complete correction plan. Every targetId must come from the candidate list.`;
     const settings = getSettings();
@@ -1092,7 +1095,7 @@ export async function reviewMemoryCorrection(instruction) {
         const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
         const proposal = augmentCorrectionChronology(world, validateCorrectionProposal(world, parsed, request));
         updateRuntime({ status: 'idle', retryStatus: `Correction review ready with ${proposal.operations.length} proposed change(s).` });
-        return { ...proposal, worldId, baseRevision: Number(world.revision) || 0 };
+        return { ...proposal, worldId, baseRevision: Number(world.revision) || 0, reviewedSource };
     } catch (error) {
         updateRuntime({ status: 'error', lastError: error.message, retryStatus: `Correction review failed: ${error.message}` });
         throw error;
@@ -1138,7 +1141,7 @@ export async function commitMemoryCorrection(proposal) {
     updateRuntime({ processing: true, status: 'applying-correction', lastError: '', retryStatus: 'Applying reviewed memory correction…' });
     let canonicalSaved = false;
     try {
-        const result = applyCorrectionProposal(world, proposal);
+        const result = applyCorrectionProposal(world, proposal, proposal.reviewedSource);
         world = (await api.saveWorld(world)).world;
         canonicalSaved = true;
         updateRuntime({ world, retryStatus: `Correction saved. Rebuilding ${result.invalidatedChronicle || 0} affected Chronicle parent node(s)…` });

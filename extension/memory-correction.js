@@ -143,10 +143,73 @@ export function isSuppressedByCorrection(world, category, item, meta = {}) {
     const legacyFactSelector = category === 'facts' && !addressFactIdentity(item)
         ? `${normalized(item?.subject)}|${normalized(item?.predicate)}`
         : '';
-    return (world?.corrections || []).some(correction => (correction.operations || []).some(operation =>
-        operation.category === category
-        && ['delete', 'update'].includes(operation.action)
-        && (operation.beforeSelector === selector || (legacyFactSelector && operation.beforeSelector === legacyFactSelector))));
+    const seenRecords = new Set();
+    for (const correction of [...(world?.corrections || [])].reverse()) for (const operation of [...(correction.operations || [])].reverse()) {
+        if (operation.category !== category) continue;
+        const recordId = operation.recordId || operation.targetId;
+        if (recordId && seenRecords.has(recordId)) continue;
+        if (recordId) seenRecords.add(recordId);
+        if (operation.beforeSelector === selector
+            || (operation.after && correctionSelector(category, operation.after) === selector)
+            || (legacyFactSelector && operation.beforeSelector === legacyFactSelector)) return !canAdvanceCorrection(operation, meta);
+    }
+    return false;
+}
+
+function futurePolicy(category, requested) {
+    // Historical events cannot become different events. Mutable records can
+    // evolve, but only when the reviewed proposal explicitly permits it.
+    if (['events', 'capsules'].includes(category)) return 'keep-until-corrected';
+    return requested || (['states', 'relationships', 'threads', 'backgrounds'].includes(category)
+        ? 'allow-supported-change' : 'keep-until-corrected');
+}
+
+function correctionFrontier(world, reviewedSource = {}) {
+    const ends = new Map();
+    const add = source => {
+        if (!source?.chatKey || !Number.isInteger(source.to) || source.to < 0) return;
+        ends.set(source.chatKey, Math.max(ends.get(source.chatKey) ?? -1, source.to));
+    };
+    for (const [chatKey, source] of Object.entries(world.sources || {})) add({ chatKey, to: source.lastProcessedIndex });
+    for (const category of [...CORRECTABLE_CATEGORIES, 'extractions']) {
+        for (const item of world[category] || []) for (const source of ranges(item)) add(source);
+    }
+    add(reviewedSource);
+    return Object.fromEntries(ends);
+}
+
+function canAdvanceCorrection(operation, meta) {
+    const boundary = operation.protectedThrough?.[meta.chatKey];
+    return operation.futurePolicy === 'allow-supported-change'
+        && Number.isInteger(boundary) && Number.isInteger(meta.from) && Number.isInteger(meta.to)
+        && meta.from > boundary && meta.to >= meta.from && meta.allowStateUpdates !== false;
+}
+
+export function correctionProtectsRecord(world, item, meta = {}) {
+    if (!item?.correctionId) return false;
+    const correction = (world.corrections || []).find(entry => entry.id === item.correctionId);
+    const operation = correction?.operations?.find(entry => entry.recordId === item.id);
+    // Old saves without a reviewed policy/frontier remain protected.
+    return !operation || !canAdvanceCorrection(operation, meta);
+}
+
+export function releaseAdvancedCorrection(item) {
+    if (!item.correctionId) return item;
+    const { correctionId, correctedAt, ...record } = item;
+    // The new value is supported by the new observation, not by the source
+    // that was corrected. The complete reviewed baseline lives in the audit.
+    return { ...record, sources: [] };
+}
+
+export function correctionBaselines(world, chatKey = '') {
+    const records = new Map();
+    for (const correction of world.corrections || []) for (const operation of correction.operations || []) {
+        if (chatKey && !Object.hasOwn(operation.protectedThrough || {}, chatKey)) continue;
+        const key = `${operation.category}|${operation.recordId}`;
+        if (operation.action === 'delete') records.delete(key);
+        else if (operation.afterRecord) records.set(key, { category: operation.category, record: structuredClone(operation.afterRecord) });
+    }
+    return [...records.values()];
 }
 
 export function validateCorrectionProposal(world, proposal, instruction = '') {
@@ -164,6 +227,9 @@ export function validateCorrectionProposal(world, proposal, instruction = '') {
         const category = CORRECTABLE_CATEGORIES.includes(raw?.category) ? raw.category : '';
         const targetId = text(raw?.targetId, 200);
         if (!action || !category) throw new Error('The correction model returned an unsupported action or category.');
+        if (raw.futurePolicy && !['allow-supported-change', 'keep-until-corrected'].includes(raw.futurePolicy)) {
+            throw new Error('The correction model returned an unsupported future-change policy.');
+        }
         if (action === 'add' && category === 'capsules') throw new Error('Corrections may update or remove Digest records, but cannot invent a new Digest source range.');
         const target = action === 'add' ? null : (world?.[category] || []).find(item => String(item.id) === targetId);
         if (action !== 'add' && !target) throw new Error(`The correction model targeted a missing ${category} record.`);
@@ -179,6 +245,7 @@ export function validateCorrectionProposal(world, proposal, instruction = '') {
         operations.push({
             action,
             category,
+            futurePolicy: futurePolicy(category, raw.futurePolicy),
             targetId,
             reason: text(raw.reason, 1000),
             before: target ? publicRecord(category, target) : null,
@@ -266,7 +333,7 @@ function overlaps(a, b) {
     return a.chatKey === b.chatKey && Number(a.from) <= Number(b.to) && Number(a.to) >= Number(b.from);
 }
 
-export function applyCorrectionProposal(world, proposal) {
+export function applyCorrectionProposal(world, proposal, reviewedSource = {}) {
     migrateLegacyBeliefs(world);
     world.corrections ||= [];
     world.arcs ||= [];
@@ -282,6 +349,7 @@ export function applyCorrectionProposal(world, proposal) {
     const affectedCapsuleIds = new Set();
     const addedCapsuleIds = new Set();
     const storedOperations = [];
+    const protectedThrough = correctionFrontier(world, reviewedSource);
     for (const operation of proposal.operations) {
         const collection = world[operation.category] ||= [];
         const index = operation.action === 'add' ? -1 : collection.findIndex(item => String(item.id) === operation.targetId);
@@ -334,6 +402,9 @@ export function applyCorrectionProposal(world, proposal) {
             ...(['threads', 'backgrounds'].includes(operation.category) && before
                 ? { supportingHistoryBefore: structuredClone(before) } : {}),
             after: after ? publicRecord(operation.category, after) : null,
+            afterRecord: after ? structuredClone(after) : null,
+            futurePolicy: futurePolicy(operation.category, operation.futurePolicy),
+            protectedThrough: { ...protectedThrough },
         });
     }
     for (const capsule of world.capsules || []) {
@@ -379,6 +450,9 @@ export function formatCorrectionPreview(proposal) {
     for (const operation of proposal.operations) {
         const label = operation.action === 'add' ? 'ADD' : operation.action === 'delete' ? 'REMOVE' : 'UPDATE';
         lines.push(`${label} ${operation.category}${operation.targetId ? ` (${operation.targetId})` : ''}`);
+        lines.push(futurePolicy(operation.category, operation.futurePolicy) === 'allow-supported-change'
+            ? '  FUTURE: later source-supported changes are allowed; corrected history stays protected.'
+            : '  FUTURE: protected until another reviewed correction.');
         if (operation.reason) lines.push(`  ${operation.reason}`);
         if (operation.before) lines.push(`  BEFORE: ${JSON.stringify(operation.before)}`);
         if (operation.replacement) lines.push(`  AFTER:  ${JSON.stringify(operation.replacement)}`);
