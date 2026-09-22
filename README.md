@@ -6,6 +6,21 @@ Continuity extracts events, facts, relationships, character states, and supporti
 
 Each chat has its own isolated memory. Continuity does not use, create, or modify SillyTavern Lorebooks or World Info, and it never edits chat messages.
 
+## What changes in 0.15.0-testing.27
+
+Disabled Continuity no longer loads, restores, or recovers memory on startup,
+chat switches, or browser resume. Disabling also invalidates pending work so an
+older load cannot publish into the current chat.
+
+Verified synced-copy recovery now runs quietly, shares overlapping refreshes,
+and saves into the current chat's existing memory. It checks persisted coverage
+before writing, respects another tab's newer revision, and leaves copies used by
+other chats intact. Repeated reloads no longer need to import the same recovery.
+Erase, fresh rebuild, and detach record a persistent recovery opt-out so an older
+longer copy cannot undo them. Older saved empty memories are protected too.
+
+Reload the browser to activate this fix. No memory wipe or Digest rescan is needed.
+
 ## What changes in 0.15.0-testing.26
 
 Memory informs continuation without scripting it. Response guidance now explicitly allows natural new dialogue, actions, and supported changes, follows the configured style/format, and treats old plans as context rather than obligations. Connected evidence may be synthesized without inventing historical links or granting characters knowledge they never acquired. Continuity supplies context to your response model; it does not generate the roleplay reply itself.

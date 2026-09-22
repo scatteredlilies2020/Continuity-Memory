@@ -1,6 +1,6 @@
 import { getContext } from '/scripts/st-context.js';
-import { getSettings } from './settings.js?v=0.15.0-testing.26';
-import { createPortableSnapshot, PORTABLE_SCHEMA_VERSION, portableSnapshotIsNewer, portableSnapshotMatches } from './portable-state.js?v=0.15.0-testing.26';
+import { getSettings } from './settings.js?v=0.15.0-testing.27';
+import { createPortableSnapshot, PORTABLE_SCHEMA_VERSION, portableSnapshotIsNewer, portableSnapshotMatches } from './portable-state.js?v=0.15.0-testing.27';
 import { canSafelySaveChatMetadata } from './chat-metadata-save-guard.js';
 
 const METADATA_KEY = 'continuityMemory';

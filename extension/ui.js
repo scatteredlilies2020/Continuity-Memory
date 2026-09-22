@@ -5,39 +5,41 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js';
-import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.26';
+import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.27';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js';
-import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.26';
-import { clearRetrievalExpansionCache, expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.26';
-import { resolveRetrievalAssist } from './retrieval-assist.js?v=0.15.0-testing.26';
+import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.27';
+import { clearRetrievalExpansionCache, expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.27';
+import { resolveRetrievalAssist } from './retrieval-assist.js?v=0.15.0-testing.27';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
 import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
-import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.26';
-import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.15.0-testing.26';
-import { isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.26';
+import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.27';
+import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.15.0-testing.27';
+import { invalidateRuntimeWork, isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.27';
 import { completeDigestMessageCount, latestCompleteDigestMessageIndex, resolveDigestGroupSize, validateDigestGroupSize } from './digest-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js';
-import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.26';
-import { queryEmbeddingMemory, embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.26';
-import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.26';
+import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.27';
+import { blockSyncedRecovery } from './synced-recovery-policy.js';
+import { queryEmbeddingMemory, embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.27';
+import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.27';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.26';
-import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.26';
-import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.15.0-testing.26';
-import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.15.0-testing.26';
+import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.27';
+import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.27';
+import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.15.0-testing.27';
+import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.15.0-testing.27';
 import { createRenderScheduler } from './render-scheduler.js';
-import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.26';
-import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.26';
+import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.27';
+import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.27';
 import { isTransientApiError } from './errors.js';
 
 let worlds = [];
 let creatingChatMemory = null;
 let loadingBoundWorld = null;
+let refreshingWorlds = null;
 let pendingCorrection = null;
 let viewerCategory = 'digest';
 let viewerSearch = '';
@@ -614,6 +616,7 @@ function setSetting(id, key, transform = value => value, onChange = null) {
     $(id).on('change', function () {
         const value = transform($(this).is(':checkbox') ? $(this).prop('checked') : $(this).val());
         getSettings()[key] = value;
+        if (key === 'enabled' && !value) invalidateRuntimeWork('Continuity was disabled.');
         saveSettings();
         renderRuntime();
         if (key === 'enabled' && value) {
@@ -653,15 +656,22 @@ function initSectionToggle() {
     render();
 }
 async function loadBoundWorldOnce(expectedWorldId = getBoundWorldId()) {
+    if (!getSettings().enabled) return null;
+    const chatKey = getChatKey();
+    const epoch = runtime.generation;
+    const current = () => getSettings().enabled && getChatKey() === chatKey && runtime.generation === epoch;
     if (!expectedWorldId) return null;
     if (runtime.world?.id === expectedWorldId) return runtime.world;
-    if (loadingBoundWorld?.id === expectedWorldId) return await loadingBoundWorld.promise;
+    if (loadingBoundWorld?.id === expectedWorldId && loadingBoundWorld.epoch === epoch
+        && loadingBoundWorld.chatKey === chatKey) return await loadingBoundWorld.promise;
     if (loadingBoundWorld) {
         await loadingBoundWorld.promise.catch(() => {});
+        if (!current()) return null;
         if (runtime.world?.id === expectedWorldId) return runtime.world;
     }
-    const entry = { id: expectedWorldId, promise: null };
+    const entry = { id: expectedWorldId, chatKey, epoch, promise: null };
     entry.promise = loadBoundWorld().then(world => {
+        if (!current()) return null;
         if (getBoundWorldId() === expectedWorldId && world?.id !== expectedWorldId) {
             throw new Error('The loaded Continuity memory did not match this chat binding.');
         }
@@ -675,7 +685,23 @@ async function loadBoundWorldOnce(expectedWorldId = getBoundWorldId()) {
 
 
 export async function refreshWorlds() {
+    if (!getSettings().enabled) { renderRuntime(); return null; }
+    const chatKey = getChatKey();
+    const epoch = runtime.generation;
+    if (refreshingWorlds?.chatKey === chatKey && refreshingWorlds.epoch === epoch) return await refreshingWorlds.promise;
+    const entry = { chatKey, epoch, promise: null };
+    entry.promise = Promise.resolve().then(() => refreshCurrentChatWorlds(chatKey, epoch)).finally(() => {
+        if (refreshingWorlds === entry) refreshingWorlds = null;
+    });
+    refreshingWorlds = entry;
+    return await entry.promise;
+}
+
+async function refreshCurrentChatWorlds(chatKey, epoch = runtime.generation) {
+    const current = () => getSettings().enabled && getChatKey() === chatKey && runtime.generation === epoch;
+    if (!current()) return null;
     const response = await api.listWorlds();
+    if (!current()) return null;
     worlds = response.worlds || [];
     let selected = getBoundWorldId();
     if (selected && !worlds.some(world => world.id === selected && !world.corrupt)) {
@@ -684,6 +710,7 @@ export async function refreshWorlds() {
             && !(getSettings().deletedWorldIds || []).includes(portable.world.id);
         if (portableEligible) {
             const restored = await ensureCurrentChatMemory(false, true);
+            if (!current()) return null;
             if (restored) {
                 selected = restored.id;
                 if (!worlds.some(world => world.id === restored.id)) {
@@ -697,6 +724,7 @@ export async function refreshWorlds() {
             }
         } else {
             const recovery = await recoverStoredWorldForCurrentChat(selected);
+            if (!current()) return null;
             if (recovery.world) {
                 selected = recovery.world.id;
                 toast('info', 'Recovered this chat’s Continuity memory from verified message fingerprints.');
@@ -712,6 +740,7 @@ export async function refreshWorlds() {
     }
     if (!selected && getChatKey() && getSettings().enabled) {
         const created = await ensureCurrentChatMemory(false);
+        if (!current()) return null;
         if (created) {
             selected = created.id;
             if (!worlds.some(item => item.id === created.id)) {
@@ -719,12 +748,16 @@ export async function refreshWorlds() {
             }
         } else {
             const recovery = await recoverStoredWorldForCurrentChat('');
+            if (!current()) return null;
             if (recovery.world) selected = recovery.world.id;
         }
     }
     let world = selected ? await loadBoundWorldOnce(selected) : null;
+    if (!current()) return null;
     world = await recoverSuperiorSyncedWorld(world);
+    if (!current()) return null;
     world = await reconcileBoundWorldSource(world);
+    if (!current()) return null;
     if (getSettings().embedMemoryInChat && world) await embedWorldInChat(world);
     else if (!getSettings().embedMemoryInChat) await clearPortableSnapshot();
     renderRuntime();
@@ -734,20 +767,41 @@ export async function refreshWorlds() {
 async function recoverSuperiorSyncedWorld(world) {
     const context = getContext();
     const chatKey = getChatKey();
-    if (!world || !chatKey) return world;
+    const epoch = runtime.generation;
+    const current = () => getSettings().enabled && getChatKey() === chatKey
+        && getBoundWorldId() === world?.id && runtime.generation === epoch
+        && !runtime.processing && !runtime.storyProcessing
+        && !getSettings().syncedRecoveryBlockedWorldIds?.includes(world?.id);
+    if (!world || !chatKey || !current()) return world;
+    // Respect verified-empty memories saved by older versions before the
+    // explicit recovery opt-out existed, including after later rebuild chunks.
+    if (Number(world.revision) > 0 && !freshResetResiduals(world).length) {
+        blockSyncedRecovery(world.id);
+        return world;
+    }
     const candidates = rankSuperiorSyncedWorlds(worlds, world, {
         characterName: context.name2,
         chatId: context.chatId,
-    });
+    }).filter(candidate => !getSettings().deletedWorldIds?.includes(candidate.id));
     if (!candidates.length) return world;
 
     const messages = collectFingerprintMessages(context.chat || []);
+    // A cached runtime snapshot can lag another refresh/tab. Never recover
+    // over already-persisted coverage or save it under yet another world id.
+    const latest = (await api.getWorld(world.id)).world;
+    if (!current()) return world;
+    world = latest;
+    if (Number(world.revision) > 0 && !freshResetResiduals(world).length) {
+        blockSyncedRecovery(world.id);
+        return world;
+    }
     const currentAlignment = alignWorldToChat(world, messages, chatKey);
     if (!currentAlignment.ok) return world;
     let best = null;
     for (const summary of candidates) {
         try {
             const stored = (await api.getWorld(summary.id)).world;
+            if (!current()) return world;
             const alignment = alignWorldToChat(stored, messages, chatKey);
             if (!alignment.ok || alignment.matched <= currentAlignment.matched) continue;
             if (!best || alignment.matched > best.alignment.matched) best = { stored, alignment };
@@ -755,26 +809,43 @@ async function recoverSuperiorSyncedWorld(world) {
             console.warn('[Continuity] Could not inspect a synced memory recovery candidate.', error);
         }
     }
-    if (!best) return world;
+    if (!best) {
+        if (current()) updateRuntime({ world });
+        return world;
+    }
 
     const boundElsewhere = Object.entries(getSettings().chatWorlds || {})
-        .some(([boundChatKey, worldId]) => boundChatKey !== chatKey && worldId === best.stored.id);
-    const saved = boundElsewhere
-        ? (await api.importWorld(best.alignment.world)).world
-        : best.alignment.changed
-            ? (await api.saveWorld(best.alignment.world)).world
-            : best.stored;
+        .some(([boundChatKey, worldId]) => boundChatKey !== chatKey && worldId === world.id);
+    if (!current()) return world;
+    let saved;
+    try {
+        saved = boundElsewhere
+            ? (await api.importWorld(best.alignment.world)).world
+            : (await api.saveWorld({ ...best.alignment.world, id: world.id, revision: world.revision,
+                name: world.name, createdAt: world.createdAt })).world;
+    } catch (error) {
+        if (error.status !== 409 || !current()) throw error;
+        // Another tab saved first. Respect its newer revision; never overwrite
+        // it using the recovery candidate's older snapshot.
+        const latest = (await api.getWorld(world.id)).world;
+        if (current()) updateRuntime({ world: latest });
+        return latest;
+    }
+    if (!current()) return world;
     bindCurrentChat(saved.id);
     updateRuntime({ world: saved, lastError: '' });
     await embedWorldInChat(saved, { force: true });
-    toast('info', `Recovered ${best.alignment.matched} verified processed message(s) from the most complete synced memory copy; unnecessary Digest rescanning was avoided.`);
+    // Successful background recovery is silent and stays on the saved binding.
     return saved;
 }
 
 async function reconcileBoundWorldSource(world) {
     const chatKey = getChatKey();
+    const epoch = runtime.generation;
+    const current = () => getSettings().enabled && getChatKey() === chatKey
+        && getBoundWorldId() === world?.id && runtime.generation === epoch;
     const sourceKeys = Object.keys(world?.sources || {});
-    if (!world || !chatKey || !sourceKeys.length || (sourceKeys.length === 1 && world.sources?.[chatKey])) return world;
+    if (!current() || !world || !chatKey || !sourceKeys.length || (sourceKeys.length === 1 && world.sources?.[chatKey])) return world;
 
     const alignment = alignWorldToChat(world, collectFingerprintMessages(getContext().chat || []), chatKey);
     const { world: ignored, ...diagnostic } = alignment;
@@ -784,6 +855,7 @@ async function reconcileBoundWorldSource(world) {
     }
 
     const saved = (await api.saveWorld(alignment.world)).world;
+    if (!current()) return world;
     updateRuntime({ world: saved, lastError: '' });
     await embedWorldInChat(saved);
     toast('info', `Verified and updated this imported memory for the current chat (${alignment.matched} messages matched).`);
@@ -792,6 +864,12 @@ async function reconcileBoundWorldSource(world) {
 
 async function recoverStoredWorldForCurrentChat(missingBoundWorldId) {
     const context = getContext();
+    const chatKey = getChatKey();
+    const epoch = runtime.generation;
+    const boundWorldId = getBoundWorldId();
+    const current = () => getSettings().enabled && getChatKey() === chatKey
+        && getBoundWorldId() === boundWorldId && runtime.generation === epoch;
+    if (!current()) return { world: null, ambiguous: false };
     const exact = resolveMissingWorldBinding(worlds, missingBoundWorldId || '__unbound__', {
         characterName: context.name2,
         chatId: context.chatId,
@@ -802,10 +880,11 @@ async function recoverStoredWorldForCurrentChat(missingBoundWorldId) {
     const messages = collectFingerprintMessages(context.chat || []);
     const matches = [];
     for (const summary of ordered) {
-        if (summary.corrupt) continue;
+        if (summary.corrupt || getSettings().deletedWorldIds?.includes(summary.id)) continue;
         try {
             const stored = (await api.getWorld(summary.id)).world;
-            const alignment = alignWorldToChat(stored, messages, getChatKey());
+            if (!current()) return { world: null, ambiguous: false };
+            const alignment = alignWorldToChat(stored, messages, chatKey);
             if (alignment.ok && (alignment.matched > 0 || (alignment.code === 'empty' && exact?.id === summary.id))) {
                 matches.push({ stored, alignment });
             }
@@ -814,6 +893,7 @@ async function recoverStoredWorldForCurrentChat(missingBoundWorldId) {
         }
     }
     if (matches.length !== 1) return { world: null, ambiguous: matches.length > 1 };
+    if (!current()) return { world: null, ambiguous: false };
 
     const { stored, alignment } = matches[0];
     const boundElsewhere = Object.entries(getSettings().chatWorlds || {})
@@ -823,6 +903,7 @@ async function recoverStoredWorldForCurrentChat(missingBoundWorldId) {
         : alignment.changed || (alignment.sourceChatKey && alignment.sourceChatKey !== getChatKey())
             ? (await api.saveWorld(alignment.world)).world
             : stored;
+    if (!current()) return { world: null, ambiguous: false };
     bindCurrentChat(saved.id);
     updateRuntime({ world: saved, lastError: '' });
     await embedWorldInChat(saved);
@@ -830,7 +911,12 @@ async function recoverStoredWorldForCurrentChat(missingBoundWorldId) {
 }
 
 export async function ensureCurrentChatMemory(createIfMissing = false, recoverStaleBinding = false) {
+    if (!getSettings().enabled) return null;
     const boundWorldId = getBoundWorldId();
+    const chatKey = getChatKey();
+    const epoch = runtime.generation;
+    const current = () => getSettings().enabled && getChatKey() === chatKey
+        && getBoundWorldId() === boundWorldId && runtime.generation === epoch;
     if (boundWorldId && !recoverStaleBinding) {
         // A saved binding does not mean its world has finished loading. Wait
         // for the shared load instead of treating every chat message as new.
@@ -847,7 +933,9 @@ export async function ensureCurrentChatMemory(createIfMissing = false, recoverSt
     if (creatingChatMemory) {
         const pending = creatingChatMemory;
         const result = await pending;
-        if (result || !createIfMissing) return result;
+        if (!getSettings().enabled || getChatKey() !== chatKey || runtime.generation !== epoch) return null;
+        if (result?.id === getBoundWorldId()) return result;
+        if (!createIfMissing) return null;
         if (creatingChatMemory === pending) creatingChatMemory = null;
         return await ensureCurrentChatMemory(true, recoverStaleBinding);
     }
@@ -871,6 +959,7 @@ export async function ensureCurrentChatMemory(createIfMissing = false, recoverSt
                 .some(([chatKey, worldId]) => chatKey !== getChatKey() && worldId === existing.id);
             if (existing?.corrupt && !boundElsewhere) {
                 const recovered = await api.recoverWorld(alignment.world);
+                if (!current()) return null;
                 bindCurrentChat(recovered.world.id);
                 updateRuntime({ world: recovered.world, lastError: '' });
                 if (getSettings().embedMemoryInChat) await embedWorldInChat(recovered.world, { force: true });
@@ -880,10 +969,12 @@ export async function ensureCurrentChatMemory(createIfMissing = false, recoverSt
             }
             if (existing && !boundElsewhere) {
                 const stored = (await api.getWorld(existing.id)).world;
+                if (!current()) return null;
                 const storedAlignment = verifyMemoryAlignment(stored);
                 const saved = storedAlignment.changed || (storedAlignment.sourceChatKey && storedAlignment.sourceChatKey !== getChatKey())
                     ? (await api.saveWorld(storedAlignment.world)).world
                     : storedAlignment.world;
+                if (!current()) return null;
                 bindCurrentChat(saved.id);
                 updateRuntime({ world: saved });
                 if (getSettings().embedMemoryInChat) await embedWorldInChat(saved);
@@ -891,6 +982,7 @@ export async function ensureCurrentChatMemory(createIfMissing = false, recoverSt
                 return saved;
             }
             const imported = await api.importWorld(alignment.world);
+            if (!current()) return null;
             bindCurrentChat(imported.world.id);
             updateRuntime({ world: imported.world });
             if (getSettings().embedMemoryInChat) await embedWorldInChat(imported.world);
@@ -905,11 +997,13 @@ export async function ensureCurrentChatMemory(createIfMissing = false, recoverSt
         if (parentWorldId && !(getSettings().deletedWorldIds || []).includes(parentWorldId)) {
             try {
                 const parentWorld = (await api.getWorld(parentWorldId)).world;
+                if (!current()) return null;
                 const alignment = verifyMemoryAlignment(parentWorld, {
                     allowBranchReuse: true,
                     sourceChatKey: parentChatKey,
                 });
                 const imported = await api.importWorld(alignment.world);
+                if (!current()) return null;
                 bindCurrentChat(imported.world.id);
                 updateRuntime({ world: imported.world });
                 await embedWorldInChat(imported.world);
@@ -920,7 +1014,9 @@ export async function ensureCurrentChatMemory(createIfMissing = false, recoverSt
             }
         }
         if (!createIfMissing) return null;
+        if (!current()) return null;
         const response = await api.createWorld(`${context.name2 || 'Chat'} · ${context.chatId || 'Memory'}`);
+        if (!current()) return null;
         bindCurrentChat(response.world.id);
         updateRuntime({ world: response.world });
         await embedWorldInChat(response.world);
@@ -1535,6 +1631,7 @@ async function detachToEmptyMemory({ confirm = true } = {}) {
         catch (error) { console.warn('[Continuity] Could not remove a non-empty replacement memory.', error); }
         throw new Error(`The detached replacement was not empty (${residuals.join(', ')}).`);
     }
+    blockSyncedRecovery(replacement.id);
     bindCurrentChat(replacement.id);
     await clearPortableSnapshot();
     updateRuntime({
