@@ -39,6 +39,7 @@ const DEFAULTS = Object.freeze({
     injectionRole: 'user',
     extractionBatchMessages: DEFAULT_DIGEST_GROUP_SIZE,
     extractionChunkTokens: 0,
+    extractionOutputTokens: 0,
     correctionResponseTokens: DEFAULT_CORRECTION_RESPONSE_TOKENS,
     memoryProfileId: '',
     retrievalProfileId: '',

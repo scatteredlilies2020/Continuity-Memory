@@ -73,6 +73,19 @@ test('keeps completed subparts saved when a later single-message part remains in
     assert.deepEqual(saved, [0, 1, 2]);
 });
 
+test('single-message failures explain how to increase output capacity without marking the message saved', async () => {
+    let saved = false;
+    await assert.rejects(
+        processAdaptiveExtractionChunks([{ messages: messages([1]), tokens: 1 }], {
+            measureMessages: measure,
+            extract: async () => { throw new Error('finish_reason: length'); },
+            save: async () => { saved = true; },
+        }),
+        /message 0.*remains unprocessed.*Extraction output tokens/i,
+    );
+    assert.equal(saved, false);
+});
+
 test('does not split transport or authentication errors', async () => {
     const source = messages([1, 1]);
     let attempts = 0;

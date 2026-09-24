@@ -115,6 +115,10 @@
                             <input id="continuity_chunk" class="text_pole" type="number" min="0" max="50000" step="500">
                             <small>estimated source tokens; 0 = dynamic: 20% of context, up to 8000</small>
                         </label>
+                        <label>Extraction output tokens
+                            <input id="continuity_extraction_output_tokens" class="text_pole" type="number" min="0" max="32768" step="256">
+                            <small>0 = provider default. Increase if a single message repeatedly reaches the model's output limit; the model must support the chosen limit.</small>
+                        </label>
                     </div>
                     <details>
                         <summary>Extraction prompt templates</summary>
@@ -230,23 +234,25 @@
                     <div id="continuity_embedding_key_status" class="continuity-progress">Password status not checked.</div>
                     <div class="continuity-embedding-proxy-setting">
                         <label>Proxy embedding model
-                            <select id="continuity_embedding_proxy_model" class="text_pole">
+                            <input id="continuity_embedding_proxy_model" class="text_pole" type="text" list="continuity_embedding_proxy_model_choices" autocomplete="off" spellcheck="false" value="text-embedding-3-small" placeholder="Enter an embedding model ID">
+                            <datalist id="continuity_embedding_proxy_model_choices">
                                 <option value="text-embedding-3-small">text-embedding-3-small</option>
-                            </select>
+                            </datalist>
                         </label>
                     </div>
                     <div class="continuity-embedding-openrouter-setting">
                         <label>OpenRouter embedding model
-                            <select id="continuity_embedding_openrouter_model" class="text_pole">
+                            <input id="continuity_embedding_openrouter_model" class="text_pole" type="text" list="continuity_embedding_openrouter_model_choices" autocomplete="off" spellcheck="false" value="openai/text-embedding-3-large" placeholder="Enter an embedding model ID">
+                            <datalist id="continuity_embedding_openrouter_model_choices">
                                 <option value="openai/text-embedding-3-large">openai/text-embedding-3-large</option>
-                            </select>
+                            </datalist>
                         </label>
                     </div>
                     <div class="continuity-button-row">
                         <button id="continuity_embedding_save_key" class="menu_button"><i class="fa-solid fa-key"></i> Save password securely</button>
                         <button id="continuity_embedding_fetch_models" class="menu_button"><i class="fa-solid fa-arrows-rotate"></i> Fetch models</button>
                     </div>
-                    <div id="continuity_embedding_models_status" class="continuity-progress">Model list not fetched yet. The known working model is preselected.</div>
+                    <div id="continuity_embedding_models_status" class="continuity-progress">Model list not fetched yet. Type any embedding model ID, or fetch suggestions; fetched models are not guaranteed to support embeddings.</div>
                     <small>The password is sent as the provider's Bearer API credential and stored by SillyTavern's core secrets service. Continuity never writes it to extension settings or chat files.</small>
                     <div id="continuity_embedding_provider" class="continuity-progress">Vector provider not checked yet.</div>
                     <div id="continuity_embedding_status" class="continuity-progress">The optional index has not been built.</div>

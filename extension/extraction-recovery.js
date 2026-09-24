@@ -99,7 +99,7 @@ export async function processAdaptiveExtractionChunks(initialChunks, {
         } catch (error) {
             if (!isAdaptiveExtractionSplitError(error)) throw error;
             if (chunk.messages.length < 2) {
-                throw recoveryFailure(error, chunk.messages, 'This section contains one message and cannot be split safely at a message boundary.');
+                throw recoveryFailure(error, chunk.messages, 'This section contains one message and cannot be split safely at a message boundary. It remains unprocessed; try a model with more output capacity or raise Extraction output tokens in Advanced settings.');
             }
             if (splits >= Math.max(0, Number(maxSplits) || 0)) {
                 throw recoveryFailure(error, chunk.messages, 'The adaptive split limit was reached.');

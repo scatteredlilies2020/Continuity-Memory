@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { embeddingModelChoices, resolveEmbeddingProvider } from '../extension/embedding-provider.js';
 
@@ -68,4 +69,15 @@ test('prefers discovered embedding models while retaining the coded model', () =
 
 test('falls back to all discovered models when providers do not label embeddings', () => {
     assert.deepEqual(embeddingModelChoices([{ id: 'model-b' }, { id: 'model-a' }]), ['model-a', 'model-b']);
+});
+
+test('both embedding model controls accept typed IDs while discovery remains optional', async () => {
+    const html = await readFile(new URL('../extension/settings.html', import.meta.url), 'utf8');
+    const ui = await readFile(new URL('../extension/ui.js', import.meta.url), 'utf8');
+    for (const provider of ['proxy', 'openrouter']) {
+        const id = `continuity_embedding_${provider}_model`;
+        assert.match(html, new RegExp(`<input[^>]+id="${id}"[^>]+type="text"[^>]+list="${id}_choices"`));
+        assert.match(html, new RegExp(`<datalist id="${id}_choices">`));
+        assert.match(ui, new RegExp(`setSetting\\('#${id}', 'embedding${provider === 'proxy' ? 'Proxy' : 'OpenRouter'}Model'`));
+    }
 });

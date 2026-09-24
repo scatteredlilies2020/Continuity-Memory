@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { GEMINI_MEMORY_RESPONSE_TOKENS, memoryResponseTokens, PROVIDER_MANAGED_MEMORY_RESPONSE_TOKENS, resolveMemoryResponseTokens, storyResponseTokens } from '../extension/memory-response-policy.js';
+import { extractionResponseTokens, GEMINI_MEMORY_RESPONSE_TOKENS, memoryResponseTokens, normalizeExtractionOutputTokens, PROVIDER_MANAGED_MEMORY_RESPONSE_TOKENS, resolveMemoryResponseTokens, SINGLE_MESSAGE_RECOVERY_RESPONSE_TOKENS, storyResponseTokens } from '../extension/memory-response-policy.js';
 
 test('Digest and Chronicle promotion delegate output length to SillyTavern and the provider', () => {
     assert.equal(PROVIDER_MANAGED_MEMORY_RESPONSE_TOKENS, null);
@@ -20,4 +20,15 @@ test('Gemini receives a safe fallback when provider-managed length produces empt
     assert.equal(resolveMemoryResponseTokens(undefined, 'gemini-provider-default'), GEMINI_MEMORY_RESPONSE_TOKENS);
     assert.equal(resolveMemoryResponseTokens(null, 'openai'), null);
     assert.equal(resolveMemoryResponseTokens(2400, 'gemini'), 2400);
+});
+
+test('extraction output limit remains optional and a single incomplete message gets one larger bounded retry', () => {
+    assert.equal(normalizeExtractionOutputTokens(0), 0);
+    assert.equal(normalizeExtractionOutputTokens(1), 256);
+    assert.equal(normalizeExtractionOutputTokens(999999), 32768);
+    assert.equal(extractionResponseTokens(0), null);
+    assert.equal(extractionResponseTokens(4096), 4096);
+    assert.equal(extractionResponseTokens(0, true), SINGLE_MESSAGE_RECOVERY_RESPONSE_TOKENS);
+    assert.equal(extractionResponseTokens(12000, true), 24000);
+    assert.equal(extractionResponseTokens(32768, true), 32768);
 });

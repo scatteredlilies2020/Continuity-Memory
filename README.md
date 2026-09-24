@@ -160,6 +160,8 @@ Select **Semantic embeddings + local matching** to retrieve by meaning as well a
 
 Embeddings are optional. The vector index is derived from canonical Continuity memory, stored separately, and never included in memory exports or portable chat snapshots. It can be deleted or rebuilt at any time. Indexing failures never affect visible roleplay, which already uses local matching.
 
+The proxy and OpenRouter embedding-model fields accept a model ID typed directly. **Fetch models** only adds suggestions; a provider's discovered list may contain non-embedding models or omit a usable embedding model. Enter the exact embedding model ID supplied by your provider when it is missing.
+
 When the optional Continuity server plugin is available, CM uses its detached vector store. If no detached index exists yet, CM copies the exact legacy SillyTavern `index.json`, reads the detached copy back for verification, and only then retires the original. An already verified detached cache also retires a no-larger old cache left by an earlier standalone build; a larger old cache is preserved. Without the server plugin, CM automatically keeps using SillyTavern's native vector API instead of interrupting indexing. Syncthing conflict copies and other similarly named files are never selected for automatic import.
 
 Existing records are embedded once. New and revised records are synchronized incrementally.
@@ -205,6 +207,8 @@ Continuity reduces old raw chat only after it has been safely covered by memory.
 Recent conversation remains verbatim. Extracted records sourced wholly from that visible raw tail are not injected beside it, so an interpretation of recent events cannot compete with the original messages. Older messages are represented by retrieved structured memory and chronology while remaining unchanged and readable in the chat.
 
 If extraction fails or coverage is incomplete, Continuity keeps the uncovered messages in context. Stored ranges whose source messages were edited, swiped, hidden, or deleted are excluded from retrieval immediately and repaired before later use.
+
+For a single message with incomplete model output, Continuity retries once with a larger explicit output budget rather than splitting the message text and risking source/provenance loss. **Advanced → Extraction output tokens** can override the provider's default (0) when its limit is too low. If the model still cannot return a complete extraction, that message remains unprocessed and its source stays available as raw chat.
 
 Roleplay never waits for extraction, hierarchy building, or embedding synchronization. In either optional retrieval mode, only the bounded search lookup can delay prompt assembly (up to ten seconds); local mode makes no retrieval provider request. Unfinished memory and revision-triggered indexing continue in the background, while recent unprocessed messages remain available as raw chat.
 

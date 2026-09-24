@@ -15,6 +15,7 @@ import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
 import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
+import { normalizeExtractionOutputTokens } from './memory-response-policy.js';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
 import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.27';
@@ -1173,12 +1174,7 @@ function updateEmbeddingProviderUI(settings) {
 }
 
 function setEmbeddingModelValue(selector, model) {
-    const value = String(model || '').trim();
-    const select = $(selector);
-    if (value && !select.find('option').toArray().some(option => option.value === value)) {
-        $('<option>').val(value).text(value).appendTo(select);
-    }
-    select.val(value);
+    $(selector).val(String(model || '').trim());
 }
 
 function embeddingSecretSlot() {
@@ -1198,8 +1194,8 @@ async function saveEmbeddingKey(showToast = true) {
 }
 
 function populateEmbeddingModels(selector, models, selected) {
-    const select = $(selector).empty();
-    for (const model of models) $('<option>').val(model).text(model).appendTo(select);
+    const choices = $(`${selector}_choices`).empty();
+    for (const model of models) $('<option>').val(model).appendTo(choices);
     setEmbeddingModelValue(selector, selected);
 }
 
@@ -1218,7 +1214,7 @@ async function fetchEmbeddingModels() {
     const current = openRouter ? settings.embeddingOpenRouterModel : settings.embeddingProxyModel;
     const models = embeddingModelChoices(payload, current);
     populateEmbeddingModels(openRouter ? '#continuity_embedding_openrouter_model' : '#continuity_embedding_proxy_model', models, current);
-    $('#continuity_embedding_models_status').text(`${models.length} embedding model option(s) loaded into the model dropdown.`);
+    $('#continuity_embedding_models_status').text(`${models.length} model suggestion(s) loaded. Type an embedding model ID if it is missing; discovery may include non-embedding models.`);
     return models;
 }
 
@@ -1356,6 +1352,7 @@ export function renderRuntime(refreshSettings = true) {
         updateInjectionPlacementUI(settings);
         $('#continuity_batch').val(settings.extractionBatchMessages);
         $('#continuity_chunk').val(settings.extractionChunkTokens);
+        $('#continuity_extraction_output_tokens').val(settings.extractionOutputTokens);
         $('#continuity_correction_tokens').val(resolveCorrectionResponseTokens(settings.correctionResponseTokens));
         $('#continuity_hierarchy_mode').val(settings.hierarchyMode);
         $('#continuity_chronicle_capacity').val(settings.chronicleLayerCapacity);
@@ -2072,6 +2069,7 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
         if (!result.valid) settingWarning(`Messages per Digest must be a whole number from 2 to 50. Adjusted to ${result.value}.`);
     });
     setSetting('#continuity_chunk', 'extractionChunkTokens', value => Math.min(50000, Math.max(0, Number(value) || 0)));
+    setSetting('#continuity_extraction_output_tokens', 'extractionOutputTokens', normalizeExtractionOutputTokens);
     setSetting('#continuity_correction_tokens', 'correctionResponseTokens', resolveCorrectionResponseTokens);
     const scheduleChronicleMaintenance = () => {
         updateRuntime({ chronicleBlocked: false, chronicleRetryAt: 0 });

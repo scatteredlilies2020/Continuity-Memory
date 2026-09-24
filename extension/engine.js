@@ -15,11 +15,11 @@ import { captureScenarioContext } from './scenario-context.js';
 import { completeDigestMessages, latestCompleteDigestMessageIndex, digestStabilityRepairFrom, DIGEST_STABILITY_BUFFER_MESSAGES, partitionDigestStabilityBuffer, partitionPendingDigestMessages, resolveDigestGroupSize, selectAutomaticDigestMessages } from './digest-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
-import { isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.27';
+import { isAdaptiveExtractionSplitError, isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.27';
 import { requestExtractionReview } from './extraction-review.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedChronicle, freshResetResiduals, getLatestDigestUndoStatus as inspectLatestDigestUndo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from './memory-model.js';
-import { memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
+import { extractionResponseTokens, memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
 import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.27';
 import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.27';
 import { embedWorldInChat } from './portable.js';
@@ -324,10 +324,14 @@ async function extractChunk(messages, world = runtime.world) {
     const prepared = prepareExtractionPrompts(messages, world);
     const { prompt, fallbackPrompt, systemPrompt } = prepared;
     let lastError;
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    const maxAttempts = messages.length === 1 ? 3 : 2;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
             const feedback = extractionCompletenessFeedback(lastError);
-            const raw = await requestExtraction(prompt + feedback, systemPrompt, fallbackPrompt ? fallbackPrompt + feedback : fallbackPrompt);
+            const recovery = attempt === 3;
+            const responseTokens = extractionResponseTokens(getSettings().extractionOutputTokens, recovery);
+            if (recovery) updateRuntime({ retryStatus: `Single-message extraction output was incomplete; retrying with an explicit ${responseTokens}-token output budget.` });
+            const raw = await requestExtraction(prompt + feedback, systemPrompt, fallbackPrompt ? fallbackPrompt + feedback : fallbackPrompt, responseTokens);
             updateRuntime({ lastRawResponse: String(raw).slice(0, 30000) });
             const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
             const { result, validation } = validateResult(parsed, world, messages);
@@ -353,17 +357,23 @@ async function extractChunk(messages, world = runtime.world) {
             const discardedProfileDetails = Number(validation.discardedCharacterProfileDetails || 0);
             const warnings = validation.warnings?.length || 0;
             updateRuntime({
-                lastValidation: `Valid structured extraction${attempt > 1 ? ' after malformed-output retry' : ''}${recovered ? `; recovered ${recovered} omitted durable record(s)` : ''}${normalizedEpistemicFacts ? `; normalized ${normalizedEpistemicFacts} attributed fact(s)` : ''}${normalizedRelationships ? `; completed ${normalizedRelationships} relationship description(s)` : ''}${stateTransitions ? `; reconciled ${stateTransitions} state transition(s)` : ''}${discardedProfileDetails ? `; withheld ${discardedProfileDetails} unsupported character-profile detail(s)` : ''}${failedClosedRecords ? `; withheld ${failedClosedRecords} unsafe objective or identity record(s)` : ''}${repaired ? `; repaired ${repaired} reversed address value(s)` : ''}${discarded ? `; discarded ${discarded} cross-direction address value(s)` : ''}${unsupported ? `; discarded ${unsupported} unsupported address value(s)` : ''}${pronouns ? `; discarded ${pronouns} unsupported pronoun address value(s)` : ''}${reconciled ? `; reconciled ${reconciled} duplicate address record(s)` : ''}${warnings ? `; ${warnings} diagnostic continuity warning(s)` : ''}`,
+                lastValidation: `Valid structured extraction${attempt === 3 ? ' after higher-output retry' : attempt > 1 ? ' after malformed-output retry' : ''}${recovered ? `; recovered ${recovered} omitted durable record(s)` : ''}${normalizedEpistemicFacts ? `; normalized ${normalizedEpistemicFacts} attributed fact(s)` : ''}${normalizedRelationships ? `; completed ${normalizedRelationships} relationship description(s)` : ''}${stateTransitions ? `; reconciled ${stateTransitions} state transition(s)` : ''}${discardedProfileDetails ? `; withheld ${discardedProfileDetails} unsupported character-profile detail(s)` : ''}${failedClosedRecords ? `; withheld ${failedClosedRecords} unsafe objective or identity record(s)` : ''}${repaired ? `; repaired ${repaired} reversed address value(s)` : ''}${discarded ? `; discarded ${discarded} cross-direction address value(s)` : ''}${unsupported ? `; discarded ${unsupported} unsupported address value(s)` : ''}${pronouns ? `; discarded ${pronouns} unsupported pronoun address value(s)` : ''}${reconciled ? `; reconciled ${reconciled} duplicate address record(s)` : ''}${warnings ? `; ${warnings} diagnostic continuity warning(s)` : ''}`,
             });
             return result;
         } catch (error) {
             lastError = error;
-            updateRuntime({ lastValidation: `Extraction attempt ${attempt}/2 failed: ${error.message}` });
+            updateRuntime({ lastValidation: `Extraction attempt ${attempt}/${maxAttempts} failed: ${error.message}` });
             if (isRateLimitError(error)) throw new Error(`Rate limited; this chunk remains pending. Resume processing after the endpoint recovers.`, { cause: error });
-            if (isExplicitExtractionOutputLimitError(error)) throw error;
+            if (isExplicitExtractionOutputLimitError(error)) {
+                if (messages.length !== 1 || attempt === maxAttempts) throw error;
+                // Skip a second request with the same provider-managed limit.
+                attempt = 2;
+            } else if (attempt === 2 && messages.length === 1 && !isAdaptiveExtractionSplitError(error)) {
+                break;
+            }
         }
     }
-    throw new Error(`Structured extraction failed twice: ${lastError?.message || 'unknown error'}`);
+    throw new Error(`Structured extraction failed after retries: ${lastError?.message || 'unknown error'}`);
 }
 
 function prepareExtractionPrompts(messages, world = runtime.world) {
@@ -397,8 +407,8 @@ function prepareExtractionPrompts(messages, world = runtime.world) {
     };
 }
 
-async function requestExtraction(prompt, systemPrompt, fallbackPrompt = prompt) {
-    return requestStructured(prompt, systemPrompt, extractionJsonSchema, memoryResponseTokens('digest'), undefined, 'extraction', fallbackPrompt);
+async function requestExtraction(prompt, systemPrompt, fallbackPrompt = prompt, responseTokens = extractionResponseTokens(getSettings().extractionOutputTokens)) {
+    return requestStructured(prompt, systemPrompt, extractionJsonSchema, responseTokens, undefined, 'extraction', fallbackPrompt);
 }
 
 function directRequestConfig(kind) {
@@ -757,7 +767,7 @@ function detachedRequestBodies({ prompt, fallbackPrompt, systemPrompt, usesStruc
         // Native active-chat settings require browser-side preset expansion.
         return null;
     }
-    const layerTokens = memoryResponseTokens(layer);
+    const layerTokens = layer === 'digest' ? extractionResponseTokens(settings.extractionOutputTokens) : memoryResponseTokens(layer);
     const responseLength = resolveMemoryResponseTokens(layerTokens, thinking.adapter) ?? undefined;
     const compatible = isolatedProfilePayload({
         ...outputTokenPayload(model, layerTokens),
