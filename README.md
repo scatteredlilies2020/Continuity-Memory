@@ -6,6 +6,14 @@ Continuity extracts events, facts, relationships, character states, and supporti
 
 Each chat has its own isolated memory. Continuity does not use, create, or modify SillyTavern Lorebooks or World Info, and it never edits chat messages.
 
+## What changes in 0.15.0-testing.28
+
+Injected continuity guidance is shorter, with duplicate timing and response rules
+consolidated and generic writing instructions removed. Knowledge boundaries,
+evidence attribution, chronology, and nondirectional relationship roles remain.
+Known previous default instructions upgrade automatically; custom instructions
+are preserved. Browser module versions are refreshed for this release.
+
 ## What changes in 0.15.0-testing.27
 
 Disabled Continuity no longer loads, restores, or recovers memory on startup,

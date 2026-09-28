@@ -1,4 +1,4 @@
-import { supportingHistory, supportingIdentity, retainSupportingHistory, filterSupportingSources } from './supporting-memories.js?v=0.15.0-testing.27';
+import { supportingHistory, supportingIdentity, retainSupportingHistory, filterSupportingSources } from './supporting-memories.js?v=0.15.0-testing.28';
 import { LEGACY_DIGEST_RESCAN_MESSAGE } from './legacy-support.js';
 import { EXTRACTION_VERSION } from './coverage.js';
 import { correctionBaselines, correctionProtectsRecord, isSuppressedByCorrection, releaseAdvancedCorrection } from './memory-correction.js';

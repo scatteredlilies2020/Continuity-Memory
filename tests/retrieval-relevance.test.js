@@ -124,7 +124,7 @@ test('context mentions do not append unrelated entity canon or empty entity rows
     const result = buildMemoryPrompt(target, [{ mes: 'Rolf and Jannik show their ironwork.' }, messages[1]], 8000, 'chat');
     assert.match(result.prompt, /A village smith\. \[profile source: this chat messages 0–7\]/);
     assert.doesNotMatch(result.prompt, /UNRELATED_EXPEDITION|^- Jannik.*:\s*$/m);
-    assert.match(result.prompt, /newer evidence governs mutable conditions/);
+    assert.match(result.prompt, /Preserve explicit chronology and supported changes/);
     assert.ok(!result.retrievalDiagnostics.selections.find(row => row.id === 'jannik')?.injected);
 });
 

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { DEFAULT_INJECTION_INSTRUCTION, PRE_LEAN_INJECTION_INSTRUCTIONS } from '../extension/prompts.js';
 
 const settingsUrl = new URL('../extension/settings.js', import.meta.url);
 let instance = 0;
@@ -15,6 +16,30 @@ async function loadSettings(saved = {}) {
     source += `\n// isolated settings instance ${++instance}\n`;
     return import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 }
+
+test('fresh settings retain lean guidance without retired migration add-ons', async () => {
+    const { getSettings } = await loadSettings();
+    assert.equal(getSettings().injectionInstruction, DEFAULT_INJECTION_INSTRUCTION);
+});
+
+for (const [index, instruction] of PRE_LEAN_INJECTION_INSTRUCTIONS.entries()) {
+    test(`lean guidance migrates shipped default ${index} with or without previous migrations`, async () => {
+        const current = (await loadSettings()).getSettings();
+        for (const saved of [{}, current]) {
+            const { getSettings } = await loadSettings({ ...saved, injectionInstruction: instruction, leanInjectionInstructionVersion: 0 });
+            assert.equal(getSettings().injectionInstruction, DEFAULT_INJECTION_INSTRUCTION);
+            assert.equal(getSettings().injectionInstruction, DEFAULT_INJECTION_INSTRUCTION, 'migration is idempotent');
+        }
+    });
+}
+
+test('lean guidance migration preserves custom instructions, including modified old defaults', async () => {
+    for (const instruction of ['Write concise dialogue only, in French.', `${PRE_LEAN_INJECTION_INSTRUCTIONS[0]} Custom requirement.`]) {
+        const { getSettings } = await loadSettings({ injectionInstruction: instruction });
+        assert.equal(getSettings().injectionInstruction, instruction);
+        assert.equal(getSettings().injectionInstruction, instruction);
+    }
+});
 
 test('fresh settings use local retrieval and do not create retired Story controls', async () => {
     const { getSettings } = await loadSettings();

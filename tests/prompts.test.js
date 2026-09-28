@@ -229,12 +229,13 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Value: list all exact current forms and meaningful former forms only/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /keep coexisting forms together/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /shift signals changed familiarity, distance, respect, or hierarchy/);
-    assert.match(DEFAULT_INJECTION_INSTRUCTION, /never mention this block/i);
+    assert.match(DEFAULT_INJECTION_INSTRUCTION, /do not mention this memory block/i);
     assert.match(DEFAULT_INJECTION_INSTRUCTION, /Model access is not character knowledge/);
-    assert.match(DEFAULT_INJECTION_INSTRUCTION, /Named knowledge boundaries bar protected information/);
+    assert.match(DEFAULT_INJECTION_INSTRUCTION, /Respect explicit knowledge boundaries/);
     assert.match(DEFAULT_INJECTION_INSTRUCTION, /discovery or disclosure/);
-    assert.match(DEFAULT_INJECTION_INSTRUCTION, /Preserve stated extremes and rankings; lore norms are not ceilings/);
-    assert.ok(DEFAULT_INJECTION_INSTRUCTION.length < 350);
+    assert.match(DEFAULT_INJECTION_INSTRUCTION, /Other retrieved rows do not override that restriction/);
+    assert.doesNotMatch(DEFAULT_INJECTION_INSTRUCTION, /address forms|lore norms/);
+    assert.ok(DEFAULT_INJECTION_INSTRUCTION.length < 550);
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(CONTINUITY_COVERAGE_RULES));
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(EPISTEMIC_MEMORY_RULES));
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /category is "character belief"/);

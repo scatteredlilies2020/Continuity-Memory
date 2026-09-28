@@ -48,9 +48,9 @@ test('injection preserves neutral scope for capabilities, relationships, conditi
         ] });
         const result = buildMemoryPrompt(target, user('Mira and the relay'), 4000);
         assert.ok(result.prompt.includes(value));
-        assert.match(result.prompt, /Do not infer past\/current\/future, permanence, expiry, resolution, or universal scope merely from storage, recency, or silence/u);
-        assert.match(result.prompt, /plans are not outcomes/u);
-        assert.match(result.prompt, /leave unspecified timing unspecified/u);
+        assert.match(result.prompt, /Do not infer persistence, recovery, permanence, expiry, resolution, or universal scope from storage, recency, or silence/u);
+        assert.match(result.prompt, /Plans are neither outcomes nor obligations/u);
+        assert.match(result.prompt, /Leave unspecified timing unspecified/u);
         assert.doesNotMatch(result.prompt, /other events and plans are past/u);
     }
 });
@@ -238,7 +238,7 @@ test('relationship retrieval is neutral and puts its description before type and
 
     assert.match(result.prompt, /Lucas Alcazar ↔ Darth Segundus: Description: Lucas is Darth Segundus’s Sith apprentice.*Type: Sith master and apprentice\. Status: active\./);
     assert.doesNotMatch(result.prompt, /Lucas Alcazar → Darth Segundus/);
-    assert.match(result.prompt, /Relationship ↔ has no directional role/);
+    assert.match(result.prompt, /Relationship ↔ is nondirectional/);
     assert.match(selections(result, 'Relationships')[0].label, /Lucas Alcazar ↔ Darth Segundus/);
 });
 

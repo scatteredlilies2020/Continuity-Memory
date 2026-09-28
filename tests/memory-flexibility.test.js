@@ -250,12 +250,21 @@ test('writer guidance permits natural continuation and respects custom output st
     const custom = 'Write concise dialogue only, in French.';
     const { prompt } = buildMemoryPrompt(world(), [{ mes: 'Continue.' }], 1800, 'chat', [], custom);
     assert.ok(prompt.includes(custom));
-    assert.match(prompt, /memory is context, not a script or a checklist/);
-    assert.match(prompt, /new dialogue, actions, and developments/);
-    assert.match(prompt, /plans are not obligations/);
-    assert.match(prompt, /synthesize connected evidence/);
-    assert.match(prompt, /configured character, style, and format/);
-    assert.match(prompt, /character knowledge/);
+    assert.match(prompt, /Plans are neither outcomes nor obligations/);
+    assert.match(prompt, /do not require repetition or prevent supported change/);
+    assert.match(prompt, /Connect evidence only where supported/);
+    assert.match(prompt, /Distinguish new developments from claims about recorded history/);
+    assert.doesNotMatch(prompt, /configured character, style, and format|new dialogue, actions, and developments/);
+});
+
+test('default continuity guidance stays lean without duplicating rules', () => {
+    const { prompt } = buildMemoryPrompt(world(), [{ mes: 'Continue.' }], 1800, 'chat');
+    const guidance = prompt.slice(0, prompt.indexOf('Corrections constrain their stated scope, not every future condition.') + 'Corrections constrain their stated scope, not every future condition.'.length);
+    assert.ok(guidance.includes('Model access is not character knowledge'));
+    assert.ok(guidance.includes('Relationship ↔ is nondirectional'));
+    assert.ok(guidance.split(/\s+/u).length < 270);
+    assert.equal(guidance.split('override older memory').length - 1, 1);
+    assert.doesNotMatch(guidance, /address forms|lore norms|Entity descriptions are recorded profiles/);
 });
 
 test('hierarchy honors custom brevity and upgrades only the exact old shipped rule', () => {

@@ -1,12 +1,13 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { upgradeOocMetaAuthorityPrompt } from './prompts.js?v=0.15.0-testing.27';
-import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CANONICAL_THIRD_PERSON_RULE, CHARACTER_PROFILE_RULE, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, EXTREME_CANON_FIDELITY_RULE, EXTREME_SUMMARY_FIDELITY_RULE, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, DIGEST_EPISTEMIC_COVERAGE_RULE, LEGACY_EPISTEMIC_MEMORY_RULES, OOC_META_AUTHORITY_RULE, PRE_ATOMIC_IDENTITY_DIGEST_EPISTEMIC_COVERAGE_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRICT_OOC_META_AUTHORITY_RULE, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.15.0-testing.27';
+import { upgradeOocMetaAuthorityPrompt } from './prompts.js?v=0.15.0-testing.28';
+import { PRE_LEAN_INJECTION_INSTRUCTIONS } from './prompts.js?v=0.15.0-testing.28';
+import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CANONICAL_THIRD_PERSON_RULE, CHARACTER_PROFILE_RULE, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, EXTREME_CANON_FIDELITY_RULE, EXTREME_SUMMARY_FIDELITY_RULE, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, DIGEST_EPISTEMIC_COVERAGE_RULE, LEGACY_EPISTEMIC_MEMORY_RULES, OOC_META_AUTHORITY_RULE, PRE_ATOMIC_IDENTITY_DIGEST_EPISTEMIC_COVERAGE_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRICT_OOC_META_AUTHORITY_RULE, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.15.0-testing.28';
 import { DEFAULT_DIGEST_GROUP_SIZE } from './digest-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js';
-import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.15.0-testing.27';
-import { retainLatestPromptRule } from './prompt-migration.js?v=0.15.0-testing.27';
+import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.15.0-testing.28';
+import { retainLatestPromptRule } from './prompt-migration.js?v=0.15.0-testing.28';
 
 export const EXTENSION_NAME = 'continuityMemory';
 
@@ -106,6 +107,14 @@ function promptFingerprint(value) {
 export function getSettings() {
     if (!extension_settings[EXTENSION_NAME]) extension_settings[EXTENSION_NAME] = {};
     const settings = extension_settings[EXTENSION_NAME];
+    if (Number(settings.leanInjectionInstructionVersion || 0) < 1) {
+        // Upgrade only shipped defaults, never a user's customized instruction.
+        if (PRE_LEAN_INJECTION_INSTRUCTIONS.includes(settings.injectionInstruction)) {
+            settings.injectionInstruction = PROMPT_DEFAULTS.injectionInstruction;
+        }
+        settings.leanInjectionInstructionVersion = 1;
+        saveSettingsDebounced();
+    }
     if (Number(settings.oocMetaAuthorityPromptVersion || 0) < 3) {
         const prompt = upgradeOocMetaAuthorityPrompt(settings.extractionSystemPrompt || PROMPT_DEFAULTS.extractionSystemPrompt);
         settings.extractionSystemPrompt = prompt.includes(OOC_META_AUTHORITY_RULE)
@@ -125,10 +134,6 @@ export function getSettings() {
             if (!prompt.includes(EXTREME_SUMMARY_FIDELITY_RULE)) prompt = `${prompt}\n${EXTREME_SUMMARY_FIDELITY_RULE}`;
             settings[key] = prompt;
         }
-        let injection = String(settings.injectionInstruction || PROMPT_DEFAULTS.injectionInstruction).trim();
-        const injectionRule = 'Preserve stated extremes and rankings; lore norms are not ceilings.';
-        if (!injection.includes(injectionRule)) injection = `${injection}${injection ? ' ' : ''}${injectionRule}`;
-        settings.injectionInstruction = injection;
         settings.extremeCanonPromptVersion = 1;
         saveSettingsDebounced();
     }
@@ -399,15 +404,6 @@ export function getSettings() {
                 : `${extractionPrompt}\n${threadRule}`;
         }
         settings.extractionSystemPrompt = extractionPrompt;
-        const relationshipInjection = 'Relationship ↔ is direction-neutral: determine roles only from its Description and established facts, never from endpoint order or Type word order.';
-        let injection = String(settings.injectionInstruction || PROMPT_DEFAULTS.injectionInstruction);
-        if (!injection.includes(relationshipInjection)) {
-            const injectionMarker = 'Preserve natural address forms without explanation.';
-            injection = injection.includes(injectionMarker)
-                ? injection.replace(injectionMarker, `${relationshipInjection} ${injectionMarker}`)
-                : `${injection} ${relationshipInjection}`;
-        }
-        settings.injectionInstruction = injection;
         settings.relationshipDescriptionPromptVersion = 1;
         saveSettingsDebounced();
     }

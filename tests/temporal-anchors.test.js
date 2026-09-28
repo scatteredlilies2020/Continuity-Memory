@@ -56,10 +56,10 @@ test('deictic wording remains bound to the immutable Digest where it was recorde
 
 test('retrieval injection forbids cross-record event and time fusion', () => {
     const prompt = buildMemoryPrompt(world(), [{ name: 'User', mes: 'Continue the scene.' }], 1000).prompt;
-    assert.match(prompt, /preserve the attribution, timing, and certainty of each retrieved row/i);
-    assert.match(prompt, /do not invent links between unrelated locations, actions, people, reports, or times/i);
-    assert.match(prompt, /Keep reports and last-known status as reports/i);
-    assert.match(prompt, /Relative timing requires source evidence or an explicit temporal relation/i);
+    assert.match(prompt, /Preserve attribution, timing, scope, and certainty/i);
+    assert.match(prompt, /Connect evidence only where supported; do not merge unrelated records into one event/i);
+    assert.match(prompt, /perspectives and reports are not objective confirmation or personal experience/i);
+    assert.match(prompt, /Leave unspecified timing unspecified/i);
 });
 
 test('message distance never becomes elapsed story time', () => {

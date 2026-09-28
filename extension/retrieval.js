@@ -1,4 +1,4 @@
-import { supportingRecords, supportingEvidenceText } from './supporting-memories.js?v=0.15.0-testing.27';
+import { supportingRecords, supportingEvidenceText } from './supporting-memories.js?v=0.15.0-testing.28';
 const STOP_WORDS = new Set('a an the and that this with from into have has had was were are am can did does will shall may might must for but not never neither nor you your they them their she her him his its our out about just then than there here what when where who how why would could should been being also very more most some any all to of in on at as by or if it is be do we he me my up no so us during between through within without among around these those having already enough still really much many someone something anything everything nothing themselves himself herself myself itself each every other another such both either same only even yet else once again now then'.split(' '));
 const IRREGULAR_NEGATIVE_BASES = new Map([
     ['ca', 'can'],
@@ -7,12 +7,12 @@ const IRREGULAR_NEGATIVE_BASES = new Map([
     ['ai', 'am'],
 ]);
 const CJK_RUN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
-const LIFECYCLE_GUIDANCE = 'Facts are objective canon within their stated scope unless corrected; perspectives and reports are not. Entity descriptions are recorded profiles of their named subject; newer evidence governs mutable conditions. Relationship ↔ has no directional role; use its Description and established facts. Current state describes confirmed excerpt-end conditions. Other records retain their stated timing, conditions, and certainty; plans are not outcomes. Do not infer past/current/future, permanence, expiry, resolution, or universal scope merely from storage, recency, or silence. Preserve explicit chronology and supported changes; leave unspecified timing unspecified.';
+const LIFECYCLE_GUIDANCE = '“Current state” records confirmed conditions at the source excerpt’s end, not necessarily now. Preserve explicit chronology and supported changes. Do not infer persistence, recovery, permanence, expiry, resolution, or universal scope from storage, recency, or silence. Leave unspecified timing unspecified. Relationship ↔ is nondirectional; derive roles from its description and established facts.';
 // This is deliberately separate from the user-editable injection instruction.
 // Retrieval returns independent evidence rows; the roleplay model must not
 // turn nearby fragments into a new witnessed event or an invented date.
-const EVIDENCE_FIDELITY_GUARD = 'Evidence handling: preserve the attribution, timing, and certainty of each retrieved row. You may synthesize connected evidence, but do not invent links between unrelated locations, actions, people, reports, or times, or present them as one witnessed event or first-person memory. Keep reports and last-known status as reports; do not convert them into personal experience or confirmed current conditions. Relative timing requires source evidence or an explicit temporal relation. Raw chat and explicit user corrections override memory within their stated scope.';
-const RESPONSE_FLEXIBILITY_GUIDANCE = 'Response use: memory is context, not a script or a checklist. Follow the current request and the configured character, style, and format; weave in only relevant details without reciting this block. Continue naturally with new dialogue, actions, and developments consistent with established facts and character knowledge. Old plans, moods, reactions, and relationships do not force repetition or prevent supported change; plans are not obligations. Distinguish new developments from claims about the recorded past. Last-known ongoing conditions are historical observations, not proof of either persistence or recovery. Corrections protect their stated scope, not every future condition.';
+const EVIDENCE_FIDELITY_GUARD = 'Preserve attribution, timing, scope, and certainty. Facts are canon within their stated scope; perspectives and reports are not objective confirmation or personal experience. Connect evidence only where supported; do not merge unrelated records into one event.';
+const RESPONSE_FLEXIBILITY_GUIDANCE = 'Plans are neither outcomes nor obligations. Past moods, reactions, and relationships do not require repetition or prevent supported change. Distinguish new developments from claims about recorded history. Corrections constrain their stated scope, not every future condition.';
 const BM25_K1 = 1.2;
 const RRF_OFFSET = 20;
 const RETRIEVAL_FIELDS = {
@@ -24,8 +24,8 @@ const RETRIEVAL_FIELDS = {
 
 import { isFreshActiveState, isLastKnownActiveState, latestSourceInRawTail, latestSourceRange, sourcedWhollyInRawTail, sourcedFromInvalidExtraction } from './state-lifecycle.js';
 import { anchoredRelativeText, anchoredStoryTime } from './temporal-anchors.js';
-import { retrievalMessageText } from './retrieval-query.js?v=0.15.0-testing.27';
-import { compactPromptProvenance } from './prompt-provenance.js?v=0.15.0-testing.27';
+import { retrievalMessageText } from './retrieval-query.js?v=0.15.0-testing.28';
+import { compactPromptProvenance } from './prompt-provenance.js?v=0.15.0-testing.28';
 import { formatEntityProfile } from './entity-profile.js';
 import { renderChronicleFrontier } from './chronicle.js';
 
@@ -1903,7 +1903,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.27';
-import { embeddingRecordKey } from './embedding-index.js?v=0.15.0-testing.27';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.28';
+import { embeddingRecordKey } from './embedding-index.js?v=0.15.0-testing.28';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';
