@@ -246,3 +246,103 @@ test('a cancelled bound-world load is not published or treated as a mismatched-w
     h.scope.loadBoundWorld = async () => h.original;
     assert.equal((await h.scope.loadBoundWorldOnce('bound')).id, 'bound');
 });
+
+function invalidPortableHarness() {
+    const h = harness();
+    const portable = { world: { ...structuredClone(h.original), sources: {}, facts: [{ id: 'retained-fact' }] } };
+    h.settings.chatWorlds.chat = 'missing-binding';
+    h.scope.runtime.world = null;
+    h.scope.creatingChatMemory = null;
+    h.scope.branchParentChatKey = () => '';
+    h.scope.getPortableSnapshot = () => portable;
+    h.scope.worlds = [{ id: h.original.id }];
+    h.calls.embedOptions = [];
+    h.scope.embedWorldInChat = async (world, options) => {
+        h.calls.embed.push(structuredClone(world));
+        h.calls.embedOptions.push(options);
+    };
+    install(ui, 'verifyMemoryAlignment', h.scope);
+    return { ...h, portable };
+}
+
+test('invalid embedded fingerprints recover from an independently verified same-revision stored copy', async () => {
+    const h = invalidPortableHarness();
+    const before = structuredClone(h.portable);
+    const result = await h.scope.ensureCurrentChatMemory(false, true);
+    assert.equal(result.id, h.original.id);
+    assert.equal(result.sources.chat.processedMessages.length, 1);
+    assert.equal(h.settings.chatWorlds.chat, h.original.id);
+    assert.deepEqual(h.calls.read, [h.original.id], 'reuse the already verified stored copy');
+    assert.deepEqual(h.calls.embed, [h.original]);
+    assert.equal(h.calls.embedOptions[0].force, true, 'repair same-revision metadata instead of skipping it');
+    assert.deepEqual(h.calls.toast, []);
+    assert.deepEqual(h.calls.save, []);
+    assert.equal(h.calls.import, 0);
+    assert.deepEqual(h.portable, before, 'never mutate the rejected snapshot in place');
+});
+
+test('newer verified stored memory is remapped for the destination before repairing its embedded copy', async () => {
+    const h = invalidPortableHarness();
+    const stored = { ...h.makeWorld(h.original.id, 3, 'old-device-chat'), revision: h.original.revision + 1 };
+    h.saved.set(stored.id, stored);
+    const result = await h.scope.ensureCurrentChatMemory(false, true);
+    assert.equal(result.sources.chat.processedMessages.length, 3);
+    assert.equal(result.sources['old-device-chat'], undefined);
+    assert.equal(h.calls.save.length, 1);
+    assert.equal(h.calls.embedOptions[0].force, true);
+    assert.deepEqual(h.calls.toast, []);
+});
+
+test('stored replacement bound to another chat is copied without changing that chat binding or memory', async () => {
+    const h = invalidPortableHarness();
+    h.settings.chatWorlds.other = h.original.id;
+    const result = await h.scope.ensureCurrentChatMemory(false, true);
+    assert.equal(result.id, 'private-copy');
+    assert.equal(h.settings.chatWorlds.chat, 'private-copy');
+    assert.equal(h.settings.chatWorlds.other, h.original.id);
+    assert.deepEqual(h.saved.get(h.original.id), h.original);
+    assert.equal(h.calls.import, 1);
+    assert.deepEqual(h.calls.save, []);
+});
+
+for (const problem of ['missing', 'corrupt', 'older', 'changed', 'ahead', 'empty', 'wrong-id', 'unverifiable']) {
+    test(`invalid embedded memory stays blocked when its stored replacement is ${problem}`, async () => {
+        const h = invalidPortableHarness();
+        const stored = h.saved.get(h.original.id);
+        if (problem === 'missing') h.scope.worlds = [];
+        if (problem === 'corrupt') h.scope.worlds[0].corrupt = true;
+        if (problem === 'older') stored.revision--;
+        if (problem === 'changed') stored.sources.chat.processedMessages[0].fingerprint = 'changed';
+        if (problem === 'ahead') stored.sources.chat.processedMessages[0].index = 99;
+        if (problem === 'empty') { stored.sources = {}; stored.extractions = []; }
+        if (problem === 'wrong-id') stored.id = 'unrelated';
+        if (problem === 'unverifiable') stored.sources = {};
+        assert.equal(await h.scope.ensureCurrentChatMemory(true, true), null);
+        assert.equal(h.settings.chatWorlds.chat, 'missing-binding');
+        assert.equal(h.calls.toast.length, 1);
+        assert.match(h.calls.toast[0][1], /No equally recent verified stored copy/);
+        assert.deepEqual(h.calls.save, []);
+        assert.deepEqual(h.calls.embed, []);
+        assert.equal(h.calls.import, 0);
+    });
+}
+
+for (const change of ['disable', 'chat', 'generation', 'binding']) {
+    test(`invalid embedded recovery stops on ${change} during stored loading`, async () => {
+        const h = invalidPortableHarness();
+        const read = h.scope.api.getWorld;
+        h.scope.api.getWorld = async id => {
+            const result = await read(id);
+            if (change === 'disable') h.settings.enabled = false;
+            if (change === 'chat') h.scope.activeChat = 'other';
+            if (change === 'generation') h.scope.runtime.generation++;
+            if (change === 'binding') h.settings.chatWorlds.chat = 'other-world';
+            return result;
+        };
+        assert.equal(await h.scope.ensureCurrentChatMemory(false, true), null);
+        assert.deepEqual(h.calls.save, []);
+        assert.deepEqual(h.calls.embed, []);
+        assert.deepEqual(h.calls.toast, []);
+        assert.equal(h.calls.import, 0);
+    });
+}

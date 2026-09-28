@@ -946,16 +946,36 @@ export async function ensureCurrentChatMemory(createIfMissing = false, recoverSt
         const portable = getPortableSnapshot();
         if (portable && !(getSettings().deletedWorldIds || []).includes(portable.world.id)) {
             let alignment;
+            let verifiedStored = null;
+            const existing = worlds.find(item => item.id === portable.world.id);
             try {
                 alignment = verifyMemoryAlignment(portable.world, {
                     allowBranchReuse: Boolean(parentChatKey),
                     sourceChatKey: parentChatKey,
                 });
             } catch (error) {
-                toast('error', `${error.message} The embedded memory was not attached.`);
-                return null;
+                // An incomplete embedded copy must not prevent recovery from
+                // the canonical copy. Verify it independently, and never
+                // replace a newer portable revision with older stored data.
+                if (existing && !existing.corrupt) {
+                    try {
+                        const stored = (await api.getWorld(existing.id)).world;
+                        if (!current()) return null;
+                        if (stored?.id === portable.world.id
+                            && Number(stored.revision) >= Number(portable.world.revision)) {
+                            alignment = verifyMemoryAlignment(stored);
+                            if (alignment.matched > 0) verifiedStored = stored;
+                        }
+                    } catch (recoveryError) {
+                        console.warn('[Continuity] Could not verify the stored replacement for an invalid embedded memory.', recoveryError);
+                    }
+                }
+                if (!current()) return null;
+                if (!verifiedStored) {
+                    toast('error', `${error.message} The embedded memory was not attached. No equally recent verified stored copy was available; restore a complete memory backup or use Start continuation arc for a different conversation.`);
+                    return null;
+                }
             }
-            const existing = worlds.find(item => item.id === portable.world.id);
             const boundElsewhere = existing && Object.entries(getSettings().chatWorlds || {})
                 .some(([chatKey, worldId]) => chatKey !== getChatKey() && worldId === existing.id);
             if (existing?.corrupt && !boundElsewhere) {
@@ -969,7 +989,7 @@ export async function ensureCurrentChatMemory(createIfMissing = false, recoverSt
                 return recovered.world;
             }
             if (existing && !boundElsewhere) {
-                const stored = (await api.getWorld(existing.id)).world;
+                const stored = verifiedStored || (await api.getWorld(existing.id)).world;
                 if (!current()) return null;
                 const storedAlignment = verifyMemoryAlignment(stored);
                 const saved = storedAlignment.changed || (storedAlignment.sourceChatKey && storedAlignment.sourceChatKey !== getChatKey())
@@ -978,7 +998,7 @@ export async function ensureCurrentChatMemory(createIfMissing = false, recoverSt
                 if (!current()) return null;
                 bindCurrentChat(saved.id);
                 updateRuntime({ world: saved });
-                if (getSettings().embedMemoryInChat) await embedWorldInChat(saved);
+                if (getSettings().embedMemoryInChat) await embedWorldInChat(saved, { force: Boolean(verifiedStored) });
                 else await clearPortableSnapshot();
                 return saved;
             }
