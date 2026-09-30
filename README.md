@@ -28,6 +28,7 @@ The browser extension works on its own; the server plugin is not required to sav
 
 - **Model usage and cost.** Extraction and Chronicle summarization make additional model requests, which may incur API costs. Extraction uses your active SillyTavern model by default; you can choose separate models for extraction, summarization, and AI-assisted retrieval. Local retrieval itself makes no AI requests.
 - **When memory updates.** Automatic processing is on by default, with 8 messages per Digest. Incomplete groups remain raw until the group is complete, so memory does not update after every message.
+- **Concise, not cut off.** Chronicle is the main historical account; relevant structured memories supply precise supporting detail. New Chronicle entries aim for roughly 2,400 characters or less, but this is a soft target: consequential meaning takes priority, and accepted prose is saved in full. Parent summaries and the injected Chronicle frontier are not hard-truncated either. Model output/context limits still apply. Previously clipped saved entries are not automatically rewritten by this update.
 - **Context reduction is not deletion.** Older processed messages can be left out of requests to the response model to make room for summaries and recalled details. They remain in your saved chat and on screen.
 - **Review before saving.** You can require approval of each Digest extraction and Chronicle promotion before it is saved. This is off by default; enabling it pauses processing for you to save, regenerate, or discard the result.
 - **Processing privacy.** Storing memory on your SillyTavern server does not mean model processing stays local. Chat excerpts used for extraction and memory used for summarization are sent to the model provider you configure.
@@ -38,6 +39,11 @@ The browser extension works on its own; the server plugin is not required to sav
 ## Development
 
 Development link installers are included for Windows (`install-windows.ps1`) and Termux (`install-termux.sh`). Run the project checks with `npm test`.
+
+- `npm run test:recall` checks the actual injected prompt against fabricated long-history expectations: exact conditions, knowledge boundaries, uncertain beliefs, prerequisite recall, historical plans/outcomes, raw-tail/source invalidation, and irrelevant-memory exclusion. It also tests complete Chronicle prose across the former truncation boundary.
+- `npm run benchmark:retrieval` measures cold retrieval, cooperative corpus preparation, and prepared retrieval at 500, 2,000, and 10,000 distractor records across six scenarios. Override with `npm run benchmark:retrieval -- --sizes 500,2000 --runs 3`. The JSON report includes correctness failures and estimated prompt sizes; a failed recall check exits nonzero. Timings are machine-dependent, not CI thresholds.
+
+These fixtures represent 640 source-message positions with a promoted Chronicle and mixed memory categories. They use no private chats or model calls and do not prove real-chat extraction or creative response quality. Retrieval ranking should change only when measured recall or packing failures justify it.
 
 ## License
 

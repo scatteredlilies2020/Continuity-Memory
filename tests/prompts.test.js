@@ -7,6 +7,7 @@ import {
     buildHierarchySystemPrompt,
     buildRetrievalSystemPrompt,
     CHRONICLE_ENTRY_RULE,
+    CHRONICLE_ENTRY_LENGTH_RULE,
     CHRONICLE_HISTORY_RULE,
     CHARACTER_PROFILE_RULE,
     CONTINUITY_COVERAGE_RULES,
@@ -104,7 +105,7 @@ test('Chronicle history policy preserves evidenced outcomes without assigning li
 });
 
 test('saved pre-neutral Chronicle rules upgrade at request time without duplicating the entry rule', () => {
-    const legacy = CHRONICLE_ENTRY_RULE.replace(` ${CHRONICLE_HISTORY_RULE}`, '').replace(
+    const legacy = CHRONICLE_ENTRY_RULE.replace(` ${CHRONICLE_ENTRY_LENGTH_RULE}`, '').replace(` ${CHRONICLE_HISTORY_RULE}`, '').replace(
         'Do not recap earlier memory or consult prior summaries. Record outcomes only when established in this excerpt.',
         'Do not recap earlier memory, consult prior summaries, or resolve open matters.',
     );
@@ -118,6 +119,21 @@ test('saved pre-neutral Chronicle rules upgrade at request time without duplicat
     assert.doesNotMatch(hierarchy, /or resolve an open matter/);
     assert.ok(hierarchy.includes('Custom prefix.'));
     assert.equal(buildHierarchySystemPrompt(hierarchy), hierarchy);
+});
+
+test('Chronicle entry length is a soft target and saved prompt upgrades are idempotent', () => {
+    const previous = CHRONICLE_ENTRY_RULE.replace(` ${CHRONICLE_ENTRY_LENGTH_RULE}`, '');
+    for (const rule of [previous, CHRONICLE_ENTRY_RULE]) {
+        const prompt = buildExtractionSystemPrompt(`Custom prefix. Aim for 800 characters.\n${rule}\nCustom suffix.`);
+        assert.ok(prompt.includes('Custom prefix. Aim for 800 characters.'));
+        assert.ok(prompt.includes('Custom suffix.'));
+        assert.ok(prompt.includes(CHRONICLE_ENTRY_RULE));
+        assert.equal(prompt.split(CHRONICLE_ENTRY_LENGTH_RULE).length - 1, 1);
+        assert.equal(prompt.split('Return chronicleEntry as a compact').length - 1, 1);
+        assert.equal(buildExtractionSystemPrompt(prompt), prompt);
+    }
+    assert.match(CHRONICLE_ENTRY_LENGTH_RULE, /soft target, not a hard cap or a minimum/);
+    assert.match(CHRONICLE_ENTRY_LENGTH_RULE, /exceed it when consequential continuity/);
 });
 
 test('existing extraction and Chronicle prompts preserve source scope across all memory categories', () => {

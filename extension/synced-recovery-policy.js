@@ -1,4 +1,4 @@
-import { getSettings, saveSettings } from './settings.js?v=0.15.0-testing.28';
+import { getSettings, saveSettings } from './settings.js?v=0.15.0-testing.29';
 
 // Keep an explicit fresh start authoritative even after new Digest chunks are
 // saved. This is local recovery policy, not a deletion of other synced copies.

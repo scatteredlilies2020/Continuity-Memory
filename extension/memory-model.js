@@ -1,4 +1,4 @@
-import { supportingHistory, supportingIdentity, retainSupportingHistory, filterSupportingSources } from './supporting-memories.js?v=0.15.0-testing.28';
+import { supportingHistory, supportingIdentity, retainSupportingHistory, filterSupportingSources } from './supporting-memories.js?v=0.15.0-testing.29';
 import { LEGACY_DIGEST_RESCAN_MESSAGE } from './legacy-support.js';
 import { EXTRACTION_VERSION } from './coverage.js';
 import { correctionBaselines, correctionProtectsRecord, isSuppressedByCorrection, releaseAdvancedCorrection } from './memory-correction.js';
@@ -1371,7 +1371,9 @@ export function mergeExtraction(world, result, meta) {
             closing: clipped(raw.closing, 320),
             coverageWarnings: cleanList(raw.coverageWarnings, 8).map(item => clipped(item, 440)),
             importance: clampImportance(raw.importance),
-            chronicleText: clipped(result.chronicleEntry || compileRollingStorySnapshot(result.storySoFar), 2400),
+            // Concision is a generation target, not permission to discard the
+            // end of an accepted account (including its knowledge boundaries).
+            chronicleText: text(result.chronicleEntry || compileRollingStorySnapshot(result.storySoFar)),
             provenanceBoundaries: structuredClone(result._authoritativeMetaBoundaries || []),
             sourceScenarioContext: structuredClone(result._sourceScenarioContext || []),
             chatKey: meta.chatKey,

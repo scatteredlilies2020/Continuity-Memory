@@ -1,4 +1,4 @@
-import { supportingRecords, supportingEvidenceText } from './supporting-memories.js?v=0.15.0-testing.28';
+import { supportingRecords, supportingEvidenceText } from './supporting-memories.js?v=0.15.0-testing.29';
 const STOP_WORDS = new Set('a an the and that this with from into have has had was were are am can did does will shall may might must for but not never neither nor you your they them their she her him his its our out about just then than there here what when where who how why would could should been being also very more most some any all to of in on at as by or if it is be do we he me my up no so us during between through within without among around these those having already enough still really much many someone something anything everything nothing themselves himself herself myself itself each every other another such both either same only even yet else once again now then'.split(' '));
 const IRREGULAR_NEGATIVE_BASES = new Map([
     ['ca', 'can'],
@@ -24,8 +24,8 @@ const RETRIEVAL_FIELDS = {
 
 import { isFreshActiveState, isLastKnownActiveState, latestSourceInRawTail, latestSourceRange, sourcedWhollyInRawTail, sourcedFromInvalidExtraction } from './state-lifecycle.js';
 import { anchoredRelativeText, anchoredStoryTime } from './temporal-anchors.js';
-import { retrievalMessageText } from './retrieval-query.js?v=0.15.0-testing.28';
-import { compactPromptProvenance } from './prompt-provenance.js?v=0.15.0-testing.28';
+import { retrievalMessageText } from './retrieval-query.js?v=0.15.0-testing.29';
+import { compactPromptProvenance } from './prompt-provenance.js?v=0.15.0-testing.29';
 import { formatEntityProfile } from './entity-profile.js';
 import { renderChronicleFrontier } from './chronicle.js';
 
@@ -215,8 +215,7 @@ function retrievalFieldText(item) {
     return { identity, anchor, heading, body };
 }
 
-function retrievalFieldStats(item) {
-    const text = retrievalFieldText(item);
+function retrievalFieldStats(item, text = retrievalFieldText(item)) {
     const fields = {};
     const all = new Set();
     for (const field of Object.keys(RETRIEVAL_FIELDS)) {
@@ -229,6 +228,20 @@ function retrievalFieldStats(item) {
         fields[field] = { tokens, counts, unique: new Set(tokens) };
     }
     return { fields, all };
+}
+
+function recordStatsFor(item, profile) {
+    const cached = profile.recordStats.get(item) || profile.transientRecordStats?.get(item);
+    if (cached) return cached;
+    const text = retrievalFieldText(item);
+    // Supporting observations are rebuilt as fresh wrappers on each query.
+    // Reuse their prepared tokens only when ALL searchable fields still match,
+    // never just an ID (edits, corrections and historical versions can share it).
+    const prepared = item?.collection && profile.supportingStats?.get(JSON.stringify(text));
+    const stats = prepared || retrievalFieldStats(item, text);
+    // Query-local: do not retain every fresh wrapper in the corpus cache.
+    profile.transientRecordStats?.set(item, stats);
+    return stats;
 }
 
 function capsulePassageStats(item, profile) {
@@ -249,7 +262,7 @@ function capsulePassageStats(item, profile) {
             participants: item?.participants,
             passage,
         }));
-    const result = stats.length ? stats : [profile.recordStats.get(item) || retrievalFieldStats(item)];
+    const result = stats.length ? stats : [recordStatsFor(item, profile)];
     profile.passageStats?.set(item, result);
     return result;
 }
@@ -317,6 +330,7 @@ function createRetrievalCorpus(world) {
         revision: retrievalCorpusRevision(world),
         records: retrievalRecords(world),
         recordStats: new Map(),
+        supportingStats: new Map(),
         documentFrequency: new Map(),
         identityVocabulary: new Set(),
         totalFieldLengths: Object.fromEntries(Object.keys(RETRIEVAL_FIELDS).map(field => [field, 0])),
@@ -326,8 +340,10 @@ function createRetrievalCorpus(world) {
 }
 
 function addRetrievalCorpusRecord(corpus, item) {
-    const stats = retrievalFieldStats(item);
+    const text = retrievalFieldText(item);
+    const stats = retrievalFieldStats(item, text);
     corpus.recordStats.set(item, stats);
+    if (item.collection) corpus.supportingStats.set(JSON.stringify(text), stats);
     for (const term of stats.fields.identity.unique) corpus.identityVocabulary.add(term);
     for (const term of stats.fields.anchor.unique) corpus.identityVocabulary.add(term);
     for (const field of Object.keys(RETRIEVAL_FIELDS)) corpus.totalFieldLengths[field] += stats.fields[field].tokens.length;
@@ -429,6 +445,8 @@ function retrievalProfile(world, recentMessages, expandedTerms) {
         documentFrequency,
         averageFieldLengths,
         recordStats,
+        supportingStats: corpus.supportingStats,
+        transientRecordStats: new WeakMap(),
         passageStats: corpus.passageStats,
         identityVocabulary,
     };
@@ -706,7 +724,7 @@ function rank(items, query, extra = () => 0, category = '', semanticRanks = new 
             identityVocabulary: new Set(),
         };
     const prepared = (items || []).map((item, index) => {
-        const stats = profile.recordStats.get(item) || retrievalFieldStats(item);
+        const stats = recordStatsFor(item, profile);
         const matchingTerms = (source, includeMorphology = false) => [...source]
             .filter(term => statsHasQueryTerm(stats, term, includeMorphology));
         const directMatches = matchingTerms(profile.direct);
@@ -925,7 +943,7 @@ function supportMetadata(item, profile) {
     const stats = item?.temporalAnchorId || item?.temporal?.referenceId
         ? retrievalFieldStats({ ...item, temporalAnchorId: undefined,
             temporal: item.temporal ? { ...item.temporal, referenceId: undefined } : undefined })
-        : profile.recordStats.get(item) || retrievalFieldStats(item);
+        : recordStatsFor(item, profile);
     const metadata = {
         stats,
         identities: supportIdentityReferences(stats, profile),
@@ -1003,7 +1021,7 @@ function supportConnection(seed, candidate, profile) {
 function queryEvidenceConfidence(selection, profile) {
     const item = selection?.item;
     const result = selection?.result || {};
-    const stats = profile.recordStats.get(item) || retrievalFieldStats(item);
+    const stats = recordStatsFor(item, profile);
     const isIdentityTerm = term => queryTermVariants(term, true)
         .some(variant => profile.identityVocabulary.has(variant));
     const contentMatch = term => fieldHasQueryTerm(stats.fields.heading, term, true)
@@ -1049,7 +1067,7 @@ function retainSupportForSeed(seedSelection, ranked, profile, depthScale = 1) {
         && (seedSelection.result?.contextEligible || seedSelection.result?.semanticEligible || seedSelection.result?.expandedEligible);
     const contextRelevant = indirectSeed && !indirectRelationship
         ? ranked.filter(result => {
-            const stats = profile.recordStats.get(result.item) || retrievalFieldStats(result.item);
+            const stats = recordStatsFor(result.item, profile);
             return result.connection.explicitRecordLinked || contextualEvidence(stats, profile).score > 0
                 || coherentConceptMatch(stats, profile, profile.expandedGroups)
                 || compactConceptMatch(stats, profile, profile.expandedGroups);
@@ -1756,7 +1774,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
             if (!best) continue;
             let relevance = supportRelevanceByItem.get(candidate.item);
             if (!relevance) {
-                const stats = queryTerms.recordStats.get(candidate.item) || retrievalFieldStats(candidate.item);
+                const stats = recordStatsFor(candidate.item, queryTerms);
                 relevance = {
                     direct: queryScore(stats, queryTerms, queryTerms.direct),
                     expanded: expandedQueryScore(stats, queryTerms),
@@ -1903,7 +1921,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.28';
-import { embeddingRecordKey } from './embedding-index.js?v=0.15.0-testing.28';
+import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.29';
+import { embeddingRecordKey } from './embedding-index.js?v=0.15.0-testing.29';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';

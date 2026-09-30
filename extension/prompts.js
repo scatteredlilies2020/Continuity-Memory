@@ -1,4 +1,4 @@
-import { EXTRACTION_COMPLETENESS_RULE } from './extraction-contract.js?v=0.15.0-testing.28';
+import { EXTRACTION_COMPLETENESS_RULE } from './extraction-contract.js?v=0.15.0-testing.29';
 export const IMPORTANCE_RUBRIC = `Rate likely future continuity value, not prose intensity, fame, or detail: 1 minor or short-lived; 2 local or temporary; 3 recurring or persistent and likely relevant; 4 a major durable turning point, commitment, or broad change; 5 a rare foundational premise, identity, rule, central objective, or irreversible overall transformation. Most items are 2 or 3; use 4 sparingly and 5 only for foundational continuity. Repetition alone never raises importance.`;
 
 export const CANONICAL_THIRD_PERSON_RULE = `Canonical memory prose uses explicit names and third person, never I/we/you or player-facing advice. Exact address-form values may preserve source wording.`;
@@ -158,7 +158,9 @@ export const CHRONICLE_HISTORY_RULE = `Chronicle is historical evidence, not a l
 const LEGACY_CHRONICLE_ENTRY_SCOPE = 'Do not recap earlier memory, consult prior summaries, or resolve open matters.';
 const CHRONICLE_ENTRY_SCOPE = 'Do not recap earlier memory or consult prior summaries. Record outcomes only when established in this excerpt.';
 
-export const CHRONICLE_ENTRY_RULE = `Return chronicleEntry as a compact, self-contained account of this excerpt's consequential setup and causally important change. Preserve explicit names, chronology, decisions, consequences, relationship meaning, concealed information, who knows what, uncertainty, and any foundational premise introduced here. Include source-supported conditions that materially govern what is possible or how events should be understood, even when no action changes them in this excerpt. An OOC/meta assertion establishes author-level canon only: never describe it as something a character said, asserted, revealed, identified, established in-world, learned, or knew unless the excerpt separately depicts that speech, action, disclosure, or discovery. When dialogue and OOC/meta text share one message, keep their provenance separate and preserve any resulting character knowledge boundary. ${CHRONICLE_ENTRY_SCOPE} Omit low-value detail and repetition within the entry, not consequential information merely because it is also stored in structured records. Before returning, check that the entry itself retains the excerpt's consequential setup with its source scope and knowledge boundaries intact. Use complete third-person prose without headings, ellipses, or invented transitions. ${CHRONICLE_HISTORY_RULE}`;
+const PRE_SOFT_CAP_CHRONICLE_ENTRY_RULE = `Return chronicleEntry as a compact, self-contained account of this excerpt's consequential setup and causally important change. Preserve explicit names, chronology, decisions, consequences, relationship meaning, concealed information, who knows what, uncertainty, and any foundational premise introduced here. Include source-supported conditions that materially govern what is possible or how events should be understood, even when no action changes them in this excerpt. An OOC/meta assertion establishes author-level canon only: never describe it as something a character said, asserted, revealed, identified, established in-world, learned, or knew unless the excerpt separately depicts that speech, action, disclosure, or discovery. When dialogue and OOC/meta text share one message, keep their provenance separate and preserve any resulting character knowledge boundary. ${CHRONICLE_ENTRY_SCOPE} Omit low-value detail and repetition within the entry, not consequential information merely because it is also stored in structured records. Before returning, check that the entry itself retains the excerpt's consequential setup with its source scope and knowledge boundaries intact. Use complete third-person prose without headings, ellipses, or invented transitions. ${CHRONICLE_HISTORY_RULE}`;
+export const CHRONICLE_ENTRY_LENGTH_RULE = `Aim for roughly 2,400 characters or fewer in chronicleEntry by removing repetition and incidental detail. This is a soft target, not a hard cap or a minimum: use less for a simple excerpt and exceed it when consequential continuity, conditions, attribution, or knowledge boundaries require it. Respect a custom length target as guidance, not a reason to cut off sentences or lose consequential meaning.`;
+export const CHRONICLE_ENTRY_RULE = `${PRE_SOFT_CAP_CHRONICLE_ENTRY_RULE} ${CHRONICLE_ENTRY_LENGTH_RULE}`;
 
 export const DEFAULT_EXTRACTION_TASK_TEMPLATE = `Extract continuity from this chronological excerpt. Empty arrays are valid. {{detail}}
 {{format}}
@@ -206,10 +208,10 @@ export const PROMPT_DEFAULTS = Object.freeze({
 });
 
 export function buildExtractionSystemPrompt(basePrompt, jbEnabled = false, jbPrompt = DEFAULT_JB_PROMPT) {
-    const legacyEntryRule = CHRONICLE_ENTRY_RULE.replace(` ${CHRONICLE_HISTORY_RULE}`, '')
+    const legacyEntryRule = PRE_SOFT_CAP_CHRONICLE_ENTRY_RULE.replace(` ${CHRONICLE_HISTORY_RULE}`, '')
         .replace(CHRONICLE_ENTRY_SCOPE, LEGACY_CHRONICLE_ENTRY_SCOPE);
     const base = upgradeOocMetaAuthorityPrompt(basePrompt ?? DEFAULT_EXTRACTION_SYSTEM_PROMPT)
-        .replaceAll(legacyEntryRule, CHRONICLE_ENTRY_RULE)
+        .replaceAll(legacyEntryRule, PRE_SOFT_CAP_CHRONICLE_ENTRY_RULE)
         .replaceAll(LEGACY_CHRONICLE_ENTRY_SCOPE, CHRONICLE_ENTRY_SCOPE).trim();
     const extra = jbEnabled ? String(jbPrompt ?? DEFAULT_JB_PROMPT).trim() : '';
     const combined = extra ? (base ? `${base}\n\n${extra}` : extra) : base;
@@ -223,9 +225,12 @@ export function buildExtractionSystemPrompt(basePrompt, jbEnabled = false, jbPro
     const withExtremeFidelity = withProfiles.includes(EXTREME_CANON_FIDELITY_RULE)
         ? withProfiles
         : `${withProfiles}\n\n${EXTREME_CANON_FIDELITY_RULE}`;
-    const withChronicle = withExtremeFidelity.includes(CHRONICLE_ENTRY_RULE)
+    const withEntry = withExtremeFidelity.includes(PRE_SOFT_CAP_CHRONICLE_ENTRY_RULE)
         ? withExtremeFidelity
-        : `${withExtremeFidelity}\n\n${CHRONICLE_ENTRY_RULE}`;
+        : `${withExtremeFidelity}\n\n${PRE_SOFT_CAP_CHRONICLE_ENTRY_RULE}`;
+    const withChronicle = withEntry.includes(CHRONICLE_ENTRY_LENGTH_RULE)
+        ? withEntry
+        : withEntry.replace(PRE_SOFT_CAP_CHRONICLE_ENTRY_RULE, CHRONICLE_ENTRY_RULE);
     const withScope = withChronicle.includes(SOURCE_SCOPE_RULE)
         ? withChronicle
         : `${withChronicle}\n\n${SOURCE_SCOPE_RULE}`;
