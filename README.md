@@ -22,7 +22,34 @@ Memory processing runs in the background. If part of a chat has not been process
    https://github.com/scatteredlilies2020/Continuity-Memory.git
    ```
 
-The browser extension works on its own; the server plugin is not required to save or recall memory. The bundled `plugin` directory is optional and enables server-side memory jobs that can continue after the browser tab closes, as long as SillyTavern remains running. To use it, install it as the SillyTavern server plugin `continuity-memory`, enable server plugins, and restart SillyTavern.
+The browser extension works on its own; the server plugin is not required to save or recall memory. The optional server plugin enables server-side memory jobs that can continue after the browser tab closes, as long as SillyTavern remains running.
+
+### Optional server plugin
+
+Install the **whole repository**, not just its `plugin/` subdirectory, at `SillyTavern/plugins/continuity-memory`. You can clone it there, copy the repository there, or link that location to an existing repository checkout. The required layout is:
+
+```text
+SillyTavern/plugins/continuity-memory/
+├── package.json          # root package: main is plugin/index.js
+├── plugin/
+│   ├── index.js
+│   └── ...
+└── extension/
+    ├── storage-compaction.js
+    └── ...
+```
+
+Keep the complete contents of both directories. The server plugin shares modules with the browser extension; `plugin/` is not a self-contained package. Enable `enableServerPlugins: true` in SillyTavern's configuration and restart SillyTavern. The Windows and Termux development installers link the repository root for you and refuse to overwrite an existing installation.
+
+**Docker:** place the whole checkout in the host's mounted plugins directory as `continuity-memory`, or bind-mount the whole checkout to `/home/node/app/plugins/continuity-memory`. For example, add this entry to the SillyTavern service's Compose `volumes` list (adjust the host path):
+
+```yaml
+- /absolute/host/path/Continuity-Memory:/home/node/app/plugins/continuity-memory:ro
+```
+
+The mount source must be the repository root, not `Continuity-Memory/plugin`. Host symlink targets are not automatically available inside the container; a direct bind mount avoids that issue. Recreate the container after changing its mounts. A read-only source mount is sufficient for loading the plugin; SillyTavern's data and browser-extension directories must remain writable. Update the checkout on the host and restart the container to load new plugin code.
+
+**Existing broken installs:** an error mentioning `plugins/extension/storage-compaction.js` means the plugin's expected sibling modules are missing from the resolved layout. With SillyTavern stopped, repoint the existing plugin link to the repository root, or replace the plugin-only copy/mount with the whole checkout above. Do not rename it to `extension` or move/delete SillyTavern's user data. Memory files are stored separately in the user data directory.
 
 ## Useful to know
 

@@ -17,5 +17,7 @@ if [ -e "$extension_link" ] || [ -L "$extension_link" ] || [ -e "$plugin_link" ]
 fi
 
 ln -s "$project_dir/extension" "$extension_link"
-ln -s "$project_dir/plugin" "$plugin_link"
-echo "Continuity Memory linked successfully. Restart SillyTavern and reload the browser page."
+# Link the package root: plugin/index.js imports shared modules from extension/.
+# Keeping both inside the link also works when Node preserves symlink paths.
+ln -s "$project_dir" "$plugin_link"
+echo "Continuity Memory linked successfully. Enable server plugins, restart SillyTavern, and reload the browser page."

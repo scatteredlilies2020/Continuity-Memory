@@ -14,5 +14,6 @@ if ((Test-Path $ExtensionPath) -or (Test-Path $PluginPath)) {
 }
 
 New-Item -ItemType Junction -Path $ExtensionPath -Target (Join-Path $ProjectPath 'extension') | Out-Null
-New-Item -ItemType Junction -Path $PluginPath -Target (Join-Path $ProjectPath 'plugin') | Out-Null
+# Link the package root so plugin/ and its shared extension/ modules stay together.
+New-Item -ItemType Junction -Path $PluginPath -Target $ProjectPath | Out-Null
 Write-Host 'Continuity Memory linked successfully. Enable server plugins, restart SillyTavern, and reload the browser page.'
