@@ -84,7 +84,7 @@ test('noncanonical claim categories are retrieved only as subjective perspective
 
     assert.equal(selections(result, 'Facts').length, 0);
     assert.deepEqual(selections(result, 'Character perspectives (not established facts)').map(item => item.id), ['claim-apprentice']);
-    assert.match(result.prompt, /\[subjective; not an established fact\]/u);
+    assert.match(result.prompt, /\[character perspective; interpret as written\]/u);
 });
 
 test('BM25F favors a heading match over an incidental body match', () => {

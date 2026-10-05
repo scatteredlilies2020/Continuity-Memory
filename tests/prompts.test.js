@@ -248,7 +248,7 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /keep coexisting forms together/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /shift signals changed familiarity, distance, respect, or hierarchy/);
     assert.equal(DEFAULT_INJECTION_INSTRUCTION, '');
-    assert.equal(INJECTION_GUIDANCE, "Use these memories as background. The current chat takes priority. Characters only know what they've learned.");
+    assert.equal(INJECTION_GUIDANCE, "Current chat takes priority. Characters know only what they've learned. Interpret beliefs as written; their category alone adds no doubt.");
     assert.ok(INJECTION_GUIDANCE.split(/\s+/u).length <= 20);
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(CONTINUITY_COVERAGE_RULES));
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(EPISTEMIC_MEMORY_RULES));

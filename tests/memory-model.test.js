@@ -57,8 +57,8 @@ test('keeps attributed belief facts separate from established facts and from eac
     assert.equal(target.facts.find(item => item.subject === 'Alice').value, 'not the prince');
     assert.equal(target.facts.find(item => item.subject === 'Bob').value, 'a spy');
     const injected = buildMemoryPrompt(target, [{ name: 'User', mes: 'What does Bob think about the masked visitor?' }], 2000, 'chat');
-    assert.match(injected.prompt, /\[subjective; not an established fact\]/);
-    assert.match(injected.prompt, /Bob.*belief about the masked visitor.*a spy.*not an established fact/i);
+    assert.match(injected.prompt, /\[character perspective; interpret as written\]/);
+    assert.match(injected.prompt, /Bob.*belief about the masked visitor.*a spy.*character perspective/i);
 });
 
 test('merges durable records and updates matching facts instead of duplicating them', () => {

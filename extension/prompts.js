@@ -154,7 +154,7 @@ export const PRE_LEAN_INJECTION_INSTRUCTIONS = Object.freeze([
     `Use this as background continuity, not a script or checklist; do not mention this memory block. Use only relevant details. Current raw chat and explicit user corrections override older memory within their stated scope.
 Model access is not character knowledge. Respect explicit knowledge boundaries: a character must not identify, infer, reveal, react to, or act on protected information until established discovery or disclosure. Other retrieved rows do not override that restriction.`,
 ]);
-export const INJECTION_GUIDANCE = "Use these memories as background. The current chat takes priority. Characters only know what they've learned.";
+export const INJECTION_GUIDANCE = "Current chat takes priority. Characters know only what they've learned. Interpret beliefs as written; their category alone adds no doubt.";
 // Optional user additions; the short built-in line is supplied by retrieval.
 export const DEFAULT_INJECTION_INSTRUCTION = '';
 

@@ -15,7 +15,7 @@ Memory processing runs in the background. If part of a chat has not been process
 
 ### What the response model receives
 
-Memory is presented in up to four sections: **Memory constraints**, **Current context**, **Relevant details**, and **Story so far**. Empty sections are omitted. Short labels preserve distinctions such as established knowledge, subjective beliefs, historical observations, and last-known conditions; source, time, uncertainty, and conditions remain with their details.
+Memory is presented in up to four sections: **Memory constraints**, **Current context**, **Relevant details**, and **Story so far**. Empty sections are omitted. Short labels preserve distinctions such as established knowledge, subjective beliefs, historical observations, and last-known conditions; source, time, uncertainty, and conditions remain with their details. Interpret character beliefs as written; the category alone adds no doubt.
 
 This is a presentation grouping, not another summarization pass. Internal categories still receive their existing retrieval allowances, selected rows remain complete, and the full eligible Chronicle is retained. Stored memories and extraction categories are unchanged. The recall allowance remains a soft target, and the final token estimate includes the rendered layout.
 

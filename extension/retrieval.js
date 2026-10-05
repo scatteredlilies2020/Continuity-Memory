@@ -1696,7 +1696,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     addSection('Relationships', relationships);
 
     const perspectives = takeMatches('Character perspectives (not established facts)', 'fact', availableFacts.filter(isAttributedBeliefFact), 16, item => item.persistence === 'persistent' ? 2 : 0)
-        .map(({ item }) => memoryRow('fact', item, `- ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)} [subjective; not an established fact]`));
+        .map(({ item }) => memoryRow('fact', item, `- ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)} [character perspective; interpret as written]`));
     addSection('Character perspectives (not established facts)', perspectives);
 
     const facts = takeMatches('Facts', 'fact', availableFacts.filter(item => !isAttributedBeliefFact(item) && !isAddressFact(item) && !isKnowledgeBoundaryFact(item) && !isEstablishedKnowledgeFact(item)), 18, item => item.persistence === 'persistent' ? 2 : 0)
@@ -1847,7 +1847,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     const supportRow = ({ category, item }) => {
         if (category === 'entity') return `- [entity] ${item.name}${item.type ? ` (${item.type})` : ''}: ${formatEntityProfile(item) || plain(item.description)}${item.aliases?.length ? `; aliases: ${item.aliases.join(', ')}` : ''}`;
         if (category === 'address') return `- [address] ${plain(item.subject)}→${plain(addressFactAddressee(item))}: ${plain(item.value)}`;
-        if (category === 'perspective') return `- [perspective; subjective] ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)}`;
+        if (category === 'perspective') return `- [character perspective; interpret as written] ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)}`;
         if (category === 'fact') return `- [fact] ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)}`;
         if (category === 'state') return `- [${isLastKnownActiveState(world, item, chatKey) ? 'last-known; not confirmed current' : 'state'}] ${item.subject} — ${item.attribute}: ${anchoredRelativeText(item.value, item)}`;
         if (category === 'relationship') {
@@ -1923,7 +1923,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION, INJECTION_GUIDANCE } from './prompts.js?v=0.15.0-testing.30';
+import { DEFAULT_INJECTION_INSTRUCTION, INJECTION_GUIDANCE } from './prompts.js?v=0.15.0-testing.30&belief-wording=1';
 import { renderInjectionSections } from './injection-layout.js';
 import { embeddingRecordKey } from './embedding-index.js?v=0.15.0-testing.30';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
