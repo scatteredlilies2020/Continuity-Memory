@@ -1,4 +1,4 @@
-import { supportingRecords, supportingEvidenceText } from './supporting-memories.js?v=0.15.0-testing.29';
+import { supportingRecords, supportingEvidenceText } from './supporting-memories.js?v=0.15.0-testing.30';
 const STOP_WORDS = new Set('a an the and that this with from into have has had was were are am can did does will shall may might must for but not never neither nor you your they them their she her him his its our out about just then than there here what when where who how why would could should been being also very more most some any all to of in on at as by or if it is be do we he me my up no so us during between through within without among around these those having already enough still really much many someone something anything everything nothing themselves himself herself myself itself each every other another such both either same only even yet else once again now then'.split(' '));
 const IRREGULAR_NEGATIVE_BASES = new Map([
     ['ca', 'can'],
@@ -7,12 +7,6 @@ const IRREGULAR_NEGATIVE_BASES = new Map([
     ['ai', 'am'],
 ]);
 const CJK_RUN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
-const LIFECYCLE_GUIDANCE = '“Current state” records confirmed conditions at the source excerpt’s end, not necessarily now. Preserve explicit chronology and supported changes. Do not infer persistence, recovery, permanence, expiry, resolution, or universal scope from storage, recency, or silence. Leave unspecified timing unspecified. Relationship ↔ is nondirectional; derive roles from its description and established facts.';
-// This is deliberately separate from the user-editable injection instruction.
-// Retrieval returns independent evidence rows; the roleplay model must not
-// turn nearby fragments into a new witnessed event or an invented date.
-const EVIDENCE_FIDELITY_GUARD = 'Preserve attribution, timing, scope, and certainty. Facts are canon within their stated scope; perspectives and reports are not objective confirmation or personal experience. Connect evidence only where supported; do not merge unrelated records into one event.';
-const RESPONSE_FLEXIBILITY_GUIDANCE = 'Plans are neither outcomes nor obligations. Past moods, reactions, and relationships do not require repetition or prevent supported change. Distinguish new developments from claims about recorded history. Corrections constrain their stated scope, not every future condition.';
 const BM25_K1 = 1.2;
 const RRF_OFFSET = 20;
 const RETRIEVAL_FIELDS = {
@@ -24,8 +18,8 @@ const RETRIEVAL_FIELDS = {
 
 import { isFreshActiveState, isLastKnownActiveState, latestSourceInRawTail, latestSourceRange, sourcedWhollyInRawTail, sourcedFromInvalidExtraction } from './state-lifecycle.js';
 import { anchoredRelativeText, anchoredStoryTime } from './temporal-anchors.js';
-import { retrievalMessageText } from './retrieval-query.js?v=0.15.0-testing.29';
-import { compactPromptProvenance } from './prompt-provenance.js?v=0.15.0-testing.29';
+import { retrievalMessageText } from './retrieval-query.js?v=0.15.0-testing.30';
+import { compactPromptProvenance } from './prompt-provenance.js?v=0.15.0-testing.30';
 import { formatEntityProfile } from './entity-profile.js';
 import { renderChronicleFrontier } from './chronicle.js';
 
@@ -1495,7 +1489,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     );
     const budget = Math.max(128, Number(budgetTokens));
     const guidance = String(injectionInstruction ?? DEFAULT_INJECTION_INSTRUCTION).trim();
-    const parts = { value: `<continuity>\n${guidance}${guidance ? '\n' : ''}${EVIDENCE_FIDELITY_GUARD}\n${LIFECYCLE_GUIDANCE}\n${RESPONSE_FLEXIBILITY_GUIDANCE}\n` };
+    const parts = { value: `<continuity>\n${INJECTION_GUIDANCE}\n${guidance && guidance !== INJECTION_GUIDANCE ? `${guidance}\n` : ''}` };
     const sections = [];
     const addSection = (title, rows) => sections.push({ title, rows: rows.filter(Boolean) });
     const rawTailRange = options.rawTailRange || null;
@@ -1929,8 +1923,8 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.29';
+import { DEFAULT_INJECTION_INSTRUCTION, INJECTION_GUIDANCE } from './prompts.js?v=0.15.0-testing.30';
 import { renderInjectionSections } from './injection-layout.js';
-import { embeddingRecordKey } from './embedding-index.js?v=0.15.0-testing.29';
+import { embeddingRecordKey } from './embedding-index.js?v=0.15.0-testing.30';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';

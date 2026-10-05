@@ -4,7 +4,7 @@ import { applyCorrectionProposal, formatCorrectionPreview, isSuppressedByCorrect
 import { mergeExtraction, resetWorldMemory, undoLatestDigestExtraction } from '../extension/memory-model.js';
 import { sanitizeStateDurability } from '../extension/reconciliation-policy.js';
 import { buildMemoryPrompt } from '../extension/retrieval.js';
-import { buildHierarchySystemPrompt, HIERARCHY_CONCISION_RULES, PRE_FLEXIBLE_HIERARCHY_CONCISION_RULES } from '../extension/prompts.js';
+import { buildHierarchySystemPrompt, HIERARCHY_CONCISION_RULES, PRE_FLEXIBLE_HIERARCHY_CONCISION_RULES, INJECTION_GUIDANCE } from '../extension/prompts.js';
 import { createContinuationPackage, prepareContinuationWorld } from '../extension/continuation-handoff.js';
 import { forkWorldToBranch } from '../extension/branch-cache.js';
 import { fingerprintMessage } from '../extension/message-digest.js';
@@ -246,25 +246,23 @@ test('last-known recall stays scoped and excludes invalid sources and the raw ta
     assert.doesNotMatch(recall('chat', { rawTailRange: { from: 0, to: 15 } }), /Unhealed silver burn/);
 });
 
-test('writer guidance permits natural continuation and respects custom output style', () => {
+test('short writer guidance preserves custom additions without hidden paragraphs', () => {
     const custom = 'Write concise dialogue only, in French.';
     const { prompt } = buildMemoryPrompt(world(), [{ mes: 'Continue.' }], 1800, 'chat', [], custom);
-    assert.ok(prompt.includes(custom));
-    assert.match(prompt, /Plans are neither outcomes nor obligations/);
-    assert.match(prompt, /do not require repetition or prevent supported change/);
-    assert.match(prompt, /Connect evidence only where supported/);
-    assert.match(prompt, /Distinguish new developments from claims about recorded history/);
-    assert.doesNotMatch(prompt, /configured character, style, and format|new dialogue, actions, and developments/);
+    assert.equal(prompt, `<continuity>\n${INJECTION_GUIDANCE}\n${custom}\n</continuity>`);
 });
 
 test('default continuity guidance stays lean without duplicating rules', () => {
     const { prompt } = buildMemoryPrompt(world(), [{ mes: 'Continue.' }], 1800, 'chat');
-    const guidance = prompt.slice(0, prompt.indexOf('Corrections constrain their stated scope, not every future condition.') + 'Corrections constrain their stated scope, not every future condition.'.length);
-    assert.ok(guidance.includes('Model access is not character knowledge'));
-    assert.ok(guidance.includes('Relationship ↔ is nondirectional'));
-    assert.ok(guidance.split(/\s+/u).length < 270);
-    assert.equal(guidance.split('override older memory').length - 1, 1);
-    assert.doesNotMatch(guidance, /address forms|lore norms|Entity descriptions are recorded profiles/);
+    assert.equal(prompt, `<continuity>\n${INJECTION_GUIDANCE}\n</continuity>`);
+    assert.ok(INJECTION_GUIDANCE.split(/\s+/u).length <= 20);
+});
+
+test('blank or repeated optional instructions do not duplicate the hardcoded line', () => {
+    for (const custom of ['', '   ', INJECTION_GUIDANCE]) {
+        const { prompt } = buildMemoryPrompt(world(), [], 1800, 'chat', [], custom);
+        assert.equal(prompt, `<continuity>\n${INJECTION_GUIDANCE}\n</continuity>`);
+    }
 });
 
 test('hierarchy honors custom brevity and upgrades only the exact old shipped rule', () => {

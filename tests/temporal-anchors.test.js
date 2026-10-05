@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { addDerivedChronicle, mergeExtraction } from '../extension/memory-model.js';
 import { buildMemoryPrompt } from '../extension/retrieval.js';
+import { INJECTION_GUIDANCE } from '../extension/prompts.js';
 import { anchoredRelativeText, anchoredStoryTime, digestAnchorId } from '../extension/temporal-anchors.js';
 
 function world() {
@@ -54,12 +55,9 @@ test('deictic wording remains bound to the immutable Digest where it was recorde
     assert.match(prompt, /tomorrow \(relative to this chat messages 0–7\)/i);
 });
 
-test('retrieval injection forbids cross-record event and time fusion', () => {
+test('empty recall does not append a separate timing and attribution lecture', () => {
     const prompt = buildMemoryPrompt(world(), [{ name: 'User', mes: 'Continue the scene.' }], 1000).prompt;
-    assert.match(prompt, /Preserve attribution, timing, scope, and certainty/i);
-    assert.match(prompt, /Connect evidence only where supported; do not merge unrelated records into one event/i);
-    assert.match(prompt, /perspectives and reports are not objective confirmation or personal experience/i);
-    assert.match(prompt, /Leave unspecified timing unspecified/i);
+    assert.equal(prompt, `<continuity>\n${INJECTION_GUIDANCE}\n</continuity>`);
 });
 
 test('message distance never becomes elapsed story time', () => {

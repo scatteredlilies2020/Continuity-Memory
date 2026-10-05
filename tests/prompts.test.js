@@ -16,6 +16,7 @@ import {
     DEFAULT_EXTRACTION_SYSTEM_PROMPT,
     DEFAULT_EXTRACTION_TASK_TEMPLATE,
     DEFAULT_INJECTION_INSTRUCTION,
+    INJECTION_GUIDANCE,
     DEFAULT_JB_PROMPT,
     DEFAULT_RETRIEVAL_SYSTEM_PROMPT,
     EPISTEMIC_MEMORY_RULES,
@@ -27,6 +28,7 @@ import {
     SCENARIO_NOTE_RULE,
     SOURCE_SCOPE_RULE,
     PRE_GREETING_OOC_META_AUTHORITY_RULE,
+    PRE_PLAIN_OOC_META_AUTHORITY_RULE,
     PRE_STRICT_OOC_META_AUTHORITY_RULE,
     upgradeOocMetaAuthorityPrompt,
     PRE_ATOMIC_IDENTITY_DIGEST_EPISTEMIC_COVERAGE_RULE,
@@ -73,7 +75,7 @@ test('scenario note rules apply to all roles without promoting dialogue or writi
 });
 
 test('old authority prompts upgrade idempotently without losing custom instructions', () => {
-    for (const previous of [PRE_GREETING_OOC_META_AUTHORITY_RULE, PRE_STRICT_OOC_META_AUTHORITY_RULE]) {
+    for (const previous of [PRE_PLAIN_OOC_META_AUTHORITY_RULE, PRE_GREETING_OOC_META_AUTHORITY_RULE, PRE_STRICT_OOC_META_AUTHORITY_RULE]) {
         const upgraded = upgradeOocMetaAuthorityPrompt(`Custom prefix.\n${previous}\nCustom suffix.`);
         assert.equal(upgraded, `Custom prefix.\n${OOC_META_AUTHORITY_RULE}\nCustom suffix.`);
         assert.equal(upgradeOocMetaAuthorityPrompt(upgraded), upgraded);
@@ -96,10 +98,10 @@ test('Chronicle history policy preserves evidenced outcomes without assigning li
         DEFAULT_CHRONICLE_SYSTEM_PROMPT,
     ]) {
         assert.ok(prompt.includes(CHRONICLE_HISTORY_RULE));
-        assert.match(prompt, /When later supplied evidence answers a question or fulfills a plan, narrate that progression/);
+        assert.match(prompt, /Include later answers or outcomes only when supplied/);
         assert.match(prompt, /never infer an outcome from silence or elapsed turns/);
         assert.match(prompt, /conditions, deadlines, and outcomes at their evidenced point/);
-        assert.match(prompt, /Supporting memories also preserve source-bound historical evidence/);
+        assert.match(prompt, /Chronicle and supporting memories record history, not a live task list/);
         assert.doesNotMatch(prompt, /or resolve (?:an open matter|open matters)/);
     }
 });
@@ -189,23 +191,23 @@ test('prompt templates replace optional and required placeholders', () => {
 });
 
 test('default prompts support arbitrary scenario ontologies and calibrate importance', () => {
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /scenario's ontology/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Record what the excerpt establishes about/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /people, groups, institutions, places, objects, resources, processes, systems, or concepts/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /reports, logs, turns, status updates, or simulation results/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /out-of-character or meta assertions about scenario continuity are authoritative canon/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Every durable assertion under such a label must appear in structured records/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Only an explicit OOC\/meta or scenario-note assertion may authorize treating an assertion's embedded proposition as hard objective truth/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /establishes only that the source said, reported, remembered, inferred, or believed it/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /leave the embedded proposition unconfirmed/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /epistemic state; do not promote its embedded proposition/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Record every durable assertion, even if not dramatized/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Without an explicit OOC\/meta or scenario-note confirmation, character claims remain attributed claims/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /including user-controlled dialogue, testimony, accusations, reports, memories, thoughts, and inferences/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Confidence, repetition, and neutral paraphrase do not confirm them/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /record that state of knowledge; the note does not establish the belief itself as true/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /statistically extreme, unprecedented, unique, off-scale/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Setting averages and records are context, not ceilings/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /preserve the relational constraint and do not fabricate false precision/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /State is a replaceable condition/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /durable, tense-neutral identity summaries/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /characterProfile fields roleBackground, ageDemographics, appearance, personalityQuirks/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /empty if unknown\/non-person/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /never invent/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Use \[\] for unknown groups and all groups of a non-person/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Never invent details/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /explicit names and third person, never I\/we\/you or player-facing advice/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /source-grounded intentions and questions in supporting memories/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /source-linked historical observations/);
@@ -245,18 +247,14 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Value: list all exact current forms and meaningful former forms only/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /keep coexisting forms together/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /shift signals changed familiarity, distance, respect, or hierarchy/);
-    assert.match(DEFAULT_INJECTION_INSTRUCTION, /do not mention this memory block/i);
-    assert.match(DEFAULT_INJECTION_INSTRUCTION, /Model access is not character knowledge/);
-    assert.match(DEFAULT_INJECTION_INSTRUCTION, /Respect explicit knowledge boundaries/);
-    assert.match(DEFAULT_INJECTION_INSTRUCTION, /discovery or disclosure/);
-    assert.match(DEFAULT_INJECTION_INSTRUCTION, /Other retrieved rows do not override that restriction/);
-    assert.doesNotMatch(DEFAULT_INJECTION_INSTRUCTION, /address forms|lore norms/);
-    assert.ok(DEFAULT_INJECTION_INSTRUCTION.length < 550);
+    assert.equal(DEFAULT_INJECTION_INSTRUCTION, '');
+    assert.equal(INJECTION_GUIDANCE, "Use these memories as background. The current chat takes priority. Characters only know what they've learned.");
+    assert.ok(INJECTION_GUIDANCE.split(/\s+/u).length <= 20);
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(CONTINUITY_COVERAGE_RULES));
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(EPISTEMIC_MEMORY_RULES));
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /category is "character belief"/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /without inferring a hidden answer/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Knowledge is non-transitive/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /One character knowing something does not mean another knows it/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /separates objective truth from each focal holder's knowledge/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Identity links are atomic/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /still does not know each consequential hidden link/);

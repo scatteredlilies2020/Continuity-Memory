@@ -1,9 +1,9 @@
 import { getRequestHeaders } from '/script.js';
-import { buildEmbeddingDocuments, buildEmbeddingQuery, semanticRanksFromResponse } from './embedding-index.js?v=0.15.0-testing.29';
-import { resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.29';
-import { getSettings } from './settings.js?v=0.15.0-testing.29';
-import { runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.29';
-import { createVectorStorageRequester, vectorStorageError } from './vector-storage-client.js?v=0.15.0-testing.29';
+import { buildEmbeddingDocuments, buildEmbeddingQuery, semanticRanksFromResponse } from './embedding-index.js?v=0.15.0-testing.30';
+import { resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.30';
+import { getSettings } from './settings.js?v=0.15.0-testing.30';
+import { runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.30';
+import { createVectorStorageRequester, vectorStorageError } from './vector-storage-client.js?v=0.15.0-testing.30';
 
 const syncedIndexes = new Map();
 const activeSyncs = new Map();

@@ -192,7 +192,7 @@ test('legacy Chronicle questions are historical context, not live lifecycle labe
     ] };
     const before = JSON.stringify(value);
     const rendered = renderChronicleFrontier(value, 'chat');
-    assert.match(rendered, /Historical accounts in source order, not a current-status ledger/);
+    assert.doesNotMatch(rendered, /Historical accounts in source order, not a current-status ledger/);
     assert.match(rendered, /Context at that point: The cause of the fracture remained unknown to Aster/);
     assert.doesNotMatch(rendered, /(?:^|\n)(?:Open|Closed):/);
     assert.match(rendered, /before dawn, only if Beryl consented/);

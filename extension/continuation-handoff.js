@@ -1,4 +1,4 @@
-import { retainSupportingHistory } from './supporting-memories.js?v=0.15.0-testing.29';
+import { retainSupportingHistory } from './supporting-memories.js?v=0.15.0-testing.30';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 
 export const CONTINUATION_PACKAGE_KIND = 'continuity-arc-handoff';

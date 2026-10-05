@@ -19,6 +19,10 @@ Memory is presented in up to four sections: **Memory constraints**, **Current co
 
 This is a presentation grouping, not another summarization pass. Internal categories still receive their existing retrieval allowances, selected rows remain complete, and the full eligible Chronicle is retained. Stored memories and extraction categories are unchanged. The recall allowance remains a soft target, and the final token estimate includes the rendered layout.
 
+The built-in instruction is: “Use these memories as background. The current chat takes priority. Characters only know what they've learned.” There are no extra instruction paragraphs before the memories or Chronicle. Additional instructions in settings are optional; custom text is preserved on upgrade.
+
+Internal extraction and Chronicle prompts use separate, more detailed rules for storing memory. Updates replace exact shipped wording while preserving custom additions. Wording updates do not reset stored memories or require a rebuild.
+
 ## Installation
 
 1. In SillyTavern, open **Extensions** and choose **Install Extension**.

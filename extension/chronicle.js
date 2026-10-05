@@ -3,7 +3,6 @@ import { randomUuid } from './uuid.js';
 export const CHRONICLE_VERSION = 1;
 export const DEFAULT_CHRONICLE_CAPACITY = 24;
 export const DEFAULT_CHRONICLE_FAN_IN = 10;
-export const CHRONICLE_READING_GUIDE = 'Historical accounts in source order, not a current-status ledger. Plans, conditions, and uncertainty belong to their recorded point; later evidence may supersede them. Preserve character knowledge boundaries when reading across intervals.';
 
 function clean(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -213,7 +212,7 @@ export function renderChronicleFrontier(world, chatKey, include = () => true, ma
     // canonical Chronicle prose. SillyTavern may manage the surrounding context,
     // but every active Chronicle node is injected whole and in source order.
     void maximumTokens;
-    return `${CHRONICLE_READING_GUIDE}\n${full}`;
+    return full;
 }
 
 export function refreshChronicleStory(world, chatKey) {

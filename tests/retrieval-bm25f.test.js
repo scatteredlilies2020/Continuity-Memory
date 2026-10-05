@@ -32,8 +32,7 @@ test('injected era facts retain historical scope alongside explicitly changed co
     const result = buildMemoryPrompt(target, user('Zoltraak and the Demon King'), 4000);
     assert.match(result.prompt, /Zoltraak was unavailable/u);
     assert.match(result.prompt, /Zoltraak became common/u);
-    assert.match(result.prompt, /within their stated scope/u);
-    assert.match(result.prompt, /Preserve explicit chronology and supported changes/u);
+    for (const fact of target.facts) assert.ok(result.prompt.includes(fact.value), 'complete historical conditions remain');
 });
 
 test('injection preserves neutral scope for capabilities, relationships, conditions, and plans', () => {
@@ -48,9 +47,7 @@ test('injection preserves neutral scope for capabilities, relationships, conditi
         ] });
         const result = buildMemoryPrompt(target, user('Mira and the relay'), 4000);
         assert.ok(result.prompt.includes(value));
-        assert.match(result.prompt, /Do not infer persistence, recovery, permanence, expiry, resolution, or universal scope from storage, recency, or silence/u);
-        assert.match(result.prompt, /Plans are neither outcomes nor obligations/u);
-        assert.match(result.prompt, /Leave unspecified timing unspecified/u);
+        assert.equal(result.prompt.split(value).length - 1, 1, 'the scoped detail is preserved without repetition');
         assert.doesNotMatch(result.prompt, /other events and plans are past/u);
     }
 });
@@ -238,7 +235,7 @@ test('relationship retrieval is neutral and puts its description before type and
 
     assert.match(result.prompt, /Lucas Alcazar ↔ Darth Segundus: Description: Lucas is Darth Segundus’s Sith apprentice.*Type: Sith master and apprentice\. Status: active\./);
     assert.doesNotMatch(result.prompt, /Lucas Alcazar → Darth Segundus/);
-    assert.match(result.prompt, /Relationship ↔ is nondirectional/);
+    assert.doesNotMatch(result.prompt, /Relationship ↔ is nondirectional/);
     assert.match(selections(result, 'Relationships')[0].label, /Lucas Alcazar ↔ Darth Segundus/);
 });
 

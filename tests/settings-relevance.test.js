@@ -1,10 +1,38 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { DEFAULT_INJECTION_INSTRUCTION, PRE_LEAN_INJECTION_INSTRUCTIONS } from '../extension/prompts.js';
+import { DEFAULT_INJECTION_INSTRUCTION, PRE_LEAN_INJECTION_INSTRUCTIONS, CHARACTER_PROFILE_RULE, OOC_META_AUTHORITY_RULE, EPISTEMIC_MEMORY_RULES, CHRONICLE_HISTORY_RULE, SCENARIO_NOTE_RULE } from '../extension/prompts.js';
 
 const settingsUrl = new URL('../extension/settings.js', import.meta.url);
 let instance = 0;
+
+test('saved shipped prompts receive plain wording without resetting custom additions or memory bindings', async () => {
+    const old = JSON.parse(readFileSync(new URL('./helpers/pre-plain-prompts.json', import.meta.url), 'utf8'));
+    const current = (await loadSettings()).getSettings();
+    for (const priorVersions of [{}, current]) {
+        const { getSettings } = await loadSettings({
+            ...priorVersions,
+            extractionSystemPrompt: `Custom opening.\n${old.extractionSystemPrompt}\nCustom ending.`,
+            chronicleSystemPrompt: `Custom Chronicle opening.\n${old.chronicleSystemPrompt}\nCustom Chronicle ending.`,
+            chatWorlds: { 'character:1:chat:1': 'saved-world' },
+        });
+        const once = structuredClone(getSettings());
+        const normalize = settings => Object.fromEntries(Object.entries(settings).map(([key, value]) => [
+            key, typeof value === 'string' && key.endsWith('SystemPrompt') ? value.replace(/\n{2,}/g, '\n') : value,
+        ]));
+        assert.deepEqual(normalize(getSettings()), normalize(once), 'repeated reads do not duplicate rules or change settings');
+        assert.equal(once.chatWorlds['character:1:chat:1'], 'saved-world');
+        assert.ok(once.extractionSystemPrompt.includes('Custom opening.'));
+        assert.ok(once.extractionSystemPrompt.includes('Custom ending.'));
+        assert.ok(once.chronicleSystemPrompt.startsWith('Custom Chronicle opening.'));
+        assert.ok(once.chronicleSystemPrompt.includes('Custom Chronicle ending.'));
+        for (const rule of [CHARACTER_PROFILE_RULE, OOC_META_AUTHORITY_RULE, EPISTEMIC_MEMORY_RULES, CHRONICLE_HISTORY_RULE, SCENARIO_NOTE_RULE]) {
+            assert.equal(once.extractionSystemPrompt.split(rule).length - 1, 1, rule);
+        }
+        assert.equal(once.chronicleSystemPrompt.split(CHRONICLE_HISTORY_RULE).length - 1, 1);
+        assert.doesNotMatch(once.extractionSystemPrompt, /scenario's ontology|Knowledge is non-transitive|Work for a body|short-term plan/);
+    }
+});
 
 async function loadSettings(saved = {}) {
     // Exercise the real migrations with only SillyTavern's host API stubbed.
@@ -25,17 +53,18 @@ test('fresh settings retain lean guidance without retired migration add-ons', as
 for (const [index, instruction] of PRE_LEAN_INJECTION_INSTRUCTIONS.entries()) {
     test(`lean guidance migrates shipped default ${index} with or without previous migrations`, async () => {
         const current = (await loadSettings()).getSettings();
-        for (const saved of [{}, current]) {
-            const { getSettings } = await loadSettings({ ...saved, injectionInstruction: instruction, leanInjectionInstructionVersion: 0 });
+        for (const saved of [{}, { ...current, leanInjectionInstructionVersion: 1 }]) {
+            const { getSettings } = await loadSettings({ ...saved, injectionInstruction: instruction });
             assert.equal(getSettings().injectionInstruction, DEFAULT_INJECTION_INSTRUCTION);
             assert.equal(getSettings().injectionInstruction, DEFAULT_INJECTION_INSTRUCTION, 'migration is idempotent');
+            assert.equal(getSettings().leanInjectionInstructionVersion, 2);
         }
     });
 }
 
 test('lean guidance migration preserves custom instructions, including modified old defaults', async () => {
-    for (const instruction of ['Write concise dialogue only, in French.', `${PRE_LEAN_INJECTION_INSTRUCTIONS[0]} Custom requirement.`]) {
-        const { getSettings } = await loadSettings({ injectionInstruction: instruction });
+    for (const instruction of ['', 'Write concise dialogue only, in French.', ...PRE_LEAN_INJECTION_INSTRUCTIONS.map(old => `${old} Custom requirement.`)]) {
+        const { getSettings } = await loadSettings({ injectionInstruction: instruction, leanInjectionInstructionVersion: 1 });
         assert.equal(getSettings().injectionInstruction, instruction);
         assert.equal(getSettings().injectionInstruction, instruction);
     }

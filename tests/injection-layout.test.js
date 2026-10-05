@@ -17,8 +17,16 @@ for (const expected of baseline) {
             if (prepared) await prepareRetrievalCorpus(world);
             const result = buildMemoryPrompt(world, [{ is_user: true, mes: scenario.query }], expected.budget,
                 CHAT_KEY, [], undefined, new Map(), scenario.options);
-            assert.equal(fingerprint(injectionEvidence(result.prompt)), expected.evidence, 'every original non-heading detail survives');
-            assert.equal(fingerprint(result.retrievalDiagnostics), expected.diagnostics, 'ranking, packing and provenance are unchanged');
+            // Shorter instructions may admit additional complete rows. Every
+            // previously injected detail must still survive, including repeats.
+            const actualEvidence = injectionEvidence(result.prompt).map(fingerprint);
+            for (const detail of expected.evidence) {
+                const index = actualEvidence.indexOf(detail);
+                assert.notEqual(index, -1, `lost pre-change detail ${detail}`);
+                actualEvidence.splice(index, 1);
+            }
+            assert.equal(fingerprint(result.retrievalDiagnostics.selections.map(({ injected, ...row }) => row)),
+                expected.selections, 'retrieval selection and provenance are unchanged');
             assert.equal(JSON.stringify(world), before, 'stored memories are untouched');
             assert.match(result.prompt, /\nStory so far:\n/);
         }
