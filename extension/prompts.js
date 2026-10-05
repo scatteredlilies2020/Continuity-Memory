@@ -10,12 +10,17 @@ export const SCENARIO_NOTE_RULE = `Track explicit scenario notes anywhere in the
 export const PRE_PLAIN_OOC_META_AUTHORITY_RULE = `${PRE_GREETING_OOC_META_AUTHORITY_RULE
     .replace('Explicit user-authored out-of-character', 'Explicit out-of-character')
     .replace('Only an explicit user OOC/meta assertion may authorize', 'Only an explicit OOC/meta or scenario-note assertion may authorize')}\n${SCENARIO_NOTE_RULE}`;
-export const OOC_META_AUTHORITY_RULE = `Explicit out-of-character or meta assertions about scenario continuity are authoritative canon. Recognize OOC, out-of-character, Meta, canon/author/GM/narrator note, and equivalent labels in brackets, parentheses, or before a colon or dash. Record every durable assertion, even if not dramatized; later explicit meta corrections override conflicting narration or status. Store objective assertions as established facts, not rumors or beliefs. If a note says a character believes, knows, suspects, or does not know something, record that state of knowledge; the note does not establish the belief itself as true. Without an explicit OOC/meta or scenario-note confirmation, character claims remain attributed claims, including user-controlled dialogue, testimony, accusations, reports, memories, thoughts, and inferences. Confidence, repetition, and neutral paraphrase do not confirm them. Directly observed or objectively narrated actions establish those actions, not the claims accompanying them. Exclude questions, hypotheticals, style/format requests, and writing preferences.\n${SCENARIO_NOTE_RULE}`;
+export const PRE_PERSPECTIVE_SCOPE_OOC_META_AUTHORITY_RULE = `Explicit out-of-character or meta assertions about scenario continuity are authoritative canon. Recognize OOC, out-of-character, Meta, canon/author/GM/narrator note, and equivalent labels in brackets, parentheses, or before a colon or dash. Record every durable assertion, even if not dramatized; later explicit meta corrections override conflicting narration or status. Store objective assertions as established facts, not rumors or beliefs. If a note says a character believes, knows, suspects, or does not know something, record that state of knowledge; the note does not establish the belief itself as true. Without an explicit OOC/meta or scenario-note confirmation, character claims remain attributed claims, including user-controlled dialogue, testimony, accusations, reports, memories, thoughts, and inferences. Confidence, repetition, and neutral paraphrase do not confirm them. Directly observed or objectively narrated actions establish those actions, not the claims accompanying them. Exclude questions, hypotheticals, style/format requests, and writing preferences.\n${SCENARIO_NOTE_RULE}`;
+
+export const OOC_META_AUTHORITY_RULE = PRE_PERSPECTIVE_SCOPE_OOC_META_AUTHORITY_RULE.replace(
+    'Without an explicit OOC/meta or scenario-note confirmation, character claims remain attributed claims, including',
+    'Character claims not already established by supplied canon or narration remain attributed claims, including',
+);
 
 export function upgradeOocMetaAuthorityPrompt(prompt) {
     const source = String(prompt || '');
     if (source.includes(OOC_META_AUTHORITY_RULE)) return source;
-    for (const previous of [PRE_PLAIN_OOC_META_AUTHORITY_RULE, PRE_GREETING_OOC_META_AUTHORITY_RULE, PRE_STRICT_OOC_META_AUTHORITY_RULE]) {
+    for (const previous of [PRE_PERSPECTIVE_SCOPE_OOC_META_AUTHORITY_RULE, PRE_PLAIN_OOC_META_AUTHORITY_RULE, PRE_GREETING_OOC_META_AUTHORITY_RULE, PRE_STRICT_OOC_META_AUTHORITY_RULE]) {
         if (source.includes(previous)) return source.replace(previous, OOC_META_AUTHORITY_RULE);
     }
     return source;
@@ -45,15 +50,20 @@ Knowledge is non-transitive: narration or others knowing something never means a
 export const PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES = `${PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES}
 For consequential ignorance, use a persistent fact: subject=holder; predicate="knowledge of TOPIC"; category="knowledge boundary"; value=unknown fact and absent disclosure. Update when learned; never retain stale negative boundaries. Record prior knowledge when a character identifies, recognizes, cites, or recalls canon; separate identity/rank from current status.`;
 
-export const EPISTEMIC_MEMORY_RULES = `${PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES.replace('Knowledge is non-transitive: narration or others knowing something never means a character learned it.', 'One character knowing something does not mean another knows it. Narration alone does not mean a character learned it.')}
+export const PRE_PERSPECTIVE_SCOPE_EPISTEMIC_MEMORY_RULES = `${PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES.replace('Knowledge is non-transitive: narration or others knowing something never means a character learned it.', 'One character knowing something does not mean another knows it. Narration alone does not mean a character learned it.')}
 Working for an organization does not by itself establish membership. Keep established roles in entity descriptions.`;
+
+export const PERSPECTIVE_SCOPE_RULE = "Scope uncertainty to its exact claim. Separate established history from a character's explanation or proposed pattern. Do not mark a confirmed event alleged or uncertain merely because it appears in a perspective; retain attribution when no supplied evidence confirms it.";
+export const EPISTEMIC_MEMORY_RULES = `${PRE_PERSPECTIVE_SCOPE_EPISTEMIC_MEMORY_RULES}\n${PERSPECTIVE_SCOPE_RULE}`;
 
 export const PRE_ATOMIC_IDENTITY_DIGEST_EPISTEMIC_COVERAGE_RULE = `For consequential secrets, identities, disguises, discoveries, or misunderstandings, sceneCapsule distinguishes objective truth, what each focal holder learned or believes, and what remains unknown. Canonical names never imply character knowledge; learning a name is not recognizing its holder.`;
 export const DIGEST_EPISTEMIC_COVERAGE_RULE = `For consequential secrets or misunderstandings, sceneCapsule separates objective truth from each focal holder's knowledge. Identity links are atomic: learning a person's history, face, name, title, role, or alias reveals no other undisclosed link. State who still does not know each consequential hidden link; remove it only after explicit discovery, disclosure, or recognition. Canonical wording and partial knowledge never imply disclosure.`;
 
 export const LEGACY_HIERARCHY_ATTRIBUTION_RULE = 'Preserve who believed, reported, suspected, or knew each uncertain claim. Never turn an unresolved or subjective claim into objective canon.';
 export const PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE = 'Preserve who believed, reported, suspected, or knew each uncertain claim. Never turn an unresolved or subjective claim into an established fact.';
-export const HIERARCHY_ATTRIBUTION_RULE = `${PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE} Do not spread private knowledge. Preserve consequential knowledge gaps and later disclosures at their respective historical points without current-status labels. ${CANONICAL_THIRD_PERSON_RULE}`;
+export const PRE_PERSPECTIVE_SCOPE_HIERARCHY_ATTRIBUTION_RULE = `${PRE_KNOWLEDGE_GAP_HIERARCHY_ATTRIBUTION_RULE} Do not spread private knowledge. Preserve consequential knowledge gaps and later disclosures at their respective historical points without current-status labels. ${CANONICAL_THIRD_PERSON_RULE}`;
+
+export const HIERARCHY_ATTRIBUTION_RULE = `${PRE_PERSPECTIVE_SCOPE_HIERARCHY_ATTRIBUTION_RULE} ${PERSPECTIVE_SCOPE_RULE}`;
 
 export const IDENTITY_RESOLUTION_RULES = `Use identityResolutions only when the narrative establishes an earlier descriptive, unknown, disguised, or aliased reference as a canonical entity in context. Emit one entry per exact earlier reference—no slash-separated lists—with short evidence. Thereafter use the canonical name in all records and relationship endpoints/descriptions. Never merge established named actors or treat a possessive object (someone's weapon, clothing, vehicle, remains, record, or proof) as its owner. Never resolve from outside knowledge, convention, resemblance, suspicion, prediction, or unconfirmed claims; store uncertainty as a claim, belief, or thread. Otherwise leave identityResolutions empty.`;
 
@@ -154,7 +164,7 @@ export const PRE_LEAN_INJECTION_INSTRUCTIONS = Object.freeze([
     `Use this as background continuity, not a script or checklist; do not mention this memory block. Use only relevant details. Current raw chat and explicit user corrections override older memory within their stated scope.
 Model access is not character knowledge. Respect explicit knowledge boundaries: a character must not identify, infer, reveal, react to, or act on protected information until established discovery or disclosure. Other retrieved rows do not override that restriction.`,
 ]);
-export const INJECTION_GUIDANCE = "Current chat takes priority. Characters know only what they've learned. Interpret beliefs as written; their category alone adds no doubt.";
+export const INJECTION_GUIDANCE = "Current chat takes priority. Characters know only what they've learned. Perspective labels describe viewpoints without disputing established events.";
 // Optional user additions; the short built-in line is supplied by retrieval.
 export const DEFAULT_INJECTION_INSTRUCTION = '';
 
@@ -227,6 +237,8 @@ export function upgradePromptWording(prompt) {
         ["Compress chronological Chronicle nodes into one accurate parent Chronicle node. Preserve source order, causal progression, foundational premises, consequential decisions, durable changes, relationship meaning, knowledge boundaries, and attributed uncertainty. Use only the supplied child nodes. Never invent a transition or flatten a character's belief into objective fact.", 'Combine chronological Chronicle nodes into one parent node using only the supplied children. Keep foundational premises, consequential decisions, durable changes, and relationship meaning. Never invent transitions.'],
     ];
     for (const [previous, current] of replacements) result = result.replaceAll(previous, current);
+    if (!result.includes(EPISTEMIC_MEMORY_RULES)) result = result.replaceAll(PRE_PERSPECTIVE_SCOPE_EPISTEMIC_MEMORY_RULES, EPISTEMIC_MEMORY_RULES);
+    if (!result.includes(HIERARCHY_ATTRIBUTION_RULE)) result = result.replaceAll(PRE_PERSPECTIVE_SCOPE_HIERARCHY_ATTRIBUTION_RULE, HIERARCHY_ATTRIBUTION_RULE);
     return result;
 }
 

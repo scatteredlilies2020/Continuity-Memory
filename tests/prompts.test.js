@@ -196,7 +196,7 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /reports, logs, turns, status updates, or simulation results/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /out-of-character or meta assertions about scenario continuity are authoritative canon/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Record every durable assertion, even if not dramatized/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Without an explicit OOC\/meta or scenario-note confirmation, character claims remain attributed claims/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Character claims not already established by supplied canon or narration remain attributed claims/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /including user-controlled dialogue, testimony, accusations, reports, memories, thoughts, and inferences/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Confidence, repetition, and neutral paraphrase do not confirm them/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /record that state of knowledge; the note does not establish the belief itself as true/);
@@ -248,7 +248,7 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /keep coexisting forms together/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /shift signals changed familiarity, distance, respect, or hierarchy/);
     assert.equal(DEFAULT_INJECTION_INSTRUCTION, '');
-    assert.equal(INJECTION_GUIDANCE, "Current chat takes priority. Characters know only what they've learned. Interpret beliefs as written; their category alone adds no doubt.");
+    assert.equal(INJECTION_GUIDANCE, "Current chat takes priority. Characters know only what they've learned. Perspective labels describe viewpoints without disputing established events.");
     assert.ok(INJECTION_GUIDANCE.split(/\s+/u).length <= 20);
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(CONTINUITY_COVERAGE_RULES));
     assert.ok(DEFAULT_EXTRACTION_SYSTEM_PROMPT.includes(EPISTEMIC_MEMORY_RULES));

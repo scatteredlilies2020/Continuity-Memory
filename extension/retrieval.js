@@ -1923,7 +1923,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION, INJECTION_GUIDANCE } from './prompts.js?v=0.15.0-testing.30&belief-wording=1';
+import { DEFAULT_INJECTION_INSTRUCTION, INJECTION_GUIDANCE } from './prompts.js?v=0.15.0-testing.30&belief-wording=4';
 import { renderInjectionSections } from './injection-layout.js';
 import { embeddingRecordKey } from './embedding-index.js?v=0.15.0-testing.30';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';

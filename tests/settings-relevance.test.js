@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { DEFAULT_INJECTION_INSTRUCTION, PRE_LEAN_INJECTION_INSTRUCTIONS, CHARACTER_PROFILE_RULE, OOC_META_AUTHORITY_RULE, EPISTEMIC_MEMORY_RULES, CHRONICLE_HISTORY_RULE, SCENARIO_NOTE_RULE } from '../extension/prompts.js';
+import { DEFAULT_INJECTION_INSTRUCTION, PRE_LEAN_INJECTION_INSTRUCTIONS, CHARACTER_PROFILE_RULE, OOC_META_AUTHORITY_RULE, EPISTEMIC_MEMORY_RULES, CHRONICLE_HISTORY_RULE, SCENARIO_NOTE_RULE, PERSPECTIVE_SCOPE_RULE, PRE_PERSPECTIVE_SCOPE_OOC_META_AUTHORITY_RULE, PRE_PERSPECTIVE_SCOPE_EPISTEMIC_MEMORY_RULES, PRE_PERSPECTIVE_SCOPE_HIERARCHY_ATTRIBUTION_RULE, HIERARCHY_ATTRIBUTION_RULE, DEFAULT_CHRONICLE_SYSTEM_PROMPT } from '../extension/prompts.js';
 
 const settingsUrl = new URL('../extension/settings.js', import.meta.url);
 let instance = 0;
@@ -32,6 +32,28 @@ test('saved shipped prompts receive plain wording without resetting custom addit
         assert.equal(once.chronicleSystemPrompt.split(CHRONICLE_HISTORY_RULE).length - 1, 1);
         assert.doesNotMatch(once.extractionSystemPrompt, /scenario's ontology|Knowledge is non-transitive|Work for a body|short-term plan/);
     }
+});
+
+test('saved attribution rules scope uncertainty once without losing custom instructions or bindings', async () => {
+    const { getSettings } = await loadSettings({
+        ...(await loadSettings()).getSettings(),
+        epistemicPromptVersion: 9,
+        extractionSystemPrompt: `Custom opening.\n${PRE_PERSPECTIVE_SCOPE_OOC_META_AUTHORITY_RULE}\n${PRE_PERSPECTIVE_SCOPE_EPISTEMIC_MEMORY_RULES}\nCustom ending.`,
+        chronicleSystemPrompt: `Custom Chronicle opening.\n${DEFAULT_CHRONICLE_SYSTEM_PROMPT.replace(HIERARCHY_ATTRIBUTION_RULE, PRE_PERSPECTIVE_SCOPE_HIERARCHY_ATTRIBUTION_RULE)}\nCustom Chronicle ending.`,
+        chatWorlds: { 'character:1:chat:1': 'saved-world' },
+    });
+    const once = structuredClone(getSettings());
+    const normalize = settings => Object.fromEntries(Object.entries(settings).map(([key, value]) => [key, typeof value === 'string' && key.endsWith('SystemPrompt') ? value.replace(/\n{2,}/g, '\n') : value]));
+    assert.deepEqual(normalize(getSettings()), normalize(once), 'repeated reads retain one consistent set of rules');
+    assert.equal(once.epistemicPromptVersion, 10);
+    assert.equal(once.chatWorlds['character:1:chat:1'], 'saved-world');
+    for (const prompt of [once.extractionSystemPrompt, once.chronicleSystemPrompt]) {
+        assert.equal(prompt.split(PERSPECTIVE_SCOPE_RULE).length - 1, 1);
+        assert.ok(prompt.includes('Custom'));
+        assert.ok(prompt.includes('ending.'));
+    }
+    assert.ok(once.extractionSystemPrompt.includes(OOC_META_AUTHORITY_RULE));
+    assert.doesNotMatch(once.extractionSystemPrompt, /Without an explicit OOC\/meta or scenario-note confirmation, character claims remain attributed claims/);
 });
 
 async function loadSettings(saved = {}) {

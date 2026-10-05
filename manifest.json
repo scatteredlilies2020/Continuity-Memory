@@ -3,7 +3,7 @@
   "loading_order": 60,
   "requires": [],
   "optional": [],
-  "js": "extension/index.js?v=0.15.0-testing.30&belief-wording=1",
+  "js": "extension/index.js?v=0.15.0-testing.30&belief-wording=4",
   "css": "extension/style.css",
   "generate_interceptor": "continuityMemoryGenerateInterceptor",
   "author": "scatteredlilies2020",
