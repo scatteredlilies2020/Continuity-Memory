@@ -13,6 +13,12 @@ Continuity Memory automatically builds and updates memory for long SillyTavern c
 
 Memory processing runs in the background. If part of a chat has not been processed yet, those messages remain available as raw chat. Summaries and retrieval help with continuity, but they are not a perfect replacement for the original conversation.
 
+### What the response model receives
+
+Memory is presented in up to four sections: **Memory constraints**, **Current context**, **Relevant details**, and **Story so far**. Empty sections are omitted. Short labels preserve distinctions such as established knowledge, subjective beliefs, historical observations, and last-known conditions; source, time, uncertainty, and conditions remain with their details.
+
+This is a presentation grouping, not another summarization pass. Internal categories still receive their existing retrieval allowances, selected rows remain complete, and the full eligible Chronicle is retained. Stored memories and extraction categories are unchanged. The recall allowance remains a soft target, and the final token estimate includes the rendered layout.
+
 ## Installation
 
 1. In SillyTavern, open **Extensions** and choose **Install Extension**.

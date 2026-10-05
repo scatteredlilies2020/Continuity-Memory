@@ -38,7 +38,7 @@ for (const mode of ['local', 'embedding-hybrid', 'ai-expanded']) {
             assert.ok(result.prompt.includes(phrase), `${id} detail missing`);
             assert.ok(result.retrievalDiagnostics.selections.some(row => row.id === id && row.injected), id);
         }
-        assert.match(result.prompt, /Recursive Chronicle layers/);
+        assert.match(result.prompt, /Story so far:/);
         assert.doesNotMatch(result.prompt, /distant astronomer/);
     });
 }

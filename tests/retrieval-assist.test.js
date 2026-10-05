@@ -105,7 +105,7 @@ test('semantic categories are actually packed beside Chronicle with source safet
         assert.ok(result.retrievalDiagnostics.packed.some(row => row.key === key), key);
         assert.ok(result.retrievalDiagnostics.selections.some(row => `${row.category}:${row.id}` === key && row.injected), key);
     }
-    assert.match(result.prompt, /Recursive Chronicle layers/);
+    assert.match(result.prompt, /Story so far:/);
     assert.match(result.prompt, /The group reached the workshop after the crossing failed/);
     assert.doesNotMatch(result.prompt, /RAW_ONLY_SENTINEL|INVALID_SENTINEL/);
 });

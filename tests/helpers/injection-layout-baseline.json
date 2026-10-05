@@ -1,0 +1,110 @@
+[
+  {
+    "budget": 128,
+    "scenario": "exact conditions and history beyond lossy Chronicle",
+    "evidence": "da4b75f315e3d8e2bd4fd7ae15ab047dfa0066fdae2fe57470c5ca2e3ef8d934",
+    "diagnostics": "26aaa4e57ec5a15ff2a08c3cf67e391530341f53801386ef2f5b9e39f0731471"
+  },
+  {
+    "budget": 128,
+    "scenario": "knowledge boundary and attributed uncertainty",
+    "evidence": "1f1429af7d86a6d937c684e4e9101cbd7e4422cc446d2f1ef5a4d2ba8e4496e0",
+    "diagnostics": "464a4e5b93c141455b74888c140a6eeb716843280f0880aa89d13eabfea5abeb"
+  },
+  {
+    "budget": 128,
+    "scenario": "explicit prerequisite without same-actor distraction",
+    "evidence": "5256669b35ef630af9a500c1f63b933677ec7554c69bc2061e5bf24f2b3bb5b8",
+    "diagnostics": "c1e9e8ebd27b686be2fd1b4148c15a85515f6882589acaa3e87fd8efffe068df"
+  },
+  {
+    "budget": 128,
+    "scenario": "historical plan and evidenced outcome, not a pending reminder",
+    "evidence": "929f19348ccfe3b5b146583da596eb69ce263d7821309a0e56e9894c5f61ac93",
+    "diagnostics": "f2b965479b24525245f45490ecee0c6d34b0949ce6bd79ae8cf322bd263b3d8f"
+  },
+  {
+    "budget": 128,
+    "scenario": "raw-tail and invalid-source details are not reinjected",
+    "evidence": "e6f4d49d0e7dd68a9e0fb66a08f9414f1fccae77d97d8fdb6912d85e3027217f",
+    "diagnostics": "55aa715cd35fc509783d4731081def33e5bf1cd5ddf96fcdd8dbdb72c538f774"
+  },
+  {
+    "budget": 128,
+    "scenario": "topic switch retains Chronicle without unrelated reminders",
+    "evidence": "170259077fd1a05c217fdf764231075c4c573d7b207771ef0323d9a7cefdb37a",
+    "diagnostics": "64a145fba3e334b6a2a2b0c0b230a7872cc9bfcb37a773c16311827813fa8cb6"
+  },
+  {
+    "budget": 1000,
+    "scenario": "exact conditions and history beyond lossy Chronicle",
+    "evidence": "4404b1c73cae9ebf7f6978fddb657f9d5cd8ba252075e6867205f2f89bdc61a0",
+    "diagnostics": "5d7cf1d0f393057995982c98f3a23a54afa7f99ce3678556f0d1268dd3992885"
+  },
+  {
+    "budget": 1000,
+    "scenario": "knowledge boundary and attributed uncertainty",
+    "evidence": "1f1429af7d86a6d937c684e4e9101cbd7e4422cc446d2f1ef5a4d2ba8e4496e0",
+    "diagnostics": "464a4e5b93c141455b74888c140a6eeb716843280f0880aa89d13eabfea5abeb"
+  },
+  {
+    "budget": 1000,
+    "scenario": "explicit prerequisite without same-actor distraction",
+    "evidence": "006dabb2be192d2cd51c8b2401f270f87672ab3ab16b932d918f5b48f2e6683b",
+    "diagnostics": "c6f263778dd176238e43921c44c5f901afca636bf03a0a3a1ed689e94a387bf7"
+  },
+  {
+    "budget": 1000,
+    "scenario": "historical plan and evidenced outcome, not a pending reminder",
+    "evidence": "80782796b29ebe9d5c6ce003bacb72155788cf0ef452f1591f2c96eb33796e62",
+    "diagnostics": "6959de948cd6f2e4a945069cdcd22efdd861f52100b37e9406d3e83b5c841676"
+  },
+  {
+    "budget": 1000,
+    "scenario": "raw-tail and invalid-source details are not reinjected",
+    "evidence": "6785dce5a88164046684c61c6c393f2665018a5e6e842abab42857e91f2ab11b",
+    "diagnostics": "bb97573243096ed0334a4a63fccd45620e4a7b51a5b665354ee72b9bee766715"
+  },
+  {
+    "budget": 1000,
+    "scenario": "topic switch retains Chronicle without unrelated reminders",
+    "evidence": "170259077fd1a05c217fdf764231075c4c573d7b207771ef0323d9a7cefdb37a",
+    "diagnostics": "64a145fba3e334b6a2a2b0c0b230a7872cc9bfcb37a773c16311827813fa8cb6"
+  },
+  {
+    "budget": 6000,
+    "scenario": "exact conditions and history beyond lossy Chronicle",
+    "evidence": "4404b1c73cae9ebf7f6978fddb657f9d5cd8ba252075e6867205f2f89bdc61a0",
+    "diagnostics": "5d7cf1d0f393057995982c98f3a23a54afa7f99ce3678556f0d1268dd3992885"
+  },
+  {
+    "budget": 6000,
+    "scenario": "knowledge boundary and attributed uncertainty",
+    "evidence": "1f1429af7d86a6d937c684e4e9101cbd7e4422cc446d2f1ef5a4d2ba8e4496e0",
+    "diagnostics": "464a4e5b93c141455b74888c140a6eeb716843280f0880aa89d13eabfea5abeb"
+  },
+  {
+    "budget": 6000,
+    "scenario": "explicit prerequisite without same-actor distraction",
+    "evidence": "006dabb2be192d2cd51c8b2401f270f87672ab3ab16b932d918f5b48f2e6683b",
+    "diagnostics": "c6f263778dd176238e43921c44c5f901afca636bf03a0a3a1ed689e94a387bf7"
+  },
+  {
+    "budget": 6000,
+    "scenario": "historical plan and evidenced outcome, not a pending reminder",
+    "evidence": "80782796b29ebe9d5c6ce003bacb72155788cf0ef452f1591f2c96eb33796e62",
+    "diagnostics": "6959de948cd6f2e4a945069cdcd22efdd861f52100b37e9406d3e83b5c841676"
+  },
+  {
+    "budget": 6000,
+    "scenario": "raw-tail and invalid-source details are not reinjected",
+    "evidence": "6785dce5a88164046684c61c6c393f2665018a5e6e842abab42857e91f2ab11b",
+    "diagnostics": "bb97573243096ed0334a4a63fccd45620e4a7b51a5b665354ee72b9bee766715"
+  },
+  {
+    "budget": 6000,
+    "scenario": "topic switch retains Chronicle without unrelated reminders",
+    "evidence": "170259077fd1a05c217fdf764231075c4c573d7b207771ef0323d9a7cefdb37a",
+    "diagnostics": "64a145fba3e334b6a2a2b0c0b230a7872cc9bfcb37a773c16311827813fa8cb6"
+  }
+]

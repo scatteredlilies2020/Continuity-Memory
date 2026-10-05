@@ -319,7 +319,7 @@ test('strong completed events remain in the compact ledger when the current mess
     const result = buildMemoryPrompt(target, user('Toska quietly practices breathing exercises.'), 3000);
 
     assert.deepEqual(selections(result, 'Past events'), []);
-    assert.match(result.prompt, /Compact continuity ledger:[\s\S]*Event ledger \(latest\): Duel at the moonbase/);
+    assert.match(result.prompt, /Relevant details:[\s\S]*Event ledger \(latest\): Duel at the moonbase/);
     assert.doesNotMatch(result.prompt, /kept the kyber crystal/);
 });
 
@@ -502,7 +502,7 @@ test('story-so-far allowance is additive and cannot displace existing recall', (
     assert.equal(enabled.prompt.replace(/\nStory so far:\n.*\n/u, ''), disabled.prompt);
     assert.deepEqual(enabled.retrievalDiagnostics.selections, disabled.retrievalDiagnostics.selections);
     assert.ok(enabled.estimatedTokens > disabled.estimatedTokens);
-    assert.ok(enabled.prompt.indexOf('Story so far:') > enabled.prompt.indexOf('Facts:'));
+    assert.ok(enabled.prompt.indexOf('Story so far:') > enabled.prompt.indexOf('Relevant details:'));
     assert.match(enabled.prompt, /Story so far:\n[^\n]+\n<\/continuity>$/u);
 });
 
@@ -531,7 +531,7 @@ test('a deliberately small recall target soft-overflows to preserve a complete c
     const result = buildMemoryPrompt(target, user('Mara reviews every rule.'), 128, 'chat', [], undefined, new Map(), { includeStorySoFar: false });
     assert.ok(result.estimatedTokens < 1000);
     assert.ok(result.estimatedTokens > 128);
-    assert.match(result.prompt, /Facts:/);
+    assert.match(result.prompt, /Relevant details:[\s\S]*\[Fact\]/);
     assert.match(result.prompt, /Compact rule detail \d+\./u);
     assert.doesNotMatch(result.prompt, /…/u);
     assert.match(result.prompt, /^<continuity>/);
@@ -572,7 +572,10 @@ test('tight recall targets preserve category representatives without repeating e
     for (const section of [
         'User corrections', 'Recent continuity', 'Supporting memories',
         'Entities', 'Current state', 'Relationships', 'Past events',
-    ]) assert.match(result.prompt, new RegExp(`\\n${section}:\\n`, 'u'));
+    ]) assert.ok(result.retrievalDiagnostics.packed.some(row => row.section === section), `${section} still contributes a complete row`);
+    for (const section of ['Memory constraints', 'Current context', 'Relevant details']) {
+        assert.match(result.prompt, new RegExp(`\\n${section}:\\n`, 'u'));
+    }
     for (const ending of [
         'COMPLETE_CORRECTION_END', 'COMPLETE_DIGEST_END',
         'COMPLETE_THREAD_END', 'COMPLETE_ENTITY_END', 'COMPLETE_STATE_END',
@@ -683,7 +686,7 @@ test('selected memories retrieve their supporting history without vocabulary-spe
     assert.ok(supportIds.includes('amendment'));
     assert.ok(supportIds.includes('lexical-support'));
     assert.ok(!supportIds.includes('unrelated'));
-    assert.match(result.prompt, /Supporting continuity:/);
+    assert.match(result.prompt, /Relevant details:/);
 });
 
 test('source-history support receives priority when the continuity budget is tight', () => {

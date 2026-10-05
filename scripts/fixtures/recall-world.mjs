@@ -96,7 +96,7 @@ export const recallCases = [
     {
         name: 'topic switch retains Chronicle without unrelated reminders',
         query: 'Describe the falling rain.', required: [],
-        forbidden: ['Mira seasons chowder', 'Mira planned delivery', 'Event ledger', 'Supporting memories:'],
+        forbidden: ['Mira seasons chowder', 'Mira planned delivery', 'Event ledger', 'Historical observation'],
     },
 ];
 

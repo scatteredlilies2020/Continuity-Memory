@@ -57,7 +57,7 @@ test('keeps attributed belief facts separate from established facts and from eac
     assert.equal(target.facts.find(item => item.subject === 'Alice').value, 'not the prince');
     assert.equal(target.facts.find(item => item.subject === 'Bob').value, 'a spy');
     const injected = buildMemoryPrompt(target, [{ name: 'User', mes: 'What does Bob think about the masked visitor?' }], 2000, 'chat');
-    assert.match(injected.prompt, /Character perspectives \(not established facts\)/);
+    assert.match(injected.prompt, /\[subjective; not an established fact\]/);
     assert.match(injected.prompt, /Bob.*belief about the masked visitor.*a spy.*not an established fact/i);
 });
 
@@ -307,7 +307,7 @@ test('compact background strands update by stable topic and inject only when rel
     assert.deepEqual(target.backgrounds[0].sources.map(source => [source.from, source.to]), [[0, 7], [8, 15]]);
 
     const relevant = buildMemoryPrompt(target, [{ name: 'User', mes: 'What is happening with Qing China and the White Lotus?' }], 1800, 'world-sim');
-    assert.match(relevant.prompt, /Supporting memories:/);
+    assert.match(relevant.prompt, /Relevant details:[\s\S]*\[Historical observation/);
     assert.match(relevant.prompt, /provincial militarization/);
     assert.match(relevant.prompt, /confirmed/);
 
@@ -1099,7 +1099,7 @@ test('a clean zero-correction replay preserves identity, prior knowledge, secrec
     assert.ok(target.facts.some(item => item.subject === 'Darth Segundus' && item.predicate === 'knowledge of Caelen Veyr' && item.category === 'knowledge'));
 
     const injected = buildMemoryPrompt(target, [{ name: 'Lucas', mes: 'Did you know it was a Jedi Council Member there?' }], 5000, chatKey);
-    assert.match(injected.prompt, /Established character knowledge:[\s\S]*Darth Segundus — knowledge of Caelen Veyr/i);
+    assert.match(injected.prompt, /\[Established character knowledge\] Darth Segundus — knowledge of Caelen Veyr/i);
     assert.match(injected.prompt, /Caelen Veyr \(person\).*Jedi Master and former Jedi Council member/i);
 
     const secrecy = buildMemoryPrompt(target, [{ name: 'Lucas', mes: 'Does Darth Segundus know Toska?' }], 5000, chatKey);
@@ -1438,7 +1438,7 @@ test('state lifecycle expires scenes and recalls unreconfirmed ongoing state as 
     assert.equal(target.states.some(item => item.value === 'Bandaged shoulder'), true);
     const prompt = buildMemoryPrompt(target, [{ name: 'User', mes: 'Where is Yui now, and what is her injury?' }], 2400, chatKey);
     assert.match(prompt.prompt, /Riverside park/);
-    assert.match(prompt.prompt, /Last-known ongoing conditions \(not reconfirmed\)/);
+    assert.match(prompt.prompt, /\[last-known; not confirmed current\]/);
     assert.match(prompt.prompt, /\[last-known; not confirmed current\] Yui — injury: Bandaged shoulder/);
 
     mergeExtraction(target, extraction({
@@ -1492,7 +1492,7 @@ test('raw chat tail suppresses overlapping extracted memory while retaining hidd
     assert.match(prompt.prompt, /Hidden rehearsal/);
     assert.doesNotMatch(prompt.prompt, /Visible raw-tail scene/);
     assert.doesNotMatch(prompt.prompt, /Visible raw-tail room/);
-    assert.doesNotMatch(prompt.prompt, /Checkpoint:/);
+    assert.doesNotMatch(prompt.prompt, /^- (?:Location|Time|Participants|Activity|Tone):/mu);
 });
 
 test('whole-token retrieval does not confuse contractions with substrings', () => {
@@ -1520,7 +1520,7 @@ test('retrieval prioritizes matching buried character memory within its budget',
     assert.match(result.prompt, /Yui/);
     assert.match(result.prompt, /cake/);
     assert.match(result.prompt, /They plan to rehearse Saturday/);
-    assert.match(result.prompt, /Recent continuity:/);
+    assert.match(result.prompt, /\[Recent history\]/);
     assert.ok(result.estimatedTokens <= 1200);
 });
 
@@ -1543,7 +1543,7 @@ test('retrieval prioritizes relevant forms of address in one compact section', (
 
     const result = buildMemoryPrompt(target, [{ name: 'Setsuko', mes: 'Naruto arrives for training.' }], 1000, 'chat');
 
-    assert.match(result.prompt, /Addresses:/);
+    assert.match(result.prompt, /\[Address forms\]/);
     assert.match(result.prompt, /Setsuko Uchiha→Naruto Uzumaki: Uzumaki-kun; dead last/);
     assert.match(result.prompt, /Naruto Uzumaki→Setsuko Uchiha: Setsuko; Suki-chan/);
     assert.match(result.prompt, / \| /);
@@ -1557,15 +1557,11 @@ test('retrieval reserves room for every populated memory category', () => {
     mergeExtraction(target, extraction(), { chatKey: 'chat', from: 0, to: 4, allowStateUpdates: true });
     const result = buildMemoryPrompt(target, [{ name: 'User', mes: 'Yui and Mio continue their music practice, friendship, cake, and weekend performance plans.' }], 1000, 'chat');
     for (const heading of [
-        'Checkpoint',
-        'Recursive Chronicle layers (complete active frontier)',
-        'Supporting memories',
-        'Entities',
-        'Current state',
-        'Relationships',
-        'Facts',
-        'Past events',
+        'Current context', 'Story so far', 'Relevant details',
     ]) assert.match(result.prompt, new RegExp(`${heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:`));
+    for (const section of ['Checkpoint', 'Supporting memories', 'Entities', 'Current state', 'Relationships', 'Facts', 'Past events']) {
+        assert.ok(result.retrievalDiagnostics.packed.some(row => row.section === section), `${section} still contributes a complete row`);
+    }
     assert.ok(result.estimatedTokens <= 1000);
 });
 
@@ -1595,7 +1591,7 @@ test('retrieval makes a relevant character knowledge boundary an explicit hard c
         { name: 'User', is_user: true, mes: 'I ask Segundus whether he expected me to die.' },
     ], 2200, 'chat', ['Darth Segundus reaction to Lucas']);
 
-    assert.match(result.prompt, /Knowledge boundaries — hard constraints:/);
+    assert.match(result.prompt, /Memory constraints:[\s\S]*\[HARD LIMIT:/);
     assert.match(result.prompt, /Darth Segundus — knowledge of Toska: Does not know Toska exists/i);
     assert.match(result.prompt, /HARD LIMIT: world truth elsewhere does not grant this character knowledge/i);
     assert.doesNotMatch(result.prompt, /exact anchor unavailable/i);
@@ -1606,10 +1602,10 @@ test('retrieval does not fill category space with unrelated memories', () => {
     const target = world();
     mergeExtraction(target, extraction(), { chatKey: 'chat', from: 0, to: 4, allowStateUpdates: true });
     const result = buildMemoryPrompt(target, [{ name: 'User', mes: 'A distant storm approaches the harbor.' }], 3000, 'chat');
-    assert.match(result.prompt, /Checkpoint:/);
-    assert.match(result.prompt, /Recursive Chronicle layers/);
-    assert.doesNotMatch(result.prompt, /Facts:/);
-    assert.doesNotMatch(result.prompt, /Past events:/);
+    assert.match(result.prompt, /Current context:/);
+    assert.match(result.prompt, /Story so far:/);
+    assert.doesNotMatch(result.prompt, /\[Fact\]/);
+    assert.doesNotMatch(result.prompt, /\[Past event\]/);
     assert.doesNotMatch(result.prompt, /favorite snack/);
 });
 
@@ -1675,9 +1671,9 @@ test('retrieval omits a stale scene checkpoint while preserving durable memory',
         new Map(),
         { includeSceneCheckpoint: false },
     );
-    assert.doesNotMatch(result.prompt, /Checkpoint:/);
+    assert.doesNotMatch(result.prompt, /^- (?:Location|Time|Participants|Activity|Tone):/mu);
     assert.match(result.prompt, /favorite snack/);
-    assert.match(result.prompt, /Recursive Chronicle layers/);
+    assert.match(result.prompt, /Story so far:/);
 });
 
 test('retrieval suppresses records from invalid extraction ranges before repair completes', () => {
@@ -1722,7 +1718,7 @@ test('relevant past events are sent chronologically after relevance selection', 
     ];
 
     const result = buildMemoryPrompt(target, [{ name: 'User', mes: 'What happened at the festival in the capital?' }], 3000, 'chat');
-    const rows = result.prompt.slice(result.prompt.indexOf('Past events:')).split('\n').filter(row => row.startsWith('- '));
+    const rows = result.prompt.split('\n').filter(row => row.startsWith('- [Past event] '));
     assert.deepEqual(rows.map(row => row.match(/Festival (?:opens|expands|rumor|closes)/)?.[0]), [
         'Festival opens', 'Festival expands', 'Festival rumor', 'Festival closes',
     ]);

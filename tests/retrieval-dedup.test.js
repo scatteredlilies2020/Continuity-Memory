@@ -62,7 +62,7 @@ test('canon and ledger entries already supplied by supporting recall appear only
     for (const text of [target.facts[0].value, target.events[0].title, target.threads[0].detail]) {
         assert.equal(count(result.prompt, text), 1);
     }
-    assert.doesNotMatch(result.prompt, /Compact continuity ledger:/u);
+    assert.doesNotMatch(result.prompt, /Event ledger \(latest\):/u);
     assert.equal(JSON.stringify(target), before);
 });
 
@@ -99,7 +99,7 @@ test('knowledge already rendered before an entity is not repeated as inline cano
     });
     const result = buildMemoryPrompt(target, user('Aster examines the lantern seal.'), 6000, 'chat');
 
-    assert.match(result.prompt, /Established character knowledge:/u);
+    assert.match(result.prompt, /\[Established character knowledge\]/u);
     assert.equal(count(result.prompt, value), 1);
 });
 
@@ -129,7 +129,7 @@ test('supporting recall keeps full unique conditions and temporal anchors withou
     assert.doesNotMatch(unrelated.prompt, /Seal delivery|Open-thread ledger/);
     const result = buildMemoryPrompt(target, user('Seal delivery'), 6000, 'chat');
 
-    assert.match(result.prompt, /Supporting memories/u);
+    assert.match(result.prompt, /Relevant details:[\s\S]*Historical observation/u);
     assert.match(result.prompt, /tomorrow.*relative to Digest-delivery/u);
     assert.match(result.prompt, /but only if Beryl consents/u);
 });

@@ -81,7 +81,7 @@ test('reviewed correction updates established records and invalidates only conta
     assert.deepEqual(world.eras.map(item => item.id), ['era-safe']);
     assert.ok(buildEmbeddingDocuments(world).some(item => item.key.startsWith('correction:')));
     const injected = buildMemoryPrompt(world, [{ name: 'User', mes: 'What did Sasuke know about Elizabeth?' }], 2000, 'chat');
-    assert.match(injected.prompt, /User corrections:/);
+    assert.match(injected.prompt, /Memory constraints:[\s\S]*\[User correction\]/);
     assert.match(injected.prompt, /knew Elizabeth before the meeting/i);
     assert.doesNotMatch(injected.prompt, /beforehand/i);
 });

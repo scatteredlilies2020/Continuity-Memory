@@ -1337,7 +1337,7 @@ function memoryRow(category, item, text) {
     return { text, key: memoryRowKey(category, item), ...(category === 'fact' ? { equivalenceKey: factEvidenceKey(item) } : {}) };
 }
 
-function addFairSections(parts, sections, budget, admitted = new Set(), packed = [], formatText = text => text) {
+function addFairSections(parts, sections, budget, admitted = new Set(), packed = [], formatText = text => text, renderedSections = []) {
     const populated = sections.filter(section => section.rows.length > 0);
     if (!populated.length) return admitted;
 
@@ -1412,6 +1412,7 @@ function addFairSections(parts, sections, budget, admitted = new Set(), packed =
 
     for (let index = 0; index < populated.length; index++) {
         if (!selected[index].length) continue;
+        renderedSections.push({ title: populated[index].title, rows: selected[index] });
         parts.value += `\n${populated[index].title}:\n${selected[index].map(row => `${row}\n`).join('')}`;
     }
     return admitted;
@@ -1535,7 +1536,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
                 chronicleTokensPerKey,
             )).filter(Boolean).join('\n\n')
             : plain(world.storySoFar?.[chatKey]?.text);
-        const storyHeader = hasChronicle ? '\nRecursive Chronicle layers (complete active frontier):\n' : '\nStory so far:\n';
+        const storyHeader = '\nStory so far:\n';
         // Story generation owns its configured allowance. Never prefix-clip the
         // saved continuity spine here: doing so preferentially removed the final
         // boundaryState and openMatters sections, even when a larger Story budget
@@ -1891,7 +1892,9 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     )));
 
     const formatPromptText = text => compactPromptProvenance(text, world, chatKey);
-    const admitted = addFairSections(parts, sections, budget, new Set(), retrievalDiagnostics.packed, formatPromptText);
+    const promptPreamble = parts.value;
+    const renderedSections = [];
+    const admitted = addFairSections(parts, sections, budget, new Set(), retrievalDiagnostics.packed, formatPromptText, renderedSections);
     // The ledger is a fallback, not a second rendering of full recall. Wait
     // until packing finishes so supporting records count too, while records
     // selected but not packed still keep their fallback. Chronicle coverage
@@ -1910,18 +1913,24 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     // No unconditional plan or background reminders: stored evidence is recalled by relevance.
     addFairSections(parts, [{ title: 'Compact continuity ledger', rows: [
         ...compactEvents.map(item => ({ ...memoryRow('event', item, `- Event ledger (latest): ${plain(item.title)}`), kind: 'title' })),
-    ] }], budget, admitted, retrievalDiagnostics.packed, formatPromptText);
+    ] }], budget, admitted, retrievalDiagnostics.packed, formatPromptText, renderedSections);
     const packedKeys = new Set(retrievalDiagnostics.packed.filter(row => row.kind !== 'title').flatMap(row => [row.key, ...row.provides]).filter(Boolean));
     for (const selection of retrievalDiagnostics.selections) {
         const category = ['address', 'perspective'].includes(selection.category) ? 'fact' : selection.category;
         const fact = category === 'fact' ? availableFacts.find(item => item.id === selection.id) : null;
         selection.injected = packedKeys.has(memoryRowKey(category, selection)) || Boolean(fact && packedKeys.has(factEvidenceKey(fact)));
     }
+    // Consolidate only after both packing passes. Retain the original category
+    // allowances (including ledger accounting) so this layout change cannot
+    // evict a record or weaken cross-category representation at tight targets.
+    // The final estimate below measures the actual consolidated prompt.
+    parts.value = promptPreamble + renderInjectionSections(renderedSections);
     if (storyBlock) parts.value += formatPromptText(storyBlock);
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
 import { DEFAULT_INJECTION_INSTRUCTION } from './prompts.js?v=0.15.0-testing.29';
+import { renderInjectionSections } from './injection-layout.js';
 import { embeddingRecordKey } from './embedding-index.js?v=0.15.0-testing.29';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';
