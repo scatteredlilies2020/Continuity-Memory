@@ -6,6 +6,21 @@ import { DEFAULT_INJECTION_INSTRUCTION, PRE_LEAN_INJECTION_INSTRUCTIONS, CHARACT
 const settingsUrl = new URL('../extension/settings.js', import.meta.url);
 let instance = 0;
 
+test('summary prefill defaults blank and off and preserves saved custom values', async () => {
+    const defaults = (await loadSettings()).getSettings();
+    assert.equal(defaults.summaryPrefillEnabled, false);
+    assert.equal(defaults.summaryPrefill, '');
+    const settings = (await loadSettings({ summaryPrefillEnabled: true, summaryPrefill: 'custom prefix ' })).getSettings();
+    assert.equal(settings.summaryPrefillEnabled, true);
+    assert.equal(settings.summaryPrefill, 'custom prefix ');
+    const html = readFileSync(new URL('../extension/settings.html', import.meta.url), 'utf8');
+    const ui = readFileSync(new URL('../extension/ui.js', import.meta.url), 'utf8');
+    assert.match(html, /id="continuity_summary_prefill_enabled" type="checkbox">/);
+    assert.match(html, /id="continuity_summary_prefill"[^>]*><\/textarea>/);
+    assert.match(ui, /setSetting\('#continuity_summary_prefill_enabled', 'summaryPrefillEnabled', Boolean\)/);
+    assert.match(ui, /setSetting\('#continuity_summary_prefill', 'summaryPrefill', String\)/);
+});
+
 test('saved shipped prompts receive plain wording without resetting custom additions or memory bindings', async () => {
     const old = JSON.parse(readFileSync(new URL('./helpers/pre-plain-prompts.json', import.meta.url), 'utf8'));
     const current = (await loadSettings()).getSettings();

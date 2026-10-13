@@ -1345,6 +1345,8 @@ export function renderRuntime(refreshSettings = true) {
         $('#continuity_auto').prop('checked', settings.autoExtract);
         $('#continuity_review_extractions').prop('checked', settings.reviewBeforeCommit);
         $('#continuity_jb_enabled').prop('checked', settings.jbEnabled);
+        $('#continuity_summary_prefill_enabled').prop('checked', settings.summaryPrefillEnabled);
+        setControlValue('#continuity_summary_prefill', settings.summaryPrefill);
     }
     const rollback = getTailRollbackStatus();
     $('#continuity_repair_rollback')
@@ -2049,6 +2051,8 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
     setSetting('#continuity_auto', 'autoExtract', Boolean, () => scheduleMemoryMaintenance?.());
     setSetting('#continuity_review_extractions', 'reviewBeforeCommit', Boolean);
     setSetting('#continuity_jb_enabled', 'jbEnabled', Boolean);
+    setSetting('#continuity_summary_prefill_enabled', 'summaryPrefillEnabled', Boolean);
+    setSetting('#continuity_summary_prefill', 'summaryPrefill', String);
     $('#continuity_embed_chat').on('change', async function () {
         const enabled = $(this).prop('checked');
         getSettings().embedMemoryInChat = enabled;

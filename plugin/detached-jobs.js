@@ -1,4 +1,5 @@
 import { assertCompleteExtractionRecords, extractionCompletenessFeedback, formatStructuredResponseGuide } from '../extension/extraction-contract.js';
+import { appendMemoryFeedback, requestPrefill, decodeMemoryResponse, memoryWireRequest } from '../extension/preset-prefill.js';
 import crypto from 'node:crypto';
 
 import { isRateLimitError, isTransientApiError } from '../extension/errors.js';
@@ -103,7 +104,7 @@ function parseJsonResponse(value) {
 }
 
 function completionText(payload) {
-    const direct = payload?.choices?.[0]?.message?.content ?? payload?.choices?.[0]?.text;
+    const direct = payload?.choices?.[0]?.message?.content ?? payload?.choices?.[0]?.text ?? payload?.completions?.[0]?.text;
     if (Array.isArray(direct)) {
         const text = direct.map(item => item?.text || item?.content || '').join('');
         if (text.trim()) return text;
@@ -119,7 +120,7 @@ function completionText(payload) {
 }
 
 function finishReason(payload) {
-    return String(payload?.choices?.[0]?.finish_reason ?? payload?.candidates?.[0]?.finishReason ?? '').toLocaleLowerCase();
+    return String(payload?.choices?.[0]?.finish_reason ?? payload?.candidates?.[0]?.finishReason ?? payload?.finishReason ?? '').toLocaleLowerCase();
 }
 
 function assertNotTruncated(payload) {
@@ -320,7 +321,7 @@ async function backendRequestOnce(job, body) {
         response = await job.fetchImpl(job.backendUrl, {
             method: 'POST',
             headers: job.backendHeaders,
-            body: JSON.stringify(body),
+            body: JSON.stringify(memoryWireRequest(body)),
             signal: requestController.signal,
         });
         text = await response.text();
@@ -342,7 +343,7 @@ async function backendRequestOnce(job, body) {
         throw error;
     }
     assertNotTruncated(payload);
-    return completionText(payload);
+    return decodeMemoryResponse(completionText(payload), body.continuity_prefill ?? { prefill: requestPrefill(body.messages) });
 }
 
 async function backendRequest(job, body) {
@@ -388,7 +389,7 @@ async function extractTask(job, task, world) {
         try {
             const feedback = extractionCompletenessFeedback(lastError);
             const retryRequest = body => !body || !feedback ? body : {
-                ...body, messages: [...body.messages, { role: 'user', content: feedback.trim() }],
+                ...body, messages: appendMemoryFeedback(body.messages, feedback.trim()),
             };
             let raw;
             try {

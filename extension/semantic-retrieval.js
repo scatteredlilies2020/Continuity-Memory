@@ -1,5 +1,7 @@
 import { extractMessageFromData } from '/script.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
+import { resolveMemoryPrefill, sendMemoryProfileRequest } from './preset-prefill-host.js';
+import { memoryRequestMessages, responseWithPrefill } from './preset-prefill.js';
 import { isThinkingControlError, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.30';
 import { generateWithThinkingPolicy, requestDirectText, resolveThinkingModeForProfile } from './engine.js?v=0.15.0-testing.30&belief-wording=4';
 import { parseExpandedTerms } from './semantic-terms.js?v=0.15.0-testing.30';
@@ -34,7 +36,8 @@ async function requestExpansion(prompt, signal) {
     const profile = ConnectionManagerRequestService.getProfile(profileId);
     const apiMap = ConnectionManagerRequestService.validateProfile(profile);
     const model = connectionProfileModel(profile, 'AI retrieval');
-    const messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }];
+    const prefill = resolveMemoryPrefill(profileId);
+    const messages = memoryRequestMessages(prompt, systemPrompt, prefill);
     const options = isolatedProfileOptions({ signal });
     const thinking = buildThinkingRequest({
         mode: thinkingMode,
@@ -45,20 +48,20 @@ async function requestExpansion(prompt, signal) {
     });
     let response;
     try {
-        response = await ConnectionManagerRequestService.sendRequest(
+        response = await sendMemoryProfileRequest(
             profileId, messages, 300, options, isolatedProfilePayload({ ...outputTokenPayload(model, 300), ...thinking.payload }),
         );
     } catch (error) {
         if (!isThinkingControlError(error)) throw error;
         const fallbackPayload = thinkingControlFallbackPayload(error, thinking.payload);
         if (!thinking.controlled && !Object.keys(fallbackPayload).length) throw error;
-        response = await ConnectionManagerRequestService.sendRequest(
+        response = await sendMemoryProfileRequest(
             profileId, messages, 300, options, isolatedProfilePayload({ ...outputTokenPayload(model, 300), ...fallbackPayload }),
         );
     }
     const result = extractMessageFromData(response, apiMap.selected);
     if (!result || typeof result !== 'string') throw new Error('AI retrieval profile returned no text.');
-    return result;
+    return response?.continuity_prefill_complete ? result : responseWithPrefill(result, prefill);
 }
 
 export async function expandRetrievalTerms(recentMessages, { signal } = {}) {
@@ -73,7 +76,7 @@ export async function expandRetrievalTerms(recentMessages, { signal } = {}) {
         : '';
     const profileConfig = profileId && profileId !== '__direct__'
         ? JSON.stringify(ConnectionManagerRequestService.getProfile(profileId)) : '';
-    const key = `${profileId}|${profileConfig}|${directConfig}|${thinkingMode}|${settings.retrievalSystemPrompt}|${settings.retrievalQueryTemplate}|${query}`;
+    const key = JSON.stringify([profileId, profileConfig, directConfig, thinkingMode, settings.retrievalSystemPrompt, settings.retrievalQueryTemplate, query, resolveMemoryPrefill(profileId)]);
     if (profileId && cache.has(key)) return [...cache.get(key)];
     if (pending.has(key)) return [...await pending.get(key)];
     const epoch = cacheEpoch;

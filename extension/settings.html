@@ -85,6 +85,11 @@
                 <small>Off by default. When enabled, processing waits at a centered review popup until you save, regenerate, or discard the unsaved result.</small>
                 <label class="checkbox_label"><input id="continuity_jb_enabled" type="checkbox"><span>JB for extraction / Digest</span></label>
                 <small>When enabled, appends the editable JB prompt below to extraction and Digest requests only. Off by default.</small>
+                <label class="checkbox_label"><input id="continuity_summary_prefill_enabled" type="checkbox"><span>Custom prefill for summaries</span></label>
+                <label>Summary assistant prefill
+                    <textarea id="continuity_summary_prefill" class="text_pole continuity-prompt-editor" rows="4"></textarea>
+                    <small>Blank and off by default. When checked and nonblank, replaces the preset prefill as the final assistant message for Digest extraction and Chronicle summaries, including retries and background jobs. Does not affect roleplay replies, retrieval, or corrections. When off or blank, the preset prefill applies. Must be compatible with the requested JSON output.</small>
+                </label>
                 <details>
                     <summary>Advanced extraction options</summary>
                     <label>Reasoning / thinking

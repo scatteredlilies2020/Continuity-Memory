@@ -8,6 +8,7 @@ async function load(settings, calls, overrides = {}) {
     globalThis[key] = {
         settings,
         extractMessageFromData: response => response,
+        resolveMemoryPrefill: () => '',
         ConnectionManagerRequestService: {
             getProfile: () => ({ model: 'sample-model', name: 'AI test', 'api-url': 'http://example.invalid' }),
             validateProfile: () => ({ source: 'custom', selected: 'custom' }),
@@ -21,6 +22,7 @@ async function load(settings, calls, overrides = {}) {
     const source = readFileSync(url, 'utf8')
         .replace("import { extractMessageFromData } from '/script.js';", `const { extractMessageFromData } = globalThis.${key};`)
         .replace("import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';", `const { ConnectionManagerRequestService } = globalThis.${key};`)
+        .replace("import { resolveMemoryPrefill, sendMemoryProfileRequest } from './preset-prefill-host.js';", `const { resolveMemoryPrefill } = globalThis.${key}; const sendMemoryProfileRequest = (...args) => ConnectionManagerRequestService.sendRequest(...args);`)
         .replace(/import \{ generateWithThinkingPolicy, requestDirectText, resolveThinkingModeForProfile \} from '[^']+';/,
             `const { generateWithThinkingPolicy, requestDirectText, resolveThinkingModeForProfile } = globalThis.${key};`)
         .replace(/import \{ getSettings \} from '[^']+';/, `const settings = globalThis.${key}.settings; const getSettings = () => settings;`)
@@ -85,4 +87,20 @@ test('an uncancellable host response after timeout is rejected and never cached'
     finish('{"terms":["fresh terms"]}');
     assert.deepEqual(await next, ['fresh terms']);
     assert.equal(calls.length, 2);
+});
+
+test('AI retrieval appends preset prefill and invalidates cached terms when it changes', async () => {
+    const calls = [];
+    let prefill = '{';
+    const module = await load({ retrievalProfileId: 'retrieval-profile' }, calls, {
+        resolveMemoryPrefill: () => prefill,
+    });
+    await module.expandRetrievalTerms(messages);
+    assert.deepEqual(calls[0][2].at(-1), { role: 'assistant', content: '{' });
+    await module.expandRetrievalTerms(messages);
+    assert.equal(calls.length, 1);
+    prefill = '{"terms":';
+    await module.expandRetrievalTerms(messages);
+    assert.equal(calls.length, 2);
+    assert.equal(calls[1][2].at(-1).content, prefill);
 });

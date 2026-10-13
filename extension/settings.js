@@ -32,6 +32,8 @@ const DEFAULTS = Object.freeze({
     reviewBeforeCommit: DEFAULT_REVIEW_BEFORE_COMMIT,
     reviewEditorFontSize: 14,
     jbEnabled: false,
+    summaryPrefillEnabled: false,
+    summaryPrefill: '',
     embedMemoryInChat: true,
     detail: 'balanced',
     injectionBudgetTokens: 0,

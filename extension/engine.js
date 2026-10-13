@@ -4,6 +4,8 @@ import { extractMessageFromData, generateRaw, getRequestHeaders } from '/script.
 import { getContext } from '/scripts/st-context.js';
 import { getTokenCountAsync } from '/scripts/tokenizers.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
+import { resolveMemoryPrefill, prepareMemoryRequest, sendMemoryProfileRequest, prepareDetachedPrefills, generateEndpointMemory } from './preset-prefill-host.js';
+import { memoryRequestMessages, responseWithPrefill, decodeMemoryResponse, memoryWireRequest } from './preset-prefill.js';
 import { oai_settings, openai_setting_names, openai_settings, proxies } from '/scripts/openai.js';
 import { api } from './api.js';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
@@ -122,24 +124,28 @@ export function applyExtractionRequestSettings(data) {
         model: data.model,
         url: data.custom_url || data.reverse_proxy,
     });
-    Object.assign(data, outputTokenPayload(data.model, resolveMemoryResponseTokens(data.max_tokens ?? data.max_completion_tokens, control.adapter)), control.payload);
+    Object.assign(data, outputTokenPayload(data.model, resolveMemoryResponseTokens(data.max_tokens ?? data.max_completion_tokens ?? data.maxOutputTokens, control.adapter)), control.payload);
     if (!shouldSendStructuredSchema(control.adapter, data.json_schema)) delete data.json_schema;
     updateRuntime({ thinkingControl: { mode: activeExtractionThinkingMode, adapter: control.adapter, fallback: false } });
 }
 
 export async function generateWithThinkingPolicy(options, thinkingMode = getSettings().thinkingMode) {
+    const prefill = options.prefill ?? resolveMemoryPrefill();
+    options = { ...options, prefill, ...(prefill ? { jsonSchema: null } : {}) };
     thinkingMode = resolveThinkingModeForProfile(thinkingMode);
     activeExtractionThinkingMode = thinkingMode;
     try {
         try {
-            return await generateRaw(options);
+            const endpointResult = await generateEndpointMemory(options, applyExtractionRequestSettings);
+            return endpointResult ?? responseWithPrefill(await generateRaw({ ...options }), prefill);
         } catch (error) {
             const mandatory = isMandatoryThinkingError(error);
             if (!isThinkingControlError(error) || (activeExtractionThinkingMode === 'default' && !mandatory)) throw error;
             console.warn(`[Continuity] Endpoint rejected its detected thinking control; retrying with ${mandatory ? 'mandatory reasoning enabled' : 'the provider default'}.`, error);
             updateRuntime({ thinkingControl: { mode: activeExtractionThinkingMode, adapter: mandatory ? 'mandatory-reasoning' : 'provider-default', fallback: true } });
             activeExtractionThinkingMode = mandatory ? 'minimum' : 'default';
-            return await generateRaw(options);
+            const endpointResult = await generateEndpointMemory(options, applyExtractionRequestSettings);
+            return endpointResult ?? responseWithPrefill(await generateRaw({ ...options }), prefill);
         }
     } finally {
         activeExtractionThinkingMode = null;
@@ -385,7 +391,7 @@ function prepareExtractionPrompts(messages, world = runtime.world) {
             ? 'Capture subtle recurring details, conditions, relationships, routines, rules, resources, and small changes as well as major developments, using whatever categories fit this scenario.'
             : 'Capture major developments and useful recurring or persistent details without recording filler.';
     const profileId = settings.memoryProfileId;
-    const usesStructuredSchema = requestSupportsStructuredSchema(extractionJsonSchema, profileId, 'extraction');
+    const usesStructuredSchema = requestSupportsStructuredSchema(extractionJsonSchema, profileId, 'extraction', settings.thinkingMode, true);
     const taskTemplate = `${settings.extractionTaskTemplate ?? DEFAULT_EXTRACTION_TASK_TEMPLATE}\n\n${EXTRACTION_OUTPUT_CHECK}`;
     const attributionContext = precedingUserAttributionContext(getContext().chat || [], messages);
     const taskValues = {
@@ -408,7 +414,7 @@ function prepareExtractionPrompts(messages, world = runtime.world) {
 }
 
 async function requestExtraction(prompt, systemPrompt, fallbackPrompt = prompt, responseTokens = extractionResponseTokens(getSettings().extractionOutputTokens)) {
-    return requestStructured(prompt, systemPrompt, extractionJsonSchema, responseTokens, undefined, 'extraction', fallbackPrompt);
+    return requestStructured(prompt, systemPrompt, extractionJsonSchema, responseTokens, undefined, 'extraction', fallbackPrompt, undefined, true);
 }
 
 function directRequestConfig(kind) {
@@ -444,7 +450,8 @@ export function resolveThinkingModeForProfile(configuredMode, profileId = '') {
     );
 }
 
-function requestSupportsStructuredSchema(jsonSchema, profileId = getSettings().memoryProfileId, directKind = 'extraction', thinkingMode = getSettings().thinkingMode) {
+function requestSupportsStructuredSchema(jsonSchema, profileId = getSettings().memoryProfileId, directKind = 'extraction', thinkingMode = getSettings().thinkingMode, summary = false) {
+    if (resolveMemoryPrefill(profileId, { expandMacros: false, summary })) return false;
     if (!profileId) return false;
     thinkingMode = resolveThinkingModeForProfile(thinkingMode, profileId);
     if (profileId === DIRECT_PROFILE_ID) {
@@ -482,7 +489,7 @@ function renderStructuredTaskPrompt(template, defaultTemplate, values, schemaExa
     }, [usesFormatPlaceholder ? 'format' : 'schema', ...required]);
 }
 
-async function requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, kind, withSchema = true, thinkingMode = getSettings().thinkingMode, signal = undefined) {
+async function requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, kind, withSchema = true, thinkingMode = getSettings().thinkingMode, signal = undefined, prefill = resolveMemoryPrefill(DIRECT_PROFILE_ID)) {
     thinkingMode = resolveThinkingModeForProfile(thinkingMode, DIRECT_PROFILE_ID);
     const config = directRequestConfig(kind);
     const thinking = buildThinkingRequest({
@@ -494,20 +501,21 @@ async function requestDirectStructured(prompt, systemPrompt, jsonSchema, respons
     const body = {
         chat_completion_source: config.provider,
         model: config.model,
-        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }],
+        messages: memoryRequestMessages(prompt, systemPrompt, prefill),
         stream: false,
         ...outputTokenPayload(config.model, resolveMemoryResponseTokens(responseLength, thinking.adapter)),
         ...(config.provider === 'openrouter'
             ? { api_url: config.url, secret_id: config.secretId || undefined }
             : { custom_url: config.url, secret_id: config.secretId || undefined }),
-        ...(withSchema && shouldSendStructuredSchema(thinking.adapter, jsonSchema) ? { json_schema: jsonSchema } : {}),
+        ...(withSchema && !prefill && shouldSendStructuredSchema(thinking.adapter, jsonSchema) ? { json_schema: jsonSchema } : {}),
         ...thinking.payload,
     };
     updateRuntime({ thinkingControl: { mode: thinkingMode, adapter: thinking.adapter, fallback: false } });
+    const prepared = await prepareMemoryRequest(body, DIRECT_PROFILE_ID);
     const response = await fetch('/api/backends/chat-completions/generate', {
         method: 'POST',
         headers: getRequestHeaders(),
-        body: JSON.stringify(body),
+        body: JSON.stringify(memoryWireRequest(prepared)),
         signal,
     });
     const text = await response.text();
@@ -519,10 +527,10 @@ async function requestDirectStructured(prompt, systemPrompt, jsonSchema, respons
         throw new Error(`Direct ${kind} API failed: ${detail}`);
     }
     assertCompletionNotTruncated(payload, `Direct ${kind} API`);
-    const content = payload?.choices?.[0]?.message?.content ?? payload?.choices?.[0]?.text;
+    const content = payload?.choices?.[0]?.message?.content ?? payload?.choices?.[0]?.text ?? payload?.completions?.[0]?.text ?? payload?.text;
     const result = Array.isArray(content) ? content.map(item => item?.text || '').join('') : content;
     if (!String(result || '').trim()) throw new Error(`Direct ${kind} API returned no text.`);
-    return String(result);
+    return decodeMemoryResponse(String(result), prepared.continuity_prefill);
 }
 
 function reviewStatus(review) {
@@ -570,6 +578,7 @@ function completionFinishReason(payload) {
         payload?.choices?.[0]?.finish_reason
         ?? payload?.data?.choices?.[0]?.finish_reason
         ?? payload?.response?.choices?.[0]?.finish_reason
+        ?? payload?.finishReason
         ?? '',
     ).trim().toLocaleLowerCase();
 }
@@ -581,57 +590,55 @@ function assertCompletionNotTruncated(payload, label) {
     }
 }
 
-function extractProfileResponse(response, apiMap, profileName) {
+function extractProfileResponse(response, apiMap, profileName, prefill = '') {
     assertCompletionNotTruncated(response, `Connection profile “${profileName}”`);
     const result = extractMessageFromData(response, apiMap.selected);
     if (!result || typeof result !== 'string') throw new Error(`Connection profile “${profileName}” returned no text.`);
-    return result;
+    return response?.continuity_prefill_complete ? result : responseWithPrefill(result, prefill);
 }
 
 export async function requestDirectText(prompt, systemPrompt, responseLength = 300, kind = 'extraction', thinkingMode = getSettings().thinkingMode, { signal } = {}) {
     return requestDirectStructured(prompt, systemPrompt, null, responseLength, kind, false, thinkingMode, signal);
 }
 
-async function requestStructured(prompt, systemPrompt, jsonSchema, responseLength = null, profileId = getSettings().memoryProfileId, directKind = 'extraction', fallbackPrompt = prompt, thinkingMode = getSettings().thinkingMode) {
+async function requestStructured(prompt, systemPrompt, jsonSchema, responseLength = null, profileId = getSettings().memoryProfileId, directKind = 'extraction', fallbackPrompt = prompt, thinkingMode = getSettings().thinkingMode, summary = false) {
+    const prefill = resolveMemoryPrefill(profileId, { summary });
     thinkingMode = resolveThinkingModeForProfile(thinkingMode, profileId);
     if (profileId === DIRECT_PROFILE_ID) {
         let directThinkingMode = thinkingMode;
         try {
-            return await requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, directKind, true, directThinkingMode);
+            return await requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, directKind, true, directThinkingMode, undefined, prefill);
         } catch (error) {
             const mandatory = isMandatoryThinkingError(error);
             if (isThinkingControlError(error) && (mandatory || !['auto', 'default'].includes(directThinkingMode))) {
                 directThinkingMode = mandatory ? 'minimum' : 'default';
                 updateRuntime({ thinkingControl: { mode: thinkingMode, adapter: mandatory ? 'mandatory-reasoning' : 'provider-default', fallback: true } });
                 try {
-                    return await requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, directKind, true, directThinkingMode);
+                    return await requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, directKind, true, directThinkingMode, undefined, prefill);
                 } catch (retryError) {
                     error = retryError;
                 }
             }
             if (!shouldRetryWithoutSchema(error)) throw error;
             updateRuntime({ lastValidation: `Direct API JSON mode unavailable; using compatible plain mode: ${rootErrorMessage(error)}` });
-            return requestDirectStructured(fallbackPrompt, systemPrompt, jsonSchema, responseLength, directKind, false, directThinkingMode);
+            return requestDirectStructured(fallbackPrompt, systemPrompt, jsonSchema, responseLength, directKind, false, directThinkingMode, undefined, prefill);
         }
     }
     if (!profileId) {
         try {
-            return await generateWithThinkingPolicy({ prompt, systemPrompt, responseLength, jsonSchema }, thinkingMode);
+            return await generateWithThinkingPolicy({ prompt, systemPrompt, responseLength, jsonSchema, prefill }, thinkingMode);
         } catch (error) {
             if (!shouldRetryWithoutSchema(error)) throw error;
             console.warn('[Continuity] Native structured output failed; retrying with plain JSON prompting.', error);
             updateRuntime({ lastValidation: `Native JSON mode unavailable; using compatible plain mode: ${rootErrorMessage(error)}` });
-            return await generateWithThinkingPolicy({ prompt: fallbackPrompt, systemPrompt, responseLength }, thinkingMode);
+            return await generateWithThinkingPolicy({ prompt: fallbackPrompt, systemPrompt, responseLength, prefill }, thinkingMode);
         }
     }
 
     const profile = ConnectionManagerRequestService.getProfile(profileId);
     const apiMap = ConnectionManagerRequestService.validateProfile(profile);
     const model = connectionProfileModel(profile);
-    const messagesFor = userPrompt => [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-    ];
+    const messagesFor = userPrompt => memoryRequestMessages(userPrompt, systemPrompt, prefill);
     const messages = messagesFor(prompt);
     const options = isolatedProfileOptions();
     const thinking = buildThinkingRequest({
@@ -649,24 +656,24 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
         ...thinkingPayload,
     });
     let response;
-    if (!shouldSendStructuredSchema(thinking.adapter, jsonSchema)) {
-        updateRuntime({ lastValidation: 'Gemini native schema omitted; using compatible exact-shape JSON prompting.' });
+    if (prefill || !shouldSendStructuredSchema(thinking.adapter, jsonSchema)) {
+        updateRuntime({ lastValidation: prefill ? 'Assistant prefill enabled; using exact-shape JSON prompting without a native schema.' : 'Gemini native schema omitted; using compatible exact-shape JSON prompting.' });
         try {
-            response = await ConnectionManagerRequestService.sendRequest(
+            response = await sendMemoryProfileRequest(
                 profileId, messagesFor(fallbackPrompt), profileResponseLength, options, compatibilityPayload(),
             );
         } catch (error) {
             if (!isThinkingControlError(error) || (!thinking.controlled && !isMandatoryThinkingError(error))) throw error;
             thinkingPayload = thinkingControlFallbackPayload(error, thinkingPayload);
             updateRuntime({ thinkingControl: { mode: thinkingMode, adapter: thinking.adapter, fallback: true } });
-            response = await ConnectionManagerRequestService.sendRequest(
+            response = await sendMemoryProfileRequest(
                 profileId, messagesFor(fallbackPrompt), profileResponseLength, options, compatibilityPayload(),
             );
         }
-        return extractProfileResponse(response, apiMap, profile.name);
+        return extractProfileResponse(response, apiMap, profile.name, prefill);
     }
     try {
-        response = await ConnectionManagerRequestService.sendRequest(
+        response = await sendMemoryProfileRequest(
             profileId, messages, profileResponseLength, options, { ...compatibilityPayload(), json_schema: jsonSchema },
         );
     } catch (error) {
@@ -675,33 +682,33 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
             thinkingPayload = thinkingControlFallbackPayload(error, thinkingPayload);
             updateRuntime({ thinkingControl: { mode: thinkingMode, adapter: thinking.adapter, fallback: true } });
             try {
-                response = await ConnectionManagerRequestService.sendRequest(
+                response = await sendMemoryProfileRequest(
                     profileId, messages, profileResponseLength, options, { ...compatibilityPayload(), json_schema: jsonSchema },
                 );
             } catch (retryError) {
                 error = retryError;
             }
             if (response) {
-                return extractProfileResponse(response, apiMap, profile.name);
+                return extractProfileResponse(response, apiMap, profile.name, prefill);
             }
         }
         if (!shouldRetryWithoutSchema(error)) throw error;
         console.warn('[Continuity] Connection profile rejected native structured output; retrying with plain JSON prompting.', error);
         updateRuntime({ lastValidation: `Profile JSON mode unavailable; using compatible plain mode: ${rootErrorMessage(error)}` });
         try {
-            response = await ConnectionManagerRequestService.sendRequest(
+            response = await sendMemoryProfileRequest(
                 profileId, messagesFor(fallbackPrompt), profileResponseLength, options, compatibilityPayload(),
             );
         } catch (plainError) {
             if (!isThinkingControlError(plainError) || (!Object.keys(thinkingPayload).length && !isMandatoryThinkingError(plainError))) throw plainError;
             thinkingPayload = thinkingControlFallbackPayload(plainError, thinkingPayload);
             updateRuntime({ thinkingControl: { mode: thinkingMode, adapter: thinking.adapter, fallback: true } });
-            response = await ConnectionManagerRequestService.sendRequest(
+            response = await sendMemoryProfileRequest(
                 profileId, messagesFor(fallbackPrompt), profileResponseLength, options, compatibilityPayload(),
             );
         }
     }
-    return extractProfileResponse(response, apiMap, profile.name);
+    return extractProfileResponse(response, apiMap, profile.name, prefill);
 }
 
 function detachedRequestBodies({ prompt, fallbackPrompt, systemPrompt, usesStructuredSchema }, {
@@ -713,10 +720,9 @@ function detachedRequestBodies({ prompt, fallbackPrompt, systemPrompt, usesStruc
 } = {}) {
     const settings = getSettings();
     const thinkingMode = resolveThinkingModeForProfile(configuredThinkingMode ?? (directKind === 'summary' ? settings.summaryThinkingMode : settings.thinkingMode), profileId);
-    const messagesFor = userPrompt => [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-    ];
+    const prefill = resolveMemoryPrefill(profileId, { summary: true });
+    const messagesFor = userPrompt => memoryRequestMessages(userPrompt, systemPrompt, prefill);
+    usesStructuredSchema = usesStructuredSchema && !prefill;
     let base;
     let thinking;
     let model;
@@ -833,7 +839,7 @@ function prepareDetachedChronicleLayer() {
     const directKind = settings.arcProfileId === DIRECT_PROFILE_ID ? 'summary' : 'extraction';
     const jsonSchema = chronicleJsonSchema;
     const thinkingMode = settings.summaryThinkingMode;
-    const usesStructuredSchema = requestSupportsStructuredSchema(jsonSchema, profileId, directKind, thinkingMode);
+    const usesStructuredSchema = requestSupportsStructuredSchema(jsonSchema, profileId, directKind, thinkingMode, true);
     const placeholder = '__CONTINUITY_DETACHED_HIERARCHY_PROMPT__';
     const requests = detachedRequestBodies({
         prompt: placeholder,
@@ -1025,9 +1031,12 @@ async function processDetachedRange(job, chunks, currentWorld) {
     const health = runtime.health || await api.health();
     updateRuntime({ health });
     if (!health?.detachedJobs || getSettings().reviewBeforeCommit) return null;
-    const hierarchy = prepareDetachedHierarchyPlan();
+    const hierarchy = await prepareDetachedPrefills(prepareDetachedHierarchyPlan(), getSettings().arcProfileId || getSettings().memoryProfileId);
     if (!chunks.length && (!health.detachedChronicle || !hierarchy?.chronicle)) return null;
-    const tasks = chunks.map(chunk => ({ ...prepareDetachedTask(chunk.messages, currentWorld), inputTokens: chunk.tokens }));
+    const tasks = await prepareDetachedPrefills(chunks.map(chunk => {
+        const task = prepareDetachedTask(chunk.messages, currentWorld);
+        return task ? { ...task, inputTokens: chunk.tokens } : null;
+    }), getSettings().memoryProfileId);
     if (tasks.some(task => !task)) return null;
     const started = await api.startExtractionJob({
         worldId: job.worldId,
@@ -1270,7 +1279,7 @@ async function generateChroniclePromotion(nodes, previousError = null) {
     const profileId = settings.arcProfileId || settings.memoryProfileId;
     const directKind = settings.arcProfileId === DIRECT_PROFILE_ID ? 'summary' : 'extraction';
     const thinkingMode = settings.summaryThinkingMode;
-    const usesStructuredSchema = requestSupportsStructuredSchema(chronicleJsonSchema, profileId, directKind, thinkingMode);
+    const usesStructuredSchema = requestSupportsStructuredSchema(chronicleJsonSchema, profileId, directKind, thinkingMode, true);
     const task = `${settings.chronicleTaskTemplate ?? DEFAULT_CHRONICLE_TASK_TEMPLATE}\n\n${CHRONICLE_OUTPUT_CHECK}`;
     const values = { nodes: formatChronicleNodes(nodes) };
     const feedback = chronicleRetryFeedback(previousError);
@@ -1278,7 +1287,7 @@ async function generateChroniclePromotion(nodes, previousError = null) {
     const fallbackPrompt = usesStructuredSchema
         ? renderStructuredTaskPrompt(task, task, values, ARC_JSON_SHAPE_EXAMPLE, false, ['nodes']) + feedback
         : prompt;
-    const raw = await requestStructured(prompt, buildHierarchySystemPrompt(settings.chronicleSystemPrompt ?? DEFAULT_CHRONICLE_SYSTEM_PROMPT), chronicleJsonSchema, memoryResponseTokens('chronicle'), profileId, directKind, fallbackPrompt, thinkingMode);
+    const raw = await requestStructured(prompt, buildHierarchySystemPrompt(settings.chronicleSystemPrompt ?? DEFAULT_CHRONICLE_SYSTEM_PROMPT), chronicleJsonSchema, memoryResponseTokens('chronicle'), profileId, directKind, fallbackPrompt, thinkingMode, true);
     updateRuntime({ lastArcResponse: String(raw).slice(0, 20000) });
     const layer = `C${(Number(nodes[0]?.level) || 0) + 1}`;
     return validateChronicleResult(typeof raw === 'string' ? parseJsonResponse(raw) : raw, layer, nodes);
