@@ -1,5 +1,6 @@
 import { assertCompleteExtractionRecords, extractionCompletenessFeedback, formatStructuredResponseGuide } from '../extension/extraction-contract.js';
 import { appendMemoryFeedback, requestPrefill, decodeMemoryResponse, memoryWireRequest } from '../extension/preset-prefill.js';
+import { parseJsonResponse } from '../extension/json-response.js';
 import crypto from 'node:crypto';
 
 import { isRateLimitError, isTransientApiError } from '../extension/errors.js';
@@ -61,46 +62,6 @@ function publicJob(job) {
         hierarchyError: job.hierarchyError || '',
         pendingTasks: job.tasks.length,
     };
-}
-
-function parseJsonResponse(value) {
-    let text = String(value || '')
-        .replace(/<(think|thinking|thought|reasoning)(?:\s[^>]*)?>[\s\S]*?<\/\1>/gi, '')
-        .trim();
-    const fence = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-    if (fence) text = fence[1].trim();
-    try {
-        return JSON.parse(text);
-    } catch {
-        // Some reasoning endpoints surround the final object with prose.
-    }
-    const candidates = [];
-    let start = -1;
-    let depth = 0;
-    let quoted = false;
-    let escaped = false;
-    for (let index = 0; index < text.length; index++) {
-        const char = text[index];
-        if (quoted) {
-            if (escaped) escaped = false;
-            else if (char === '\\') escaped = true;
-            else if (char === '"') quoted = false;
-            continue;
-        }
-        if (char === '"') { quoted = true; continue; }
-        if (char === '{') {
-            if (depth === 0) start = index;
-            depth++;
-        } else if (char === '}' && depth > 0) {
-            depth--;
-            if (depth === 0 && start >= 0) candidates.push(text.slice(start, index + 1));
-        }
-    }
-    for (let index = candidates.length - 1; index >= 0; index--) {
-        try { return JSON.parse(candidates[index]); }
-        catch { /* Try the preceding complete object. */ }
-    }
-    throw new Error('Extractor returned text without a valid JSON object.');
 }
 
 function completionText(payload) {
@@ -388,8 +349,13 @@ async function extractTask(job, task, world) {
     for (let attempt = 1; attempt <= 2; attempt++) {
         try {
             const feedback = extractionCompletenessFeedback(lastError);
-            const retryRequest = body => !body || !feedback ? body : {
-                ...body, messages: appendMemoryFeedback(body.messages, feedback.trim()),
+            const retryRequest = body => {
+                if (!body || !feedback) return body;
+                // Keep routing, schema, prefill metadata and thinking controls;
+                // only use the matching fallback's more explicit prompt messages.
+                const explicit = body === request ? fallbackRequest
+                    : body === mandatoryRequest ? mandatoryFallbackRequest : null;
+                return { ...body, messages: appendMemoryFeedback(explicit?.messages ?? body.messages, feedback.trim()) };
             };
             let raw;
             try {

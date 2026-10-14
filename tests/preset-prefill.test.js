@@ -66,6 +66,15 @@ test('partial JSON and thought prefixes are restored without duplicating full re
     assert.equal(responseWithPrefill('unchanged'), 'unchanged');
 });
 
+test('a complete fenced JSON answer does not receive a duplicate JSON prefix', () => {
+    for (const fence of ['```json', '```JSON', '```']) {
+        const response = `${fence}\n{"facts":[]}\n\`\`\``;
+        assert.equal(responseWithPrefill(response, '{'), response);
+    }
+    assert.equal(responseWithPrefill('"facts":[]}', '{'), '{"facts":[]}');
+    assert.equal(responseWithPrefill('finished</think>\n{"facts":[]}', '<think>'), '<think>finished</think>\n{"facts":[]}');
+});
+
 test('feedback remains before the prefill without mutating prior requests', () => {
     const messages = memoryRequestMessages('task', 'system', '{');
     const updated = appendMemoryFeedback(messages, 'Fix missing fields.');

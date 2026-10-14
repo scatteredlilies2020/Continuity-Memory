@@ -19,6 +19,7 @@ import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionC
 import { resolveCorrectionResponseTokens } from './correction-policy.js';
 import { isAdaptiveExtractionSplitError, isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.30';
 import { requestExtractionReview } from './extraction-review.js';
+import { parseJsonResponse } from './json-response.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedChronicle, freshResetResiduals, getLatestDigestUndoStatus as inspectLatestDigestUndo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from './memory-model.js';
 import { extractionResponseTokens, memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
@@ -337,7 +338,10 @@ async function extractChunk(messages, world = runtime.world) {
             const recovery = attempt === 3;
             const responseTokens = extractionResponseTokens(getSettings().extractionOutputTokens, recovery);
             if (recovery) updateRuntime({ retryStatus: `Single-message extraction output was incomplete; retrying with an explicit ${responseTokens}-token output budget.` });
-            const raw = await requestExtraction(prompt + feedback, systemPrompt, fallbackPrompt ? fallbackPrompt + feedback : fallbackPrompt, responseTokens);
+            // Some proxies accept the schema parameter without enforcing it.
+            // Retry with explicit field definitions as well as corrective feedback.
+            const retryPrompt = attempt > 1 && fallbackPrompt ? fallbackPrompt : prompt;
+            const raw = await requestExtraction(retryPrompt + feedback, systemPrompt, fallbackPrompt ? fallbackPrompt + feedback : fallbackPrompt, responseTokens);
             updateRuntime({ lastRawResponse: String(raw).slice(0, 30000) });
             const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
             const { result, validation } = validateResult(parsed, world, messages);
@@ -1199,47 +1203,6 @@ function shouldRetryWithoutSchema(error) {
     if (/\b(401|403)\b|unauthori[sz]ed|forbidden|invalid (?:api )?key|incorrect (?:api )?key|password/.test(message)) return false;
     if (/enotfound|econnrefused|invalid url|failed to fetch|network error|timed? ?out|timeout/.test(message)) return false;
     return /response[_ -]?format|json[_ -]?schema|structured output|schema|deseriali[sz]e|unknown field|unsupported (?:field|parameter)|invalid[_ -]?request|bad request|\b(400|422)\b/.test(message);
-}
-
-function parseJsonResponse(value) {
-    let text = String(value || '')
-        .replace(/<(think|thinking|thought|reasoning)(?:\s[^>]*)?>[\s\S]*?<\/\1>/gi, '')
-        .trim();
-    const fence = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-    if (fence) text = fence[1].trim();
-    try {
-        return JSON.parse(text);
-    } catch {
-        // Reasoning models sometimes put prose or an earlier scratch JSON object
-        // around the answer. Parse complete top-level objects and prefer the last.
-    }
-    const candidates = [];
-    let start = -1;
-    let depth = 0;
-    let quoted = false;
-    let escaped = false;
-    for (let index = 0; index < text.length; index++) {
-        const char = text[index];
-        if (quoted) {
-            if (escaped) escaped = false;
-            else if (char === '\\') escaped = true;
-            else if (char === '"') quoted = false;
-            continue;
-        }
-        if (char === '"') { quoted = true; continue; }
-        if (char === '{') {
-            if (depth === 0) start = index;
-            depth++;
-        } else if (char === '}' && depth > 0) {
-            depth--;
-            if (depth === 0 && start >= 0) candidates.push(text.slice(start, index + 1));
-        }
-    }
-    for (let index = candidates.length - 1; index >= 0; index--) {
-        try { return JSON.parse(candidates[index]); }
-        catch { /* try the preceding complete object */ }
-    }
-    throw new Error('Extractor returned text without a valid JSON object.');
 }
 
 function validateArcResult(result, layer = 'Chronicle') {

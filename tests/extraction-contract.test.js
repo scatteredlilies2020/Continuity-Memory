@@ -4,6 +4,23 @@ import { assertCompleteExtractionRecords, extractionSchema, EXTRACTION_FIELD_GUI
 import { buildExtractionSystemPrompt } from '../extension/prompts.js';
 
 const fact = { subject: 'Alice', predicate: 'takes tea', value: 'without sugar', category: 'preference' };
+test('JSON and shape errors receive safe corrective feedback, not silent identical retries', () => {
+    for (const error of [
+        Object.assign(new Error('private content'), { code: 'CM_INVALID_JSON' }),
+        new Error('Extractor returned text without a valid JSON object.'),
+        new Error('Extractor field "facts" is not an array.'),
+        new Error('Extractor returned no valid chronological scene capsule.'),
+    ]) {
+        const feedback = extractionCompletenessFeedback(error);
+        assert.match(feedback, /one complete JSON object/);
+        assert.match(feedback, /field definitions/);
+        assert.match(feedback, /Escape quotation marks and line breaks/);
+        assert.doesNotMatch(feedback, /private content/);
+    }
+    for (const error of [undefined, new Error('401 Unauthorized'), new Error('429 Too Many Requests')]) {
+        assert.equal(extractionCompletenessFeedback(error), '');
+    }
+});
 for (const field of ['subject', 'predicate', 'value', 'category']) {
     test(`rejects blank fact ${field} without discarding its valid peer`, () => {
         const result = { facts: [fact, { ...fact, [field]: '  ' }] };

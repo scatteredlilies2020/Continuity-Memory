@@ -4,6 +4,8 @@ import test from 'node:test';
 import { runInNewContext } from 'node:vm';
 import { isAdaptiveExtractionSplitError, isExplicitExtractionOutputLimitError } from '../extension/extraction-recovery.js';
 import { extractionResponseTokens } from '../extension/memory-response-policy.js';
+import { extractionCompletenessFeedback } from '../extension/extraction-contract.js';
+import { parseJsonResponse } from '../extension/json-response.js';
 
 const engine = await readFile(new URL('../extension/engine.js', import.meta.url), 'utf8');
 const start = engine.indexOf('async function extractChunk(');
@@ -16,11 +18,11 @@ function makeExtractor(requestExtraction, settings = { extractionOutputTokens: 0
         runtime,
         getSettings: () => settings,
         prepareExtractionPrompts: () => ({ prompt: 'prompt', fallbackPrompt: 'fallback', systemPrompt: 'system' }),
-        extractionCompletenessFeedback: () => '',
+        extractionCompletenessFeedback,
         extractionResponseTokens,
         requestExtraction,
         updateRuntime: patch => updates.push(patch),
-        parseJsonResponse: JSON.parse,
+        parseJsonResponse,
         validateResult: parsed => ({ result: parsed, validation: {} }),
         applySourceAttributionFailClosed: () => 0,
         isRateLimitError: () => false,
@@ -71,4 +73,27 @@ test('non-incomplete single-message failures do not trigger the higher-budget re
     });
     await assert.rejects(extract([{ index: 10 }]), /401 Unauthorized/);
     assert.deepEqual(budgets, [null, null]);
+});
+
+test('schema-ignoring proxy retries include explicit definitions and JSON feedback', async () => {
+    const requests = [];
+    const { extract, updates } = makeExtractor(async (prompt, system, fallback, budget) => {
+        requests.push({ prompt, system, fallback, budget });
+        return requests.length === 1 ? 'Narrative instead of JSON.' : 'Here is the "answer:\n{"facts":[]}';
+    });
+    assert.deepEqual(await extract([{ index: 10 }]), { facts: [] });
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].prompt, 'prompt');
+    assert.match(requests[1].prompt, /^fallback\n\nThe previous response was rejected/);
+    assert.equal(requests[1].prompt, requests[1].fallback);
+    assert.equal(requests[1].budget, null, 'Do not increase tokens just to fix wrappers.');
+    assert.match(updates.at(-1).lastValidation, /Valid structured extraction after malformed-output retry/);
+});
+
+test('persistently truncated JSON never becomes a valid extraction', async () => {
+    let calls = 0;
+    const { extract, updates } = makeExtractor(async () => { calls++; return '{"facts":[{}]'; });
+    await assert.rejects(extract([{ index: 10 }]), /without a valid JSON object.*incomplete/);
+    assert.equal(calls, 3);
+    assert.ok(updates.every(update => !update.lastValidation?.startsWith('Valid structured extraction')));
 });

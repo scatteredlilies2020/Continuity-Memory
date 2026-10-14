@@ -63,7 +63,8 @@ export function responseWithPrefill(response, prefill = '') {
     // Some providers return the complete JSON rather than just a continuation.
     // Do not break an already complete structured response by duplicating '{'.
     try {
-        const parsed = JSON.parse(response);
+        const fenced = response.trim().match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+        const parsed = JSON.parse(fenced ? fenced[1] : response);
         if (parsed && typeof parsed === 'object') return response;
     } catch { /* Native prefill responses may be only the JSON suffix. */ }
     return prefill + response;

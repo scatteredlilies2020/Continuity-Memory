@@ -234,5 +234,10 @@ export function assertCompleteExtractionRecords(result) {
 }
 
 export function extractionCompletenessFeedback(error) {
-    return error?.code === 'CM_INCOMPLETE_RECORDS' ? `\n\nThe previous response was rejected: ${error.message}\n${EXTRACTION_COMPLETENESS_RULE}` : '';
+    if (error?.code === 'CM_INCOMPLETE_RECORDS') return `\n\nThe previous response was rejected: ${error.message}\n${EXTRACTION_COMPLETENESS_RULE}`;
+    if (error?.code === 'CM_INVALID_JSON'
+        || /without a valid JSON object|returned no JSON object|Extractor field .* is not an array|no valid chronological scene capsule|unexpected end.*JSON/i.test(error?.message || '')) {
+        return '\n\nThe previous response was rejected because it was not a complete JSON extraction in the requested format. Return one complete JSON object following the field definitions, with all required keys and actual arrays. Do not return prose, reasoning, Markdown fences, or field definitions as values. Escape quotation marks and line breaks inside strings, avoid trailing commas, and close every string, array, and object. Generate the complete extraction again, not a patch or continuation of the failed response. If an assistant prefix is supplied, continue it exactly once. Preserve supported content; do not substitute blank placeholders to fix formatting.';
+    }
+    return '';
 }
