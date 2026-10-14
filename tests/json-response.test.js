@@ -30,8 +30,18 @@ for (const file of ['extension/engine.js', 'plugin/detached-jobs.js']) {
         assert.equal(parse('{"draft":true}\nFinal answer:\n{"facts":[]}').facts.length, 0);
     });
 
+    test(`${file}: an unfinished reasoning wrapper does not invalidate complete JSON`, () => {
+        for (const tag of ['think', 'thinking', 'thought', 'reasoning']) {
+            assert.deepEqual(parse(`<${tag}>Consider the source.\n{"draft":true}\nFinal answer:\n\`\`\`json\n{"facts":[]}\n\`\`\``), { facts: [] });
+        }
+    });
+
+    test(`${file}: closed reasoning alone is never treated as the answer`, () => {
+        assert.throws(() => parse('<think>{"facts":[]}</think>'), /without a valid JSON object/);
+    });
+
     test(`${file}: does not salvage a nested record or scratch object from a truncated final answer`, () => {
-        for (const text of ['{"facts":[{"value":"complete child"}]', '{"draft":true}\n{"facts":[', '<think>{"facts":[]}']) {
+        for (const text of ['{"facts":[{"value":"complete child"}]', '{"draft":true}\n{"facts":[', '<think>{"draft":true}\n{"facts":[', '<think>Still considering the source.']) {
             assert.throws(() => parse(text), /without a valid JSON object/);
         }
     });

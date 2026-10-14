@@ -26,8 +26,11 @@ export function parseJsonResponse(value) {
                     const closing = new RegExp(`</${opening[1]}>`, 'ig');
                     closing.lastIndex = index + opening[0].length;
                     const end = closing.exec(text);
-                    if (!end) throw invalidJson('The reasoning block did not close.');
-                    index = closing.lastIndex - 1;
+                    // A partial assistant prefill or a provider's reasoning
+                    // filter can leave this wrapper open around a complete
+                    // answer. JSON completeness and record validation decide
+                    // whether it can be used; markup closure does not.
+                    index = end ? closing.lastIndex - 1 : index + opening[0].length - 1;
                     continue;
                 }
             }

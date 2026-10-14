@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { appendMemoryFeedback, memoryRequestMessages, presetPrefill, requestPrefill, responseWithPrefill, summaryPrefill } from '../extension/preset-prefill.js';
+import { parseJsonResponse } from '../extension/json-response.js';
 
 function preset(prompts, order = prompts.map(prompt => ({ identifier: prompt.identifier, enabled: true }))) {
     return { prompts, prompt_order: [{ character_id: 100001, order }] };
@@ -83,6 +84,26 @@ test('feedback remains before the prefill without mutating prior requests', () =
     assert.equal(updated.at(-2).role, 'user');
     assert.equal(updated.at(-2).content, 'Fix missing fields.');
     assert.equal(memoryRequestMessages('task', 'system').length, 2);
+});
+
+test('complete answers with prose or reasoning do not receive duplicate JSON prefixes', () => {
+    for (const response of [
+        'Here is the extraction:\n```json\n{"facts":[]}\n```',
+        '<think>Consider the source.</think>\n{"facts":[]}',
+    ]) {
+        for (const prefill of ['{', '{"facts":']) {
+            assert.equal(responseWithPrefill(response, prefill), response);
+            assert.deepEqual(parseJsonResponse(responseWithPrefill(response, prefill)), { facts: [] });
+        }
+    }
+});
+
+test('a partial reasoning prefill can precede complete JSON without a closing tag', () => {
+    const prefill = '<think>Consider the source.\n';
+    const response = 'Final answer:\n```json\n{"facts":[]}\n```';
+    assert.equal(responseWithPrefill(response, prefill), prefill + response);
+    assert.deepEqual(parseJsonResponse(responseWithPrefill(response, prefill)), { facts: [] });
+    assert.throws(() => parseJsonResponse(responseWithPrefill('Final answer:\n{"facts":[', prefill)), /incomplete/);
 });
 
 test('system prompts after a prefix neither suppress it nor execute unrelated macros', () => {

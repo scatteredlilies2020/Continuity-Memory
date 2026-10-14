@@ -1,3 +1,5 @@
+import { parseJsonResponse } from './json-response.js';
+
 // Only import the preset's response prefix, never its roleplay system prompts,
 // examples, chat history, or Continuity's own injected memory.
 export function presetPrefill(preset, { order, characterId, substitute = text => text } = {}) {
@@ -67,7 +69,18 @@ export function responseWithPrefill(response, prefill = '') {
         const parsed = JSON.parse(fenced ? fenced[1] : response);
         if (parsed && typeof parsed === 'object') return response;
     } catch { /* Native prefill responses may be only the JSON suffix. */ }
-    return prefill + response;
+    const continued = prefill + response;
+    // Prefer the continuation when it is complete: a suffix may contain
+    // nested objects, or the closing tag of a reasoning prefill.
+    try {
+        const parsed = parseJsonResponse(continued);
+        if (parsed && typeof parsed === 'object') return continued;
+    } catch { /* The provider may have returned a complete wrapped answer. */ }
+    try {
+        const parsed = parseJsonResponse(response);
+        if (parsed && typeof parsed === 'object') return response;
+    } catch { /* Leave malformed or truncated output for normal validation. */ }
+    return continued;
 }
 
 export function requestPrefill(messages) {
