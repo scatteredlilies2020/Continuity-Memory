@@ -72,7 +72,22 @@ function boundaryHolderIsInContext(item, query) {
         .some(term => queryTermVariants(term, true).includes(holder)));
 }
 
+const morphologyCache = new Map();
+const lexicalFormsCache = new Map();
+
+function cachedLexicalValue(cache, value, compute) {
+    if (cache.has(value)) return cache.get(value);
+    const result = compute(value);
+    cache.set(value, result);
+    if (cache.size > 8192) cache.delete(cache.keys().next().value);
+    return result;
+}
+
 function englishMorphologyToken(value) {
+    return cachedLexicalValue(morphologyCache, value, computeEnglishMorphologyToken);
+}
+
+function computeEnglishMorphologyToken(value) {
     if (!/^[a-z]+$/u.test(value) || value.length < 5) return '';
     const rules = [
         [/ization$/u, 'ize'], [/ational$/u, 'ate'], [/fulness$/u, 'ful'], [/ousness$/u, 'ous'],
@@ -103,6 +118,10 @@ function statsHasQueryTerm(stats, term, includeMorphology = false) {
 }
 
 function englishLexicalForms(rawToken) {
+    return cachedLexicalValue(lexicalFormsCache, rawToken, computeEnglishLexicalForms);
+}
+
+function computeEnglishLexicalForms(rawToken) {
     const raw = String(rawToken || '')
         .replace(/[’‘]/gu, "'")
         .replace(/[‐‑‒–—]/gu, '-');
@@ -938,11 +957,30 @@ function supportMetadata(item, profile) {
         ? retrievalFieldStats({ ...item, temporalAnchorId: undefined,
             temporal: item.temporal ? { ...item.temporal, referenceId: undefined } : undefined })
         : recordStatsFor(item, profile);
+    // These terms depend on this query/profile, not on each seed/candidate
+    // pair. Computing them inside supportConnection repeated the same scan
+    // thousands of times on a large memory.
+    if (!profile.supportContextTerms) {
+        const frequencyLimit = Math.max(4, Math.ceil(profile.documentCount * 0.02));
+        profile.supportContextTerms = [...profile.context]
+            .filter(term => !term.startsWith('~') && !profile.identityVocabulary.has(term))
+            .filter(term => {
+                const frequency = Number(profile.documentFrequency.get(term)) || 0;
+                return frequency > 0 && frequency <= frequencyLimit && inverseDocumentFrequency(profile, term) >= 1.25;
+            });
+    }
     const metadata = {
         stats,
         identities: supportIdentityReferences(stats, profile),
         concepts: supportConceptTerms(stats, profile),
         references: referencedMemoryIds(item),
+        topicTerms: [...new Set([
+            ...stats.fields.heading.unique,
+            ...stats.fields.body.tokens.slice(0, 96),
+            ...stats.fields.body.tokens.slice(-32),
+        ])].filter(term => !term.startsWith('~') && !profile.identityVocabulary.has(term)),
+        contextMatches: profile.supportContextTerms.filter(term =>
+            stats.fields.heading.unique.has(term) || stats.fields.body.unique.has(term)),
     };
     if (!profile.supportMetadata) profile.supportMetadata = new Map();
     profile.supportMetadata.set(item, metadata);
@@ -951,7 +989,8 @@ function supportMetadata(item, profile) {
 
 function supportConnection(seed, candidate, profile) {
     const seedMetadata = supportMetadata(seed, profile);
-    const candidateStats = supportMetadata(candidate, profile).stats;
+    const candidateMetadata = supportMetadata(candidate, profile);
+    const candidateStats = candidateMetadata.stats;
     const seedIdentities = seedMetadata.identities;
     const seedConcepts = seedMetadata.concepts;
     const sharedIdentities = [...seedIdentities].filter(term => candidateStats.all.has(term));
@@ -959,24 +998,12 @@ function supportConnection(seed, candidate, profile) {
         candidateStats.fields.heading.unique.has(term) || candidateStats.fields.body.unique.has(term));
     // A real topic can be common throughout a small, focused lorebook. Keep
     // multi-word topical links even when no individual term is corpus-rare.
-    const sharedTopicTerms = [...new Set([
-        ...seedMetadata.stats.fields.heading.unique,
-        ...seedMetadata.stats.fields.body.tokens.slice(0, 96),
-        ...seedMetadata.stats.fields.body.tokens.slice(-32),
-    ])].filter(term => !term.startsWith('~') && !profile.identityVocabulary.has(term))
-        .filter(term => candidateStats.fields.heading.unique.has(term)
+    const sharedTopicTerms = seedMetadata.topicTerms.filter(term => candidateStats.fields.heading.unique.has(term)
             || candidateStats.fields.body.unique.has(term));
-    const contextFrequencyLimit = Math.max(4, Math.ceil(profile.documentCount * 0.02));
-    const sharedContext = [...profile.context]
-        .filter(term => !term.startsWith('~') && !profile.identityVocabulary.has(term))
-        .filter(term => {
-            const frequency = Number(profile.documentFrequency.get(term)) || 0;
-            return frequency > 0 && frequency <= contextFrequencyLimit && inverseDocumentFrequency(profile, term) >= 1.25;
-        })
-        .filter(term => candidateStats.fields.heading.unique.has(term) || candidateStats.fields.body.unique.has(term));
+    const sharedContext = candidateMetadata.contextMatches;
     const sourceLinked = sharesSourceRange(seed, candidate);
     const seedReferences = seedMetadata.references;
-    const candidateReferences = referencedMemoryIds(candidate);
+    const candidateReferences = candidateMetadata.references;
     const explicitRecordLinked = seedReferences.has(candidate?.id)
         || candidateReferences.has(seed?.id);
     const hierarchyLinked = explicitRecordLinked
@@ -1015,34 +1042,38 @@ function supportConnection(seed, candidate, profile) {
 function queryEvidenceConfidence(selection, profile) {
     const item = selection?.item;
     const result = selection?.result || {};
-    const stats = recordStatsFor(item, profile);
-    const isIdentityTerm = term => queryTermVariants(term, true)
-        .some(variant => profile.identityVocabulary.has(variant));
-    const contentMatch = term => fieldHasQueryTerm(stats.fields.heading, term, true)
-        || fieldHasQueryTerm(stats.fields.body, term, true);
-    const identityMatch = term => fieldHasQueryTerm(stats.fields.identity, term, true)
-        || fieldHasQueryTerm(stats.fields.anchor, term, true);
-    const evidenceQuality = source => {
-        const surface = [...source].filter(term => !term.startsWith('~'));
-        const concepts = surface.filter(term => !isIdentityTerm(term));
-        if (!concepts.length) return 0;
-        const identities = surface.filter(isIdentityTerm);
-        const totalWeight = concepts.reduce((sum, term) => sum + inverseDocumentFrequency(profile, term), 0);
-        const matched = concepts.filter(contentMatch);
-        const matchedWeight = matched.reduce((sum, term) => sum + inverseDocumentFrequency(profile, term), 0);
-        const coverage = totalWeight > 0 ? matchedWeight / totalWeight : 0;
-        const evidenceMass = 1 - Math.exp(-matchedWeight / 4);
-        const identityCoverage = identities.length
-            ? identities.filter(identityMatch).length / identities.length
-            : 0;
-        return Math.min(1, coverage * 0.65 + evidenceMass * 0.25 + identityCoverage * 0.1);
-    };
-    const direct = evidenceQuality(profile.direct);
-    const expanded = Math.max(0, ...profile.expandedGroups.map(evidenceQuality));
+    profile.evidenceConfidence ||= new Map();
+    let lexical = profile.evidenceConfidence.get(item);
+    if (lexical === undefined) {
+        const stats = recordStatsFor(item, profile);
+        const isIdentityTerm = term => queryTermVariants(term, true)
+            .some(variant => profile.identityVocabulary.has(variant));
+        const contentMatch = term => fieldHasQueryTerm(stats.fields.heading, term, true)
+            || fieldHasQueryTerm(stats.fields.body, term, true);
+        const identityMatch = term => fieldHasQueryTerm(stats.fields.identity, term, true)
+            || fieldHasQueryTerm(stats.fields.anchor, term, true);
+        const evidenceQuality = source => {
+            const surface = [...source].filter(term => !term.startsWith('~'));
+            const concepts = surface.filter(term => !isIdentityTerm(term));
+            if (!concepts.length) return 0;
+            const identities = surface.filter(isIdentityTerm);
+            const totalWeight = concepts.reduce((sum, term) => sum + inverseDocumentFrequency(profile, term), 0);
+            const matched = concepts.filter(contentMatch);
+            const matchedWeight = matched.reduce((sum, term) => sum + inverseDocumentFrequency(profile, term), 0);
+            const coverage = totalWeight > 0 ? matchedWeight / totalWeight : 0;
+            const evidenceMass = 1 - Math.exp(-matchedWeight / 4);
+            const identityCoverage = identities.length
+                ? identities.filter(identityMatch).length / identities.length
+                : 0;
+            return Math.min(1, coverage * 0.65 + evidenceMass * 0.25 + identityCoverage * 0.1);
+        };
+        lexical = Math.max(evidenceQuality(profile.direct), 0, ...profile.expandedGroups.map(evidenceQuality));
+        profile.evidenceConfidence.set(item, lexical);
+    }
     const semantic = result.semanticRank > 0 ? 1 / Math.sqrt(result.semanticRank) : 0;
     const contextual = result.contextEligible
         ? Math.min(0.6, 1 - Math.exp(-(result.contextScore || 0) / 12)) : 0;
-    return Math.min(1, Math.max(direct, expanded, semantic, contextual));
+    return Math.min(1, Math.max(lexical, semantic, contextual));
 }
 
 function retainSupportForSeed(seedSelection, ranked, profile, depthScale = 1) {

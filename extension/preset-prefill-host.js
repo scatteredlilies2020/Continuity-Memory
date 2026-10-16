@@ -117,10 +117,13 @@ export async function generateEndpointMemory(options, applyPolicy) {
     );
     applyPolicy(body);
     const prepared = await prepareMemoryRequest(body);
-    const response = await fetch('/api/backends/chat-completions/generate', {
+    const requestOptions = {
         method: 'POST', headers: getRequestHeaders(), signal: options.signal,
         body: JSON.stringify(memoryWireRequest(prepared)),
-    });
+    };
+    options.signal?.throwIfAborted();
+    options.onDispatch?.();
+    const response = await fetch('/api/backends/chat-completions/generate', requestOptions);
     const payload = await response.json();
     if (!response.ok || payload.error) throw new Error(payload.error?.message || payload.message || `Memory API failed (${response.status}).`);
     const finish = payload.finishReason ?? payload.choices?.[0]?.finish_reason;

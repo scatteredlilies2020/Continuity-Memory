@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveRetrievalAssist } from '../extension/retrieval-assist.js';
+import { GENERATION_RETRIEVAL_TIMEOUT_MS, resolveRetrievalAssist } from '../extension/retrieval-assist.js';
 import { buildMemoryPrompt } from '../extension/retrieval.js';
 import { buildEmbeddingQuery } from '../extension/embedding-index.js';
 import { syncChronicleBase } from '../extension/chronicle.js';
@@ -158,4 +158,121 @@ test('timed-out AI expansion never injects late search phrases', async () => {
     finish(['late phrase']);
     await Promise.resolve();
     assert.deepEqual(result.terms, []);
+});
+
+test('visible generation has a thirty-second remote response budget', async t => {
+    assert.equal(GENERATION_RETRIEVAL_TIMEOUT_MS, 30000);
+    let delay;
+    t.mock.method(globalThis, 'setTimeout', (_callback, ms) => { delay = ms; return 1; });
+    t.mock.method(globalThis, 'clearTimeout', () => {});
+    await resolveRetrievalAssist({ mode: 'embedding-hybrid', phase: 'generation', query: async () => new Map() });
+    assert.equal(delay, 30000);
+});
+
+for (const mode of ['embedding-hybrid', 'ai-expanded']) {
+    test(`${mode} rejects an overdue result even if the browser timeout never fires`, async t => {
+        let now = 100, signal;
+        t.mock.method(Date, 'now', () => now);
+        t.mock.method(globalThis, 'setTimeout', () => 1);
+        t.mock.method(globalThis, 'clearTimeout', () => {});
+        const complete = options => {
+            signal = options.signal;
+            options.onDispatch();
+            now = 30101;
+            return mode === 'ai-expanded' ? ['late phrase'] : new Map([['fact:late', 1]]);
+        };
+        const result = await resolveRetrievalAssist({ mode, phase: 'generation',
+            query: (_world, _messages, options) => complete(options),
+            expand: (_messages, options) => complete(options) });
+        assert.equal(signal.aborted, true);
+        assert.match(result.assist.reason, /timeout$/);
+        assert.equal(result.ranks.size, 0);
+        assert.deepEqual(result.terms, []);
+    });
+}
+
+test('caller cancellation releases an uncooperative provider immediately', async () => {
+    let started;
+    const ready = new Promise(resolve => { started = resolve; });
+    const controller = new AbortController();
+    const lookup = resolveRetrievalAssist({ mode: 'embedding-hybrid', signal: controller.signal,
+        query: () => { started(); return new Promise(() => {}); } });
+    await ready;
+    controller.abort();
+    const result = await lookup;
+    assert.equal(result.assist.reason, 'embedding-cancelled');
+});
+
+test('an already cancelled lookup never starts a provider request', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const result = await resolveRetrievalAssist({ mode: 'embedding-hybrid', signal: controller.signal,
+        query: () => assert.fail('cancelled request contacted provider') });
+    assert.equal(result.assist.reason, 'embedding-cancelled');
+});
+
+test('resuming a suspended page checks the elapsed deadline and removes listeners', async t => {
+    const listeners = new Map();
+    const document = {
+        addEventListener: (name, callback) => listeners.set(name, callback),
+        removeEventListener: name => listeners.delete(name),
+    };
+    const original = Object.getOwnPropertyDescriptor(globalThis, 'document');
+    Object.defineProperty(globalThis, 'document', { configurable: true, value: document });
+    t.after(() => original ? Object.defineProperty(globalThis, 'document', original) : delete globalThis.document);
+    let now = 0, started;
+    const ready = new Promise(resolve => { started = resolve; });
+    t.mock.method(Date, 'now', () => now);
+    t.mock.method(globalThis, 'setTimeout', () => 1);
+    t.mock.method(globalThis, 'clearTimeout', () => {});
+    const lookup = resolveRetrievalAssist({ mode: 'embedding-hybrid', phase: 'generation',
+        query: () => { started(); return new Promise(() => {}); } });
+    await ready;
+    now = 31000;
+    listeners.get('visibilitychange')();
+    assert.equal((await lookup).assist.reason, 'embedding-timeout');
+    assert.equal(listeners.size, 0);
+});
+
+test('preparation does not consume the response budget before dispatch', async t => {
+    let now = 0;
+    t.mock.method(Date, 'now', () => now);
+    t.mock.method(globalThis, 'setTimeout', () => 1);
+    t.mock.method(globalThis, 'clearTimeout', () => {});
+    const result = await resolveRetrievalAssist({ mode: 'embedding-hybrid', phase: 'generation',
+        query: async (_world, _messages, options) => {
+            now = 15000;
+            options.onDispatch();
+            now = 40000;
+            return new Map([['fact:current', 1]]);
+        } });
+    assert.equal(result.assist.fallback, false);
+    assert.equal(result.ranks.get('fact:current'), 1);
+    assert.equal(result.assist.preparationMs, 15000);
+    assert.equal(result.assist.responseMs, 25000);
+});
+
+test('retry dispatches inside one lookup cannot keep extending its deadline', async t => {
+    let now = 0;
+    t.mock.method(Date, 'now', () => now);
+    t.mock.method(globalThis, 'setTimeout', () => 1);
+    t.mock.method(globalThis, 'clearTimeout', () => {});
+    const result = await resolveRetrievalAssist({ mode: 'ai-expanded', phase: 'generation',
+        expand: async (_messages, options) => {
+            options.onDispatch();
+            now = 20000;
+            options.onDispatch();
+            now = 31000;
+            return ['late terms'];
+        } });
+    assert.equal(result.assist.reason, 'ai-timeout');
+    assert.equal(result.assist.timeoutStage, 'response');
+});
+
+test('the separate setup watchdog releases preparation that never dispatches', async () => {
+    const result = await resolveRetrievalAssist({ mode: 'embedding-hybrid', phase: 'generation',
+        preparationTimeoutMs: 10, query: () => new Promise(() => {}) });
+    assert.equal(result.assist.reason, 'embedding-timeout');
+    assert.equal(result.assist.timeoutStage, 'preparation');
+    assert.equal(result.assist.dispatched, false);
 });

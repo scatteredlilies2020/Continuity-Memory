@@ -2,9 +2,12 @@ import { getRequestHeaders } from '/script.js';
 import { buildEmbeddingDocuments, buildEmbeddingQuery, semanticRanksFromResponse } from './embedding-index.js?v=0.15.0-testing.30';
 import { resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.30';
 import { getSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4';
-import { runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.30';
+import { onRuntimeChange, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.30';
 import { createVectorStorageRequester, vectorStorageError } from './vector-storage-client.js?v=0.15.0-testing.30';
 import { embeddingRetryDelay, isRetryableEmbeddingError } from './embedding-retry.js?v=0.15.0-testing.30';
+import { checkRetrievalDeadline } from './retrieval-assist.js?bounded-recall=1&catchup-gate=1';
+import { asRoleplayBlockingError } from './generation-policy.js?v=0.15.0-testing.30';
+import { embeddingCoverageReady } from './embedding-policy.js';
 
 const syncedIndexes = new Map();
 const activeSyncs = new Map();
@@ -27,7 +30,7 @@ function collectionId(worldId) {
     return `continuity_${String(worldId || '').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
 }
 
-async function vectorRequest(route, payload, signal) {
+async function vectorRequest(route, payload, signal, onDispatch) {
     const requestController = new AbortController();
     const timeoutMs = route === 'insert' ? EMBEDDING_INSERT_TIMEOUT_MS : VECTOR_REQUEST_TIMEOUT_MS;
     let timedOut = false;
@@ -39,12 +42,15 @@ async function vectorRequest(route, payload, signal) {
         requestController.abort(new DOMException('Vector request timed out.', 'TimeoutError'));
     }, timeoutMs);
     try {
-        const response = await requestVectorStorage(route, {
+        const options = {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify(payload),
             signal: requestController.signal,
-        });
+        };
+        signal?.throwIfAborted();
+        onDispatch?.();
+        const response = await requestVectorStorage(route, options);
         if (!response.ok) throw await vectorStorageError(route, response);
         if (response.status === 204 || response.headers.get('content-length') === '0') return null;
         const contentType = response.headers.get('content-type') || '';
@@ -168,7 +174,9 @@ export async function inspectEmbeddingIndex(world, { signal } = {}) {
     // cancellable inspection behind its current insert on the server.
     if (activeWorldSyncs.has(world.id)) {
         const progress = runtime.embeddingIndex?.worldId === world.id ? runtime.embeddingIndex : {};
-        return { ...progress, status: 'syncing', provider: provider.label, total: documents.length, worldId: world.id };
+        const sameRevision = activeSyncs.get(indexSignature(world, provider)) === activeWorldSyncs.get(world.id);
+        return { ...progress, ...(!sameRevision ? { indexed: 0, existing: 0 } : {}),
+            status: 'syncing', provider: provider.label, total: documents.length, worldId: world.id };
     }
     const base = { ...provider.body, collectionId: collectionId(world.id) };
     const publishStatus = indexingControl === 'running';
@@ -385,27 +393,102 @@ export function scheduleEmbeddingIndexSync(world, delay = 300, allowAutomaticBui
     }, Math.max(0, delay)));
 }
 
-export async function queryEmbeddingMemory(world, messages, { signal } = {}) {
+export function getCachedEmbeddingMemory(world, messages) {
+    const settings = getSettings();
+    const provider = providerRequest();
+    const query = buildEmbeddingQuery(messages, settings.retrievalQueryMessages, 6000);
+    const topK = Math.min(200, Math.max(10, Number(settings.embeddingTopK) || 100));
+    const threshold = Math.min(1, Math.max(0, Number(settings.embeddingThreshold) || 0));
+    const cacheKey = `${world.id}|${world.revision ?? 0}|${provider.fingerprint}|ready|${topK}|${threshold}|${query}`;
+    return queryCache.has(cacheKey) ? new Map(queryCache.get(cacheKey)) : null;
+}
+
+function generationEmbeddingCoverageReady(world) {
+    const signature = indexSignature(world, providerRequest());
+    if (syncedIndexes.get(world.id) === signature) return true;
+    const active = activeWorldSyncs.get(world.id);
+    if (!active || activeSyncs.get(signature) !== active || runtime.embeddingIndex?.worldId !== world.id) return false;
+    return embeddingCoverageReady(runtime.embeddingIndex.indexed, runtime.embeddingIndex.total);
+}
+
+function waitForGenerationEmbeddingCoverage(world, work, signal) {
+    signal?.throwIfAborted();
+    return new Promise((resolve, reject) => {
+        let unsubscribe = () => {};
+        let settled = false;
+        const finish = error => {
+            if (settled) return;
+            settled = true;
+            unsubscribe();
+            signal?.removeEventListener('abort', cancel);
+            if (error) reject(error); else resolve();
+        };
+        const cancel = () => finish(signal.reason);
+        const inspect = () => {
+            try {
+                if (generationEmbeddingCoverageReady(world)) finish();
+                else if (indexingControl !== 'running') finish(asRoleplayBlockingError(new Error('Embedding indexing is paused or stopped. Resume the index before retrying this reply.')));
+            } catch (error) { finish(error); }
+        };
+        unsubscribe = onRuntimeChange(inspect);
+        signal?.addEventListener('abort', cancel, { once: true });
+        Promise.resolve().then(() => {
+            signal?.throwIfAborted();
+            return work();
+        }).then(() => finish(), error => finish(error));
+        inspect();
+    });
+}
+
+export async function ensureGenerationEmbeddingIndex(world, { signal } = {}) {
+    while (true) {
+        signal?.throwIfAborted();
+        if (generationEmbeddingCoverageReady(world)) return;
+        if (indexingControl !== 'running') {
+            throw asRoleplayBlockingError(new Error('Embedding indexing is paused or stopped. Resume the index before retrying this reply.'));
+        }
+        const active = activeWorldSyncs.get(world.id);
+        if (!active && !getSettings().embeddingAutoSync) {
+            throw asRoleplayBlockingError(new Error('The embedding index is incomplete and automatic indexing is off. Build the index before retrying this reply.'));
+        }
+        try {
+            // Adopt a running build rather than queueing another insert or
+            // acquiring its browser lock again. RP Stop only releases this wait.
+            await waitForGenerationEmbeddingCoverage(world, () => active || ensureEmbeddingIndex(world), signal);
+        } catch (error) {
+            if (signal?.aborted) throw error;
+            throw asRoleplayBlockingError(error, 'Embedding catch-up failed;');
+        }
+    }
+}
+
+export async function queryEmbeddingMemory(world, messages, { signal, deadline, onDispatch } = {}) {
+    checkRetrievalDeadline(signal, deadline);
     const settings = getSettings();
     const provider = providerRequest();
     const signature = indexSignature(world, provider);
     let index = syncedIndexes.get(world.id) === signature
         ? { status: 'ready' }
         : await inspectEmbeddingIndex(world, { signal });
+    checkRetrievalDeadline(signal, deadline);
     const indexed = Number(index.indexed ?? index.existing ?? 0);
     const total = Number(index.total ?? 0);
-    if (index.status !== 'ready' || indexed !== total) {
+    if (index.status === 'empty' && total === 0) return new Map();
+    const completeIndex = index.status === 'ready' && indexed === total;
+    if (!completeIndex && !embeddingCoverageReady(indexed, total)) {
         if (index.status === 'incomplete' && settings.embeddingAutoSync && indexingControl === 'running') {
             scheduleEmbeddingIndexSync(world);
         }
-        throw new Error(`Embedding index is ${index.status}; local retrieval will be used until all ${total} records are ready.`);
+        const error = new Error(`Embedding index is ${index.status}; waiting for at least 90% of ${total} records to be ready.`);
+        error.code = 'CONTINUITY_EMBEDDING_INDEX_NOT_READY';
+        throw error;
     }
     const query = buildEmbeddingQuery(messages, settings.retrievalQueryMessages, 6000);
     if (!query) return new Map();
     const topK = Math.min(200, Math.max(10, Number(settings.embeddingTopK) || 100));
     const threshold = Math.min(1, Math.max(0, Number(settings.embeddingThreshold) || 0));
     const cacheKey = `${world.id}|${world.revision ?? 0}|${provider.fingerprint}|ready|${topK}|${threshold}|${query}`;
-    if (queryCache.has(cacheKey)) return new Map(queryCache.get(cacheKey));
+    if (completeIndex && queryCache.has(cacheKey)) return new Map(queryCache.get(cacheKey));
     const documents = buildEmbeddingDocuments(world);
     const response = await vectorRequest('query', {
         ...provider.body,
@@ -413,9 +496,10 @@ export async function queryEmbeddingMemory(world, messages, { signal } = {}) {
         searchText: query,
         topK,
         threshold,
-    }, signal);
+    }, signal, onDispatch);
+    checkRetrievalDeadline(signal, deadline);
     const ranks = semanticRanksFromResponse(response, documents);
-    queryCache.set(cacheKey, [...ranks.entries()]);
+    if (completeIndex) queryCache.set(cacheKey, [...ranks.entries()]);
     if (queryCache.size > 100) queryCache.delete(queryCache.keys().next().value);
     return ranks;
 }

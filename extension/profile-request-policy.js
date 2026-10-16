@@ -1,10 +1,11 @@
-export function isolatedProfileOptions({ signal = null } = {}) {
+export function isolatedProfileOptions({ signal = null, onDispatch } = {}) {
     return {
         stream: false,
         extractData: false,
         includePreset: false,
         includeInstruct: false,
         signal,
+        ...(onDispatch ? { onDispatch } : {}),
     };
 }
 

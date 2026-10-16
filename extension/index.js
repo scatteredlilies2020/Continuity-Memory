@@ -2,20 +2,23 @@ import { eventSource, event_types, extension_prompt_roles, extension_prompt_type
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
 import { api } from './api.js?v=0.15.0-testing.30';
-import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js?belief-wording=4';
+import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js?belief-wording=4&prepared-recall=1';
 import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maintainChronicleHierarchy, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.15.0-testing.30&belief-wording=4';
 import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.15.0-testing.30&belief-wording=4';
 import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.30';
 import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2&current-recall=1&bounded-recall=1&catchup-gate=1';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js';
+import { injectionScope, latestAvailableWorld, prepareInjectionSnapshot, readyInjectionSnapshot } from './prepared-injection.js?current-recall=1&bounded-recall=1';
+import { getPortableSnapshot } from './portable.js?belief-wording=4';
 import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.15.0-testing.30';
 import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.30';
-import { queryEmbeddingMemory, purgeEmbeddingIndex, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2';
+import { ensureGenerationEmbeddingIndex, queryEmbeddingMemory, purgeEmbeddingIndex, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2&current-recall=1&bounded-recall=1&catchup-gate=1';
 import { isTransientApiError } from './errors.js?v=0.15.0-testing.30';
-import { roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.15.0-testing.30';
+import { asRoleplayBlockingError, isRoleplayBlockingError, roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.15.0-testing.30';
+import { ensureGenerationMemory, waitForGenerationTask } from './generation-readiness.js?catchup-gate=1';
 import { isDigestStabilityProtectedMessage, latestCompleteDigestMessageIndex } from './digest-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
 import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.15.0-testing.30';
@@ -23,8 +26,9 @@ import { createBackgroundScheduler } from './background-scheduler.js';
 import { nextChroniclePromotion } from './chronicle.js';
 import { buildPlanningEvidence, createContinuityContextBridge } from './context-bridge.js?v=0.15.0-testing.30';
 
-import { resolveRetrievalAssist } from './retrieval-assist.js?v=0.15.0-testing.30';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.30&belief-wording=4';
+import { resolveRetrievalAssist } from './retrieval-assist.js?bounded-recall=1&catchup-gate=1';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.30&belief-wording=4&bounded-recall=1';
+import { getGenerationTiming, timeGenerationStep } from './generation-timing.js';
 
 const PROMPT_KEY = 'continuity_memory_context';
 const continuityContextBridge = createContinuityContextBridge(getContext);
@@ -40,6 +44,17 @@ let pendingEmbeddingSync = null;
 let injectionRefreshCancel = null;
 let injectionRefreshRevision = 0;
 let generationInjectionRunning = false;
+let preparedInjection = null;
+let generationRetrievalController = null;
+let previewRetrievalController = null;
+
+function cancelGenerationRetrieval() {
+    const active = generationRetrievalController;
+    generationRetrievalController?.abort(new DOMException('Story generation stopped or changed.', 'AbortError'));
+    generationRetrievalController = null;
+    generationInjectionRunning = false;
+    if (active) updateRuntime({ roleplayGate: null });
+}
 
 function yieldToBrowser(maxWait = 100) {
     return new Promise(resolve => {
@@ -75,6 +90,8 @@ function invalidateInjectionRefresh() {
     injectionRefreshCancel?.();
     injectionRefreshCancel = null;
     injectionRefreshPending = false;
+    previewRetrievalController?.abort(new DOMException('Retrieval preview superseded.', 'AbortError'));
+    previewRetrievalController = null;
 }
 
 function injectionRefreshIsCurrent(revision) {
@@ -178,53 +195,203 @@ function showGenerationNotification(type, message, options = undefined) {
 }
 
 globalThis.continuityMemoryGenerateInterceptor = async (coreChat, contextSize, abort, type) => {
+    const timing = type === 'quiet' ? null : getGenerationTiming();
     const settings = getSettings();
     if (!shouldGateRoleplayGeneration(settings, coreChat, type)) {
-        await reduceChatContext(coreChat, contextSize, abort, type);
+        if (!settings.enabled) {
+            clearPromptManagerInjection(promptManager);
+            setExtensionPrompt(PROMPT_KEY, '', extension_prompt_types.IN_PROMPT, 0, false);
+            return;
+        }
+        await reduceChatContext(coreChat, contextSize, abort, type, { cachedOnly: true });
         return;
     }
-    restorePendingExtractionReview();
+    // Ordinary turns use completed memory immediately. A large stable backlog
+    // or incomplete embedding index is the explicit catch-up exception.
+    cancelGenerationRetrieval();
+    invalidateInjectionRefresh();
+    generationInjectionRunning = true;
+    const controller = new AbortController();
+    generationRetrievalController = controller;
+    const refreshRevision = injectionRefreshRevision;
+    const placement = resolveInjectionPlacement(settings, extension_prompt_types, extension_prompt_roles);
     try {
-        if (!activeGenerationReadiness) {
-            if (mutationSync) clearTimeout(mutationSync);
-            mutationSync = null;
-            activeGenerationReadiness = prepareRoleplayGeneration(type)
-                .finally(() => {
-                    activeGenerationReadiness = null;
-                    updateRuntime({ roleplayGate: null });
-                });
+        const context = getContext();
+        const chatKey = getChatKey();
+        const worldId = getBoundWorldId();
+        const activeChat = roleplaySourceMessages(context.chat || [], type);
+        const sourceMessages = collectMemoryEligibleMessages(activeChat);
+        const recentLimit = Math.min(50, Math.max(2, Number(settings.retrievalQueryMessages) || 6));
+        const recent = activeChat.filter(message => !message?.is_system).slice(-recentLimit);
+        const currentWorld = () => latestAvailableWorld(worldId, runtime.world, getPortableSnapshot()?.world);
+        let waitedForCatchUp = false;
+        const showCatchUp = message => {
+            if (!waitedForCatchUp) showGenerationNotification('info', message);
+            waitedForCatchUp = true;
+            updateRuntime({ roleplayGate: { active: true, message, startedAt: Date.now() },
+                injectionStatus: message, retryStatus: message });
+        };
+        let world = currentWorld();
+        if (world) {
+            try {
+                world = await timeGenerationStep('CM: memory backlog readiness', () => ensureGenerationMemory({
+                    sourceMessages, batchSize: settings.extractionBatchMessages, currentWorld,
+                    getCoverage: getProcessingCoverage, readState: () => runtime, subscribe: onRuntimeChange,
+                    extract: messages => maybeAutoExtract(true, messages), signal: controller.signal,
+                    onWait: policy => showCatchUp(`Reply waiting: ${policy.pending} stable messages await memory extraction (catch-up threshold: ${policy.hardLimit}).`),
+                }), timing);
+            } catch (error) {
+                if (controller.signal.aborted) throw error;
+                throw asRoleplayBlockingError(error, 'Memory catch-up failed;');
+            }
         }
-        const readiness = await activeGenerationReadiness;
-        const reduction = await reduceChatContext(coreChat, contextSize, abort, type);
-        await refreshInjection(true, readiness.sourceMessages, readiness.recentMessages, {
-            rawTailRange: reduction?.rawTailRange || null,
+        let retrieval = null;
+        let retrievalRetries = 0;
+        while (world) {
+            const retrievalRevision = world.revision;
+            retrieval = await timeGenerationStep(`CM: ${settings.retrievalMode} lookup`, () => resolveRetrievalAssist({
+                mode: settings.retrievalMode, phase: 'generation', world, messages: recent,
+                query: queryEmbeddingMemory, expand: expandRetrievalTerms, signal: controller.signal,
+            }), timing);
+            controller.signal.throwIfAborted();
+            if (retrieval.assist.code === 'CONTINUITY_EMBEDDING_INDEX_NOT_READY') {
+                showCatchUp('Reply waiting for at least 90% of the selected embedding index to be ready.');
+                try {
+                    await timeGenerationStep('CM: embedding index catch-up',
+                        () => ensureGenerationEmbeddingIndex(world, { signal: controller.signal }), timing);
+                } catch (error) {
+                    if (controller.signal.aborted) throw error;
+                    throw asRoleplayBlockingError(error, 'Embedding catch-up failed;');
+                }
+                world = currentWorld();
+                continue;
+            }
+            if (retrieval.assist.fallback) {
+                const label = settings.retrievalMode === 'ai-expanded' ? 'AI retrieval' : 'Embedding retrieval';
+                updateRuntime({ retrievalAssist: { ...retrieval.assist, mode: settings.retrievalMode, fallback: false, failed: true },
+                    lastGenerationRetrieval: null });
+                if (retrieval.assist.retryable && retrievalRetries < 1) {
+                    retrievalRetries++;
+                    showCatchUp(`${label} was delayed or temporarily unavailable; retrying the configured retrieval once.`);
+                    await waitForGenerationTask(() => new Promise(resolve => globalThis.setTimeout(resolve, 1000)), controller.signal);
+                    world = currentWorld();
+                    continue;
+                }
+                throw asRoleplayBlockingError(new Error(`${label} could not complete: ${retrieval.assist.error || retrieval.assist.reason}. Local fallback was not used.`));
+            }
+            // Re-query a newly completed memory revision rather than applying
+            // semantic ranks from an older index to the latest stored facts.
+            const latest = currentWorld();
+            world = latest || world;
+            if (settings.retrievalMode === 'embedding-hybrid' && world.revision !== retrievalRevision) continue;
+            break;
+        }
+        if (controller.signal.aborted || !injectionRefreshIsCurrent(refreshRevision)
+            || chatKey !== getChatKey() || worldId !== getBoundWorldId()) {
+            abort?.(true);
+            return;
+        }
+        if (waitedForCatchUp) updateRuntime({ roleplayGate: null, retryStatus: 'Memory preparation is ready for this reply.' });
+        const semanticRanks = retrieval?.ranks || new Map();
+        const expandedTerms = retrieval?.terms || [];
+        const retrievalKey = JSON.stringify([retrieval?.assist.mode, [...semanticRanks], expandedTerms]);
+        const prepared = readyInjectionSnapshot(preparedInjection, {
+            chatKey: getChatKey(), world, scope: injectionScope(settings, context.maxContext), sourceMessages, recentMessages: recent,
         });
-        if (readiness.notification) showGenerationNotification('success', readiness.notification);
+        let snapshot = prepared?.injection && preparedInjection.retrievalKey === retrievalKey
+            ? { ...prepared, assist: retrieval.assist } : null;
+        const usedPrepared = Boolean(snapshot);
+        let bridgeMetadata = snapshot ? preparedInjection.bridgeMetadata : null;
+        if (!snapshot && world) {
+            const budget = resolveInjectionBudget(settings.injectionBudgetTokens, context.maxContext);
+            const coverage = getProcessingCoverage(world, sourceMessages);
+            const invalidSourceRanges = findInvalidExtractionRanges(world, sourceMessages, getChatKey());
+            const result = await timeGenerationStep('CM: current-turn memory selection', () => buildMemoryPrompt(
+                world, recent, budget.tokens, chatKey, expandedTerms, settings.injectionInstruction, semanticRanks,
+                { invalidSourceRanges, includeSceneCheckpoint: coverage.pending === 0, includeStorySoFar: settings.storySoFarEnabled },
+            ), timing);
+            snapshot = createRetrievalSnapshot({
+                phase: 'generation', prompt: result.prompt, tokens: result.estimatedTokens, diagnostics: result.retrievalDiagnostics,
+                budget, status: 'Latest completed memory selected for the current message.',
+                assist: retrieval.assist,
+            });
+            bridgeMetadata = {
+                coverage: { throughMessageIndex: coverage.latestIndex },
+                planningEvidence: buildPlanningEvidence(world, getChatKey(), coverage, { invalidSourceRanges }),
+            };
+            preparedInjection = prepareInjectionSnapshot({
+                chatKey: getChatKey(), world, scope: injectionScope(settings, context.maxContext),
+                sourceMessages, recentMessages: recent, snapshot, bridgeMetadata, retrievalKey,
+            });
+        }
+        const prompt = snapshot?.injection || '';
+        const managerApplied = getContext().mainApi === 'openai'
+            && configurePromptManagerInjection(promptManager, settings, prompt);
+        if (!managerApplied) clearPromptManagerInjection(promptManager);
+        setExtensionPrompt(PROMPT_KEY, managerApplied ? '' : prompt,
+            managerApplied ? extension_prompt_types.NONE : placement.position,
+            managerApplied ? 0 : placement.depth, false, placement.role);
+        if (prompt) {
+            await timeGenerationStep('CM: cached history reduction',
+                () => reduceChatContext(coreChat, contextSize, abort, type, { cachedOnly: true }), timing);
+        } else {
+            // A stale snapshot must not remain available to other extensions.
+            continuityContextBridge.publish('');
+        }
+        if (prompt && bridgeMetadata) continuityContextBridge.publish(prompt, bridgeMetadata);
+        updateRuntime({
+            ...(retrieval ? { retrievalAssist: retrieval.assist } : {}),
+            lastGenerationRetrieval: snapshot ? { ...snapshot, phase: 'generation', prepared: usedPrepared } : null,
+            lastInjection: prompt, lastInjectionTokens: snapshot?.injectionTokens || 0,
+            injectionStatus: snapshot ? 'Latest completed memory applied to the current message.'
+                : 'Memory is loading in the background; using raw chat for this reply.',
+            roleplayGate: null,
+        });
+        scheduleInjectionRefresh();
     } catch (error) {
-        // Memory is an enhancement, not a hard dependency for roleplay. A
-        // storage/model failure must not cancel the user's generation; fall
-        // back to SillyTavern's normal context reduction and raw chat.
+        if (controller.signal.aborted) {
+            abort?.(true);
+            return;
+        }
+        if (isRoleplayBlockingError(error)) {
+            const message = `Reply cancelled during memory preparation: ${error.message}`;
+            clearPromptManagerInjection(promptManager);
+            setExtensionPrompt(PROMPT_KEY, '', placement.position, placement.depth, false, placement.role);
+            continuityContextBridge.publish('');
+            updateRuntime({ lastError: error.message, injectionStatus: message, retryStatus: message, roleplayGate: null });
+            showGenerationNotification('error', message);
+            abort?.(true);
+            return;
+        }
+        // Ordinary preparation failures keep raw history available. The
+        // explicit catch-up exceptions above must not fall through here.
         const message = `Continuity was unavailable for this reply; continuing without the latest memory: ${error.message}`;
         updateRuntime({ status: 'error', lastError: error.message, injectionStatus: message, retryStatus: message, roleplayGate: null });
         console.error('[Continuity] Roleplay readiness failed; continuing without fresh memory.', error);
-        try {
-            await reduceChatContext(coreChat, contextSize, abort, type);
-        } catch (reductionError) {
-            console.error('[Continuity] Raw context fallback also failed.', reductionError);
-        }
+        clearPromptManagerInjection(promptManager);
+        setExtensionPrompt(PROMPT_KEY, '', placement.position, placement.depth, false, placement.role);
+        continuityContextBridge.publish('');
         showGenerationNotification('error', message);
+    } finally {
+        if (generationRetrievalController === controller) {
+            generationRetrievalController = null;
+            generationInjectionRunning = false;
+            updateRuntime({ roleplayGate: null });
+        }
     }
 };
 
 async function prepareRoleplayGeneration(type) {
     const updates = [];
-    await ensureCurrentChatMemory(true);
-    const activeChat = roleplaySourceMessages(getContext().chat || [], type).filter(message => !message?.is_system);
+    const timing = null; // This preparation runs outside the visible reply.
+    restorePendingExtractionReview();
+    await timeGenerationStep('CM: load current memory', () => ensureCurrentChatMemory(true), timing);
+    const activeChat = roleplaySourceMessages(getContext().chat || [], type);
     const sourceMessages = collectMemoryEligibleMessages(activeChat);
     // Repair is local and may defer while background extraction owns the
     // processing lock. Invalid ranges remain excluded fail-closed, so neither
     // extraction nor vector work needs to hold up the user's reply.
-    const repair = await repairDivergedBranch({ sourceMessages });
+    const repair = await timeGenerationStep('CM: branch consistency check', () => repairDivergedBranch({ sourceMessages }), timing);
     if (repair.repaired) {
         if (repair.divergenceDetected) updates.push(`repaired changed memory from message ${repair.repairFrom} onward`);
         if (repair.stabilityRewound) updates.push('restored the two-message extraction buffer');
@@ -240,14 +407,19 @@ async function prepareRoleplayGeneration(type) {
     const settings = getSettings();
     const recentLimit = Math.min(50, Math.max(2, Number(settings.retrievalQueryMessages) || 6));
     const notification = updates.length ? `Continuity updated before roleplay: ${updates.join('; ')}.` : '';
-    return { sourceMessages, recentMessages: activeChat.slice(-recentLimit), notification };
+    return { sourceMessages, recentMessages: activeChat.filter(message => !message?.is_system).slice(-recentLimit), notification };
 }
 
 async function performInjectionRefresh(useRetrievalAssist, coverageMessages, recentMessages, promptOptions, refreshRevision) {
     const settings = getSettings();
+    const chatKey = getChatKey();
+    const worldId = getBoundWorldId();
+    const timing = useRetrievalAssist ? getGenerationTiming() : null;
     const phase = useRetrievalAssist ? 'generation' : 'preview';
     const placement = resolveInjectionPlacement(settings, extension_prompt_types, extension_prompt_roles);
-    const refreshIsCurrent = () => injectionRefreshIsCurrent(refreshRevision);
+    const refreshIsCurrent = () => injectionRefreshIsCurrent(refreshRevision)
+        && chatKey === getChatKey() && worldId === getBoundWorldId()
+        && (useRetrievalAssist || !generationInjectionRunning && !isGenerating());
     if (!settings.enabled || !getBoundWorldId()) {
         if (!refreshIsCurrent()) return;
         setExtensionPrompt(PROMPT_KEY, '', placement.position, placement.depth, false, placement.role);
@@ -282,9 +454,18 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
         : (getContext().chat || []).filter(message => !message?.is_system);
     const queryMessageLimit = Math.min(50, Math.max(2, Number(settings.retrievalQueryMessages) || 6));
     const recent = availableRecent.slice(-queryMessageLimit);
-    const { ranks: semanticRanks, terms: expandedTerms, assist: retrievalAssist } = await resolveRetrievalAssist({
-        mode: settings.retrievalMode, phase, world, messages: recent, query: queryEmbeddingMemory, expand: expandRetrievalTerms,
-    });
+    const controller = new AbortController();
+    previewRetrievalController = controller;
+    let retrieval;
+    try {
+        retrieval = await timeGenerationStep(`CM: ${settings.retrievalMode} lookup`, async () => await resolveRetrievalAssist({
+            mode: settings.retrievalMode, phase, world, messages: recent, query: queryEmbeddingMemory, expand: expandRetrievalTerms,
+            signal: controller.signal,
+        }), timing);
+    } finally {
+        if (previewRetrievalController === controller) previewRetrievalController = null;
+    }
+    const { ranks: semanticRanks, terms: expandedTerms, assist: retrievalAssist } = retrieval;
     if (!refreshIsCurrent()) return;
     updateRuntime({ retrievalAssist });
     const budget = resolveInjectionBudget(settings.injectionBudgetTokens, getContext().maxContext);
@@ -293,13 +474,14 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
         : collectMemoryEligibleMessages(getContext().chat || []);
     const coverage = getProcessingCoverage(world, sourceMessages);
     const invalidSourceRanges = findInvalidExtractionRanges(world, sourceMessages, getChatKey());
-    await yieldToBrowser();
+    await timeGenerationStep('CM: browser yield', () => yieldToBrowser(), timing);
     if (!refreshIsCurrent()) return;
-    await prepareRetrievalCorpus(world, yieldToBrowser, refreshIsCurrent);
+    await timeGenerationStep('CM: retrieval corpus preparation', () => prepareRetrievalCorpus(world,
+        () => timeGenerationStep('CM: browser yield', () => yieldToBrowser(), timing), refreshIsCurrent), timing);
     if (!refreshIsCurrent()) return;
     const memoryPromptOptions = { ...(promptOptions || {}) };
     delete memoryPromptOptions.localOnly;
-    const { prompt, estimatedTokens, retrievalDiagnostics } = buildMemoryPrompt(
+    const { prompt, estimatedTokens, retrievalDiagnostics } = await timeGenerationStep('CM: memory selection and prompt assembly', () => buildMemoryPrompt(
         world,
         recent,
         budget.tokens,
@@ -309,7 +491,7 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
         semanticRanks,
         { ...memoryPromptOptions, invalidSourceRanges, includeSceneCheckpoint: coverage.pending === 0, includeStorySoFar: settings.storySoFarEnabled,
         },
-    );
+    ), timing);
     if (!refreshIsCurrent()) return;
     const managerApplied = useRetrievalAssist && getContext().mainApi === 'openai'
         && configurePromptManagerInjection(promptManager, settings, prompt);
@@ -334,6 +516,15 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
         budget,
         status: injectionStatus,
     });
+    const bridgeMetadata = {
+        coverage: { throughMessageIndex: coverage.latestIndex },
+        planningEvidence: buildPlanningEvidence(world, getChatKey(), coverage, { invalidSourceRanges }),
+    };
+    preparedInjection = prepareInjectionSnapshot({
+        chatKey, world, scope: injectionScope(settings, getContext().maxContext),
+        sourceMessages, recentMessages: recent, snapshot: retrievalSnapshot, bridgeMetadata,
+        retrievalKey: JSON.stringify([retrievalAssist.mode, [...semanticRanks], expandedTerms]),
+    });
     updateRuntime({
         lastInjection: prompt,
         lastInjectionTokens: estimatedTokens,
@@ -342,10 +533,7 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
         injectionStatus,
         ...retrievalSnapshotPatch(retrievalSnapshot),
     });
-    continuityContextBridge.publish(prompt, {
-        coverage: { throughMessageIndex: coverage.latestIndex },
-        planningEvidence: buildPlanningEvidence(world, getChatKey(), coverage, { invalidSourceRanges }),
-    });
+    continuityContextBridge.publish(prompt, bridgeMetadata);
 }
 
 async function refreshInjection(useRetrievalAssist = false, coverageMessages = null, recentMessages = null, promptOptions = {}) {
@@ -382,7 +570,7 @@ async function refreshInjection(useRetrievalAssist = false, coverageMessages = n
 }
 
 function scheduleInjectionRefresh() {
-    if (generationInjectionRunning) {
+    if (generationInjectionRunning || isGenerating()) {
         injectionRefreshPending = true;
         return;
     }
@@ -395,13 +583,30 @@ function scheduleInjectionRefresh() {
     }
     const run = async () => {
         injectionRefreshCancel = null;
+        if (generationInjectionRunning || isGenerating()) {
+            injectionRefreshPending = true;
+            return;
+        }
         injectionRefreshRunning = true;
+        const preparationChatKey = getChatKey();
         try {
-            await refreshInjection();
+            activeGenerationReadiness = prepareRoleplayGeneration('normal');
+            const readiness = await activeGenerationReadiness;
+            if (isGenerating() || generationInjectionRunning || getChatKey() !== preparationChatKey) return;
+            const context = getContext();
+            const previewChat = roleplaySourceMessages(context.chat || [], 'normal')
+                .map((message, index) => ({ ...message, index }));
+            await reduceChatContext(previewChat, context.maxContext, null, 'normal');
+            if (isGenerating() || generationInjectionRunning || getChatKey() !== preparationChatKey) return;
+            // Keep a self-contained prepared prompt: the next appended turn
+            // can move the raw-tail boundary before this snapshot is reused.
+            await refreshInjection(false, readiness.sourceMessages, readiness.recentMessages);
         } catch (error) {
             updateRuntime({ lastError: `Injection failed: ${error.message}` });
         } finally {
+            activeGenerationReadiness = null;
             injectionRefreshRunning = false;
+            updateRuntime({ roleplayGate: null });
             if (injectionRefreshPending) {
                 injectionRefreshPending = false;
                 scheduleInjectionRefresh();
@@ -460,6 +665,7 @@ function scheduleMutationSync(delay = 350, requireDivergenceRepair = false) {
 }
 
 async function onChatChanged() {
+    cancelGenerationRetrieval();
     invalidateInjectionRefresh();
     if (runtime.processing || runtime.queue.length) {
         invalidateRuntimeWork('Chat changed; discarded memory work belonging to the previous chat.');
@@ -571,17 +777,29 @@ async function init() {
     if (event_types.CHAT_RENAMED) {
         eventSource.on(event_types.CHAT_RENAMED, eventData => onChatRenamed(eventData).catch(error => updateRuntime({ lastError: `Chat memory rename failed: ${error.message}` })));
     }
-    eventSource.on(event_types.GENERATION_STARTED, async (type, _params, dryRun) => {
+    eventSource.on(event_types.GENERATION_STARTED, (type, _params, dryRun) => {
         const roleplayGeneration = !dryRun && shouldGateRoleplayGeneration(getSettings(), getContext().chat || [], type);
         // Ordinary roleplay generations are refreshed later by the interceptor
         // with the complete user turn. Memory work resumes only after the
         // visible reply returns so it cannot compete with the RP provider.
-        if (roleplayGeneration) return;
-        try { await refreshInjection(false); }
-        catch (error) { updateRuntime({ lastError: `Could not prepare memory: ${error.message}` }); }
+        if (roleplayGeneration) {
+            cancelGenerationRetrieval();
+            invalidateInjectionRefresh();
+            return;
+        }
+        if (!dryRun) scheduleInjectionRefresh();
+    });
+    eventSource.on(event_types.GENERATION_ENDED, () => {
+        cancelGenerationRetrieval();
+        generationInjectionRunning = false;
+        // Let the host finish releasing its generation flag before resuming.
+        globalThis.setTimeout(scheduleInjectionRefresh, 0);
     });
     if (event_types.GENERATION_STOPPED) {
         eventSource.on(event_types.GENERATION_STOPPED, () => {
+            cancelGenerationRetrieval();
+            generationInjectionRunning = false;
+            globalThis.setTimeout(scheduleInjectionRefresh, 0);
             // ST Stop belongs to the visible reply. Only CM's own controls
             // stop detached memory jobs; saved and pending work stay intact.
             if (!runtime.paused) backgroundMemoryWork.schedule(0);
@@ -599,6 +817,7 @@ async function init() {
     });
     for (const eventName of [event_types.MESSAGE_SWIPED, event_types.MESSAGE_EDITED, event_types.MESSAGE_UPDATED].filter(Boolean)) {
         eventSource.on(eventName, messageIndex => {
+            if (runtime.roleplayGate?.active) cancelGenerationRetrieval();
             // Changes inside the stability tail cannot overlap newly queued Digest
             // work, so let older safe extraction finish instead of wasting it.
             const policy = sourceMutationPolicy(mutationTouchesProtectedTail(messageIndex));
@@ -614,6 +833,7 @@ async function init() {
     }
     if (event_types.MESSAGE_DELETED) {
         eventSource.on(event_types.MESSAGE_DELETED, () => {
+        if (runtime.roleplayGate?.active) cancelGenerationRetrieval();
         if (runtime.processing || runtime.queue.length) {
             invalidateRuntimeWork('A source message was deleted; discarded memory work that could contain it.');
         }

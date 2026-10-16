@@ -30,7 +30,7 @@ test('embedding inserts get a long stall watchdog and recover from transient fai
     assert.match(source, /globalThis\.clearTimeout\(timer\)/u);
 });
 
-test('memory catch-up never retries or waits on the visible roleplay path', async () => {
+test('ordinary background preparation never forces extraction or embedding catch-up', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
     const start = source.indexOf('async function prepareRoleplayGeneration');
     const end = source.indexOf('async function performInjectionRefresh', start);
@@ -146,11 +146,11 @@ test('generation defers branch repair instead of failing while background Digest
     assert.doesNotMatch(repair, /Wait for current processing to finish/u);
 });
 
-test('an explicit vector query requires a fully complete index', async () => {
+test('an explicit vector query enforces the embedding coverage policy', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/embedding-retrieval.js', import.meta.url), 'utf8'));
-    assert.match(source, /index\.status !== 'ready' \|\| indexed !== total/u);
-    assert.match(source, /until all \$\{total\} records are ready/u);
-    assert.doesNotMatch(source, /hasUsablePartialIndex|embeddingCoverageReady/u);
+    assert.match(source, /embeddingCoverageReady\(indexed, total\)/u);
+    assert.match(source, /CONTINUITY_EMBEDDING_INDEX_NOT_READY/u);
+    assert.doesNotMatch(source, /hasUsablePartialIndex/u);
     assert.doesNotMatch(source, /if \(index\.status !== 'ready' && options\.waitForActiveSync\)/u);
     assert.doesNotMatch(source, /await activeSync/u);
 });

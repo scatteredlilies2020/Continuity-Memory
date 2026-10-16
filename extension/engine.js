@@ -493,7 +493,7 @@ function renderStructuredTaskPrompt(template, defaultTemplate, values, schemaExa
     }, [usesFormatPlaceholder ? 'format' : 'schema', ...required]);
 }
 
-async function requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, kind, withSchema = true, thinkingMode = getSettings().thinkingMode, signal = undefined, prefill = resolveMemoryPrefill(DIRECT_PROFILE_ID)) {
+async function requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, kind, withSchema = true, thinkingMode = getSettings().thinkingMode, signal = undefined, prefill = resolveMemoryPrefill(DIRECT_PROFILE_ID), onDispatch = undefined) {
     thinkingMode = resolveThinkingModeForProfile(thinkingMode, DIRECT_PROFILE_ID);
     const config = directRequestConfig(kind);
     const thinking = buildThinkingRequest({
@@ -516,12 +516,15 @@ async function requestDirectStructured(prompt, systemPrompt, jsonSchema, respons
     };
     updateRuntime({ thinkingControl: { mode: thinkingMode, adapter: thinking.adapter, fallback: false } });
     const prepared = await prepareMemoryRequest(body, DIRECT_PROFILE_ID);
-    const response = await fetch('/api/backends/chat-completions/generate', {
+    const requestOptions = {
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify(memoryWireRequest(prepared)),
         signal,
-    });
+    };
+    signal?.throwIfAborted();
+    onDispatch?.();
+    const response = await fetch('/api/backends/chat-completions/generate', requestOptions);
     const text = await response.text();
     let payload;
     try { payload = text ? JSON.parse(text) : {}; }
@@ -601,8 +604,8 @@ function extractProfileResponse(response, apiMap, profileName, prefill = '') {
     return response?.continuity_prefill_complete ? result : responseWithPrefill(result, prefill);
 }
 
-export async function requestDirectText(prompt, systemPrompt, responseLength = 300, kind = 'extraction', thinkingMode = getSettings().thinkingMode, { signal } = {}) {
-    return requestDirectStructured(prompt, systemPrompt, null, responseLength, kind, false, thinkingMode, signal);
+export async function requestDirectText(prompt, systemPrompt, responseLength = 300, kind = 'extraction', thinkingMode = getSettings().thinkingMode, { signal, onDispatch } = {}) {
+    return requestDirectStructured(prompt, systemPrompt, null, responseLength, kind, false, thinkingMode, signal, undefined, onDispatch);
 }
 
 async function requestStructured(prompt, systemPrompt, jsonSchema, responseLength = null, profileId = getSettings().memoryProfileId, directKind = 'extraction', fallbackPrompt = prompt, thinkingMode = getSettings().thinkingMode, summary = false) {

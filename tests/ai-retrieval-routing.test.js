@@ -55,19 +55,23 @@ test('a separate AI direct model uses retrieval routing and forwards cancellatio
     const calls = [];
     const module = await load({ memoryProfileId: 'other', retrievalProfileId: '__direct__' }, calls);
     const signal = new AbortController().signal;
-    await module.expandRetrievalTerms(messages, { signal });
+    const onDispatch = () => {};
+    await module.expandRetrievalTerms(messages, { signal, onDispatch });
     assert.equal(calls[0][4], 'retrieval');
     assert.equal(calls[0][6].signal, signal);
+    assert.equal(calls[0][6].onDispatch, onDispatch);
 });
 
 test('AI connection profiles receive isolated requests and the caller abort signal', async () => {
     const calls = [];
     const module = await load({ retrievalProfileId: 'retrieval-profile' }, calls);
     const signal = new AbortController().signal;
-    await module.expandRetrievalTerms(messages, { signal });
+    const onDispatch = () => {};
+    await module.expandRetrievalTerms(messages, { signal, onDispatch });
     assert.equal(calls[0][0], 'profile');
     assert.equal(calls[0][1], 'retrieval-profile');
     assert.equal(calls[0][4].signal, signal);
+    assert.equal(calls[0][4].onDispatch, onDispatch);
     assert.equal(calls[0][4].includePreset, false);
     assert.equal(calls[0][4].includeInstruct, false);
 });
@@ -103,4 +107,45 @@ test('AI retrieval appends preset prefill and invalidates cached terms when it c
     await module.expandRetrievalTerms(messages);
     assert.equal(calls.length, 2);
     assert.equal(calls[1][2].at(-1).content, prefill);
+});
+
+test('AI retrieval using the active provider forwards its independent cancellation signal', async () => {
+    const calls = [];
+    const module = await load({}, calls);
+    const signal = new AbortController().signal;
+    const onDispatch = () => {};
+    await module.expandRetrievalTerms(messages, { signal, onDispatch });
+    assert.equal(calls[0][0], 'active');
+    assert.equal(calls[0][1].signal, signal);
+    assert.equal(calls[0][1].onDispatch, onDispatch);
+});
+
+test('a new reply never joins an aborted preview that has not settled', async () => {
+    const pending = [];
+    const module = await load({ memoryProfileId: '__direct__' }, [], {
+        requestDirectText: () => new Promise(resolve => pending.push(resolve)),
+    });
+    const previewController = new AbortController();
+    const preview = module.expandRetrievalTerms(messages, { signal: previewController.signal });
+    const rejected = assert.rejects(preview, /preview cancelled/);
+    previewController.abort(new Error('preview cancelled'));
+    const reply = module.expandRetrievalTerms(messages, { signal: new AbortController().signal });
+    assert.equal(pending.length, 2);
+    pending[1]('{"terms":["current terms"]}');
+    assert.deepEqual(await reply, ['current terms']);
+    pending[0]('{"terms":["old terms"]}');
+    await rejected;
+    assert.deepEqual(await module.expandRetrievalTerms(messages), ['current terms']);
+});
+
+test('AI responses arriving after a delayed timer are rejected and never cached', async t => {
+    let now = 0;
+    t.mock.method(Date, 'now', () => now);
+    let count = 0;
+    const module = await load({ memoryProfileId: '__direct__' }, [], {
+        requestDirectText: async () => { now = 200; count++; return '{"terms":["current terms"]}'; },
+    });
+    await assert.rejects(module.expandRetrievalTerms(messages, { deadline: 100 }), { name: 'TimeoutError' });
+    assert.deepEqual(await module.expandRetrievalTerms(messages), ['current terms']);
+    assert.equal(count, 2);
 });

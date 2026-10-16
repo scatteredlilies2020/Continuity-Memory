@@ -70,16 +70,21 @@ test('a server job failure remains a failure rather than an endless connection r
 const index = readFileSync(new URL('../extension/index.js', import.meta.url), 'utf8');
 test('stopping the story preserves CM work and respects its separate pause control', () => {
     let listener;
+    let refreshes = 0;
     const calls = [];
-    const scope = { runtime: { paused: false }, activeGenerationReadiness: Promise.resolve(),
+    const scope = { runtime: { paused: false }, activeGenerationReadiness: Promise.resolve(), generationInjectionRunning: true,
+        cancelGenerationRetrieval: () => calls.push('cancel-retrieval'),
+        setTimeout: callback => callback(), scheduleInjectionRefresh: () => { refreshes++; },
         event_types: { GENERATION_STOPPED: 'stop' }, eventSource: { on: (_event, callback) => { listener = callback; } },
         backgroundMemoryWork: { schedule: () => calls.push('schedule') }, stopRuntime: () => calls.push('cancel') };
     vm.createContext(scope);
     vm.runInContext(index.match(/    if \(event_types.GENERATION_STOPPED\) \{[^]*?^    }/m)[0], scope);
     listener();
+    assert.equal(scope.generationInjectionRunning, false);
     scope.runtime.paused = true;
     listener();
-    assert.deepEqual(calls, ['schedule']);
+    assert.deepEqual(calls, ['cancel-retrieval', 'schedule', 'cancel-retrieval']);
+    assert.equal(refreshes, 2);
 });
 
 

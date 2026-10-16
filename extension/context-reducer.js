@@ -28,7 +28,7 @@ async function countMessage(identity) {
     return count;
 }
 
-export async function reduceChatContext(coreChat, contextSize, _abort, type) {
+export async function reduceChatContext(coreChat, contextSize, _abort, type, { cachedOnly = false } = {}) {
     const settings = getSettings();
     if (!canReduceContext(settings, coreChat, type)) {
         return { rawTailRange: messageRange(coreChat) };
@@ -38,7 +38,7 @@ export async function reduceChatContext(coreChat, contextSize, _abort, type) {
         const worldId = getBoundWorldId();
         const chatKey = getChatKey();
         if (!worldId || !chatKey) return { rawTailRange: messageRange(coreChat) };
-        let world = runtime.world?.id === worldId ? runtime.world : await loadBoundWorld();
+        let world = runtime.world?.id === worldId ? runtime.world : cachedOnly ? null : await loadBoundWorld();
         const processed = new Map((world?.sources?.[chatKey]?.processedMessages || [])
             .filter(item => Number(item.version) === EXTRACTION_VERSION)
             .map(item => [Number(item.index), item.fingerprint]));
@@ -50,7 +50,13 @@ export async function reduceChatContext(coreChat, contextSize, _abort, type) {
         const mapped = mapContextMessages(coreChat, getContext().chat || []);
         const mappedByPosition = new Map(mapped.map(item => [item.position, item]));
         const comparable = mapped.filter(item => item.promptIdentity?.text);
-        const counts = await Promise.all(comparable.map(item => countMessage(item.promptIdentity)));
+        // Reply preparation must not issue tokenizer requests. A byte count
+        // conservatively reserves space for a new/edited message until the
+        // background preparation has cached its exact token count.
+        const counts = cachedOnly
+            ? comparable.map(item => tokenCache.get(fingerprintMessage(item.promptIdentity))
+                ?? new TextEncoder().encode(`${item.promptIdentity.name}: ${item.promptIdentity.text}`).length + 16)
+            : await Promise.all(comparable.map(item => countMessage(item.promptIdentity)));
         const countByPosition = new Map(comparable.map((item, index) => [item.position, counts[index]]));
         const size = Number(contextSize) || Number(getContext().maxContext) || 50000;
         const budgetInfo = tailPolicy(settings, size, fixedPromptTokensByChat.get(chatKey));

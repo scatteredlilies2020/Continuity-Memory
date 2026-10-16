@@ -42,6 +42,16 @@ function dependencies(overrides = {}) {
     };
 }
 
+test('direct retrieval reports dispatch after request preparation and before fetch', async () => {
+    const steps = [];
+    const request = load(engine, 'requestDirectStructured', dependencies({
+        prepareMemoryRequest: async body => { steps.push('prepare'); return { ...body, continuity_prefill: { prefill: '' } }; },
+        fetch: async () => { steps.push('fetch'); return { ok: true, text: async () => JSON.stringify({ choices: [{ message: { content: 'answer' } }] }) }; },
+    }));
+    await request('query', 'system', null, 300, 'retrieval', false, 'off', undefined, '', () => steps.push('dispatch'));
+    assert.deepEqual(steps, ['prepare', 'dispatch', 'fetch']);
+});
+
 test('active generation forwards prefill through thinking retries and restores partial JSON', async () => {
     const calls = [];
     const fn = load(engine, 'generateWithThinkingPolicy', dependencies({

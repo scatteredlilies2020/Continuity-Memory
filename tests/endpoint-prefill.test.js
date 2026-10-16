@@ -152,6 +152,7 @@ test('detached tree prepares all retries and split tasks with per-request metada
 test('active fork prefill uses isolated host routing and never enables its shared decoder', async () => {
     const active = { ...settings, structured_prefill_hide: true, chat_completion_source: 'custom', reverse_proxy: 'https://proxy.example.invalid' };
     const sent = [];
+    let dispatches = 0;
     const generate = load('generateEndpointMemory', {
         endpointModules: async () => modules, getContext: () => ({ mainApi: 'openai' }),
         oai_settings: active, memoryRequestMessages, memoryWireRequest, decodeMemoryResponse,
@@ -166,6 +167,7 @@ test('active fork prefill uses isolated host routing and never enables its share
             },
         },
         fetch: async (_, { body }) => {
+            assert.equal(dispatches, sent.length + 1);
             const request = JSON.parse(body);
             sent.push(request);
             assert.equal(request.continuity_prefill, undefined);
@@ -175,9 +177,10 @@ test('active fork prefill uses isolated host routing and never enables its share
             return { ok: true, json: async () => ({ text }) };
         },
     });
-    const results = await Promise.all(['one', 'two'].map(prompt => generate({ prompt, systemPrompt: 'system', prefill: `${prompt}\n` }, body => { body.max_tokens = 150; })));
+    const results = await Promise.all(['one', 'two'].map(prompt => generate({ prompt, systemPrompt: 'system', prefill: `${prompt}\n`, onDispatch: () => { dispatches++; } }, body => { body.max_tokens = 150; })));
     assert.deepEqual(results, ['one\nrest', 'two\nrest']);
     assert.equal(sent.length, 2);
+    assert.equal(dispatches, 2);
     assert.equal(active.structured_prefill, 'on');
     assert.equal(active.structured_prefill_hide, true);
 });

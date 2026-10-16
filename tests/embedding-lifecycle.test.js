@@ -6,6 +6,9 @@ import { buildEmbeddingDocuments, buildEmbeddingQuery, semanticRanksFromResponse
 import { resolveEmbeddingProvider } from '../extension/embedding-provider.js';
 import { createVectorStorageRequester, vectorStorageError } from '../extension/vector-storage-client.js';
 import { embeddingRetryDelay, isRetryableEmbeddingError } from '../extension/embedding-retry.js';
+import { checkRetrievalDeadline } from '../extension/retrieval-assist.js';
+import { embeddingCoverageReady } from '../extension/embedding-policy.js';
+import { asRoleplayBlockingError, isRoleplayBlockingError } from '../extension/generation-policy.js';
 
 const source = (await readFile(new URL('../extension/embedding-retrieval.js', import.meta.url), 'utf8'))
     .replace(/^import .*;\n/gmu, '').replace(/^export /gmu, '');
@@ -18,14 +21,16 @@ function deferred() {
 
 function harness(fetchFn, overrides = {}) {
     const runtime = {};
+    const listeners = new Set();
     const settings = { retrievalMode: 'embedding-hybrid', embeddingAutoSync: true,
         embeddingProxyUrl: 'http://localhost:9999', embeddingProxyModel: 'test-model' };
-    const api = runInNewContext(`${source}\n({ ensureEmbeddingIndex, queryEmbeddingMemory, inspectEmbeddingIndex, scheduleEmbeddingIndexSync, pauseEmbeddingIndexing, stopEmbeddingIndexing, resumeEmbeddingIndexing })`, {
+    const api = runInNewContext(`${source}\n({ ensureEmbeddingIndex, ensureGenerationEmbeddingIndex, queryEmbeddingMemory, inspectEmbeddingIndex, scheduleEmbeddingIndexSync, pauseEmbeddingIndexing, stopEmbeddingIndexing, resumeEmbeddingIndexing })`, {
         buildEmbeddingDocuments, buildEmbeddingQuery, semanticRanksFromResponse, resolveEmbeddingProvider,
         createVectorStorageRequester: () => createVectorStorageRequester(fetchFn), vectorStorageError,
-        embeddingRetryDelay, isRetryableEmbeddingError,
+        embeddingRetryDelay, isRetryableEmbeddingError, checkRetrievalDeadline, embeddingCoverageReady, asRoleplayBlockingError,
         getSettings: () => settings, getRequestHeaders: () => ({}), runtime,
-        updateRuntime: patch => Object.assign(runtime, patch),
+        onRuntimeChange: listener => { listeners.add(listener); return () => listeners.delete(listener); },
+        updateRuntime: patch => { Object.assign(runtime, patch); for (const listener of listeners) listener(runtime); },
         AbortController, DOMException, setTimeout, clearTimeout, console, ...overrides,
     });
     return { api, runtime, settings };
@@ -79,6 +84,108 @@ test('generation lookup leaves an active embedding build running through every b
     } finally { release.resolve(); await building; }
     assert.equal(saved.size, 85);
     assert.equal(calls.filter(route => route === 'insert').length, 3);
+    assert.equal(runtime.embeddingIndex.status, 'ready');
+});
+
+test('generation adopts an existing index build and waits for complete coverage', async () => {
+    const started = deferred(), release = deferred();
+    let inserts = 0;
+    const { api } = harness(async url => {
+        if (url.endsWith('/list')) return json([]);
+        inserts++;
+        started.resolve();
+        await release.promise;
+        return json({ ok: true });
+    });
+    const memory = world();
+    const building = api.ensureEmbeddingIndex(memory);
+    await started.promise;
+    let ready = false;
+    const gate = api.ensureGenerationEmbeddingIndex(memory).then(() => { ready = true; });
+    await Promise.resolve();
+    assert.equal(ready, false);
+    release.resolve();
+    await Promise.all([building, gate]);
+    assert.equal(inserts, 3, 'catch-up must not create a duplicate build');
+    await api.ensureGenerationEmbeddingIndex(memory);
+    assert.equal(inserts, 3, 'ready index must be reused immediately');
+});
+
+test('RP Stop releases embedding catch-up while the existing build keeps running', async () => {
+    const started = deferred(), release = deferred();
+    let insertSignal;
+    const { api, runtime } = harness(async (url, options) => {
+        if (url.endsWith('/list')) return json([]);
+        insertSignal = options.signal;
+        started.resolve();
+        await release.promise;
+        return json({ ok: true });
+    });
+    const memory = world();
+    const building = api.ensureEmbeddingIndex(memory);
+    await started.promise;
+    const controller = new AbortController();
+    const gate = api.ensureGenerationEmbeddingIndex(memory, { signal: controller.signal });
+    const rejected = assert.rejects(gate, { name: 'AbortError' });
+    controller.abort();
+    await rejected;
+    assert.equal(insertSignal.aborted, false);
+    release.resolve();
+    await building;
+    assert.equal(runtime.embeddingIndex.status, 'ready');
+});
+
+test('generation catch-up respects paused, stopped, and manually managed indexes', async () => {
+    for (const action of ['pauseEmbeddingIndexing', 'stopEmbeddingIndexing', 'manual']) {
+        let requests = 0;
+        const h = harness(async () => { requests++; return json([]); });
+        if (action === 'manual') h.settings.embeddingAutoSync = false;
+        else h.api[action]();
+        await assert.rejects(h.api.ensureGenerationEmbeddingIndex(world()), isRoleplayBlockingError);
+        assert.equal(requests, 0);
+    }
+});
+
+test('an empty memory corpus needs no embedding catch-up', async () => {
+    const { api } = harness(async url => {
+        assert.ok(url.endsWith('/list'), 'empty memory must not request embeddings');
+        return json([]);
+    });
+    const ranks = await api.queryEmbeddingMemory({ id: 'empty', revision: 1 }, [{ mes: 'Continue' }]);
+    assert.equal(ranks.size, 0);
+});
+
+test('generation waits below 90%, queries at 90%, and leaves the build running to 100%', async () => {
+    const ninthStarted = deferred(), releaseNinth = deferred(), lastStarted = deferred(), releaseLast = deferred();
+    let inserts = 0, queries = 0, dispatches = 0;
+    const memory = { ...world(), facts: Array.from({ length: 400 }, (_, i) => ({ id: `fact-${i}`, subject: `Actor ${i}`, predicate: 'owns', value: `Object ${i}` })) };
+    const { api, runtime } = harness(async url => {
+        if (url.endsWith('/list')) return json([]);
+        if (url.endsWith('/query')) { queries++; return json({ metadata: [] }); }
+        inserts++;
+        if (inserts === 9) { ninthStarted.resolve(); await releaseNinth.promise; }
+        if (inserts === 10) { lastStarted.resolve(); await releaseLast.promise; }
+        return json({ ok: true });
+    });
+    const building = api.ensureEmbeddingIndex(memory);
+    let ready = false;
+    const gate = api.ensureGenerationEmbeddingIndex(memory).then(() => { ready = true; });
+    await ninthStarted.promise;
+    assert.equal(runtime.embeddingIndex.indexed, 320);
+    assert.equal(ready, false, '80% must keep the reply pending');
+    releaseNinth.resolve();
+    await lastStarted.promise;
+    try {
+        await within(gate);
+        assert.equal(runtime.embeddingIndex.indexed, 360);
+        assert.equal(runtime.embeddingIndex.status, 'syncing');
+        for (let i = 0; i < 2; i++) await api.queryEmbeddingMemory(memory, [{ mes: 'Current question' }], { onDispatch: () => { dispatches++; } });
+        assert.equal(queries, 2, 'partial-index queries must not cache results while coverage grows');
+        assert.equal(dispatches, 2);
+        await assert.rejects(api.queryEmbeddingMemory({ ...memory, revision: 2 }, [{ mes: 'New revision' }]),
+            error => error.code === 'CONTINUITY_EMBEDDING_INDEX_NOT_READY');
+    } finally { releaseLast.resolve(); await building; }
+    assert.equal(runtime.embeddingIndex.indexed, 400);
     assert.equal(runtime.embeddingIndex.status, 'ready');
 });
 
