@@ -148,8 +148,15 @@ export async function inspectEmbeddingIndex(world, { signal } = {}) {
     if (!world?.id) throw new Error('No Continuity memory is open for embedding indexing.');
     const provider = providerRequest();
     const documents = buildEmbeddingDocuments(world);
+    // Reply lookups must not replace a running build's progress or queue a
+    // cancellable inspection behind its current insert on the server.
+    if (activeWorldSyncs.has(world.id)) {
+        const progress = runtime.embeddingIndex?.worldId === world.id ? runtime.embeddingIndex : {};
+        return { ...progress, status: 'syncing', provider: provider.label, total: documents.length, worldId: world.id };
+    }
     const base = { ...provider.body, collectionId: collectionId(world.id) };
-    setIndexStatus({
+    const publishStatus = indexingControl === 'running';
+    if (publishStatus) setIndexStatus({
         status: 'checking',
         phase: 'Checking stored vector records (no embeddings are being requested)',
         provider: provider.label,
@@ -158,6 +165,7 @@ export async function inspectEmbeddingIndex(world, { signal } = {}) {
         worldId: world.id,
         error: '',
     });
+    const inspectionStatus = runtime.embeddingIndex;
     const saved = await vectorRequest('list', base, signal) || [];
     const desiredHashes = new Set(documents.map(document => document.hash));
     const savedHashes = [...new Set((Array.isArray(saved) ? saved : []).map(Number).filter(Number.isFinite))];
@@ -181,9 +189,13 @@ export async function inspectEmbeddingIndex(world, { signal } = {}) {
         worldId: world.id,
         error: '',
     };
-    if (status === 'ready') syncedIndexes.set(world.id, indexSignature(world, provider));
-    else syncedIndexes.delete(world.id);
-    setIndexStatus(result);
+    // A build, another inspection, or an explicit pause/stop may have taken
+    // ownership while the list request was in flight.
+    if (!activeWorldSyncs.has(world.id) && runtime.embeddingIndex === inspectionStatus) {
+        if (status === 'ready') syncedIndexes.set(world.id, indexSignature(world, provider));
+        else syncedIndexes.delete(world.id);
+        if (publishStatus && indexingControl === 'running') setIndexStatus(result);
+    }
     return result;
 }
 
@@ -341,10 +353,17 @@ export function scheduleEmbeddingIndexSync(world, delay = 300, allowAutomaticBui
     syncTimers.set(world.id, setTimeout(() => {
         syncTimers.delete(world.id);
         const settings = getSettings();
-        if (settings.retrievalMode !== 'embedding-hybrid') return;
+        if (settings.retrievalMode !== 'embedding-hybrid' || indexingControl !== 'running') return;
         const task = allowAutomaticBuild && settings.embeddingAutoSync
             ? resumeEmbeddingIndexing(world)
-            : inspectEmbeddingIndex(world);
+            : inspectEmbeddingIndex(world).then(index => {
+                // Resume a saved partial build even when the memory revision
+                // has not changed since opening the chat or generating a reply.
+                if (index.status === 'incomplete' && settings.embeddingAutoSync && indexingControl === 'running') {
+                    return resumeEmbeddingIndexing(world);
+                }
+                return index;
+            });
         task.catch(error => console.warn('[Continuity] Embedding index check or synchronization failed; local retrieval remains available.', error));
     }, Math.max(0, delay)));
 }
@@ -359,6 +378,9 @@ export async function queryEmbeddingMemory(world, messages, { signal } = {}) {
     const indexed = Number(index.indexed ?? index.existing ?? 0);
     const total = Number(index.total ?? 0);
     if (index.status !== 'ready' || indexed !== total) {
+        if (index.status === 'incomplete' && settings.embeddingAutoSync && indexingControl === 'running') {
+            scheduleEmbeddingIndexSync(world);
+        }
         throw new Error(`Embedding index is ${index.status}; local retrieval will be used until all ${total} records are ready.`);
     }
     const query = buildEmbeddingQuery(messages, settings.retrievalQueryMessages, 6000);

@@ -3,7 +3,7 @@
   "loading_order": 60,
   "requires": [],
   "optional": [],
-  "js": "index.js?v=0.15.0-testing.30",
+  "js": "index.js?v=0.15.0-testing.30&embedding-continuation=1",
   "css": "style.css",
   "generate_interceptor": "continuityMemoryGenerateInterceptor",
   "author": "scatteredlilies2020",
