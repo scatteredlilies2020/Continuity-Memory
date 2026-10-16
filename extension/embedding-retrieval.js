@@ -4,6 +4,7 @@ import { resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testi
 import { getSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4';
 import { runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.30';
 import { createVectorStorageRequester, vectorStorageError } from './vector-storage-client.js?v=0.15.0-testing.30';
+import { embeddingRetryDelay, isRetryableEmbeddingError } from './embedding-retry.js?v=0.15.0-testing.30';
 
 const syncedIndexes = new Map();
 const activeSyncs = new Map();
@@ -11,9 +12,9 @@ const activeWorldSyncs = new Map();
 const queryCache = new Map();
 const syncTimers = new Map();
 const activeControllers = new Set();
+const activeRestartWaiters = new Set();
 const VECTOR_REQUEST_TIMEOUT_MS = 45000;
 const EMBEDDING_INSERT_TIMEOUT_MS = 180000;
-const EMBEDDING_STALL_RESTARTS = 2;
 const EMBEDDING_STALL_RESTART_DELAY_MS = 10000;
 let indexingControl = 'running';
 const requestVectorStorage = createVectorStorageRequester();
@@ -64,15 +65,21 @@ async function vectorRequest(route, payload, signal) {
 function waitForEmbeddingRestart(signal, delay = EMBEDDING_STALL_RESTART_DELAY_MS) {
     return new Promise((resolve, reject) => {
         let timer = null;
-        const stop = () => {
+        const cleanup = () => {
             if (timer !== null) globalThis.clearTimeout(timer);
             signal?.removeEventListener('abort', stop);
+            activeRestartWaiters.delete(finish);
+        };
+        const stop = () => {
+            cleanup();
             reject(signal?.reason || new DOMException('Vector request stopped.', 'AbortError'));
         };
-        timer = globalThis.setTimeout(() => {
-            signal?.removeEventListener('abort', stop);
+        const finish = () => {
+            cleanup();
             resolve();
-        }, delay);
+        };
+        activeRestartWaiters.add(finish);
+        timer = globalThis.setTimeout(finish, delay);
         if (signal?.aborted) stop();
         else signal?.addEventListener('abort', stop, { once: true });
     });
@@ -80,23 +87,31 @@ function waitForEmbeddingRestart(signal, delay = EMBEDDING_STALL_RESTART_DELAY_M
 
 async function insertEmbeddingBatch(base, items, signal, onRestart = () => {}) {
     let pending = items;
-    for (let restart = 0; restart <= EMBEDDING_STALL_RESTARTS; restart++) {
+    let restart = 0;
+    let reconcile = false;
+    while (true) {
+        if (indexingControl !== 'running') return { interrupted: true };
         try {
+            if (reconcile) {
+                // A lost response may still have stored the batch. A failed
+                // recovery check is retried too, before sending more embeddings.
+                const saved = await vectorRequest('list', base, signal) || [];
+                const savedHashes = new Set((Array.isArray(saved) ? saved : []).map(Number).filter(Number.isFinite));
+                pending = items.filter(item => !savedHashes.has(Number(item.hash)));
+                if (!pending.length) return { ok: true, inserted: 0, recovered: true };
+                if (indexingControl !== 'running') return { interrupted: true };
+            }
             return await vectorRequest('insert', { ...base, items: pending }, signal);
         } catch (error) {
-            if (error?.code !== 'CONTINUITY_VECTOR_REQUEST_TIMEOUT' || restart >= EMBEDDING_STALL_RESTARTS || signal?.aborted) throw error;
-            onRestart(restart + 1, EMBEDDING_STALL_RESTARTS);
-            await waitForEmbeddingRestart(signal);
-            // The server may have completed the timed-out request after the
-            // browser stopped waiting. Re-check its atomic store so a restart
-            // requests only records that are genuinely still missing.
-            const saved = await vectorRequest('list', base, signal) || [];
-            const savedHashes = new Set((Array.isArray(saved) ? saved : []).map(Number).filter(Number.isFinite));
-            pending = items.filter(item => !savedHashes.has(Number(item.hash)));
-            if (!pending.length) return { ok: true, inserted: 0, recovered: true };
+            if (signal?.aborted) throw error;
+            if (indexingControl !== 'running') return { interrupted: true };
+            if (!isRetryableEmbeddingError(error)) throw error;
+            const delay = embeddingRetryDelay(++restart);
+            onRestart(restart, delay);
+            await waitForEmbeddingRestart(signal, delay);
+            reconcile = true;
         }
     }
-    throw new Error('Embedding batch restart limit was reached.');
 }
 
 function indexSignature(world, provider) {
@@ -122,6 +137,7 @@ function clearSyncTimers() {
 export function pauseEmbeddingIndexing() {
     indexingControl = 'paused';
     clearSyncTimers();
+    for (const finish of activeRestartWaiters) finish();
     setIndexStatus({ status: 'pausing', phase: activeControllers.size ? 'Pausing after the current vector request' : 'Paused', error: '' });
 }
 
@@ -273,10 +289,10 @@ export async function ensureEmbeddingIndex(world, force = false, lockHeld = fals
                 batches,
                 worldId: world.id,
             });
-            await insertEmbeddingBatch(base, items, controller.signal, (restart, maximum) => {
+            await insertEmbeddingBatch(base, items, controller.signal, (restart, delay) => {
                 setIndexStatus({
                     status: 'syncing',
-                    phase: `Embedding batch ${batch} stalled; restarting ${restart} of ${maximum} after checking saved vectors`,
+                    phase: `Embedding batch ${batch}: provider unavailable; retry ${restart} in ${Math.round(delay / 1000)} seconds`,
                     provider: provider.label,
                     total: documents.length,
                     indexed: retained + index,
@@ -290,6 +306,7 @@ export async function ensureEmbeddingIndex(world, force = false, lockHeld = fals
                     error: '',
                 });
             });
+            if (indexingControl !== 'running') return interruptedResult(world, provider);
             setIndexStatus({
                 status: 'syncing',
                 phase: `Completed embedding batch ${batch} of ${batches}`,

@@ -16,16 +16,16 @@ test('roleplay uses bounded optional semantic retrieval without starting index b
     assert.doesNotMatch(source, /required 99% embedding coverage|Reply pending while Continuity/u);
 });
 
-test('embedding inserts get a long stall watchdog and restart from saved vectors', async () => {
+test('embedding inserts get a long stall watchdog and recover from transient failures', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/embedding-retrieval.js', import.meta.url), 'utf8'));
     assert.match(source, /VECTOR_REQUEST_TIMEOUT_MS = 45000/u);
     assert.match(source, /EMBEDDING_INSERT_TIMEOUT_MS = 180000/u);
-    assert.match(source, /EMBEDDING_STALL_RESTARTS = 2/u);
+    assert.match(source, /if \(!isRetryableEmbeddingError\(error\)\) throw error/u);
     assert.match(source, /const timeoutMs = route === 'insert' \? EMBEDDING_INSERT_TIMEOUT_MS : VECTOR_REQUEST_TIMEOUT_MS/u);
     assert.match(source, /requestController\.abort\(new DOMException\('Vector request timed out\.'/u);
     assert.match(source, /it will resume from stored vectors/u);
     assert.match(source, /async function insertEmbeddingBatch/u);
-    assert.match(source, /Embedding batch \$\{batch\} stalled; restarting/u);
+    assert.match(source, /provider unavailable; retry \$\{restart\}/u);
     assert.match(source, /pending = items\.filter\(item => !savedHashes\.has/u);
     assert.match(source, /globalThis\.clearTimeout\(timer\)/u);
 });
