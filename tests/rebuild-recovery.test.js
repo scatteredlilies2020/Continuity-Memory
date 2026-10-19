@@ -18,7 +18,7 @@ test('Chronicle maintenance locks before storage awaits and refuses stale chat r
     const runtime = { generation: 0, processing: false, queue: [], paused: false };
     let bound = 'world';
     const context = {
-        runtime, getSettings: () => ({ enabled: true }), getBoundWorldId: () => bound,
+        runtime, getSettings: () => ({ enabled: true, autoExtract: true }), getBoundWorldId: () => bound,
         updateRuntime: patch => Object.assign(runtime, patch),
         api: { getWorld: () => { reads++; return new Promise(resolve => { resolveWorld = resolve; }); } },
         nextChroniclePromotion: () => { throw new Error('Must not process a stale chat'); },
@@ -80,20 +80,24 @@ test('replacement Chronicle generation uses the same cancellable retry path as a
     assert.match(replacement, /await generateChronicleWithRetry\(nodes, epoch\)/);
 });
 
-test('pending Chronicle wakes on memory changes and retries blocked work after a cooldown', async () => {
+test('pending Chronicle respects correction exhaustion until explicitly unblocked or sources change', async () => {
     const source = await readFile(new URL('../extension/index.js', import.meta.url), 'utf8');
     const start = source.indexOf('const schedulePendingChronicle =');
     const end = source.indexOf('// Recover pending work', start);
     let scheduled = 0;
     const runtime = { world: { id: 'world' }, queue: [], chronicleBlocked: true, chronicleRetryAt: Date.now() + 300000 };
     const run = runInNewContext(`${source.slice(start, end)}\nschedulePendingChronicle`, {
-        runtime, getSettings: () => ({ enabled: true }), activeGenerationReadiness: false,
+        runtime, getSettings: () => ({ enabled: true, autoExtract: true }), activeGenerationReadiness: false,
+        automaticWorkChatKey: 'chat', getChatKey: () => 'chat',
         isGenerating: () => false, getBoundWorldId: () => 'world', nextChroniclePromotion: () => [{}],
         backgroundMemoryWork: { schedule: () => { scheduled++; } },
     });
     run();
     assert.equal(scheduled, 0);
     runtime.chronicleRetryAt = 0;
+    run();
+    assert.equal(scheduled, 0);
+    runtime.chronicleBlocked = false;
     run();
     assert.equal(scheduled, 1);
     runtime.paused = true;

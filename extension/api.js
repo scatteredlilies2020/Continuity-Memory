@@ -1,17 +1,17 @@
 import { getRequestHeaders } from '/script.js';
 import { createFileStorageApi } from './file-storage.js?v=0.15.0-testing.30';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
+import { localRequest } from './local-request.js?pending-recovery=1';
 
 const BASE = '/api/plugins/continuity-memory';
 const fileApi = createFileStorageApi({ requestHeaders: getRequestHeaders });
 let backendPromise;
 
 async function request(path, options = {}) {
-    const response = await fetch(`${BASE}${path}`, {
+    const { response, text } = await localRequest(`${BASE}${path}`, {
         ...options,
         headers: options.body ? getRequestHeaders() : undefined,
     });
-    const text = await response.text();
     let payload;
     try {
         payload = text ? JSON.parse(text) : {};

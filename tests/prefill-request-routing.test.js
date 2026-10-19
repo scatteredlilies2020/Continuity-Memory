@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { requestModel } from '../plugin/model-response.js';
 import * as prefillPolicy from '../extension/preset-prefill.js';
 import * as profilePolicy from '../extension/profile-request-policy.js';
 
@@ -127,12 +128,12 @@ test('detached request variants all retain prefill and disable native schema', (
 
 test('detached backend restores the assistant prefix before parsing', async () => {
     const fn = load(plugin, 'backendRequestOnce', {
-        ...prefillPolicy, AbortController, setTimeout, clearTimeout,
+        ...prefillPolicy, AbortController, setTimeout, clearTimeout, requestModel,
         assertNotTruncated: () => {}, completionText: payload => payload.choices[0].message.content,
     });
     const job = {
         controller: new AbortController(), requestTimeoutMs: 1000,
-        fetchImpl: async () => ({ ok: true, text: async () => JSON.stringify({ choices: [{ message: { content: '"result":true}' } }] }) }),
+        fetchImpl: async () => new Response(JSON.stringify({ choices: [{ message: { content: '"result":true}' } }] })),
     };
     assert.equal(await fn(job, { messages: prefillPolicy.memoryRequestMessages('task', 'system', '{') }), '{"result":true}');
 });
@@ -211,7 +212,7 @@ test('summary override is routed explicitly across active, Direct, and profile r
 test('Digest and Chronicle opt in to summary overrides, correction does not', async () => {
     let args;
     const fn = load(engine, 'requestExtraction', {
-        extractionJsonSchema: {}, requestStructured: (...values) => { args = values; },
+        withRuntimeConnection: operation => operation(), extractionJsonSchema: {}, requestStructured: (...values) => { args = values; },
     });
     await fn('task', 'system', 'fallback', 100);
     assert.equal(args[8], true);

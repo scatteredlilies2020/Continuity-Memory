@@ -5,7 +5,7 @@ import * as hostOpenAI from '/scripts/openai.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { presetPrefill, summaryPrefill, requestPrefill, decodeMemoryResponse, memoryWireRequest, memoryRequestMessages } from './preset-prefill.js';
 import { applyEndpointPrefill } from './endpoint-prefill.js';
-import { getSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4';
+import { getSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1';
 
 export function resolveMemoryPrefill(profileId = '', { expandMacros = true, summary = false } = {}) {
     if (summary) {

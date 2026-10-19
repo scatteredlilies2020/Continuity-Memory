@@ -74,5 +74,5 @@ test('detached transient failures stop at the configured request limit', async (
     const finished = getDetachedJob(req, job.id);
     assert.equal(finished.status, 'error');
     assert.equal(calls, 2);
-    assert.match(finished.error, /after 2 attempts.*without marking this section processed/i);
+    assert.match(finished.error, /503 Service Unavailable/i);
 });

@@ -27,8 +27,10 @@ export async function retryChroniclePromotion(attempt, {
     onRetry = () => {},
     retryDelayMs = 2000,
     maxRetryDelayMs = 60000,
+    maxCorrections = 2,
 } = {}) {
     let previousError = null;
+    let corrections = 0;
     for (let failures = 0; ; failures++) {
         signal?.throwIfAborted();
         try {
@@ -38,6 +40,11 @@ export async function retryChroniclePromotion(attempt, {
         } catch (error) {
             signal?.throwIfAborted();
             if (!isRetryableChronicleError(error)) throw error;
+            // Outages can recover without user intervention. A completed but
+            // invalid response gets a small correction allowance, not a loop.
+            if (!isTransientApiError(error) && error.status !== 409 && ++corrections > maxCorrections) {
+                throw Object.assign(new Error(`Chronicle correction stopped after ${corrections} invalid responses; source memory was kept.`, { cause: error }), { code: 'CONTINUITY_INVALID_RESPONSE' });
+            }
             // A transport failure must not erase correction feedback from the
             // last actual model response.
             if (!previousError || !isTransientApiError(error)) previousError = error;

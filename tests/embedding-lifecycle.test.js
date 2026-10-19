@@ -229,7 +229,7 @@ test('inspection cannot replace an explicit stop or pause', async () => {
     }
 });
 
-test('an automatic check resumes a partial index without waiting for another memory revision', async () => {
+test('an authorized automatic build resumes a partial index without waiting for another memory revision', async () => {
     const memory = world();
     const saved = new Set(buildEmbeddingDocuments(memory).slice(0, 40).map(item => item.hash));
     const complete = deferred();
@@ -239,7 +239,7 @@ test('an automatic check resumes a partial index without waiting for another mem
         if (saved.size === 85) complete.resolve();
         return json({ ok: true });
     });
-    api.scheduleEmbeddingIndexSync(memory, 0, false);
+    api.scheduleEmbeddingIndexSync(memory, 0, true);
     await within(complete.promise);
     await new Promise(resolve => setTimeout(resolve, 0));
     assert.equal(saved.size, 85);

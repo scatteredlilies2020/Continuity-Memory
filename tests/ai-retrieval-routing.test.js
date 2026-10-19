@@ -22,7 +22,7 @@ async function load(settings, calls, overrides = {}) {
     const source = readFileSync(url, 'utf8')
         .replace("import { extractMessageFromData } from '/script.js';", `const { extractMessageFromData } = globalThis.${key};`)
         .replace("import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';", `const { ConnectionManagerRequestService } = globalThis.${key};`)
-        .replace("import { resolveMemoryPrefill, sendMemoryProfileRequest } from './preset-prefill-host.js';", `const { resolveMemoryPrefill } = globalThis.${key}; const sendMemoryProfileRequest = (...args) => ConnectionManagerRequestService.sendRequest(...args);`)
+        .replace(/import \{ resolveMemoryPrefill, sendMemoryProfileRequest \} from '[^']+';/, `const { resolveMemoryPrefill } = globalThis.${key}; const sendMemoryProfileRequest = (...args) => ConnectionManagerRequestService.sendRequest(...args);`)
         .replace(/import \{ generateWithThinkingPolicy, requestDirectText, resolveThinkingModeForProfile \} from '[^']+';/,
             `const { generateWithThinkingPolicy, requestDirectText, resolveThinkingModeForProfile } = globalThis.${key};`)
         .replace(/import \{ getSettings \} from '[^']+';/, `const settings = globalThis.${key}.settings; const getSettings = () => settings;`)

@@ -1,21 +1,22 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, isGenerating, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { promptManager } from '/scripts/openai.js';
-import { api } from './api.js?v=0.15.0-testing.30';
-import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js?belief-wording=4&prepared-recall=1';
-import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maintainChronicleHierarchy, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.15.0-testing.30&belief-wording=4';
+import { api } from './api.js?v=0.15.0-testing.30&pending-recovery=1';
+import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js?belief-wording=4&prepared-recall=1&pending-recovery=1';
+import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maintainChronicleHierarchy, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1';
 import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.15.0-testing.30&belief-wording=4';
 import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.30';
-import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2&current-recall=1&bounded-recall=1&catchup-gate=1';
+import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2&current-recall=1&bounded-recall=1&catchup-gate=1&pending-recovery=1';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
-import { resolveInjectionBudget } from './injection-budget.js';
+import { resolveInjectionBudget } from './injection-budget.js?pending-recovery=1';
 import { injectionScope, latestAvailableWorld, prepareInjectionSnapshot, readyInjectionSnapshot } from './prepared-injection.js?current-recall=1&bounded-recall=1';
-import { getPortableSnapshot } from './portable.js?belief-wording=4';
+import { getPortableSnapshot } from './portable.js?belief-wording=4&pending-recovery=1';
 import { resolveDeletedChatBinding, resolveRenamedChatBinding } from './chat-ownership.js?v=0.15.0-testing.30';
 import { collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.30';
-import { ensureGenerationEmbeddingIndex, queryEmbeddingMemory, purgeEmbeddingIndex, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2&current-recall=1&bounded-recall=1&catchup-gate=1';
+import { ensureGenerationEmbeddingIndex, getCachedEmbeddingMemory, queryEmbeddingMemory, purgeEmbeddingIndex, scheduleEmbeddingIndexSync } from './embedding-retrieval.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2&current-recall=1&bounded-recall=1&catchup-gate=1&pending-recovery=1';
+import { previewRetrieval } from './retrieval-preview.js?pending-recovery=1';
 import { isTransientApiError } from './errors.js?v=0.15.0-testing.30';
 import { asRoleplayBlockingError, isRoleplayBlockingError, roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.15.0-testing.30';
 import { ensureGenerationMemory, waitForGenerationTask } from './generation-readiness.js?catchup-gate=1';
@@ -27,7 +28,7 @@ import { nextChroniclePromotion } from './chronicle.js';
 import { buildPlanningEvidence, createContinuityContextBridge } from './context-bridge.js?v=0.15.0-testing.30';
 
 import { resolveRetrievalAssist } from './retrieval-assist.js?bounded-recall=1&catchup-gate=1';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.30&belief-wording=4&bounded-recall=1';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.30&belief-wording=4&bounded-recall=1&pending-recovery=1';
 import { getGenerationTiming, timeGenerationStep } from './generation-timing.js';
 
 const PROMPT_KEY = 'continuity_memory_context';
@@ -47,6 +48,8 @@ let generationInjectionRunning = false;
 let preparedInjection = null;
 let generationRetrievalController = null;
 let previewRetrievalController = null;
+let automaticWorkChatKey = null;
+let lastOpenedChatKey = null;
 
 function cancelGenerationRetrieval() {
     const active = generationRetrievalController;
@@ -127,9 +130,9 @@ const backgroundMemoryWork = createBackgroundScheduler(async () => {
     const stopSequence = runtime.stopSequence;
     backgroundCancelled = false;
     let failures = 0;
-    const maxFailures = 5;
     while (true) {
         if (backgroundCancelled || runtime.stopSequence !== stopSequence || runtime.paused && !failures) return;
+        if (automaticWorkChatKey !== getChatKey()) return;
         try {
             const settings = getSettings();
             const processableMessages = collectMemoryEligibleMessages(getContext().chat || []).length;
@@ -157,14 +160,6 @@ const backgroundMemoryWork = createBackgroundScheduler(async () => {
                 return;
             }
             failures++;
-            if (failures >= maxFailures) {
-                updateRuntime({
-                    status: 'error',
-                    lastError: `Automatic memory update stopped after ${failures} temporary failures. Pending messages were kept for a later manual retry.`,
-                    retryStatus: 'Automatic memory update stopped to limit repeated API requests.',
-                });
-                return;
-            }
             if (runtime.paused) resumeRuntime();
             const delay = Math.min(60000, 2000 * (2 ** Math.min(5, failures - 1)));
             updateRuntime({
@@ -458,10 +453,10 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
     previewRetrievalController = controller;
     let retrieval;
     try {
-        retrieval = await timeGenerationStep(`CM: ${settings.retrievalMode} lookup`, async () => await resolveRetrievalAssist({
+        retrieval = useRetrievalAssist ? await timeGenerationStep(`CM: ${settings.retrievalMode} lookup`, async () => await resolveRetrievalAssist({
             mode: settings.retrievalMode, phase, world, messages: recent, query: queryEmbeddingMemory, expand: expandRetrievalTerms,
             signal: controller.signal,
-        }), timing);
+        }), timing) : previewRetrieval({ mode: settings.retrievalMode, world, messages: recent, peekEmbedding: getCachedEmbeddingMemory });
     } finally {
         if (previewRetrievalController === controller) previewRetrievalController = null;
     }
@@ -590,8 +585,14 @@ function scheduleInjectionRefresh() {
         injectionRefreshRunning = true;
         const preparationChatKey = getChatKey();
         try {
-            activeGenerationReadiness = prepareRoleplayGeneration('normal');
-            const readiness = await activeGenerationReadiness;
+            // Preview saved memory without creating, repairing or extracting
+            // anything merely because a card/chat was opened.
+            const activeChat = roleplaySourceMessages(getContext().chat || [], 'normal');
+            const readiness = {
+                sourceMessages: collectMemoryEligibleMessages(activeChat),
+                recentMessages: activeChat.filter(message => !message?.is_system)
+                    .slice(-Math.max(2, Number(getSettings().retrievalQueryMessages) || 6)),
+            };
             if (isGenerating() || generationInjectionRunning || getChatKey() !== preparationChatKey) return;
             const context = getContext();
             const previewChat = roleplaySourceMessages(context.chat || [], 'normal')
@@ -665,6 +666,9 @@ function scheduleMutationSync(delay = 350, requireDivergenceRepair = false) {
 }
 
 async function onChatChanged() {
+    const chatKey = getChatKey();
+    if (chatKey !== lastOpenedChatKey) automaticWorkChatKey = null;
+    lastOpenedChatKey = chatKey;
     cancelGenerationRetrieval();
     invalidateInjectionRefresh();
     if (runtime.processing || runtime.queue.length) {
@@ -686,7 +690,7 @@ async function onChatChanged() {
     continuityContextBridge.publish('');
     await refreshWorlds();
     scheduleInjectionRefresh();
-    scheduleMutationSync();
+    if (automaticWorkChatKey === getChatKey()) scheduleMutationSync();
 }
 
 async function onChatDeleted(chatId, ownerKind) {
@@ -753,13 +757,17 @@ async function onChatRenamed(eventData) {
 }
 
 async function init() {
-    const templateResponse = await fetch(new URL('./settings.html?v=0.15.0-testing.30', import.meta.url));
+    const templateResponse = await fetch(new URL('./settings.html?v=0.15.0-testing.31', import.meta.url));
     if (!templateResponse.ok) throw new Error(`Could not load settings template: ${templateResponse.status} ${templateResponse.statusText}`);
     const html = $(await templateResponse.text());
     const container = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
     if (!container) throw new Error('Extensions settings container was not found.');
     container.appendChild(html[0]);
-    initUI({ scheduleMemoryMaintenance: () => backgroundMemoryWork.schedule(0) });
+    initUI({ scheduleMemoryMaintenance: () => {
+        automaticWorkChatKey = getChatKey();
+        lastOpenedChatKey = automaticWorkChatKey;
+        backgroundMemoryWork.schedule(0);
+    } });
 
     try {
         updateRuntime({ health: await api.health(), lastError: '' });
@@ -805,9 +813,12 @@ async function init() {
             if (!runtime.paused) backgroundMemoryWork.schedule(0);
         });
     }
-    eventSource.on(event_types.MESSAGE_RECEIVED, () => {
+    eventSource.on(event_types.MESSAGE_RECEIVED, (_index, type) => {
         scheduleInjectionRefresh();
-        if (runtime.paused) resumeRuntime();
+        if (type === 'first_message' || !type && !(getContext().chat || []).some(message => message.is_user)) return;
+        automaticWorkChatKey = getChatKey();
+        lastOpenedChatKey = automaticWorkChatKey;
+        if (runtime.paused) return;
         backgroundMemoryWork.schedule();
     });
     eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY, eventData => {
@@ -875,8 +886,8 @@ async function init() {
     let wasProcessing = false;
     const schedulePendingChronicle = () => {
         const settings = getSettings();
-        if (!settings.enabled || settings.hierarchyMode === 'off' || runtime.paused
-            || runtime.processing || runtime.queue.length || (runtime.chronicleBlocked && Date.now() < runtime.chronicleRetryAt) || activeGenerationReadiness || isGenerating()
+        if (automaticWorkChatKey !== getChatKey() || !settings.enabled || !settings.autoExtract || settings.hierarchyMode === 'off' || runtime.paused
+            || runtime.processing || runtime.queue.length || runtime.chronicleBlocked || activeGenerationReadiness || isGenerating()
             || runtime.world?.id !== getBoundWorldId()) return;
         if (nextChroniclePromotion(runtime.world, settings)) backgroundMemoryWork.schedule(0);
     };
@@ -903,10 +914,10 @@ async function init() {
                         world: state.world,
                         allowAutomaticBuild: Boolean(changedDuringSession || alreadyRequiresBuild),
                     };
-                } else scheduleEmbeddingIndexSync(state.world, 300, changedDuringSession);
+                } else if (automaticWorkChatKey === getChatKey()) scheduleEmbeddingIndexSync(state.world, 300, changedDuringSession);
             }
         }
-        if (!state.processing && !activeGenerationReadiness && pendingEmbeddingSync) {
+        if (!state.processing && !activeGenerationReadiness && pendingEmbeddingSync && automaticWorkChatKey === getChatKey()) {
             const { world, allowAutomaticBuild } = pendingEmbeddingSync;
             pendingEmbeddingSync = null;
             scheduleEmbeddingIndexSync(world, 300, allowAutomaticBuild);
@@ -920,7 +931,8 @@ async function init() {
     });
 
     scheduleInjectionRefresh();
-    scheduleMutationSync();
+    // Freshly opened cards only read saved memory. Actual turns and explicit
+    // memory actions enable automatic maintenance for this chat.
     renderRuntime();
     console.log('[Continuity] Extension loaded');
 }

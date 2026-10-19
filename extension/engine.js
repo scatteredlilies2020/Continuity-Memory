@@ -4,33 +4,33 @@ import { extractMessageFromData, generateRaw, getRequestHeaders } from '/script.
 import { getContext } from '/scripts/st-context.js';
 import { getTokenCountAsync } from '/scripts/tokenizers.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
-import { resolveMemoryPrefill, prepareMemoryRequest, sendMemoryProfileRequest, prepareDetachedPrefills, generateEndpointMemory } from './preset-prefill-host.js';
+import { resolveMemoryPrefill, prepareMemoryRequest, sendMemoryProfileRequest, prepareDetachedPrefills, generateEndpointMemory } from './preset-prefill-host.js?pending-recovery=1';
 import { memoryRequestMessages, responseWithPrefill, decodeMemoryResponse, memoryWireRequest } from './preset-prefill.js';
 import { oai_settings, openai_setting_names, openai_settings, proxies } from '/scripts/openai.js';
-import { api } from './api.js';
+import { api } from './api.js?pending-recovery=1';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError } from './errors.js';
 import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.30';
-import { resolveExtractionChunk } from './extraction-budget.js';
+import { resolveExtractionChunk } from './extraction-budget.js?pending-recovery=1';
 import { normalizeHierarchyResult } from './hierarchy-result.js';
 import { captureScenarioContext } from './scenario-context.js';
 import { completeDigestMessages, latestCompleteDigestMessageIndex, digestStabilityRepairFrom, DIGEST_STABILITY_BUFFER_MESSAGES, partitionDigestStabilityBuffer, partitionPendingDigestMessages, resolveDigestGroupSize, selectAutomaticDigestMessages } from './digest-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
-import { resolveCorrectionResponseTokens } from './correction-policy.js';
+import { resolveCorrectionResponseTokens } from './correction-policy.js?pending-recovery=1';
 import { isAdaptiveExtractionSplitError, isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.30';
 import { requestExtractionReview } from './extraction-review.js';
 import { parseJsonResponse } from './json-response.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedChronicle, freshResetResiduals, getLatestDigestUndoStatus as inspectLatestDigestUndo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from './memory-model.js';
-import { extractionResponseTokens, memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js';
+import { extractionResponseTokens, memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js?pending-recovery=1';
 import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.30';
 import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.30';
-import { embedWorldInChat } from './portable.js?belief-wording=4';
+import { embedWorldInChat } from './portable.js?belief-wording=4&pending-recovery=1';
 import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.30';
 import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.30&belief-wording=4';
 import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.30';
-import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4';
-import { blockSyncedRecovery } from './synced-recovery-policy.js?belief-wording=4';
+import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1';
+import { blockSyncedRecovery } from './synced-recovery-policy.js?belief-wording=4&pending-recovery=1';
 import { buildThinkingRequest, isMandatoryThinkingError, isThinkingControlError, mandatoryThinkingPayload, shouldSendStructuredSchema, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.30';
 import { isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, RUNTIME_CANCELLED_CODE, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.30';
 import { completedDetachedWorldIsNewer, detachedProgressNeedsRefresh, latestCompletedDetachedJob } from './detached-reconnect-policy.js?v=0.15.0-testing.30';
@@ -42,7 +42,9 @@ import { compileRollingStorySnapshot } from './story-snapshot.js?v=0.15.0-testin
 import { planStoryMutationRecovery } from './story-checkpoints.js?v=0.15.0-testing.30';
 import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.30';
 import { nextChroniclePromotion } from './chronicle.js';
-import { chronicleRetryFeedback, isRetryableChronicleError, retryChroniclePromotion } from './chronicle-retry.js';
+import { chronicleRetryFeedback, isRetryableChronicleError, retryChroniclePromotion } from './chronicle-retry.js?pending-recovery=1';
+import { retryConnection } from './connection-retry.js?pending-recovery=1';
+import { randomUuid } from './uuid.js';
 
 
 const extractionJsonSchema = Object.freeze({
@@ -337,11 +339,14 @@ async function extractChunk(messages, world = runtime.world) {
             const feedback = extractionCompletenessFeedback(lastError);
             const recovery = attempt === 3;
             const responseTokens = extractionResponseTokens(getSettings().extractionOutputTokens, recovery);
-            if (recovery) updateRuntime({ retryStatus: `Single-message extraction output was incomplete; retrying with an explicit ${responseTokens}-token output budget.` });
+            if (recovery) updateRuntime({ retryStatus: 'Single-message extraction output was incomplete; retrying with complete JSON instructions and provider-managed output capacity.' });
             // Some proxies accept the schema parameter without enforcing it.
             // Retry with explicit field definitions as well as corrective feedback.
             const retryPrompt = attempt > 1 && fallbackPrompt ? fallbackPrompt : prompt;
-            const raw = await requestExtraction(retryPrompt + feedback, systemPrompt, fallbackPrompt ? fallbackPrompt + feedback : fallbackPrompt, responseTokens);
+            const target = Number(getSettings().extractionOutputTokens) || 0;
+            const lengthGuide = target > 0 ? `\n\nAim for roughly ${target} output tokens. This is a soft target: finish the complete JSON and preserve consequential continuity even when it needs more space.` : '';
+            const recoveryGuide = recovery ? '\n\nThe previous output was incomplete. Return complete JSON; reduce repetition and incidental detail without losing consequential continuity.' : '';
+            const raw = await requestExtraction(retryPrompt + feedback + lengthGuide + recoveryGuide, systemPrompt, fallbackPrompt ? fallbackPrompt + feedback + lengthGuide + recoveryGuide : fallbackPrompt, responseTokens);
             updateRuntime({ lastRawResponse: String(raw).slice(0, 30000) });
             const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
             const { result, validation } = validateResult(parsed, world, messages);
@@ -418,7 +423,25 @@ function prepareExtractionPrompts(messages, world = runtime.world) {
 }
 
 async function requestExtraction(prompt, systemPrompt, fallbackPrompt = prompt, responseTokens = extractionResponseTokens(getSettings().extractionOutputTokens)) {
-    return requestStructured(prompt, systemPrompt, extractionJsonSchema, responseTokens, undefined, 'extraction', fallbackPrompt, undefined, true);
+    return withRuntimeConnection(() => requestStructured(prompt, systemPrompt, extractionJsonSchema, responseTokens, undefined, 'extraction', fallbackPrompt, undefined, true));
+}
+
+async function withRuntimeConnection(operation, conflicts = false) {
+    const epoch = runtime.generation;
+    const controller = new AbortController();
+    const inspect = state => {
+        if (state.generation !== epoch || state.paused) controller.abort(Object.assign(
+            new Error('Processing stopped; saved memory was kept.'), { code: RUNTIME_CANCELLED_CODE }));
+    };
+    const unsubscribe = onRuntimeChange(inspect);
+    inspect(runtime);
+    try {
+        return await retryConnection(operation, {
+            signal: controller.signal,
+            retryable: error => conflicts && error.status === 409 || isTransientApiError(error),
+            onRetry: (_error, delay) => updateRuntime({ retryStatus: `Connection interrupted; retrying the pending operation in ${Math.ceil(delay / 1000)}s. Completed memory is preserved.` }),
+        });
+    } finally { unsubscribe(); }
 }
 
 function directRequestConfig(kind) {
@@ -830,6 +853,12 @@ function splitDetachedMessages(messages) {
 
 function prepareDetachedTask(messages, world) {
     const prepared = prepareExtractionPrompts(messages, world);
+    const target = Number(getSettings().extractionOutputTokens) || 0;
+    if (target > 0) {
+        const guide = `\n\nAim for roughly ${target} output tokens. This is a soft target; finish the complete JSON and preserve consequential continuity even when it needs more space.`;
+        prepared.prompt += guide;
+        prepared.fallbackPrompt += guide;
+    }
     const requests = detachedRequestBodies(prepared);
     if (!requests) return null;
     const split = splitDetachedMessages(messages);
@@ -984,6 +1013,7 @@ async function reconnectDetachedExtraction(worldId, chatKey) {
                     ? 'Chronicle promotion deferred; saved C0 and structured memory remain intact.'
                     : `Recursive Chronicle complete: ${completed.chronicle || 0} parent node(s) created.`,
                 arcError: completed.hierarchyError || '',
+                chronicleBlocked: Boolean(completed.hierarchyError),
                 lastValidation: completed.validation || `Detached extraction saved ${completed.messages || 0} message(s).`,
                 lastCompletedAt: completed.completedAt || new Date().toISOString(),
             });
@@ -1008,6 +1038,7 @@ async function reconnectDetachedExtraction(worldId, chatKey) {
                 ? 'Chronicle promotion deferred; saved C0 and structured memory remain intact.'
                 : `Recursive Chronicle complete: ${completed.chronicle || 0} parent node(s) created.`,
             arcError: completed.hierarchyError || '',
+                chronicleBlocked: Boolean(completed.hierarchyError),
             lastCompletedAt: new Date().toISOString(),
         });
         await embedWorldInChat(world);
@@ -1045,14 +1076,32 @@ async function processDetachedRange(job, chunks, currentWorld) {
         return task ? { ...task, inputTokens: chunk.tokens } : null;
     }), getSettings().memoryProfileId);
     if (tasks.some(task => !task)) return null;
-    const started = await api.startExtractionJob({
+    const submission = {
+        requestId: randomUuid(),
+        requestIdleTimeoutMs: Math.max(1, Number(getSettings().requestIdleTimeoutSeconds) || 120) * 1000,
         worldId: job.worldId,
         chatKey: job.chatKey,
         reason: job.reason,
         allowStateUpdates: job.allowStateUpdates,
         tasks,
         hierarchy,
+    };
+    const controller = new AbortController();
+    const unsubscribe = onRuntimeChange(state => {
+        if (state.generation !== epoch || state.paused || getChatKey() !== job.chatKey) {
+            controller.abort(Object.assign(new Error('Processing stopped.'), { code: RUNTIME_CANCELLED_CODE }));
+        }
     });
+    let started;
+    try {
+        // Reuse one submission id after an uncertain POST. The server returns
+        // the existing job even if it finished before the acknowledgement.
+        started = await retryConnection(() => api.startExtractionJob(submission), {
+            signal: controller.signal,
+            onRetry: (_error, delay) => updateRuntime({ status: 'reconnecting',
+                lastValidation: `Connection interrupted; reconnecting to the same memory submission in ${Math.ceil(delay / 1000)}s.` }),
+        });
+    } finally { unsubscribe(); }
     updateRuntime({
         status: started.existing ? 'processing' : 'queued',
         lastValidation: started.existing
@@ -1070,6 +1119,7 @@ async function processDetachedRange(job, chunks, currentWorld) {
                 ? 'Chronicle promotion deferred; saved C0 and structured memory remain intact.'
                 : `Recursive Chronicle complete: ${completed.chronicle || 0} parent node(s) created.`,
             arcError: completed.hierarchyError || '',
+                chronicleBlocked: Boolean(completed.hierarchyError),
             lastValidation: completed.validation || `Detached extraction saved ${completed.messages} message(s).`,
         });
         await embedWorldInChat(world);
@@ -1089,7 +1139,6 @@ async function processDetachedRange(job, chunks, currentWorld) {
 export async function reviewMemoryCorrection(instruction) {
     const request = String(instruction || '').trim();
     if (!request) throw new Error('Describe the memory correction first.');
-    if (request.length > 4000) throw new Error('The correction is too long. Split it into smaller corrections.');
     if (runtime.processing) throw new Error('Wait for current memory processing to finish.');
     const worldId = getBoundWorldId();
     if (!worldId) throw new Error('Open a chat with Continuity memory first.');
@@ -1103,7 +1152,7 @@ export async function reviewMemoryCorrection(instruction) {
     const candidates = selectCorrectionContext(world, request);
     const reviewedSource = { chatKey: getChatKey(), to: (getContext().chat || []).length - 1 };
     if (!candidates.length) throw new Error('No matching stored memories were found. Include specific names, places, or event details.');
-    const prompt = `AUTHORITATIVE USER CORRECTION:\n${request}\n\nCANDIDATE STORED RECORDS:\n${candidates.map(item => JSON.stringify(item)).join('\n')}\n\nPropose the smallest complete correction plan. Every targetId must come from the candidate list.`;
+    const prompt = `AUTHORITATIVE USER CORRECTION:\n${request}\n\nCANDIDATE STORED RECORDS:\n${candidates.map(item => JSON.stringify(item)).join('\n')}\n\nPropose the smallest complete correction plan. Every targetId must come from the candidate list.\n\nAim for roughly ${resolveCorrectionResponseTokens(getSettings().correctionResponseTokens)} output tokens. This is a soft target; finish the complete correction plan even when it needs more space.`;
     const settings = getSettings();
     const profileId = settings.correctionProfileId || settings.memoryProfileId;
     const directKind = settings.correctionProfileId === DIRECT_PROFILE_ID ? 'correction' : 'extraction';
@@ -1114,7 +1163,7 @@ export async function reviewMemoryCorrection(instruction) {
             prompt,
             CORRECTION_SYSTEM_PROMPT,
             correctionJsonSchema,
-            resolveCorrectionResponseTokens(settings.correctionResponseTokens),
+            null,
             profileId,
             directKind,
         );
@@ -1253,7 +1302,7 @@ async function generateChroniclePromotion(nodes, previousError = null) {
     const fallbackPrompt = usesStructuredSchema
         ? renderStructuredTaskPrompt(task, task, values, ARC_JSON_SHAPE_EXAMPLE, false, ['nodes']) + feedback
         : prompt;
-    const raw = await requestStructured(prompt, buildHierarchySystemPrompt(settings.chronicleSystemPrompt ?? DEFAULT_CHRONICLE_SYSTEM_PROMPT), chronicleJsonSchema, memoryResponseTokens('chronicle'), profileId, directKind, fallbackPrompt, thinkingMode, true);
+    const raw = await withRuntimeConnection(() => requestStructured(prompt, buildHierarchySystemPrompt(settings.chronicleSystemPrompt ?? DEFAULT_CHRONICLE_SYSTEM_PROMPT), chronicleJsonSchema, memoryResponseTokens('chronicle'), profileId, directKind, fallbackPrompt, thinkingMode, true));
     updateRuntime({ lastArcResponse: String(raw).slice(0, 20000) });
     const layer = `C${(Number(nodes[0]?.level) || 0) + 1}`;
     return validateChronicleResult(typeof raw === 'string' ? parseJsonResponse(raw) : raw, layer, nodes);
@@ -1316,13 +1365,13 @@ export async function buildNextChronicle(worldId = getBoundWorldId(), expectedEp
     let result = await generateChronicleWithRetry(nodes, epoch);
     result = await reviewHierarchyBeforeSave(result, `C${destination}`, nodes, 'hierarchy', () => generateChroniclePromotion(nodes));
     if (runtime.generation !== epoch || runtime.paused) throw new Error('Processing stopped; pending Chronicle result was discarded.');
-    return saveChroniclePromotion(world, result, nodes, embed);
+    return withRuntimeConnection(() => saveChroniclePromotion(world, result, nodes, embed), true);
 }
 
 export async function maintainChronicleHierarchy() {
     const settings = getSettings();
     const worldId = getBoundWorldId();
-    if (!settings.enabled || settings.hierarchyMode === 'off' || !worldId || runtime.paused) return null;
+    if (!settings.enabled || !settings.autoExtract || settings.hierarchyMode === 'off' || !worldId || runtime.paused || runtime.chronicleBlocked) return null;
     // Digest processing and explicit builds own the same runtime lock. A later
     // background pass will re-check the invariant after either one finishes.
     if (runtime.processing || runtime.queue.length) return null;
@@ -1370,7 +1419,7 @@ export async function maintainChronicleHierarchy() {
             status: 'error',
             arcStatus: 'Chronicle promotion deferred; C0 and structured memory are safe.',
             arcError: error.message,
-            chronicleBlocked: !isRetryableChronicleError(error) && !isRuntimeCancellation(error),
+            chronicleBlocked: !isTransientApiError(error) && !isRuntimeCancellation(error),
             chronicleRetryAt: Date.now() + 5 * 60 * 1000,
         });
         throw error;
@@ -1731,17 +1780,15 @@ export async function restartHierarchyFromDigest() {
 }
 
 async function saveExtraction(worldId, result, meta) {
-    let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
-    for (let attempt = 0; attempt < 4; attempt++) {
-        if (attempt) world = (await api.getWorld(worldId)).world;
-        mergeExtraction(world, result, meta);
-        try {
-            world = (await api.saveWorld(world)).world;
-            break;
-        } catch (error) {
-            if (error.status !== 409 || attempt === 3) throw error;
-        }
-    }
+    const world = await withRuntimeConnection(async () => {
+        const latest = (await api.getWorld(worldId)).world;
+        const saved = (latest.extractions || []).find(item => item.chatKey === meta.chatKey
+            && Number(item.from) === Number(meta.from) && Number(item.to) === Number(meta.to));
+        if (saved && JSON.stringify(saved.result) === JSON.stringify(result)
+            && JSON.stringify(saved.messageFingerprints) === JSON.stringify(meta.messageFingerprints)) return latest;
+        mergeExtraction(latest, result, meta);
+        return (await api.saveWorld(latest)).world;
+    }, true);
     updateRuntime({ world });
     // Embedding the complete world back into chat is comparatively expensive.
     // Callers processing a batch can defer this until the batch finishes while
@@ -1821,7 +1868,8 @@ async function processRange(job, epoch) {
         while (await buildNextChronicle(job.worldId, epoch, { embed: false })) { /* drain recursive Chronicle */ }
     } catch (error) {
         console.warn('[Continuity] Non-destructive hierarchy generation was deferred.', error);
-        updateRuntime({ arcStatus: 'Chronicle promotion deferred; C0 and structured memory are safe.', arcError: error.message });
+        updateRuntime({ arcStatus: 'Chronicle promotion deferred; C0 and structured memory are safe.', arcError: error.message,
+            chronicleBlocked: !isTransientApiError(error) });
     }
     // Publish one portable snapshot after the batch rather than rewriting the
     // entire chat metadata after every successfully saved Digest chunk.

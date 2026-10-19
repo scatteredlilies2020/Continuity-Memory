@@ -17,6 +17,9 @@ import { sanitizeReconciliationMetadata } from '../extension/reconciliation-poli
 import { isMandatoryThinkingError, isThinkingControlError } from '../extension/thinking-policy.js';
 import { nextChroniclePromotion } from '../extension/chronicle.js';
 import { chronicleRetryFeedback, retryChroniclePromotion } from '../extension/chronicle-retry.js';
+import { retryConnection } from '../extension/connection-retry.js';
+import { EXTRACTION_VERSION } from '../extension/coverage.js';
+import { requestModel } from './model-response.js';
 
 const jobs = new Map();
 const activeByWorld = new Map();
@@ -24,7 +27,7 @@ const MAX_FINISHED_JOBS = 40;
 const DEFAULT_REQUEST_TIMEOUT_MS = 120000;
 const DEFAULT_RETRY_DELAY_MS = 2000;
 const MAX_RETRY_DELAY_MS = 60000;
-const DEFAULT_MAX_NETWORK_ATTEMPTS = 5;
+const DEFAULT_MAX_NETWORK_ATTEMPTS = Infinity;
 const TASK_REQUEST_FIELDS = ['request', 'fallbackRequest', 'mandatoryRequest', 'mandatoryFallbackRequest', 'uncontrolledRequest'];
 
 export function releaseDetachedTaskPayload(task, { recursive = true } = {}) {
@@ -201,24 +204,19 @@ async function requestHierarchy(job, layer, records, label, previousError = null
 
 async function saveChronicleResult(job, result, sourceRecords) {
     assertAuthoritativeMetaProvenance(result, chronicleProvenanceBoundaries(sourceRecords), sourceRecords.map(node => node.text || node.summary || ''));
-    for (let attempt = 0; attempt < 4; attempt++) {
+    return retryDetached(job, async () => {
         const world = await job.loadWorld();
         if (job.cancelled) throw new Error('Detached processing was cancelled.');
+        const childIds = sourceRecords.map(source => source.id).join('|');
+        if ((world.chronicle || []).some(node => (node.childIds || []).join('|') === childIds)) return false;
         const current = sourceRecords.map(source => (world.chronicle || []).find(item => item.id === source.id)).filter(Boolean);
         if (current.length !== sourceRecords.length || current.some((node, index) => JSON.stringify(node) !== JSON.stringify(sourceRecords[index]))) {
             throw new Error('Chronicle sources changed while detached promotion was being built.');
         }
-        const before = (world.chronicle || []).length;
         addDerivedChronicle(world, result, current);
-        if ((world.chronicle || []).length === before) return false;
-        try {
-            await job.saveWorld(world);
-            return true;
-        } catch (error) {
-            if (error.status !== 409 || attempt === 3) throw error;
-        }
-    }
-    return false;
+        await job.saveWorld(world);
+        return true;
+    }, 'Saving the completed Chronicle response', true);
 }
 
 async function runHierarchy(job) {
@@ -271,32 +269,11 @@ function waitForRetry(job, delay) {
 }
 
 async function backendRequestOnce(job, body) {
-    const requestController = new AbortController();
-    const abortRequest = () => requestController.abort(job.controller.signal.reason);
-    if (job.controller.signal.aborted) abortRequest();
-    else job.controller.signal.addEventListener('abort', abortRequest, { once: true });
-    const timer = setTimeout(() => requestController.abort(new Error('Detached API request timed out.')), job.requestTimeoutMs);
-    let response;
-    let text;
-    try {
-        response = await job.fetchImpl(job.backendUrl, {
-            method: 'POST',
-            headers: job.backendHeaders,
-            body: JSON.stringify(memoryWireRequest(body)),
-            signal: requestController.signal,
-        });
-        text = await response.text();
-    } catch (error) {
-        if (job.controller.signal.aborted) throw new Error('Detached processing was cancelled.', { cause: error });
-        if (requestController.signal.aborted) throw new Error('Detached API request timed out.', { cause: error });
-        throw error;
-    } finally {
-        clearTimeout(timer);
-        job.controller.signal.removeEventListener('abort', abortRequest);
-    }
-    let payload;
-    try { payload = text ? JSON.parse(text) : {}; }
-    catch { payload = { error: text || response.statusText }; }
+    const { response, payload } = await requestModel(job.fetchImpl, job.backendUrl, {
+        method: 'POST', headers: job.backendHeaders,
+        body: JSON.stringify({ ...memoryWireRequest(body), stream: true }),
+        signal: job.controller.signal,
+    }, job.requestTimeoutMs);
     if (!response.ok || payload?.error) {
         const detail = payload?.error?.message || payload?.message || payload?.error || `${response.status} ${response.statusText}`;
         const error = new Error(`Detached API request failed: ${detail}`);
@@ -307,24 +284,28 @@ async function backendRequestOnce(job, body) {
     return decodeMemoryResponse(completionText(payload), body.continuity_prefill ?? { prefill: requestPrefill(body.messages) });
 }
 
+function retryDetached(job, operation, label = 'Connection interrupted', conflicts = false) {
+    return retryConnection(operation, {
+        signal: job.controller.signal,
+        retryable: error => conflicts && error.status === 409 || isTransientApiError(error),
+        wait: delay => waitForRetry(job, delay),
+        retryDelayMs: job.retryDelayMs, maxRetryDelayMs: job.maxRetryDelayMs,
+        maxAttempts: job.maxNetworkAttempts,
+        onRetry: (error, delay, failures) => {
+            job.networkFailures = failures;
+            job.validation = `${label}; retrying the pending operation in ${Math.ceil(delay / 1000)}s (attempt ${failures + 1}).`;
+        },
+    });
+}
+
 async function backendRequest(job, body) {
-    for (let attempt = 1; ; attempt++) {
-        try {
-            const result = await backendRequestOnce(job, body);
-            job.networkFailures = 0;
-            return result;
-        } catch (error) {
-            if (job.cancelled || !isTransientApiError(error)) throw error;
-            if (attempt >= job.maxNetworkAttempts) {
-                const exhausted = new Error(`Temporary API failure persisted after ${attempt} attempts; detached processing stopped without marking this section processed.`, { cause: error });
-                exhausted.networkAttemptsExhausted = true;
-                throw exhausted;
-            }
-            job.networkFailures = Math.max(job.networkFailures || 0, attempt);
-            const delay = Math.min(job.maxRetryDelayMs, job.retryDelayMs * (2 ** Math.min(5, attempt - 1)));
-            job.validation = `Temporary connection error; retrying in ${Math.round(delay / 1000)}s (attempt ${attempt + 1})…`;
-            await waitForRetry(job, delay);
-        }
+    try {
+        const result = await retryDetached(job, () => backendRequestOnce(job, body));
+        job.networkFailures = 0;
+        return result;
+    } catch (error) {
+        if (isTransientApiError(error)) error.networkAttemptsExhausted = true;
+        throw error;
     }
 }
 
@@ -395,9 +376,21 @@ async function extractTask(job, task, world) {
     throw new Error(`Structured extraction failed twice: ${lastError?.message || 'unknown error'}`, { cause: lastError });
 }
 
+function taskIsSaved(world, chatKey, messages) {
+    const processed = new Map((world.sources?.[chatKey]?.processedMessages || []).map(item => [Number(item.index), item]));
+    return messages.length > 0 && messages.every(message => {
+        const saved = processed.get(Number(message.index));
+        return saved?.version === EXTRACTION_VERSION && saved.fingerprint === fingerprintMessage(message);
+    });
+}
+
 async function runTask(job, task) {
     if (job.cancelled) throw new Error('Detached processing was cancelled.');
     const world = await job.loadWorld();
+    if (taskIsSaved(world, job.chatKey, task.messages)) {
+        job.validation = 'Reused saved Digest; these messages are already processed.';
+        return;
+    }
     job.current = job.chunks + 1;
     job.from = task.messages[0]?.index ?? null;
     job.to = task.messages.at(-1)?.index ?? null;
@@ -412,15 +405,12 @@ async function runTask(job, task) {
             allowStateUpdates: job.allowStateUpdates,
             messageFingerprints: task.messages.map(message => ({ index: message.index, fingerprint: fingerprintMessage(message) })),
         };
-        mergeExtraction(world, result, meta);
-        try {
-            await job.saveWorld(world);
-        } catch (error) {
-            if (error.status !== 409) throw error;
+        await retryDetached(job, async () => {
             const latest = await job.loadWorld();
+            if (taskIsSaved(latest, job.chatKey, task.messages)) return;
             mergeExtraction(latest, result, meta);
             await job.saveWorld(latest);
-        }
+        }, 'Saving the completed Digest response', true);
         job.chunks++;
         job.messages += task.messages.length;
         return;
@@ -519,11 +509,15 @@ export function createDetachedJob(req, payload, storage, {
     const activeKey = `${req.user.directories.root}|${worldId}|${chatKey}`;
     const existingId = activeByWorld.get(activeKey);
     if (existingId && jobs.has(existingId)) return { job: jobs.get(existingId), existing: true };
+    const requestId = String(payload.requestId || '');
+    const completed = requestId && [...jobs.values()].find(job => job.activeKey === activeKey && job.requestId === requestId);
+    if (completed) return { job: completed, existing: true };
     const backend = backendContext(req);
     const job = {
         id: crypto.randomUUID(),
         worldId,
         chatKey,
+        requestId,
         tasks,
         hierarchy: payload?.hierarchy && typeof payload.hierarchy === 'object' ? payload.hierarchy : null,
         reason: String(payload.reason || 'manual'),
@@ -532,12 +526,13 @@ export function createDetachedJob(req, payload, storage, {
         backendUrl: backend.url,
         backendHeaders: backend.headers,
         fetchImpl,
-        requestTimeoutMs: Math.max(10, Number(requestTimeoutMs) || DEFAULT_REQUEST_TIMEOUT_MS),
+        requestTimeoutMs: Number.isFinite(Number(payload.requestIdleTimeoutMs)) && Number(payload.requestIdleTimeoutMs) > 0
+            ? Math.max(1000, Number(payload.requestIdleTimeoutMs)) : Math.max(10, Number(requestTimeoutMs) || DEFAULT_REQUEST_TIMEOUT_MS),
         retryDelayMs: Math.max(10, Number(retryDelayMs) || DEFAULT_RETRY_DELAY_MS),
         maxRetryDelayMs: Math.max(10, Number(maxRetryDelayMs) || MAX_RETRY_DELAY_MS),
         maxNetworkAttempts: Math.max(1, Number(maxNetworkAttempts) || DEFAULT_MAX_NETWORK_ATTEMPTS),
         networkFailures: 0,
-        loadWorld: () => storage.loadWorld(worldId),
+        loadWorld: () => retryDetached(job, () => storage.loadWorld(worldId), 'Reloading saved memory'),
         saveWorld: world => storage.saveWorld(worldId, world),
         status: 'queued',
         createdAt: new Date().toISOString(),

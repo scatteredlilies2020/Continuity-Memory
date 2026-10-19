@@ -1,12 +1,12 @@
 import { extractMessageFromData } from '/script.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
-import { resolveMemoryPrefill, sendMemoryProfileRequest } from './preset-prefill-host.js';
+import { resolveMemoryPrefill, sendMemoryProfileRequest } from './preset-prefill-host.js?pending-recovery=1';
 import { memoryRequestMessages, responseWithPrefill } from './preset-prefill.js';
 import { isThinkingControlError, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.30';
-import { generateWithThinkingPolicy, requestDirectText, resolveThinkingModeForProfile } from './engine.js?v=0.15.0-testing.30&belief-wording=4';
+import { generateWithThinkingPolicy, requestDirectText, resolveThinkingModeForProfile } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1';
 import { parseExpandedTerms } from './semantic-terms.js?v=0.15.0-testing.30';
 import { recentRetrievalQuery } from './retrieval-query.js?v=0.15.0-testing.30';
-import { getSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4';
+import { getSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1';
 import { buildThinkingRequest } from './thinking-policy.js?v=0.15.0-testing.30';
 import { buildRetrievalSystemPrompt, DEFAULT_RETRIEVAL_QUERY_TEMPLATE, DEFAULT_RETRIEVAL_SYSTEM_PROMPT, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.30&belief-wording=4';
 import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.30';
@@ -27,13 +27,15 @@ export function clearRetrievalExpansionCache() {
 
 async function requestExpansion(prompt, signal, onDispatch) {
     const settings = getSettings();
-    const systemPrompt = buildRetrievalSystemPrompt(settings.retrievalSystemPrompt ?? DEFAULT_RETRIEVAL_SYSTEM_PROMPT);
+    const target = Math.max(0, Math.floor(Number(settings.retrievalOutputTokens) || 0));
+    const systemPrompt = buildRetrievalSystemPrompt(settings.retrievalSystemPrompt ?? DEFAULT_RETRIEVAL_SYSTEM_PROMPT)
+        + (target ? `\nAim for roughly ${target} output tokens. This is a soft target; finish the complete search-term response.` : '');
     const profileId = settings.retrievalProfileId || settings.memoryProfileId;
     const thinkingMode = resolveThinkingModeForProfile(settings.retrievalThinkingMode, profileId);
     if (!profileId) {
-        return await generateWithThinkingPolicy({ prompt, systemPrompt, responseLength: 300, signal, onDispatch }, thinkingMode);
+        return await generateWithThinkingPolicy({ prompt, systemPrompt, responseLength: null, signal, onDispatch }, thinkingMode);
     }
-    if (profileId === '__direct__') return requestDirectText(prompt, systemPrompt, 300, settings.retrievalProfileId ? 'retrieval' : 'extraction', thinkingMode, { signal, onDispatch });
+    if (profileId === '__direct__') return requestDirectText(prompt, systemPrompt, null, settings.retrievalProfileId ? 'retrieval' : 'extraction', thinkingMode, { signal, onDispatch });
     const profile = ConnectionManagerRequestService.getProfile(profileId);
     const apiMap = ConnectionManagerRequestService.validateProfile(profile);
     const model = connectionProfileModel(profile, 'AI retrieval');
@@ -50,7 +52,7 @@ async function requestExpansion(prompt, signal, onDispatch) {
     let response;
     try {
         response = await sendMemoryProfileRequest(
-            profileId, messages, 300, options, isolatedProfilePayload({ ...outputTokenPayload(model, 300), ...thinking.payload }),
+            profileId, messages, undefined, options, isolatedProfilePayload({ ...outputTokenPayload(model, null), ...thinking.payload }),
         );
     } catch (error) {
         signal?.throwIfAborted();
@@ -58,7 +60,7 @@ async function requestExpansion(prompt, signal, onDispatch) {
         const fallbackPayload = thinkingControlFallbackPayload(error, thinking.payload);
         if (!thinking.controlled && !Object.keys(fallbackPayload).length) throw error;
         response = await sendMemoryProfileRequest(
-            profileId, messages, 300, options, isolatedProfilePayload({ ...outputTokenPayload(model, 300), ...fallbackPayload }),
+            profileId, messages, undefined, options, isolatedProfilePayload({ ...outputTokenPayload(model, null), ...fallbackPayload }),
         );
     }
     const result = extractMessageFromData(response, apiMap.selected);

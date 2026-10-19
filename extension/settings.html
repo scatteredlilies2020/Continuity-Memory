@@ -117,12 +117,16 @@
                             <small>default 8; range 2–50; smaller recent tails remain raw until the group is complete</small>
                         </label>
                         <label>Extraction chunk
-                            <input id="continuity_chunk" class="text_pole" type="number" min="0" max="50000" step="500">
+                            <input id="continuity_chunk" class="text_pole" type="number" min="0" step="500">
                             <small>estimated source tokens; 0 = dynamic: 20% of context, up to 8000</small>
                         </label>
-                        <label>Extraction output tokens
-                            <input id="continuity_extraction_output_tokens" class="text_pole" type="number" min="0" max="32768" step="256">
-                            <small>0 = provider default. Increase if a single message repeatedly reaches the model's output limit; the model must support the chosen limit.</small>
+                        <label>Extraction output target
+                            <input id="continuity_extraction_output_tokens" class="text_pole" type="number" min="0" step="256">
+                            <small>Soft output target; 0 = provider default. Complete responses can exceed this target.</small>
+                        </label>
+                        <label>Retry after no progress (seconds)
+                            <input id="continuity_idle_timeout" class="text_pole" type="number" min="1" step="30">
+                            <small>Default 120. Applies to detached memory requests. New output or reasoning resets the timer; active generation can take longer.</small>
                         </label>
                     </div>
                     <details>
@@ -285,6 +289,10 @@
                 <small id="continuity_story_status">No Chronicle is stored for this chat yet.</small>
                 <details>
                     <summary>Advanced retrieval history</summary>
+                    <label>AI search output target
+                        <input id="continuity_retrieval_output_tokens" class="text_pole" type="number" min="0" step="100">
+                        <small>Soft target for AI search terms; default 300 tokens. 0 = provider default. Complete responses can exceed it.</small>
+                    </label>
                     <label>Recent messages
                         <input id="continuity_retrieval_messages" class="text_pole" type="number" min="2" max="50" step="1">
                         <small>complete messages; default 6. Local recall also checks the immediate exchange for short follow-ups. AI search uses this conversation; embedding queries use its last 6,000 characters.</small>
@@ -294,8 +302,8 @@
                     <summary>Advanced memory injection</summary>
                     <div class="continuity-grid">
                         <label>Recall allowance
-                            <input id="continuity_budget" class="text_pole" type="number" min="0" max="100000" step="250">
-                            <small>Soft packing target for structured recall; 0 = automatic 20% of model context. Fixed targets range from 128 to 100,000. Complete records may exceed the target. The complete Chronicle frontier is additional.</small>
+                            <input id="continuity_budget" class="text_pole" type="number" min="0" step="250">
+                            <small>Soft packing target for structured recall; 0 = automatic 20% of model context. Complete records may exceed the target. The complete Chronicle frontier is additional.</small>
                         </label>
                         <label>Injection position
                         <select id="continuity_injection_position" class="text_pole">
@@ -538,9 +546,9 @@
                         </label>
                     </div>
                     <textarea id="continuity_correction_input" class="text_pole" rows="4" placeholder="Example: [Character] already knew [information] before [scene]. Remove memories claiming they learned it there."></textarea>
-                    <label>Maximum correction output tokens
-                        <input id="continuity_correction_tokens" class="text_pole" type="number" min="1000" max="32000" step="1000">
-                        <small>default 8000; reasoning-capable models may share this allowance between thinking and JSON output</small>
+                    <label>Correction output target
+                        <input id="continuity_correction_tokens" class="text_pole" type="number" min="1" step="1000">
+                        <small>Soft target; default 8000. Complete JSON can exceed it. The selected provider still controls output capacity.</small>
                     </label>
                     <div class="continuity-button-row">
                         <button id="continuity_correction_review" class="menu_button"><i class="fa-solid fa-magnifying-glass"></i> Review correction</button>

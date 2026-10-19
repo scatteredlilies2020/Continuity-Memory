@@ -52,7 +52,7 @@ test('background memory resumes only after the visible reply returns', async () 
     const receivedStart = source.indexOf('eventSource.on(event_types.MESSAGE_RECEIVED');
     const receivedEnd = source.indexOf('eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY', receivedStart);
     const received = source.slice(receivedStart, receivedEnd);
-    assert.match(received, /if \(runtime\.paused\) resumeRuntime\(\)/u);
+    assert.match(received, /if \(runtime\.paused\) return/u);
     assert.match(received, /backgroundMemoryWork\.schedule\(\)/u);
     assert.doesNotMatch(received, /Embedding|embedding/u);
 });
@@ -91,6 +91,7 @@ test('background memory checks pending Chronicle before extraction and also with
         runInNewContext(worker, {
             createBackgroundScheduler: callback => { run = callback; return {}; },
             runtime: { stopSequence: 0, paused: false }, backgroundCancelled: false,
+            automaticWorkChatKey: 'chat', getChatKey: () => 'chat',
             getSettings: () => ({ extractionBatchMessages: 8 }),
             getContext: () => ({ chat: [] }), collectMemoryEligibleMessages: () => [], getBoundWorldId: () => 'world',
             maintainChronicleHierarchy: async () => { calls.push('promote'); return null; },
@@ -117,7 +118,7 @@ test('automatic Chronicle maintenance owns the processing lock and drains recurs
 test('changing Recursive Chronicle settings schedules immediate maintenance', async () => {
     const index = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
     const ui = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/ui.js', import.meta.url), 'utf8'));
-    assert.match(index, /initUI\(\{ scheduleMemoryMaintenance: \(\) => backgroundMemoryWork\.schedule\(0\) \}\)/u);
+    assert.match(index, /scheduleMemoryMaintenance: \(\) => \{[\s\S]*?automaticWorkChatKey = getChatKey\(\);[\s\S]*?backgroundMemoryWork\.schedule\(0\)/u);
     assert.match(ui, /export function initUI\(\{ scheduleMemoryMaintenance = null \} = \{\}\)/u);
     assert.match(ui, /continuity_hierarchy_mode[\s\S]*scheduleChronicleMaintenance/u);
     assert.match(ui, /continuity_chronicle_capacity[\s\S]*scheduleChronicleMaintenance/u);

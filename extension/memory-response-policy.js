@@ -3,14 +3,14 @@ export const GEMINI_MEMORY_RESPONSE_TOKENS = 8192;
 export const SINGLE_MESSAGE_RECOVERY_RESPONSE_TOKENS = 16384;
 
 export function normalizeExtractionOutputTokens(value) {
-    const requested = Math.floor(Number(value) || 0);
-    return requested > 0 ? Math.min(32768, Math.max(256, requested)) : 0;
+    const requested = Math.floor(Number(value));
+    return Number.isFinite(requested) && requested > 0 ? requested : 0;
 }
 
 export function extractionResponseTokens(configured = 0, singleMessageRecovery = false) {
-    const requested = normalizeExtractionOutputTokens(configured);
-    if (!singleMessageRecovery) return requested || PROVIDER_MANAGED_MEMORY_RESPONSE_TOKENS;
-    return Math.min(32768, Math.max(SINGLE_MESSAGE_RECOVERY_RESPONSE_TOKENS, requested * 2));
+    // The configured amount is prompt guidance. It must never become a wire
+    // max_tokens cap that truncates an otherwise complete memory response.
+    return PROVIDER_MANAGED_MEMORY_RESPONSE_TOKENS;
 }
 
 export function memoryResponseTokens(layer) {

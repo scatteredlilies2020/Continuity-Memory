@@ -6,6 +6,6 @@ export function dynamicExtractionChunk(contextSize) {
 export function resolveExtractionChunk(configuredTokens, contextSize) {
     const configured = Math.max(0, Number(configuredTokens) || 0);
     return configured > 0
-        ? Math.min(50000, Math.max(1000, configured))
+        ? Math.max(1, configured)
         : dynamicExtractionChunk(contextSize);
 }

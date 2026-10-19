@@ -11,9 +11,9 @@ test('correction responses default to eight thousand output tokens', () => {
     assert.equal(resolveCorrectionResponseTokens(''), 8000);
 });
 
-test('correction response tokens are adjustable within safe bounds', () => {
+test('correction response tokens are adjustable soft targets without a fixed ceiling', () => {
     assert.equal(resolveCorrectionResponseTokens(12000), 12000);
     assert.equal(resolveCorrectionResponseTokens(12500.6), 12501);
-    assert.equal(resolveCorrectionResponseTokens(100), 1000);
-    assert.equal(resolveCorrectionResponseTokens(64000), 32000);
+    assert.equal(resolveCorrectionResponseTokens(100), 100);
+    assert.equal(resolveCorrectionResponseTokens(64000), 64000);
 });

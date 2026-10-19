@@ -401,7 +401,7 @@ test('detached incomplete records retry with feedback before committing any cove
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     };
     const router = mockRouter();
-    await init(router, { syncExtension: false, fetchImpl, detachedRequestTimeoutMs: 10, detachedRetryDelayMs: 10 });
+    await init(router, { syncExtension: false, fetchImpl, detachedRequestTimeoutMs: 1000, detachedRetryDelayMs: 10 });
     assert.equal(router.routes.has('POST /extraction-jobs'), true);
     assert.equal(router.routes.has('POST /generation-jobs'), false);
 
@@ -461,7 +461,7 @@ test('detached repeated incomplete output leaves the entire section pending', as
         return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(incomplete) }, finish_reason: 'stop' }] }), { status: 200 });
     };
     const router = mockRouter();
-    await init(router, { syncExtension: false, fetchImpl, detachedRequestTimeoutMs: 10, detachedRetryDelayMs: 10 });
+    await init(router, { syncExtension: false, fetchImpl, detachedRequestTimeoutMs: 1000, detachedRetryDelayMs: 10 });
     assert.equal(router.routes.has('POST /extraction-jobs'), true);
     assert.equal(router.routes.has('POST /generation-jobs'), false);
 

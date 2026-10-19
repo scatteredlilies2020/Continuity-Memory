@@ -22,13 +22,13 @@ test('Gemini receives a safe fallback when provider-managed length produces empt
     assert.equal(resolveMemoryResponseTokens(2400, 'gemini'), 2400);
 });
 
-test('extraction output limit remains optional and a single incomplete message gets one larger bounded retry', () => {
+test('extraction output targets never impose a provider token cap, including recovery', () => {
     assert.equal(normalizeExtractionOutputTokens(0), 0);
-    assert.equal(normalizeExtractionOutputTokens(1), 256);
-    assert.equal(normalizeExtractionOutputTokens(999999), 32768);
+    assert.equal(normalizeExtractionOutputTokens(1), 1);
+    assert.equal(normalizeExtractionOutputTokens(999999), 999999);
     assert.equal(extractionResponseTokens(0), null);
-    assert.equal(extractionResponseTokens(4096), 4096);
-    assert.equal(extractionResponseTokens(0, true), SINGLE_MESSAGE_RECOVERY_RESPONSE_TOKENS);
-    assert.equal(extractionResponseTokens(12000, true), 24000);
-    assert.equal(extractionResponseTokens(32768, true), 32768);
+    assert.equal(extractionResponseTokens(4096), null);
+    assert.equal(extractionResponseTokens(0, true), null);
+    assert.equal(extractionResponseTokens(12000, true), null);
+    assert.equal(extractionResponseTokens(32768, true), null);
 });

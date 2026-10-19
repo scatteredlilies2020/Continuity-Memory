@@ -32,7 +32,7 @@ function makeExtractor(requestExtraction, settings = { extractionOutputTokens: 0
     return { extract: runInNewContext(`${engine.slice(start, end)}\nextractChunk`, context), updates };
 }
 
-test('a truncated single message skips a duplicate default request and retries at a higher output limit', async () => {
+test('a truncated single message retries with complete JSON guidance and provider-managed capacity', async () => {
     const budgets = [];
     const { extract, updates } = makeExtractor(async (prompt, system, fallback, budget) => {
         budgets.push(budget);
@@ -40,7 +40,7 @@ test('a truncated single message skips a duplicate default request and retries a
         return '{}';
     });
     assert.deepEqual(await extract([{ index: 10, text: 'one message' }]), {});
-    assert.deepEqual(budgets, [null, 16384]);
+    assert.deepEqual(budgets, [null, null]);
     assert.match(updates.at(-1).lastValidation, /higher-output retry/);
 });
 
@@ -54,7 +54,7 @@ test('a truncated multi-message chunk still splits instead of increasing output 
     assert.deepEqual(budgets, [null]);
 });
 
-test('a configured extraction limit is used initially and increased for single-message recovery', async () => {
+test('a configured extraction target remains soft during initial and recovery requests', async () => {
     const budgets = [];
     const { extract } = makeExtractor(async (prompt, system, fallback, budget) => {
         budgets.push(budget);
@@ -62,7 +62,7 @@ test('a configured extraction limit is used initially and increased for single-m
         return '{}';
     }, { extractionOutputTokens: 4096 });
     assert.deepEqual(await extract([{ index: 10, text: 'one message' }]), {});
-    assert.deepEqual(budgets, [4096, 4096, 16384]);
+    assert.deepEqual(budgets, [null, null, null]);
 });
 
 test('non-incomplete single-message failures do not trigger the higher-budget retry', async () => {

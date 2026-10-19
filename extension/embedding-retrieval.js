@@ -1,7 +1,7 @@
 import { getRequestHeaders } from '/script.js';
 import { buildEmbeddingDocuments, buildEmbeddingQuery, semanticRanksFromResponse } from './embedding-index.js?v=0.15.0-testing.30';
 import { resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.30';
-import { getSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4';
+import { getSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1';
 import { onRuntimeChange, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.30';
 import { createVectorStorageRequester, vectorStorageError } from './vector-storage-client.js?v=0.15.0-testing.30';
 import { embeddingRetryDelay, isRetryableEmbeddingError } from './embedding-retry.js?v=0.15.0-testing.30';
@@ -384,7 +384,7 @@ export function scheduleEmbeddingIndexSync(world, delay = 300, allowAutomaticBui
             : inspectEmbeddingIndex(world).then(index => {
                 // Resume a saved partial build even when the memory revision
                 // has not changed since opening the chat or generating a reply.
-                if (index.status === 'incomplete' && settings.embeddingAutoSync && indexingControl === 'running') {
+                if (allowAutomaticBuild && index.status === 'incomplete' && settings.embeddingAutoSync && indexingControl === 'running') {
                     return resumeEmbeddingIndexing(world);
                 }
                 return index;
