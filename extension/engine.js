@@ -104,7 +104,8 @@ Change only records that conflict with the correction or are necessary to preser
 Choose futurePolicy for the reviewed patch: allow-supported-change for mutable conditions, relationships, perspectives, or observations that later source evidence may change; keep-until-corrected for fixed historical claims, identity, immutable canon, and explicit standing user constraints. Events and Digest capsules always use keep-until-corrected. A later source can establish a new condition, not rewrite the corrected past. Explain the policy in the reason when ambiguous.
 Use exact category names and target IDs from the supplied candidate records. For update, return the complete corrected public record as JSON encoded inside recordJson. For delete, use "{}". For add, leave targetId empty and return the complete new record.
 Check every relevant representation of the mistake. In particular, update or remove a Digest capsule when it repeats the incorrect event; otherwise derived summaries can relearn the error.
-Do not alter unrelated details, invent unsupported events, create new Digest capsules, or edit chat messages. Return JSON only.`;
+Do not alter unrelated details, invent unsupported events, create new Digest capsules, or edit chat messages. Return JSON only.
+${formatStructuredResponseGuide(schemaFieldGuide(correctionSchema))}`;
 
 const ARC_JSON_SHAPE_EXAMPLE = schemaFieldGuide(chronicleParentSchema);
 
