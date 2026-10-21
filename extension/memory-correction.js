@@ -374,14 +374,14 @@ export function applyCorrectionProposal(world, proposal, reviewedSource = {}) {
             };
             if (['threads', 'backgrounds'].includes(operation.category)) {
                 // A correction rejects the old wording; retain it in the audit, not active recall.
-                after.history = [];
+                after.history = operation.preserveSupportingHistory ? structuredClone(operation.replacement.history || []) : [];
                 after.status = 'recorded';
                 after.observationSources = before?.observationSources || before?.sources || [];
             }
             if (before?.chatKey) after.chatKey = before.chatKey;
             if (Number.isFinite(Number(before?.from))) after.from = Number(before.from);
             if (Number.isFinite(Number(before?.to))) after.to = Number(before.to);
-            if (operation.category === 'capsules') after.chronicleText = '';
+            if (operation.category === 'capsules' && !operation.preserveChronicleText) after.chronicleText = '';
             if (index >= 0) collection[index] = after;
             else collection.push(after);
             if (operation.category === 'capsules' && !before) {

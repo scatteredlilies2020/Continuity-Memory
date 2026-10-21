@@ -50,7 +50,7 @@ function requirePending(id) {
 }
 
 function candidateFromResult(result) {
-    const json = JSON.stringify(result, null, 2);
+    const json = JSON.stringify(result, (key, value) => key.startsWith('_') ? undefined : value, 2);
     return { result, original: json, draft: json };
 }
 
@@ -144,7 +144,7 @@ export function approveExtractionReview(text, id = pending?.id) {
     } catch (error) {
         throw new Error(`The edited memory is not valid JSON: ${error.message}`);
     }
-    const value = active.validate(parsed);
+    const value = active.validate(parsed, active.candidates[active.activeIndex].result);
     pending = null;
     active.onSettled({ approved: true, id: active.id });
     active.resolve(value);

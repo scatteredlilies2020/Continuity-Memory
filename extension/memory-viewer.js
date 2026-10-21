@@ -1,6 +1,7 @@
 import { supportingRecords } from './supporting-memories.js?v=0.15.0-testing.30';
 import { formatEntityProfile } from './entity-profile.js';
 import { activeChronicleNodes } from './chronicle.js';
+import { memoryEditTarget } from './memory-edit.js';
 
 export const MEMORY_VIEW_CATEGORIES = Object.freeze([
     { key: 'scene', label: 'Latest extracted checkpoint' },
@@ -178,6 +179,7 @@ function entry(category, item, index) {
     const importance = Number(item.importance);
     return {
         id: item.id || `${category}-${index}`,
+        editTarget: memoryEditTarget(category, item),
         title: text(title),
         fields,
         sources,

@@ -28,6 +28,12 @@
 .continuity-memory-viewer { display:flex; flex-direction:column; gap:7px; max-height:520px; overflow:auto; padding-right:2px; }
 .continuity-viewer-item { border:1px solid var(--SmartThemeBorderColor); border-radius:7px; padding:8px; background:rgba(0,0,0,.12); }
 .continuity-viewer-item h5 { margin:0 0 6px; font-size:1em; }
+.continuity-viewer-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }
+.continuity-memory-edit-button { flex:0 0 auto; width:28px; height:28px; min-height:28px; padding:3px; margin:0; font-size:.75em; opacity:.55; }
+.continuity-memory-edit-button:hover, .continuity-memory-edit-button:focus-visible { opacity:1; }
+.continuity-memory-edit-form { border-top:1px solid var(--SmartThemeBorderColor); margin-top:8px; padding-top:6px; }
+.continuity-memory-edit-form textarea { width:100%; resize:vertical; min-height:48px; }
+.continuity-memory-edit-form .continuity-field-row { font-size:.9em; }
 .continuity-viewer-field { margin:4px 0; white-space:pre-wrap; overflow-wrap:anywhere; }
 .continuity-viewer-field b { opacity:.85; }
 .continuity-viewer-meta { display:flex; flex-wrap:wrap; gap:5px; margin-top:7px; font-size:.8em; opacity:.8; }

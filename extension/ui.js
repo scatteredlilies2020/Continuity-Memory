@@ -13,6 +13,9 @@ import { clearRetrievalExpansionCache, expandRetrievalTerms } from './semantic-r
 import { resolveRetrievalAssist } from './retrieval-assist.js?bounded-recall=1&catchup-gate=1';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
+import { describeMemoryEdit } from './memory-edit.js';
+import { createMemoryEditForm } from './memory-edit-form.js';
+import { commitManualMemoryEdit } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1';
 import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js?pending-recovery=1';
 import { normalizeExtractionOutputTokens } from './memory-response-policy.js?pending-recovery=1';
@@ -46,6 +49,7 @@ let viewerCategory = 'digest';
 let viewerSearch = '';
 let viewerPage = 0;
 let viewerSignature = '';
+let memoryEditSession = null;
 let extractionReviewSession = null;
 let reviewRecoveryListenersInstalled = false;
 let activeMemoryBuild = null;
@@ -306,7 +310,7 @@ function saveReviewedMemory(session) {
     try {
         const review = session.review;
         approveExtractionReview(session.editor.value, session.reviewId);
-        toast('success', `Reviewed ${review.layer} saved. Other regenerated candidates were discarded.`);
+        toast('success', `Reviewed ${review.layer} approved for saving. Other regenerated candidates were discarded.`);
     } catch (error) {
         session.content.querySelector('.continuity-review-phase').textContent = error.message;
         toast('error', error.message);
@@ -1240,8 +1244,14 @@ async function fetchEmbeddingModels() {
 
 function renderMemoryViewer(force = false) {
     const world = runtime.world;
+    if (memoryEditSession) {
+        if (memoryEditSession.worldId === world?.id && memoryEditSession.chatKey === getChatKey()) return;
+        memoryEditSession = null;
+        viewerSignature = '';
+        $('#continuity_viewer_category, #continuity_viewer_search').prop('disabled', false);
+    }
     const coverage = getProcessingCoverage(world);
-    const signature = `${world?.id || ''}:${world?.revision ?? ''}:${viewerCategory}:${viewerSearch}:${viewerPage}:${coverage.latestIndex}:${coverage.pending}`;
+    const signature = `${world?.id || ''}:${world?.revision ?? ''}:${getChatKey()}:${viewerCategory}:${viewerSearch}:${viewerPage}:${coverage.latestIndex}:${coverage.pending}`;
     if (!force && signature === viewerSignature) return;
     viewerSignature = signature;
     const result = memoryViewerPage(world, viewerCategory, viewerSearch, viewerPage, 30, getChatKey());
@@ -1265,7 +1275,13 @@ function renderMemoryViewer(force = false) {
     }
     for (const item of result.items) {
         const card = $('<article>').addClass('continuity-viewer-item').appendTo(container);
-        $('<h5>').text(item.title || 'Untitled memory').appendTo(card);
+        const heading = $('<div>').addClass('continuity-viewer-heading').appendTo(card);
+        $('<h5>').text(item.title || 'Untitled memory').appendTo(heading);
+        if (item.editTarget) {
+            $('<button>').attr({ type: 'button', title: 'Edit memory', 'aria-label': `Edit ${item.title || 'memory'}` })
+                .addClass('menu_button continuity-memory-edit-button').append($('<i>').addClass('fa-solid fa-pencil').attr('aria-hidden', 'true'))
+                .on('click', () => openStoredMemoryEditor(item, card)).appendTo(heading);
+        }
         for (const field of item.fields) {
             const row = $('<div>').addClass('continuity-viewer-field').appendTo(card);
             $('<b>').text(`${field.label}: `).appendTo(row);
@@ -1276,6 +1292,38 @@ function renderMemoryViewer(force = false) {
         for (const source of item.sources) $('<span>').text(source).appendTo(meta);
         if (!meta.children().length) meta.remove();
     }
+}
+
+function openStoredMemoryEditor(item, card) {
+    if (memoryEditSession) return;
+    try {
+        const world = runtime.world;
+        const descriptor = describeMemoryEdit(world, item.editTarget);
+        const session = { worldId: world.id, baseRevision: world.revision, chatKey: getChatKey(), target: descriptor.target };
+        const close = () => {
+            if (memoryEditSession !== session) return;
+            memoryEditSession = null;
+            $('#continuity_viewer_category, #continuity_viewer_search').prop('disabled', false);
+            renderMemoryViewer(true);
+        };
+        const form = createMemoryEditForm({ descriptor,
+            onCancel: close,
+            onSave: async patch => {
+                if (memoryEditSession !== session || session.chatKey !== getChatKey()) throw new Error('This editor belongs to a different chat.');
+                await commitManualMemoryEdit({ worldId: session.worldId, baseRevision: session.baseRevision, target: session.target, patch });
+                if (memoryEditSession !== session || session.chatKey !== getChatKey()) return;
+                clearRetrievalExpansionCache();
+                pendingCorrection = null;
+                close();
+                toast('success', 'Memory updated.');
+            },
+        });
+        memoryEditSession = session;
+        $('#continuity_viewer_category, #continuity_viewer_search, #continuity_viewer_previous, #continuity_viewer_next').prop('disabled', true);
+        $('.continuity-memory-edit-button').prop('disabled', true);
+        card[0].append(form);
+        form.querySelector('textarea, input, select')?.focus();
+    } catch (error) { toast('error', error.message); }
 }
 
 export function renderRuntime(refreshSettings = true) {

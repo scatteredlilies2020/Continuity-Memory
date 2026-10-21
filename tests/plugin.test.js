@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { init, syncBundledExtension } from '../plugin/index.js';
+import { applyManualMemoryEdit } from '../extension/memory-edit.js';
 
 function mockRouter() {
     const routes = new Map();
@@ -27,6 +28,27 @@ async function call(handler, root, { body = {}, params = {}, query = {}, headers
     await handler(req, res);
     return { status, payload };
 }
+
+test('manual entry edits survive server storage and stale saves cannot overwrite them', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-manual-edit-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const router = mockRouter();
+    await init(router, { syncExtension: false });
+    const created = await call(router.routes.get('POST /worlds'), root, { body: { name: 'Manual edit' } });
+    let world = created.payload.world;
+    world.capsules = [{ id: 'digest-edit', title: 'Arrival', opening: 'Alice arrives.', beats: [], closing: '', chatKey: 'chat', from: 0, to: 7 }];
+    world.facts = [{ id: 'fact-edit', subject: 'Alice', predicate: 'snack', value: 'bread', sources: [{ chatKey: 'chat', from: 0, to: 7 }] }];
+    const put = value => call(router.routes.get('PUT /worlds/:id'), root, { params: { id: world.id }, body: value });
+    world = (await put(world)).payload.world;
+    const edited = applyManualMemoryEdit(world, { category: 'facts', id: 'fact-edit' }, { value: 'cake' }, { chatKey: 'chat', to: 7 });
+    assert.equal((await put(edited.world)).status, 200);
+    const reloaded = (await call(router.routes.get('GET /worlds/:id'), root, { params: { id: world.id } })).payload.world;
+    assert.equal(reloaded.facts[0].id, 'fact-edit');
+    assert.equal(reloaded.facts[0].value, 'cake');
+    assert.deepEqual(reloaded.facts[0].sources[0], world.facts[0].sources[0]);
+    assert.equal(reloaded.corrections[0].operations[0].afterRecord.id, 'fact-edit');
+    assert.equal((await put(world)).status, 409);
+});
 
 test('unsupported server storage requires an update instead of recovering an older conflict copy', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-format-'));

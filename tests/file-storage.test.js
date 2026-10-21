@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createFileStorageApi } from '../extension/file-storage.js';
+import { applyManualMemoryEdit } from '../extension/memory-edit.js';
 
 function memoryFileServer() {
     const files = new Map();
@@ -48,6 +49,28 @@ function memoryFileServer() {
         },
     };
 }
+
+test('manual Digest edits survive file-storage save and reload with their record identities intact', async () => {
+    const server = memoryFileServer();
+    const api = createFileStorageApi({ fetchFn: server.fetchFn });
+    let { world } = await api.createWorld('Manual edit');
+    world.capsules = [{ id: 'digest-edit', title: 'Arrival', opening: 'Alice arrives.', beats: [], closing: '',
+        chatKey: 'chat', from: 0, to: 7, sources: [{ chatKey: 'chat', from: 0, to: 7 }] }];
+    world.sources = { chat: { lastProcessedIndex: 7, processedMessages: [{ index: 0, fingerprint: 'source-kept' }] } };
+    world = (await api.saveWorld(world)).world;
+    const target = { category: 'capsules', id: 'digest-edit', view: 'chronicle' };
+    const edited = applyManualMemoryEdit(world, target, { chronicleText: 'Alice had arrived earlier.' }, { chatKey: 'chat', to: 7 });
+    const saved = (await api.saveWorld(edited.world)).world;
+    const reloaded = (await api.getWorld(world.id)).world;
+    assert.equal(reloaded.capsules[0].id, 'digest-edit');
+    assert.equal(reloaded.chronicle[0].id, 'chronicle_digest-edit');
+    assert.equal(reloaded.chronicle[0].text, 'Alice had arrived earlier.');
+    assert.deepEqual(reloaded.sources, world.sources);
+    assert.deepEqual([reloaded.capsules[0].from, reloaded.capsules[0].to], [0, 7]);
+    assert.equal(reloaded.corrections[0].operations[0].afterRecord.chronicleText, 'Alice had arrived earlier.');
+    await assert.rejects(api.saveWorld(edited.world), error => error.status === 409);
+    assert.equal((await api.getWorld(world.id)).world.revision, saved.revision);
+});
 
 test('unsupported file storage requires an update without rewriting saved memory', async () => {
     const server = memoryFileServer();

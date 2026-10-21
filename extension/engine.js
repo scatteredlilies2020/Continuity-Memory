@@ -16,9 +16,11 @@ import { normalizeHierarchyResult } from './hierarchy-result.js';
 import { captureScenarioContext } from './scenario-context.js';
 import { completeDigestMessages, latestCompleteDigestMessageIndex, digestStabilityRepairFrom, DIGEST_STABILITY_BUFFER_MESSAGES, partitionDigestStabilityBuffer, partitionPendingDigestMessages, resolveDigestGroupSize, selectAutomaticDigestMessages } from './digest-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
+import { applyManualMemoryEdit } from './memory-edit.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js?pending-recovery=1';
 import { isAdaptiveExtractionSplitError, isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.30';
 import { requestExtractionReview } from './extraction-review.js';
+import { assertReviewedMemoryContent } from './review-content.js';
 import { parseJsonResponse } from './json-response.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedChronicle, freshResetResiduals, getLatestDigestUndoStatus as inspectLatestDigestUndo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from './memory-model.js';
@@ -575,10 +577,20 @@ function reviewStatus(review) {
 
 async function reviewMemoryBeforeSave(result, meta, validate, regenerate = null) {
     if (!getSettings().reviewBeforeCommit) return result;
+    const worldId = getBoundWorldId();
+    const chatKey = getChatKey();
+    const epoch = runtime.generation;
+    const revision = runtime.world?.revision;
     return await requestExtractionReview({
         result,
         meta,
-        validate,
+        validate: (candidate, original) => {
+            if (getBoundWorldId() !== worldId || getChatKey() !== chatKey || runtime.generation !== epoch || runtime.world?.revision !== revision) {
+                throw new Error('Memory or its source chat changed during review. Discard this candidate and start a fresh review.');
+            }
+            assertReviewedMemoryContent(candidate, original, meta.layer);
+            return validate(candidate);
+        },
         regenerate,
         onPending: review => updateRuntime({
             pendingExtractionReview: review,
@@ -1206,6 +1218,38 @@ async function rebuildCorrectionHierarchy(result, expectedEpoch) {
     }
     while (await buildNextChronicle(undefined, expectedEpoch)) chroniclePromotions++;
     return { chroniclePromotions, world: runtime.world || world };
+}
+
+export async function commitManualMemoryEdit({ worldId, baseRevision, target, patch }) {
+    if (runtime.processing || runtime.storyProcessing || runtime.pendingExtractionReview) throw new Error('Wait for the current memory operation to finish before saving an edit.');
+    const chatKey = getChatKey();
+    if (!worldId || getBoundWorldId() !== worldId) throw new Error('This edit belongs to a different memory. Reopen the entry in the current chat.');
+    const epoch = runtime.generation;
+    const sameScope = () => runtime.generation === epoch && getBoundWorldId() === worldId && getChatKey() === chatKey;
+    updateRuntime({ processing: true, status: 'saving-memory-edit', lastError: '' });
+    try {
+        const { world } = await api.getWorld(worldId);
+        if (!sameScope()) throw new Error('The chat changed before this edit could be saved.');
+        if (Number(world.revision) !== Number(baseRevision)) {
+            updateRuntime({ world });
+            throw new Error('Memory changed while you were editing. Your draft is kept; cancel and reopen the entry to review the latest version.');
+        }
+        const result = applyManualMemoryEdit(world, target, patch, { chatKey, to: (getContext().chat || []).length - 1 });
+        if (!result.changed) return result;
+        if (!sameScope()) throw new Error('The chat changed before this edit could be saved.');
+        const saved = (await api.saveWorld(result.world)).world;
+        if (sameScope()) {
+            updateRuntime({ world: saved, nextRetrievalPreview: null, retryStatus: 'Memory edit saved.', lastError: '' });
+            try { await embedWorldInChat(saved); }
+            catch (error) { if (sameScope()) updateRuntime({ lastError: `Memory was saved; its portable chat copy could not be updated: ${error.message}` }); }
+        }
+        return { ...result, world: saved };
+    } catch (error) {
+        if (error.status === 409) throw new Error('Memory changed before the edit was saved. Your draft is kept; reopen the entry before trying again.', { cause: error });
+        throw error;
+    } finally {
+        if (runtime.generation === epoch && runtime.status === 'saving-memory-edit') updateRuntime({ processing: false, status: runtime.paused ? 'paused' : 'idle' });
+    }
 }
 
 export async function commitMemoryCorrection(proposal) {
