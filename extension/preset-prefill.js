@@ -13,8 +13,18 @@ export function presetPrefill(preset, { order, characterId, substitute = text =>
     const enabled = order.filter(entry => entry.enabled).map(entry => prompts.get(entry.identifier)).filter(prompt =>
         prompt && prompt.identifier !== 'continuity_memory_dynamic'
         && (!prompt.injection_trigger?.length || prompt.injection_trigger.includes('normal')));
-    // A migrated entry (even disabled) supersedes the old field.
-    if (typeof preset.assistant_prefill === 'string' && !prompts.has('assistantPrefill')) {
+    // Prompt Manager owns configured response prefixes, including disabled,
+    // empty, and impersonation-only entries with user-defined identifiers.
+    // Never revive the legacy field just because such an entry is inactive.
+    const historyIndex = order.findIndex(entry => entry.identifier === 'chatHistory');
+    const hasManagedPrefill = prompts.has('assistantPrefill') || order.some((entry, index) => {
+        const prompt = prompts.get(entry.identifier);
+        if (!prompt || prompt.marker || prompt.role !== 'assistant' || prompt.identifier === 'continuity_memory_dynamic') return false;
+        return Number(prompt.injection_position) === 1
+            ? Number(prompt.injection_depth) === 0
+            : index > historyIndex;
+    });
+    if (typeof preset.assistant_prefill === 'string' && !hasManagedPrefill) {
         const legacy = substitute(preset.assistant_prefill);
         if (legacy.trim()) return legacy;
     }

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
+import { presetPrefill } from '../extension/preset-prefill.js';
 const url = new URL('../extension/semantic-retrieval.js', import.meta.url);
 let sequence = 0;
 async function load(settings, calls, overrides = {}) {
@@ -107,6 +108,27 @@ test('AI retrieval appends preset prefill and invalidates cached terms when it c
     await module.expandRetrievalTerms(messages);
     assert.equal(calls.length, 2);
     assert.equal(calls[1][2].at(-1).content, prefill);
+});
+
+test('AI retrieval honors a disabled preset prefill even when legacy text remains', async () => {
+    const calls = [];
+    const data = {
+        assistant_prefill: 'old stale prefix',
+        prompts: [{ identifier: 'chatHistory', marker: true },
+            { identifier: 'custom-prefix', role: 'assistant', content: '{' }],
+        prompt_order: [{ character_id: 100001, order: [
+            { identifier: 'chatHistory', enabled: true }, { identifier: 'custom-prefix', enabled: false },
+        ] }],
+    };
+    const module = await load({ retrievalProfileId: 'retrieval-profile' }, calls, {
+        resolveMemoryPrefill: () => presetPrefill(data),
+    });
+    assert.deepEqual(await module.expandRetrievalTerms(messages), ['rail clamp repairs']);
+    assert.deepEqual(calls[0][2].map(message => message.role), ['system', 'user']);
+    data.prompt_order[0].order[1].enabled = true;
+    await module.expandRetrievalTerms(messages);
+    assert.equal(calls.length, 2, 'enabling a prefill invalidates the no-prefill search cache');
+    assert.deepEqual(calls[1][2].at(-1), { role: 'assistant', content: '{' });
 });
 
 test('AI retrieval using the active provider forwards its independent cancellation signal', async () => {

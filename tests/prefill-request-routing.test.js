@@ -43,6 +43,15 @@ function dependencies(overrides = {}) {
     };
 }
 
+const disabledPreset = {
+    assistant_prefill: 'old stale prefix',
+    prompts: [{ identifier: 'chatHistory', marker: true },
+        { identifier: 'custom-prefix', role: 'assistant', content: 'disabled prefix' }],
+    prompt_order: [{ character_id: 100001, order: [
+        { identifier: 'chatHistory', enabled: true }, { identifier: 'custom-prefix', enabled: false },
+    ] }],
+};
+
 test('direct retrieval reports dispatch after request preparation and before fetch', async () => {
     const steps = [];
     const request = load(engine, 'requestDirectStructured', dependencies({
@@ -177,6 +186,151 @@ test('host resolver chooses saved profile presets, active edits, and Direct acti
     settings.summaryPrefillEnabled = true;
     settings.summaryPrefill = '   ';
     assert.equal(fn('Other', { summary: true }), 'saved Alice');
+});
+
+test('correction review honors disabled preset prefills across active, Direct, and saved profiles', async () => {
+    const host = readFileSync(new URL('../extension/preset-prefill-host.js', import.meta.url), 'utf8');
+    for (const profileId of ['', '__direct__', 'saved-profile']) {
+        const data = {
+            assistant_prefill: 'old stale {{char}} prefix',
+            prompts: [{ identifier: 'chatHistory', marker: true },
+                { identifier: 'custom-prefix', role: 'assistant', content: 'disabled {{char}} prefix' }],
+            prompt_order: [{ character_id: 100001, order: [
+                { identifier: 'chatHistory', enabled: true }, { identifier: 'custom-prefix', enabled: false },
+            ] }],
+        };
+        // Live Prompt Manager toggles can differ from the stored preset order.
+        const activeData = structuredClone(data);
+        activeData.prompt_order[0].order[1].enabled = true;
+        const settings = { memoryProfileId: profileId, correctionProfileId: '', thinkingMode: 'off' };
+        const profile = { preset: 'Saved', model: 'test-model', name: 'Memory' };
+        const schema = { name: 'continuity_memory_correction', value: { type: 'object' } };
+        const result = { operations: [] };
+        let requests = 0;
+        const resolveMemoryPrefill = load(host, 'resolveMemoryPrefill', {
+            ...prefillPolicy, getSettings: () => settings,
+            oai_settings: { ...activeData, preset_settings_openai: 'Active' },
+            openai_setting_names: { Saved: 0 }, openai_settings: [data],
+            promptManager: { activeCharacter: { id: 100001 }, getPromptOrderForCharacter: () => data.prompt_order[0].order },
+            getContext: () => ({ characterId: 42 }),
+            ConnectionManagerRequestService: { getProfile: () => profile },
+            substituteParams: () => { assert.fail('Disabled prefills must not expand macros'); },
+        });
+        const deps = dependencies({
+            getSettings: () => settings, resolveMemoryPrefill,
+            generateRaw: async options => {
+                requests++;
+                assert.equal(options.prefill, '');
+                assert.equal(options.jsonSchema, schema);
+                return JSON.stringify(result);
+            },
+            fetch: async (_, options) => {
+                requests++;
+                const body = JSON.parse(options.body);
+                assert.deepEqual(body.messages.map(message => message.role), ['system', 'user']);
+                assert.deepEqual(body.json_schema, schema);
+                return { ok: true, text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify(result) } }] }) };
+            },
+            ConnectionManagerRequestService: {
+                getProfile: () => profile,
+                validateProfile: () => ({ source: 'custom', selected: 'openai' }),
+                sendRequest: async (_, messages, maxTokens, options, payload) => {
+                    requests++;
+                    assert.deepEqual(messages.map(message => message.role), ['system', 'user']);
+                    assert.equal(payload.json_schema, schema);
+                    assert.equal(options.includePreset, false);
+                    return JSON.stringify(result);
+                },
+            },
+        });
+        deps.generateWithThinkingPolicy = load(engine, 'generateWithThinkingPolicy', deps, 'let activeExtractionThinkingMode = null;');
+        deps.requestDirectStructured = load(engine, 'requestDirectStructured', deps);
+        const requestStructured = load(engine, 'requestStructured', deps, functionSource(engine, 'extractProfileResponse'));
+        const world = { id: 'world', revision: 1 };
+        const review = load(engine, 'reviewMemoryCorrection', {
+            requestStructured, getSettings: () => settings, DIRECT_PROFILE_ID: '__direct__',
+            runtime: { world, health: { schemaVersion: 7 }, generation: 0, paused: true },
+            getBoundWorldId: () => world.id, getChatKey: () => 'chat', getContext: () => ({ chat: [] }),
+            selectCorrectionContext: () => [{ id: 'fact:one', subject: 'Alice' }],
+            resolveCorrectionResponseTokens: () => 8000,
+            updateRuntime: () => {}, CORRECTION_SYSTEM_PROMPT: 'Repair memory. Return JSON only.',
+            correctionJsonSchema: schema, parseJsonResponse: JSON.parse,
+            validateCorrectionProposal: (_, parsed) => parsed, augmentCorrectionChronology: (_, proposal) => proposal,
+        });
+        const proposal = await review('Alice never visited the castle.');
+        assert.equal(requests, 1, `${profileId || 'active'} sends one correction request`);
+        assert.deepEqual(proposal.operations, []);
+    }
+});
+
+test('Digest and Chronicle requests keep disabled preset prefills off through schema fallback', async () => {
+    for (const profileId of ['', '__direct__', 'saved-profile']) {
+        for (const category of ['digest', 'chronicle']) {
+            const schema = { name: category, value: { type: 'object' } };
+            let requests = 0;
+            const reply = () => {
+                if (++requests === 1) throw new Error('schema rejected');
+                return '{"result":true}';
+            };
+            const checkMessages = messages => assert.deepEqual(messages.map(message => message.role), ['system', 'user']);
+            const deps = dependencies({
+                resolveMemoryPrefill: () => prefillPolicy.presetPrefill(disabledPreset),
+                shouldRetryWithoutSchema: error => error.message === 'schema rejected',
+                rootErrorMessage: error => error.message,
+                console: { warn() {} },
+                generateRaw: async options => {
+                    assert.equal(options.prefill, '');
+                    assert.equal(options.jsonSchema, requests ? undefined : schema);
+                    return reply();
+                },
+                fetch: async (_, options) => {
+                    const body = JSON.parse(options.body);
+                    checkMessages(body.messages);
+                    assert.deepEqual(body.json_schema, requests ? undefined : schema);
+                    return { ok: true, text: async () => JSON.stringify({ choices: [{ message: { content: reply() } }] }) };
+                },
+                ConnectionManagerRequestService: {
+                    getProfile: () => ({ name: 'Memory', model: 'test-model' }),
+                    validateProfile: () => ({ source: 'custom', selected: 'openai' }),
+                    sendRequest: async (_, messages, maxTokens, options, payload) => {
+                        checkMessages(messages);
+                        assert.equal(payload.json_schema, requests ? undefined : schema);
+                        return reply();
+                    },
+                },
+            });
+            deps.generateWithThinkingPolicy = load(engine, 'generateWithThinkingPolicy', deps, 'let activeExtractionThinkingMode = null;');
+            deps.requestDirectStructured = load(engine, 'requestDirectStructured', deps);
+            const request = load(engine, 'requestStructured', deps, functionSource(engine, 'extractProfileResponse'));
+            assert.equal(await request('task', 'system', schema, 100, profileId,
+                category === 'digest' ? 'extraction' : 'summary', 'plain task', 'off', true), '{"result":true}');
+            assert.equal(requests, 2, `${profileId || 'active'} ${category} retries without reviving the prefill`);
+        }
+    }
+});
+
+test('detached Digest and Chronicle variants honor disabled preset prefills', () => {
+    const fn = load(engine, 'detachedRequestBodies', dependencies({
+        resolveMemoryPrefill: () => prefillPolicy.presetPrefill(disabledPreset),
+        extractionJsonSchema: {}, extractionResponseTokens: () => 100, memoryResponseTokens: () => 100,
+        mandatoryThinkingPayload: () => ({ reasoning_effort: 'low' }),
+        proxies: [],
+        ConnectionManagerRequestService: {
+            getProfile: () => ({ name: 'Memory', model: 'test-model' }),
+            validateProfile: () => ({ source: 'custom', selected: 'openai' }),
+        },
+    }));
+    for (const profileId of ['__direct__', 'saved-profile']) {
+        for (const layer of ['digest', 'chronicle']) {
+            const schema = { name: layer, value: { type: 'object' } };
+            const bundle = fn({ prompt: 'task', fallbackPrompt: 'plain task', systemPrompt: 'system', usesStructuredSchema: true },
+                { profileId, layer, jsonSchema: schema });
+            assert.deepEqual(bundle.request.json_schema, schema);
+            for (const variant of Object.values(bundle).filter(value => value?.messages)) {
+                assert.deepEqual(variant.messages.map(message => message.role), ['system', 'user']);
+            }
+        }
+    }
 });
 
 test('summary override is routed explicitly across active, Direct, and profile requests', async () => {

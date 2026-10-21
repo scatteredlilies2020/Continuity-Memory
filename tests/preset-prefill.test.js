@@ -44,6 +44,51 @@ test('supports migrated depth-zero prefills and excludes deeper injections and i
     assert.equal(presetPrefill({ ...preset([migrated], [{ identifier: migrated.identifier, enabled: false }]), assistant_prefill: 'old stale prefix' }), '');
 });
 
+test('disabled preset prefills with custom identifiers supersede stale legacy values', () => {
+    for (const position of [{}, { injection_position: 1, injection_depth: 0 }]) {
+        const data = { ...preset([history, { ...prefix, ...position }], [
+            { identifier: 'chatHistory', enabled: true },
+            { identifier: prefix.identifier, enabled: false },
+        ]), assistant_prefill: 'old stale {{char}} prefix' };
+        const before = structuredClone(data);
+        const expanded = [];
+        assert.equal(presetPrefill(data, { substitute: text => { expanded.push(text); return text; } }), '');
+        assert.deepEqual(expanded, [], 'disabled and stale prefills must not expand macros');
+        assert.deepEqual(data, before);
+    }
+});
+
+test('enabled preset prefills with custom identifiers also supersede stale legacy values', () => {
+    const data = { ...preset([history, prefix]), assistant_prefill: 'old stale prefix' };
+    assert.equal(presetPrefill(data), prefix.content);
+    data.prompt_order.push({ character_id: 42, order: [
+        { identifier: 'chatHistory', enabled: true },
+        { identifier: prefix.identifier, enabled: false },
+    ] });
+    assert.equal(presetPrefill(data, { characterId: 42 }), '');
+    assert.equal(presetPrefill(data), prefix.content);
+});
+
+test('ineligible managed prefills do not fall back to stale legacy values', () => {
+    for (const prompt of [
+        { ...prefix, content: '' },
+        { ...prefix, injection_trigger: ['impersonate'] },
+        { ...prefix, injection_position: 1, injection_depth: 0, injection_trigger: ['impersonate'] },
+    ]) {
+        assert.equal(presetPrefill({ ...preset([history, prompt]), assistant_prefill: 'old stale prefix' }), '');
+    }
+});
+
+test('legacy-only presets retain prefills when Prompt Manager has no response prefix', () => {
+    for (const prompts of [
+        [history],
+        [{ ...prefix, identifier: 'example' }, history],
+        [history, { ...prefix, injection_position: 1, injection_depth: 2 }],
+    ]) {
+        assert.equal(presetPrefill({ ...preset(prompts), assistant_prefill: 'legacy prefix ' }), 'legacy prefix ');
+    }
+});
+
 test('respects character order and never reuses Continuity memory as a prefill', () => {
     const data = preset([history, prefix, { ...prefix, identifier: 'continuity_memory_dynamic', content: 'private memory' }]);
     data.prompt_order.push({ character_id: 42, order: [{ identifier: 'prefix', enabled: false }] });
