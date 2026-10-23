@@ -4,7 +4,7 @@ import { resolveMemoryPrefill, sendMemoryProfileRequest } from './preset-prefill
 import { memoryRequestMessages, responseWithPrefill } from './preset-prefill.js';
 import { isThinkingControlError, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.30';
 import { generateWithThinkingPolicy, requestDirectText, resolveThinkingModeForProfile } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1';
-import { parseExpandedTerms } from './semantic-terms.js?v=0.15.0-testing.30';
+import { parseExpandedTerms } from './semantic-terms.js?v=0.15.0-testing.30&retrieval-json=1';
 import { recentRetrievalQuery } from './retrieval-query.js?v=0.15.0-testing.30';
 import { getSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1';
 import { buildThinkingRequest } from './thinking-policy.js?v=0.15.0-testing.30';
@@ -93,9 +93,21 @@ export async function expandRetrievalTerms(recentMessages, { signal, deadline, o
     const epoch = cacheEpoch;
     const operation = (async () => {
         const prompt = renderPromptTemplate(settings.retrievalQueryTemplate ?? DEFAULT_RETRIEVAL_QUERY_TEMPLATE, { conversation: query }, ['conversation']);
-        const raw = await requestExpansion(prompt, signal, onDispatch);
-        checkRetrievalDeadline(signal, deadline);
-        const terms = parseExpandedTerms(raw);
+        let terms;
+        for (let attempt = 0; attempt < 2; attempt++) {
+            checkRetrievalDeadline(signal, deadline);
+            const retryPrompt = attempt ? `${prompt}\n\nThe previous response was not valid search-term JSON. Return only {"terms":["search phrase"]}: up to 20 strings, or {"terms":[]} if none. No prose, Markdown, or reasoning.` : prompt;
+            const raw = await requestExpansion(retryPrompt, signal, onDispatch);
+            checkRetrievalDeadline(signal, deadline);
+            try {
+                terms = parseExpandedTerms(raw);
+                break;
+            } catch (error) {
+                // Only unusable AI output gets one correction attempt, sharing
+                // the original deadline. No local retrieval is substituted.
+                if (error?.code !== 'CONTINUITY_INVALID_RETRIEVAL_OUTPUT' || attempt) throw error;
+            }
+        }
         if (profileId && cacheEpoch === epoch) {
             cache.set(key, [...terms]);
             if (cache.size > 100) cache.delete(cache.keys().next().value);

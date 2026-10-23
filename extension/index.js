@@ -7,7 +7,7 @@ import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackS
 import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.15.0-testing.30&belief-wording=4';
 import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.30';
 import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2&current-recall=1&bounded-recall=1&catchup-gate=1&pending-recovery=1';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2&current-recall=1&bounded-recall=1&catchup-gate=1&pending-recovery=1&retrieval-json=1';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js?pending-recovery=1';
@@ -28,7 +28,7 @@ import { nextChroniclePromotion } from './chronicle.js';
 import { buildPlanningEvidence, createContinuityContextBridge } from './context-bridge.js?v=0.15.0-testing.30';
 
 import { resolveRetrievalAssist } from './retrieval-assist.js?bounded-recall=1&catchup-gate=1';
-import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.30&belief-wording=4&bounded-recall=1&pending-recovery=1';
+import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.30&belief-wording=4&bounded-recall=1&pending-recovery=1&retrieval-json=1';
 import { getGenerationTiming, timeGenerationStep } from './generation-timing.js';
 
 const PROMPT_KEY = 'continuity_memory_context';

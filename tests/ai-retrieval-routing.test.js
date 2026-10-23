@@ -171,3 +171,90 @@ test('AI responses arriving after a delayed timer are rejected and never cached'
     assert.deepEqual(await module.expandRetrievalTerms(messages), ['current terms']);
     assert.equal(count, 2);
 });
+
+test('malformed AI terms rerun once with brief JSON guidance and cache only the valid result', async () => {
+    const calls = [];
+    const signal = new AbortController().signal;
+    const onDispatch = () => {};
+    const module = await load({ memoryProfileId: '__direct__' }, [], {
+        requestDirectText: async (...args) => {
+            calls.push(args);
+            return calls.length === 1 ? 'PRIVATE_SENTINEL narrative' : 'Final answer:\n```json\n{"terms":["rail clamps"]}\n```';
+        },
+    });
+    assert.deepEqual(await module.expandRetrievalTerms(messages, { signal, onDispatch }), ['rail clamps']);
+    assert.equal(calls.length, 2);
+    assert.match(calls[1][0], /previous response was not valid search-term JSON/);
+    assert.doesNotMatch(calls[1][0], /PRIVATE_SENTINEL/);
+    assert.ok(calls[1][0].length - calls[0][0].length < 200, 'Correction guidance stays brief.');
+    for (const call of calls) {
+        assert.equal(call[5].signal, signal);
+        assert.equal(call[5].onDispatch, onDispatch);
+    }
+    assert.deepEqual(await module.expandRetrievalTerms(messages), ['rail clamps']);
+    assert.equal(calls.length, 2);
+});
+
+test('malformed AI output stops after one rerun and never enters the cache', async () => {
+    let calls = 0;
+    const module = await load({ memoryProfileId: '__direct__' }, [], {
+        requestDirectText: async () => { calls++; return 'PRIVATE_SENTINEL'; },
+    });
+    await assert.rejects(module.expandRetrievalTerms(messages), { code: 'CONTINUITY_INVALID_RETRIEVAL_OUTPUT' });
+    assert.equal(calls, 2);
+    await assert.rejects(module.expandRetrievalTerms(messages), { code: 'CONTINUITY_INVALID_RETRIEVAL_OUTPUT' });
+    assert.equal(calls, 4);
+});
+
+test('AI format recovery does not retry transport/authentication errors', async () => {
+    for (const message of ['401 Unauthorized', '503 temporarily unavailable', 'JSON.parse: invalid API envelope']) {
+        let calls = 0;
+        const error = new Error(message);
+        const module = await load({ memoryProfileId: '__direct__' }, [], {
+            requestDirectText: async () => { calls++; throw error; },
+        });
+        await assert.rejects(module.expandRetrievalTerms(messages), value => value === error);
+        assert.equal(calls, 1);
+    }
+});
+
+test('a format rerun cannot extend the original retrieval deadline or cache a late answer', async t => {
+    let now = 0, calls = 0;
+    t.mock.method(Date, 'now', () => now);
+    const module = await load({ memoryProfileId: '__direct__' }, [], {
+        requestDirectText: async () => {
+            calls++;
+            if (calls === 1) { now = 20; return 'not JSON'; }
+            now = 200;
+            return '```json\n{"terms":["rail clamps"]}\n```';
+        },
+    });
+    await assert.rejects(module.expandRetrievalTerms(messages, { deadline: () => 100 }), { name: 'TimeoutError' });
+    assert.equal(calls, 2);
+    assert.deepEqual(await module.expandRetrievalTerms(messages), ['rail clamps']);
+    assert.equal(calls, 3);
+});
+
+test('cancelling during AI format recovery rejects the rerun and does not cache its answer', async () => {
+    let calls = 0, finish;
+    const controller = new AbortController();
+    let dispatched;
+    const ready = new Promise(resolve => { dispatched = resolve; });
+    const module = await load({ memoryProfileId: '__direct__' }, [], {
+        requestDirectText: async () => {
+            if (++calls === 1) return 'not JSON';
+            dispatched();
+            return new Promise(resolve => { finish = resolve; });
+        },
+    });
+    const pending = module.expandRetrievalTerms(messages, { signal: controller.signal });
+    await ready;
+    controller.abort(new DOMException('Stopped during format rerun', 'AbortError'));
+    finish('```json\n{"terms":["stale terms"]}\n```');
+    await assert.rejects(pending, { name: 'AbortError' });
+    assert.equal(calls, 2);
+    const next = module.expandRetrievalTerms(messages);
+    finish('{"terms":["fresh terms"]}');
+    assert.deepEqual(await next, ['fresh terms']);
+    assert.equal(calls, 3);
+});

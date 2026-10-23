@@ -10,6 +10,7 @@ import { resolveInjectionBudget } from '../extension/injection-budget.js';
 import { resolveRetrievalAssist } from '../extension/retrieval-assist.js';
 import { ensureGenerationMemory, waitForGenerationTask } from '../extension/generation-readiness.js';
 import { asRoleplayBlockingError, isRoleplayBlockingError } from '../extension/generation-policy.js';
+import { parseExpandedTerms } from '../extension/semantic-terms.js';
 
 const settings = { enabled: true, retrievalMode: 'embedding-hybrid', injectionRole: 'user' };
 const chat = [{ name: 'User', is_user: true, mes: 'Remember the red key.' }];
@@ -59,7 +60,7 @@ const interceptorSource = indexSource.slice(indexSource.indexOf('globalThis.cont
 
 function interceptorFixture(cache = prepared, messages = chat, { liveWorld = world, portableWorld = null, cachedRanks = null,
     mode = settings.retrievalMode, lookup = null, expandedTerms = [], timeoutMs = 50 } = {}) {
-    const applied = [], reduced = [], calls = [], patches = [], selections = [], lookups = [];
+    const applied = [], reduced = [], calls = [], patches = [], selections = [], lookups = [], notifications = [];
     const listeners = new Set();
     const never = () => { calls.push('optional preparation'); return new Promise(() => {}); };
     const context = {
@@ -110,10 +111,10 @@ function interceptorFixture(cache = prepared, messages = chat, { liveWorld = wor
         updateRuntime: patch => { patches.push(patch); Object.assign(context.runtime, patch); for (const listener of listeners) listener(context.runtime); },
         scheduleInjectionRefresh: () => {},
         prepareRoleplayGeneration: never, refreshInjection: never,
-        showGenerationNotification: () => {}, console,
+        showGenerationNotification: (...args) => notifications.push(args), console,
     };
     vm.runInNewContext(indexSource.match(/function cancelGenerationRetrieval\([^]*?^}/m)[0] + '\n' + interceptorSource, context);
-    return { run: context.continuityMemoryGenerateInterceptor, context, applied, reduced, calls, patches, selections, lookups };
+    return { run: context.continuityMemoryGenerateInterceptor, context, applied, reduced, calls, patches, selections, lookups, notifications };
 }
 
 async function withoutWaiting(promise) {
@@ -203,6 +204,54 @@ test('AI retrieval uses current expansion terms and never calls embeddings', asy
     await fixture.run([...chat], 60000, null, 'normal');
     assert.deepEqual(fixture.lookups.map(row => row.mode), ['ai-expanded']);
     assert.deepEqual(fixture.selections[0].terms, ['red key']);
+});
+
+test('invalid AI search-term output cancels the reply without substituting local recall', async () => {
+    const fixture = interceptorFixture(null, chat, { mode: 'ai-expanded', lookup: async () => parseExpandedTerms('PRIVATE_SENTINEL') });
+    const aborted = [];
+    await fixture.run([...chat], 60000, value => aborted.push(value), 'normal');
+    assert.deepEqual(aborted, [true]);
+    assert.deepEqual(fixture.applied, []);
+    assert.deepEqual(fixture.selections, []);
+    assert.deepEqual(fixture.reduced, []);
+    assert.equal(fixture.lookups.length, 1);
+    assert.equal(fixture.context.runtime.lastGenerationRetrieval, null);
+    const assist = fixture.context.runtime.retrievalAssist;
+    assert.equal(assist.mode, 'ai-expanded');
+    assert.equal(assist.requestedMode, 'ai-expanded');
+    assert.equal(assist.fallback, false);
+    assert.equal(assist.failed, true);
+    assert.equal(assist.code, 'CONTINUITY_INVALID_RETRIEVAL_OUTPUT');
+    assert.match(fixture.context.runtime.injectionStatus, /Local fallback was not used/);
+    assert.equal(fixture.notifications[0][0], 'error');
+    assert.doesNotMatch(JSON.stringify(fixture.context.runtime), /PRIVATE_SENTINEL/);
+});
+
+test('AI output-format recovery does not bypass embedding or authentication failures', async () => {
+    for (const [mode, lookup] of [
+        ['embedding-hybrid', async () => parseExpandedTerms('invalid')],
+        ['ai-expanded', async () => { throw new Error('401 Unauthorized'); }],
+    ]) {
+        const fixture = interceptorFixture(null, chat, { mode, lookup });
+        const aborted = [];
+        await fixture.run([...chat], 60000, value => aborted.push(value), 'normal');
+        assert.deepEqual(aborted, [true]);
+        assert.deepEqual(fixture.applied, []);
+        assert.equal(fixture.lookups.length, 1);
+    }
+});
+
+test('invalid AI output arriving after the deadline remains a timeout rather than a local fallback', async t => {
+    let now = 0;
+    t.mock.method(Date, 'now', () => now);
+    const fixture = interceptorFixture(null, chat, { mode: 'ai-expanded', timeoutMs: 50,
+        lookup: async () => { now += 100; return parseExpandedTerms('invalid'); } });
+    const aborted = [];
+    await fixture.run([...chat], 60000, value => aborted.push(value), 'normal');
+    assert.deepEqual(aborted, [true]);
+    assert.deepEqual(fixture.applied, []);
+    assert.equal(fixture.context.runtime.retrievalAssist.reason, 'ai-timeout');
+    assert.equal(fixture.lookups.length, 2);
 });
 
 test('local mode selects current memory without any remote retrieval', async () => {

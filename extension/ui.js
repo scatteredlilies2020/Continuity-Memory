@@ -9,7 +9,7 @@ import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemo
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js?belief-wording=4&pending-recovery=1';
 import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.30&belief-wording=4';
-import { clearRetrievalExpansionCache, expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.30&belief-wording=4&bounded-recall=1&pending-recovery=1';
+import { clearRetrievalExpansionCache, expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.30&belief-wording=4&bounded-recall=1&pending-recovery=1&retrieval-json=1';
 import { resolveRetrievalAssist } from './retrieval-assist.js?bounded-recall=1&catchup-gate=1';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
