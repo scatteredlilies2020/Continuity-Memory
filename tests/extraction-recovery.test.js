@@ -81,7 +81,7 @@ test('single-message failures explain how to increase output capacity without ma
             extract: async () => { throw new Error('finish_reason: length'); },
             save: async () => { saved = true; },
         }),
-        /message 0.*remains unprocessed.*Extraction output tokens/i,
+        /message 0.*remains unprocessed.*more output capacity/i,
     );
     assert.equal(saved, false);
 });

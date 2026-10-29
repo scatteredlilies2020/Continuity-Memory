@@ -60,6 +60,26 @@ test('an existing extraction can satisfy catch-up without starting duplicate wor
     assert.equal(h.listeners.size, 0);
 });
 
+test('a previous catch-up error permits a fresh attempt on the next reply', async () => {
+    const h = harness(16);
+    h.state.status = 'error';
+    h.state.lastError = 'Memory catch-up failed; Extractor reached its output limit (finish_reason: length).';
+    assert.equal((await h.run()).pending, 2);
+    assert.equal(h.calls.length, 1);
+    assert.equal(h.listeners.size, 0);
+});
+
+test('failure of an active extraction still rejects the reply waiting on it', async () => {
+    const h = harness(16);
+    h.state.processing = true;
+    const run = h.run();
+    const rejected = assert.rejects(run, /Extractor reached its output limit/);
+    h.emit({ processing: false, status: 'error', lastError: 'Extractor reached its output limit (finish_reason: length).' });
+    await rejected;
+    assert.equal(h.calls.length, 0);
+    assert.equal(h.listeners.size, 0);
+});
+
 test('RP Stop releases an active-work wait and removes its runtime listener', async () => {
     const controller = new AbortController();
     const h = harness(16, { signal: controller.signal });

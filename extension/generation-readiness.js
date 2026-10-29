@@ -25,14 +25,20 @@ function waitForMemoryIdle({ readState, subscribe, stopSequence, signal }) {
     signal?.throwIfAborted();
     return new Promise((resolve, reject) => {
         let unsubscribe = () => {};
+        let waitedForActiveWork = false;
         const cleanup = () => { unsubscribe(); signal?.removeEventListener('abort', cancel); };
         const cancel = () => { cleanup(); reject(signal.reason); };
         const inspect = () => {
             try {
                 const state = readState();
                 assertMemoryRunning(state, stopSequence, signal);
-                if (state.processing || state.queue?.length) return;
-                if (state.status === 'error' && state.lastError) throw new Error(state.lastError);
+                if (state.processing || state.queue?.length) {
+                    waitedForActiveWork = true;
+                    return;
+                }
+                // An earlier failed reply must not poison every later attempt.
+                // Only propagate a failure from the task we actually waited on.
+                if (waitedForActiveWork && state.status === 'error' && state.lastError) throw new Error(state.lastError);
                 cleanup();
                 resolve();
             } catch (error) { cleanup(); reject(error); }

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { runInNewContext } from 'node:vm';
-import { isAdaptiveExtractionSplitError, isExplicitExtractionOutputLimitError } from '../extension/extraction-recovery.js';
+import { EXTRACTION_OUTPUT_RECOVERY_GUIDE, isAdaptiveExtractionSplitError, isExplicitExtractionOutputLimitError } from '../extension/extraction-recovery.js';
 import { extractionResponseTokens } from '../extension/memory-response-policy.js';
 import { extractionCompletenessFeedback } from '../extension/extraction-contract.js';
 import { parseJsonResponse } from '../extension/json-response.js';
@@ -28,19 +28,21 @@ function makeExtractor(requestExtraction, settings = { extractionOutputTokens: 0
         isRateLimitError: () => false,
         isExplicitExtractionOutputLimitError,
         isAdaptiveExtractionSplitError,
+        EXTRACTION_OUTPUT_RECOVERY_GUIDE,
     };
     return { extract: runInNewContext(`${engine.slice(start, end)}\nextractChunk`, context), updates };
 }
 
-test('a truncated single message retries with complete JSON guidance and provider-managed capacity', async () => {
+test('a truncated single message retries with concise JSON guidance and more output capacity', async () => {
     const budgets = [];
     const { extract, updates } = makeExtractor(async (prompt, system, fallback, budget) => {
         budgets.push(budget);
         if (budgets.length === 1) throw new Error('finish_reason: length');
+        assert.match(prompt, /one complete JSON object/);
         return '{}';
     });
     assert.deepEqual(await extract([{ index: 10, text: 'one message' }]), {});
-    assert.deepEqual(budgets, [null, null]);
+    assert.deepEqual(budgets, [null, 16384]);
     assert.match(updates.at(-1).lastValidation, /higher-output retry/);
 });
 
@@ -62,7 +64,7 @@ test('a configured extraction target remains soft during initial and recovery re
         return '{}';
     }, { extractionOutputTokens: 4096 });
     assert.deepEqual(await extract([{ index: 10, text: 'one message' }]), {});
-    assert.deepEqual(budgets, [null, null, null]);
+    assert.deepEqual(budgets, [null, null, 16384]);
 });
 
 test('non-incomplete single-message failures do not trigger the higher-budget retry', async () => {

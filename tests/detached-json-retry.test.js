@@ -5,6 +5,8 @@ import { runInNewContext } from 'node:vm';
 import { parseJsonResponse } from '../extension/json-response.js';
 import { extractionCompletenessFeedback } from '../extension/extraction-contract.js';
 import { appendMemoryFeedback } from '../extension/preset-prefill.js';
+import { EXTRACTION_OUTPUT_RECOVERY_GUIDE, isExplicitExtractionOutputLimitError } from '../extension/extraction-recovery.js';
+import { extractionRecoveryRequest } from '../extension/memory-response-policy.js';
 
 const source = await readFile(new URL('../plugin/detached-jobs.js', import.meta.url), 'utf8');
 const extractTask = source.match(/^async function extractTask\([^]*?^}/m)[0];
@@ -22,6 +24,7 @@ for (const success of [true, false]) test(`detached malformed JSON retry ${succe
     const context = {
         isCurrentStorySnapshot: () => false,
         extractionCompletenessFeedback, appendMemoryFeedback, parseJsonResponse,
+        EXTRACTION_OUTPUT_RECOVERY_GUIDE, isExplicitExtractionOutputLimitError, extractionRecoveryRequest,
         isMandatoryThinkingError: () => false, isThinkingControlError: () => false,
         shouldRetryWithoutSchema: () => false, isRateLimitError: () => false,
         backendRequest: async (job, body) => {

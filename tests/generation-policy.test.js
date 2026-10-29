@@ -102,6 +102,13 @@ test('marks failed safety catch-up so generation cannot fall open', () => {
     assert.equal(isRoleplayBlockingError(new Error('ordinary retrieval failure')), false);
 });
 
+test('nested catch-up handlers preserve the original blocking error without repeating its prefix', () => {
+    const blocked = asRoleplayBlockingError(new Error('Extractor reached its output limit (finish_reason: length).'), 'Memory catch-up failed;');
+    assert.equal(asRoleplayBlockingError(blocked, 'Memory catch-up failed;'), blocked);
+    assert.equal(asRoleplayBlockingError(new Error(blocked.message), 'Memory catch-up failed;').message, blocked.message);
+    assert.equal(blocked.message.match(/Memory catch-up failed;/g).length, 1);
+});
+
 test('describes memory work that delays roleplay generation', () => {
     const message = roleplayWaitNotification({
         processing: true,

@@ -18,13 +18,13 @@ import { completeDigestMessages, latestCompleteDigestMessageIndex, digestStabili
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js';
 import { applyManualMemoryEdit } from './memory-edit.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js?pending-recovery=1';
-import { isAdaptiveExtractionSplitError, isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.30';
+import { EXTRACTION_OUTPUT_RECOVERY_GUIDE, isAdaptiveExtractionSplitError, isExplicitExtractionOutputLimitError, processAdaptiveExtractionChunks } from './extraction-recovery.js?v=0.15.0-testing.30&output-recovery=1';
 import { requestExtractionReview } from './extraction-review.js';
 import { assertReviewedMemoryContent } from './review-content.js';
 import { parseJsonResponse } from './json-response.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedChronicle, freshResetResiduals, getLatestDigestUndoStatus as inspectLatestDigestUndo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from './memory-model.js';
-import { extractionResponseTokens, memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js?pending-recovery=1';
+import { extractionResponseTokens, memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js?pending-recovery=1&output-recovery=1';
 import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.30';
 import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.30';
 import { embedWorldInChat } from './portable.js?belief-wording=4&pending-recovery=1';
@@ -342,13 +342,13 @@ async function extractChunk(messages, world = runtime.world) {
             const feedback = extractionCompletenessFeedback(lastError);
             const recovery = attempt === 3;
             const responseTokens = extractionResponseTokens(getSettings().extractionOutputTokens, recovery);
-            if (recovery) updateRuntime({ retryStatus: 'Single-message extraction output was incomplete; retrying with complete JSON instructions and provider-managed output capacity.' });
+            if (recovery) updateRuntime({ retryStatus: 'Single-message extraction output was incomplete; retrying with concise JSON instructions and more output capacity.' });
             // Some proxies accept the schema parameter without enforcing it.
             // Retry with explicit field definitions as well as corrective feedback.
             const retryPrompt = attempt > 1 && fallbackPrompt ? fallbackPrompt : prompt;
             const target = Number(getSettings().extractionOutputTokens) || 0;
             const lengthGuide = target > 0 ? `\n\nAim for roughly ${target} output tokens. This is a soft target: finish the complete JSON and preserve consequential continuity even when it needs more space.` : '';
-            const recoveryGuide = recovery ? '\n\nThe previous output was incomplete. Return complete JSON; reduce repetition and incidental detail without losing consequential continuity.' : '';
+            const recoveryGuide = recovery ? `\n\n${EXTRACTION_OUTPUT_RECOVERY_GUIDE}` : '';
             const raw = await requestExtraction(retryPrompt + feedback + lengthGuide + recoveryGuide, systemPrompt, fallbackPrompt ? fallbackPrompt + feedback + lengthGuide + recoveryGuide : fallbackPrompt, responseTokens);
             updateRuntime({ lastRawResponse: String(raw).slice(0, 30000) });
             const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;

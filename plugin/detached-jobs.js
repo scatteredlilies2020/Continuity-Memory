@@ -4,7 +4,8 @@ import { parseJsonResponse } from '../extension/json-response.js';
 import crypto from 'node:crypto';
 
 import { isRateLimitError, isTransientApiError } from '../extension/errors.js';
-import { isAdaptiveExtractionSplitError } from '../extension/extraction-recovery.js';
+import { EXTRACTION_OUTPUT_RECOVERY_GUIDE, isAdaptiveExtractionSplitError, isExplicitExtractionOutputLimitError } from '../extension/extraction-recovery.js';
+import { extractionRecoveryRequest } from '../extension/memory-response-policy.js';
 import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries } from '../extension/extraction-context.js';
 import { fingerprintMessage } from '../extension/message-digest.js';
 import { addDerivedChronicle, mergeExtraction } from '../extension/memory-model.js';
@@ -89,7 +90,7 @@ function finishReason(payload) {
 
 function assertNotTruncated(payload) {
     const reason = finishReason(payload);
-    if (reason === 'length' || reason === 'max_tokens' || reason === 'max_tokens') {
+    if (reason === 'length' || reason === 'max_tokens') {
         throw new Error(`Extractor reached its output limit (finish_reason: ${reason}).`);
     }
 }
@@ -327,16 +328,20 @@ async function extractTask(job, task, world) {
     const mandatoryFallbackRequest = task.storySoFarPlaceholder ? requestFromTemplate(task.mandatoryFallbackRequest, task.storySoFarPlaceholder, priorStory) : task.mandatoryFallbackRequest;
     const uncontrolledRequest = task.storySoFarPlaceholder ? requestFromTemplate(task.uncontrolledRequest, task.storySoFarPlaceholder, priorStory) : task.uncontrolledRequest;
     let lastError;
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    let outputRecovery = false;
+    let maxAttempts = 2;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
             const feedback = extractionCompletenessFeedback(lastError);
             const retryRequest = body => {
-                if (!body || !feedback) return body;
+                if (!body || (!feedback && !outputRecovery)) return body;
                 // Keep routing, schema, prefill metadata and thinking controls;
                 // only use the matching fallback's more explicit prompt messages.
                 const explicit = body === request ? fallbackRequest
                     : body === mandatoryRequest ? mandatoryFallbackRequest : null;
-                return { ...body, messages: appendMemoryFeedback(explicit?.messages ?? body.messages, feedback.trim()) };
+                const guidance = [feedback.trim(), outputRecovery ? EXTRACTION_OUTPUT_RECOVERY_GUIDE : ''].filter(Boolean).join('\n\n');
+                return { ...(outputRecovery ? extractionRecoveryRequest(body) : body),
+                    messages: appendMemoryFeedback(explicit?.messages ?? body.messages, guidance) };
             };
             let raw;
             try {
@@ -370,7 +375,14 @@ async function extractTask(job, task, world) {
             lastError = error;
             if (error?.networkAttemptsExhausted) throw error;
             if (isRateLimitError(error)) throw new Error('Rate limited; detached processing paused without marking this section processed.', { cause: error });
-            if (/output limit|finish_reason/i.test(error.message)) throw error;
+            if (isExplicitExtractionOutputLimitError(error)) {
+                // Multi-message tasks split immediately. A leaf cannot split,
+                // so give it one larger, concise request before failing safely.
+                if (task.messages.length !== 1 || outputRecovery) throw error;
+                outputRecovery = true;
+                maxAttempts = attempt + 1;
+                job.validation = 'Single-message extraction reached its output limit; retrying with more output capacity and concise JSON instructions.';
+            }
         }
     }
     throw new Error(`Structured extraction failed twice: ${lastError?.message || 'unknown error'}`, { cause: lastError });

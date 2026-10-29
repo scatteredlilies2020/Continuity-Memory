@@ -46,8 +46,8 @@ export function roleplayStoryBacklogPolicy(pendingMessages, batchSize, repairReq
 
 export function asRoleplayBlockingError(error, prefix = '') {
     const source = error instanceof Error ? error : new Error(String(error || 'Continuity safety preparation failed.'));
-    if (source.code === ROLEPLAY_BLOCKED_CODE && !prefix) return source;
-    const message = [prefix, source.message].filter(Boolean).join(' ');
+    if (source.code === ROLEPLAY_BLOCKED_CODE) return source;
+    const message = prefix && !source.message.startsWith(prefix) ? `${prefix} ${source.message}` : source.message;
     const blocked = new Error(message, { cause: source });
     blocked.code = ROLEPLAY_BLOCKED_CODE;
     return blocked;

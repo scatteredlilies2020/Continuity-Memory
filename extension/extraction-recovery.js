@@ -1,4 +1,5 @@
 export const DEFAULT_MAX_ADAPTIVE_SPLITS = 16;
+export const EXTRACTION_OUTPUT_RECOVERY_GUIDE = 'The previous output reached its limit or was incomplete. Return one complete JSON object with all required fields. Keep each record concise, omit unchanged records and repetition, and reduce incidental detail while preserving consequential continuity. Do not quote source passages or add commentary.';
 
 function errorChainText(error) {
     const parts = [];
@@ -99,7 +100,7 @@ export async function processAdaptiveExtractionChunks(initialChunks, {
         } catch (error) {
             if (!isAdaptiveExtractionSplitError(error)) throw error;
             if (chunk.messages.length < 2) {
-                throw recoveryFailure(error, chunk.messages, 'This section contains one message and cannot be split safely at a message boundary. It remains unprocessed; try a model with more output capacity or raise Extraction output tokens in Advanced settings.');
+                throw recoveryFailure(error, chunk.messages, 'This section contains one message and cannot be split safely at a message boundary. It remains unprocessed; try a model with more output capacity or reduce extraction detail.');
             }
             if (splits >= Math.max(0, Number(maxSplits) || 0)) {
                 throw recoveryFailure(error, chunk.messages, 'The adaptive split limit was reached.');
