@@ -1,6 +1,6 @@
 // Wait for meaningful output, not a fixed total duration. Heartbeats alone do
 // not keep a stalled request alive; streamed reasoning does count as progress.
-export async function requestModel(fetchImpl, url, options, idleMs = 120000) {
+export async function requestModel(fetchImpl, url, options, idleMs = 120000, onProgress = () => {}) {
     const controller = new AbortController();
     const parent = options.signal;
     const forwardAbort = () => controller.abort(parent.reason);
@@ -20,6 +20,7 @@ export async function requestModel(fetchImpl, url, options, idleMs = 120000) {
         controller.signal.throwIfAborted();
         const response = await fetchImpl(url, { ...options, signal: controller.signal });
         controller.signal.throwIfAborted();
+        onProgress({ phase: 'waiting-output', lastProgressAt: Date.now() });
         if (!response.ok || !/text\/event-stream/iu.test(response.headers.get('content-type') || '')) {
             // JSON endpoints cannot report reasoning progress. Preserve the
             // idle guard across headers AND body reads.
@@ -30,7 +31,7 @@ export async function requestModel(fetchImpl, url, options, idleMs = 120000) {
             catch { payload = { error: text || response.statusText }; }
             return { response, payload };
         }
-        let pending = '', output = '', finish = '', done = false;
+        let pending = '', output = '', finish = '', done = false, reasoningCharacters = 0;
         const decoder = new TextDecoder();
         const consume = event => {
             const data = event.split(/\r?\n/u).filter(line => line.startsWith('data:'))
@@ -51,6 +52,10 @@ export async function requestModel(fetchImpl, url, options, idleMs = 120000) {
             if (text || reasoning) touch();
             output += text;
             if (choice?.message?.content) { output = choice.message.content; touch(); }
+            if (text || reasoning || choice?.message?.content) {
+                reasoningCharacters += typeof reasoning === 'string' ? reasoning.length : 0;
+                onProgress({ phase: 'receiving', lastProgressAt: Date.now(), outputCharacters: output.length, reasoningCharacters });
+            }
             finish = choice?.finish_reason || value.candidates?.[0]?.finishReason || finish;
         };
         for await (const chunk of response.body) {

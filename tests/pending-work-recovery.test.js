@@ -32,9 +32,10 @@ test('persistent invalid Chronicle output has bounded correction, independently 
 test('streamed reasoning and content can outlast the idle watchdog without another request', async t => {
     t.mock.timers.enable({ apis: ['setTimeout'] });
     let calls = 0, output;
+    const progress = [];
     const response = new Response(new ReadableStream({ start(controller) { output = controller; } }),
         { headers: { 'Content-Type': 'text/event-stream' } });
-    const pending = requestModel(async () => { calls++; return response; }, 'http://example.invalid', {}, 70);
+    const pending = requestModel(async () => { calls++; return response; }, 'http://example.invalid', {}, 70, item => progress.push(item));
     await new Promise(setImmediate);
     for (let n = 0; n < 6; n++) {
         t.mock.timers.tick(50);
@@ -47,6 +48,10 @@ test('streamed reasoning and content can outlast the idle watchdog without anoth
     assert.equal(calls, 1);
     assert.equal(payload.payload.choices[0].message.content, '{}{}');
     assert.ok(!JSON.stringify(payload.payload).includes('thinking'));
+    assert.equal(progress[0].phase, 'waiting-output');
+    assert.ok(progress.some(item => item.phase === 'receiving' && item.reasoningCharacters > 0 && item.outputCharacters === 0));
+    assert.equal(progress.at(-1).outputCharacters, 4);
+    assert.ok(!JSON.stringify(progress).includes('thinking'), 'Progress exposes counts, never model or source text.');
 });
 
 test('a provider ignoring abort cannot strand the idle watchdog', async () => {

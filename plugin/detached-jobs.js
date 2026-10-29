@@ -29,6 +29,8 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 120000;
 const DEFAULT_RETRY_DELAY_MS = 2000;
 const MAX_RETRY_DELAY_MS = 60000;
 const DEFAULT_MAX_NETWORK_ATTEMPTS = Infinity;
+const INTERRUPTED_BATCH_SPLIT_ATTEMPTS = 3;
+const INTERRUPTED_BATCH_SPLIT_CODE = 'CONTINUITY_INTERRUPTED_BATCH_SPLIT';
 const TASK_REQUEST_FIELDS = ['request', 'fallbackRequest', 'mandatoryRequest', 'mandatoryFallbackRequest', 'uncontrolledRequest'];
 
 export function releaseDetachedTaskPayload(task, { recursive = true } = {}) {
@@ -61,6 +63,7 @@ function publicJob(job) {
         error: job.error || '',
         validation: job.validation || '',
         inputTokens: job.inputTokens,
+        connection: job.connection ? { ...job.connection } : null,
         phase: job.phase,
         chronicle: job.chronicle,
         hierarchyError: job.hierarchyError || '',
@@ -274,7 +277,7 @@ async function backendRequestOnce(job, body) {
         method: 'POST', headers: job.backendHeaders,
         body: JSON.stringify({ ...memoryWireRequest(body), stream: true }),
         signal: job.controller.signal,
-    }, job.requestTimeoutMs);
+    }, job.requestTimeoutMs, progress => { job.connection = { ...job.connection, ...progress }; });
     if (!response.ok || payload?.error) {
         const detail = payload?.error?.message || payload?.message || payload?.error || `${response.status} ${response.statusText}`;
         const error = new Error(`Detached API request failed: ${detail}`);
@@ -285,7 +288,7 @@ async function backendRequestOnce(job, body) {
     return decodeMemoryResponse(completionText(payload), body.continuity_prefill ?? { prefill: requestPrefill(body.messages) });
 }
 
-function retryDetached(job, operation, label = 'Connection interrupted', conflicts = false) {
+function retryDetached(job, operation, label = 'Connection interrupted', conflicts = false, onRetry = () => {}) {
     return retryConnection(operation, {
         signal: job.controller.signal,
         retryable: error => conflicts && error.status === 409 || isTransientApiError(error),
@@ -294,15 +297,30 @@ function retryDetached(job, operation, label = 'Connection interrupted', conflic
         maxAttempts: job.maxNetworkAttempts,
         onRetry: (error, delay, failures) => {
             job.networkFailures = failures;
+            job.connection = { phase: 'retrying', attempt: failures + 1, retryAt: Date.now() + delay, label };
             job.validation = `${label}; retrying the pending operation in ${Math.ceil(delay / 1000)}s (attempt ${failures + 1}).`;
+            onRetry(error, failures);
         },
     });
 }
 
-async function backendRequest(job, body) {
+async function backendRequest(job, body, { canSplit = false } = {}) {
+    job.networkFailures = 0;
     try {
-        const result = await retryDetached(job, () => backendRequestOnce(job, body));
+        const result = await retryDetached(job, () => {
+            job.connection = { phase: 'connecting', attempt: job.networkFailures + 1, startedAt: Date.now() };
+            return backendRequestOnce(job, body);
+        }, 'Connection interrupted', false, (error, failures) => {
+            // Large responses repeatedly lost in transit need a shorter window
+            // of stable signal. Leaves continue reconnecting without a limit.
+            // Rate limits need time, rather than smaller source sections.
+            if (canSplit && failures >= INTERRUPTED_BATCH_SPLIT_ATTEMPTS && !isRateLimitError(error)) {
+                throw Object.assign(new Error('Connection repeatedly interrupted; continuing with smaller memory sections.', { cause: error }),
+                    { code: INTERRUPTED_BATCH_SPLIT_CODE, networkAttemptsExhausted: true });
+            }
+        });
         job.networkFailures = 0;
+        job.connection = null;
         return result;
     } catch (error) {
         if (isTransientApiError(error)) error.networkAttemptsExhausted = true;
@@ -327,6 +345,7 @@ async function extractTask(job, task, world) {
     const mandatoryRequest = task.storySoFarPlaceholder ? requestFromTemplate(task.mandatoryRequest, task.storySoFarPlaceholder, priorStory) : task.mandatoryRequest;
     const mandatoryFallbackRequest = task.storySoFarPlaceholder ? requestFromTemplate(task.mandatoryFallbackRequest, task.storySoFarPlaceholder, priorStory) : task.mandatoryFallbackRequest;
     const uncontrolledRequest = task.storySoFarPlaceholder ? requestFromTemplate(task.uncontrolledRequest, task.storySoFarPlaceholder, priorStory) : task.uncontrolledRequest;
+    const send = body => backendRequest(job, body, { canSplit: Array.isArray(task.parts) && task.parts.length === 2 });
     let lastError;
     let outputRecovery = false;
     let maxAttempts = 2;
@@ -345,20 +364,20 @@ async function extractTask(job, task, world) {
             };
             let raw;
             try {
-                raw = await backendRequest(job, retryRequest(request));
+                raw = await send(retryRequest(request));
             } catch (error) {
                 if (mandatoryRequest && isMandatoryThinkingError(error)) {
-                    raw = await backendRequest(job, retryRequest(mandatoryRequest));
+                    raw = await send(retryRequest(mandatoryRequest));
                 } else if (uncontrolledRequest && isThinkingControlError(error)) {
-                    raw = await backendRequest(job, retryRequest(uncontrolledRequest));
+                    raw = await send(retryRequest(uncontrolledRequest));
                 } else if (fallbackRequest && shouldRetryWithoutSchema(error)) {
                     try {
-                        raw = await backendRequest(job, retryRequest(fallbackRequest));
+                        raw = await send(retryRequest(fallbackRequest));
                     } catch (fallbackError) {
                         if (mandatoryFallbackRequest && isMandatoryThinkingError(fallbackError)) {
-                            raw = await backendRequest(job, retryRequest(mandatoryFallbackRequest));
+                            raw = await send(retryRequest(mandatoryFallbackRequest));
                         } else if (uncontrolledRequest && isThinkingControlError(fallbackError)) {
-                            raw = await backendRequest(job, retryRequest(uncontrolledRequest));
+                            raw = await send(retryRequest(uncontrolledRequest));
                         } else {
                             throw fallbackError;
                         }
@@ -427,12 +446,16 @@ async function runTask(job, task) {
         job.messages += task.messages.length;
         return;
     } catch (error) {
-        if (!isAdaptiveExtractionSplitError(error) || !Array.isArray(task.parts) || task.parts.length !== 2) throw error;
+        if (job.cancelled || (!isAdaptiveExtractionSplitError(error) && error.code !== INTERRUPTED_BATCH_SPLIT_CODE)
+            || !Array.isArray(task.parts) || task.parts.length !== 2) throw error;
         const parts = task.parts;
         task.parts = null;
         for (const field of TASK_REQUEST_FIELDS) task[field] = null;
         job.splits++;
         job.total++;
+        if (error.code === INTERRUPTED_BATCH_SPLIT_CODE) {
+            job.validation = 'Connection interrupted repeatedly; retrying smaller memory sections. Completed sections remain saved.';
+        }
         for (const part of parts) {
             try {
                 await runTask(job, part);
@@ -479,6 +502,7 @@ async function run(job) {
         job.error = error.message || String(error);
         console.error('[continuity-memory] detached extraction failed:', error);
     } finally {
+        job.connection = null;
         job.completedAt = new Date().toISOString();
         activeByWorld.delete(job.activeKey);
         job.backendHeaders = null;
@@ -544,6 +568,7 @@ export function createDetachedJob(req, payload, storage, {
         maxRetryDelayMs: Math.max(10, Number(maxRetryDelayMs) || MAX_RETRY_DELAY_MS),
         maxNetworkAttempts: Math.max(1, Number(maxNetworkAttempts) || DEFAULT_MAX_NETWORK_ATTEMPTS),
         networkFailures: 0,
+        connection: null,
         loadWorld: () => retryDetached(job, () => storage.loadWorld(worldId), 'Reloading saved memory'),
         saveWorld: world => storage.saveWorld(worldId, world),
         status: 'queued',

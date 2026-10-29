@@ -53,6 +53,32 @@ test('phone connection loss resumes polling the same job through completion', as
     assert.deepEqual(h.ids, Array(4).fill('existing-job'));
     assert.equal(h.states.filter(state => state.status === 'reconnecting').length, 2);
 });
+
+test('an upstream outage updates the waiting reply and clears reconnecting when output resumes', async () => {
+    const h = pollingHarness([
+        { status: 'processing', connection: { phase: 'retrying', attempt: 3, retryAt: Date.now() + 4000 } },
+        { status: 'processing', connection: { phase: 'receiving', outputCharacters: 10 } },
+        { status: 'complete', chunks: 2 },
+    ]);
+    h.scope.runtime.roleplayGate = { active: true, startedAt: 42, message: 'Waiting for memory.' };
+    await h.scope.waitForDetachedJob('same-job', 'world', 3);
+    assert.equal(h.states[0].status, 'reconnecting');
+    assert.match(h.states[0].retryStatus, /retrying in.*attempt 3/);
+    assert.match(h.states[0].injectionStatus, /reply will resume automatically/);
+    assert.equal(h.states[0].roleplayGate.startedAt, 42);
+    assert.equal(h.states[1].status, 'processing');
+    assert.match(h.states[1].retryStatus, /Receiving memory output/);
+    assert.deepEqual(h.ids, ['same-job', 'same-job', 'same-job']);
+});
+
+test('a lost browser connection also explains reconnection on the waiting reply', async () => {
+    const h = pollingHarness([new Error('Network error'), { status: 'complete' }]);
+    h.scope.runtime.roleplayGate = { active: true, startedAt: 42 };
+    await h.scope.waitForDetachedJob('same-job', 'world', 3);
+    assert.match(h.states[0].injectionStatus, /Reconnecting to the existing memory job/);
+    assert.match(h.states[0].retryStatus, /resume automatically/);
+    assert.equal(h.states[0].roleplayGate.startedAt, 42);
+});
 for (const change of ['stop', 'chat']) test(`${change} during a connection outage cannot resume or publish stale job progress`, async () => {
     const h = pollingHarness([new TypeError('Failed to fetch')], scope => {
         if (change === 'stop') scope.runtime.paused = true;

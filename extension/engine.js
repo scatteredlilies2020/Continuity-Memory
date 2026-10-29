@@ -948,8 +948,13 @@ async function waitForDetachedJob(id, worldId = '', expectedEpoch = null) {
             assertCurrent();
             if (!isTransientApiError(error)) throw error;
             const delay = Math.min(30000, 2000 * (2 ** Math.min(4, connectionFailures++)));
+            const message = 'Reconnecting to the existing memory job. Completed memory is saved; your reply will resume automatically.';
             updateRuntime({ status: 'reconnecting', lastError: '',
-                lastValidation: 'Connection interrupted; checking the existing server memory job again. Saved chunks are safe.' });
+                lastValidation: message, retryStatus: message,
+                ...(runtime.roleplayGate?.active ? {
+                    roleplayGate: { ...runtime.roleplayGate, message }, injectionStatus: message,
+                } : {}),
+            });
             // Poll the same job after a transport loss; never start another AI
             // request merely because its status could not reach the browser.
             await new Promise(resolve => setTimeout(resolve, delay));
@@ -957,8 +962,21 @@ async function waitForDetachedJob(id, worldId = '', expectedEpoch = null) {
         }
         assertCurrent();
         const hierarchyPhase = job.phase === 'chronicle';
+        const connection = job.connection;
+        const reconnecting = connection?.phase === 'retrying'
+            || connection?.phase === 'connecting' && connection.attempt > 1;
+        const connectionMessage = connection?.phase === 'retrying'
+            ? `${connection.label || 'Connection interrupted'}; retrying in ${Math.max(0, Math.ceil((connection.retryAt - Date.now()) / 1000))}s (attempt ${connection.attempt}). Completed memory is saved; your reply will resume automatically.`
+            : reconnecting ? `Reconnecting to the memory service (attempt ${connection.attempt}). Completed memory is saved; your reply will resume automatically.`
+                : connection?.phase === 'receiving'
+                    ? connection.outputCharacters ? 'Receiving memory output. Each completed section is saved.' : 'The memory model is thinking. Completed memory is saved.'
+                    : connection ? 'Waiting for the memory model to respond. Completed memory is saved.' : '';
         updateRuntime({
-            status: job.status === 'complete' ? 'processing' : job.status,
+            status: job.status === 'complete' ? 'processing' : job.status === 'processing' && reconnecting ? 'reconnecting' : job.status,
+            retryStatus: connectionMessage || job.validation || 'Memory work is running; each completed section is saved.',
+            ...(runtime.roleplayGate?.active && connectionMessage ? {
+                roleplayGate: { ...runtime.roleplayGate, message: connectionMessage }, injectionStatus: connectionMessage,
+            } : {}),
             progress: hierarchyPhase ? null : {
                 current: job.current,
                 total: job.total,
@@ -969,7 +987,7 @@ async function waitForDetachedJob(id, worldId = '', expectedEpoch = null) {
             ...(hierarchyPhase ? {
                 arcStatus: `Promoting Recursive Chronicle layers… created ${job.chronicle || 0} parent node(s).`,
             } : {}),
-            lastValidation: job.validation || 'Detached extraction is running in SillyTavern; this tab may be closed.',
+            lastValidation: connectionMessage || job.validation || 'Detached extraction is running in SillyTavern; this tab may be closed.',
         });
         if (worldId && detachedProgressNeedsRefresh(syncedChunks, job)) {
             try {
