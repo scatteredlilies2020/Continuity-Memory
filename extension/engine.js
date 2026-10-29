@@ -9,7 +9,7 @@ import { memoryRequestMessages, responseWithPrefill, decodeMemoryResponse, memor
 import { oai_settings, openai_setting_names, openai_settings, proxies } from '/scripts/openai.js';
 import { api } from './api.js?pending-recovery=1';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
-import { isRateLimitError } from './errors.js';
+import { isRateLimitError, isTransientApiError } from './errors.js';
 import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.30';
 import { resolveExtractionChunk } from './extraction-budget.js?pending-recovery=1';
 import { normalizeHierarchyResult } from './hierarchy-result.js';

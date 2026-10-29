@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { isTransientApiError } from '../extension/errors.js';
+import * as errorHelpers from '../extension/errors.js';
 
 const apiSource = readFileSync(new URL('../extension/api.js', import.meta.url), 'utf8');
 function backendHarness(outcomes) {
@@ -35,15 +35,18 @@ test('a confirmed absent plugin still supports file storage', async () => {
 });
 
 const engine = readFileSync(new URL('../extension/engine.js', import.meta.url), 'utf8');
+const engineErrorImports = engine.match(/import\s*\{([^}]+)\}\s*from\s*['"]\.\/errors\.js['"]/)[1];
 function pollingHarness(outcomes, wait = () => {}) {
     const ids = [], states = [];
     const scope = { runtime: { generation: 3, paused: false }, getChatKey: () => 'chat', getBoundWorldId: () => 'world',
-        RUNTIME_CANCELLED_CODE: 'cancelled', isTransientApiError,
+        RUNTIME_CANCELLED_CODE: 'cancelled', errorHelpers,
         api: { getExtractionJob: async id => { ids.push(id); const next = outcomes.shift(); if (next instanceof Error) throw next; return { job: next }; } },
         detachedProgressNeedsRefresh: () => false, updateRuntime: value => states.push(value),
         setTimeout: callback => { wait(scope); callback(); },
     };
     vm.createContext(scope);
+    // Use production bindings so a missing engine import cannot be hidden by this harness.
+    vm.runInContext(`const {${engineErrorImports}} = errorHelpers;`, scope);
     vm.runInContext(engine.match(/async function waitForDetachedJob\([^]*?^}/m)[0], scope);
     return { scope, ids, states };
 }
