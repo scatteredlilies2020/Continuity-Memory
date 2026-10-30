@@ -9,9 +9,10 @@ import { discardLegacyStorySnapshots } from '../extension/story-source.js';
 import { syncChronicleBase } from '../extension/chronicle.js';
 import { cancelDetachedJob, createDetachedJob, getDetachedJob, listDetachedJobs } from './detached-jobs.js';
 import { registerVectorRoutes } from './vector-store.js';
+import { CONTINUITY_VERSION } from '../extension/build-info.js';
 
 const PLUGIN = 'continuity-memory';
-const VERSION = '0.15.0-testing.31';
+const VERSION = CONTINUITY_VERSION;
 const SCHEMA_VERSION = 12;
 const STORAGE_VERSION = 2;
 const SHARD_CHUNK_SIZE = 128;
@@ -720,7 +721,7 @@ export async function init(router, {
     router.get('/extraction-jobs/:id', async (req, res) => {
         try {
             const job = getDetachedJob(req, req.params.id);
-            if (!job) throw Object.assign(new Error('Detached job not found'), { status: 404 });
+            if (!job) throw Object.assign(new Error('Processing stopped safely: detached job not found after a server restart or expiry. Resume the pending build; completed memory remains saved.'), { status: 404 });
             res.json({ ok: true, job });
         } catch (error) {
             sendError(res, error);

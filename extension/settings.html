@@ -1,7 +1,7 @@
 <div id="continuity_settings" class="extension_container continuity-panel">
     <div class="inline-drawer">
         <div class="inline-drawer-toggle inline-drawer-header">
-            <b><i class="fa-solid fa-link"></i> Continuity Memory</b>
+            <b><i class="fa-solid fa-link"></i> Continuity Memory <span id="continuity_header_health" class="continuity-health-badge">Starting…</span></b>
             <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
         </div>
         <div class="inline-drawer-content">
@@ -17,6 +17,14 @@
                     <button id="continuity_reset_defaults" class="menu_button continuity-small-button" title="Restore configuration defaults without deleting memory"><i class="fa-solid fa-rotate-left"></i> Reset defaults</button>
                     <span id="continuity_status" class="continuity-status">Starting…</span>
                 </div>
+            </div>
+
+            <div id="continuity_health_card" class="continuity-card continuity-health-card" role="status" aria-live="polite">
+                <strong id="continuity_health_title">Checking memory status…</strong>
+                <div id="continuity_health_message"></div>
+                <small id="continuity_health_backlog"></small>
+                <small id="continuity_health_versions"></small>
+                <button id="continuity_health_details" type="button" class="menu_button continuity-small-button">Recent problems (0)</button>
             </div>
 
             <div class="continuity-card">

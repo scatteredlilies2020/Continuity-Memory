@@ -3,7 +3,7 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { resolveMemoryPrefill, sendMemoryProfileRequest } from './preset-prefill-host.js?pending-recovery=1';
 import { memoryRequestMessages, responseWithPrefill } from './preset-prefill.js';
 import { isThinkingControlError, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.30';
-import { generateWithThinkingPolicy, requestDirectText, resolveThinkingModeForProfile } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1';
+import { generateWithThinkingPolicy, requestDirectText, resolveThinkingModeForProfile } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=1';
 import { parseExpandedTerms } from './semantic-terms.js?v=0.15.0-testing.30&retrieval-json=1';
 import { recentRetrievalQuery } from './retrieval-query.js?v=0.15.0-testing.30';
 import { getSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1';

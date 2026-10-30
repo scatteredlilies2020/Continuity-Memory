@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { splitScenarioNotes } from '../extension/extraction-context.js';
-import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, isAuthoritativeUserMetaMessage, precedingUserAttributionContext, splitAuthoritativeUserMeta } from '../extension/extraction-context.js';
+import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, inWorldSourceEvidence, isAuthoritativeUserMetaMessage, precedingUserAttributionContext, splitAuthoritativeUserMeta } from '../extension/extraction-context.js';
 
 test('an assistant-led range receives the preceding user turn as attribution-only context', () => {
     const chat = [
@@ -96,6 +96,34 @@ test('neutral institutional narration does not trip provenance on an OOC schedul
     assert.doesNotThrow(() => assertAuthoritativeMetaProvenance({
         chronicleEntry: 'Lucia’s petition and Nim’s placement materials were formally submitted, with separate tracking and review paths established.',
     }, boundaries));
+});
+
+test('an OOC timeline correction does not make familiar character names private propositions', () => {
+    const messages = [
+        { index: 153, name: 'User', isUser: true, text: "OOC: note Himmel still isn't dead when Frieren left; they just defeated the Demon King." },
+        { index: 154, name: 'Narrator', text: 'Frieren stared at her staff. He is not dead. The realization settled into her chest. Himmel was still waiting by the fire.' },
+    ];
+    const boundaries = authoritativeMetaBoundaries(messages, [{ name: 'Frieren' }, { name: 'Himmel' }]);
+    assert.ok(!boundaries[0].terms.includes('himmel'));
+    assert.ok(!boundaries[0].terms.includes('frieren'));
+    assert.ok(boundaries[0].terms.includes('dead'), 'The corrected proposition remains protected.');
+    assert.doesNotThrow(() => assertAuthoritativeMetaProvenance({ chronicleEntry:
+        'Frieren realized Himmel was waiting and resolved to finish the Ring quest and return before the fire went out.' }, boundaries, inWorldSourceEvidence(messages)));
+    assert.throws(() => assertAuthoritativeMetaProvenance({ chronicleEntry: 'Frieren revealed that Himmel was not dead.' }, boundaries,
+        inWorldSourceEvidence(messages)), /OOC provenance violation/);
+});
+
+test('Digest source evidence supports actual dialogue while excluding author-only spans', () => {
+    const messages = [
+        { index: 0, name: 'User', text: 'OOC: The secret route is safe.' },
+        { index: 1, name: 'Narrator', text: 'Alice said the secret route was safe.' },
+    ];
+    const boundaries = authoritativeMetaBoundaries(messages);
+    const evidence = inWorldSourceEvidence(messages);
+    assert.deepEqual(evidence, ['Alice said the secret route was safe.']);
+    assert.doesNotThrow(() => assertAuthoritativeMetaProvenance({ chronicleEntry: evidence[0] }, boundaries, evidence));
+    assert.throws(() => assertAuthoritativeMetaProvenance({ chronicleEntry: 'Bob said the secret route was safe.' }, boundaries, evidence), /OOC provenance violation/);
+    assert.throws(() => assertAuthoritativeMetaProvenance({ chronicleEntry: evidence[0] }, boundaries, inWorldSourceEvidence(messages.slice(0, 1))), /OOC provenance violation/);
 });
 
 const greetingNote = '**Note: This is Pre-mages flight, Pre-Zoltraak, Pre modern-magic, Pre-Demon King and Seven Sages of Destruction defeat';

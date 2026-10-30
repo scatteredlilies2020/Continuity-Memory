@@ -1,4 +1,4 @@
-import { extractionSchema, chronicleParentSchema, schemaFieldGuide, formatStructuredResponseGuide, EXTRACTION_OUTPUT_CHECK, CHRONICLE_OUTPUT_CHECK, EXTRACTION_FIELD_GUIDE, assertCompleteExtractionRecords, extractionCompletenessFeedback } from './extraction-contract.js?v=0.15.0-testing.30';
+import { extractionSchema, chronicleParentSchema, schemaFieldGuide, formatStructuredResponseGuide, EXTRACTION_OUTPUT_CHECK, CHRONICLE_OUTPUT_CHECK, EXTRACTION_FIELD_GUIDE, assertCompleteExtractionRecords, extractionCompletenessFeedback } from './extraction-contract.js?v=0.15.0-testing.32';
 import { LEGACY_DIGEST_RESCAN_MESSAGE } from './legacy-support.js';
 import { extractMessageFromData, generateRaw, getRequestHeaders } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
@@ -26,7 +26,7 @@ import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedChronicle, freshResetResiduals, getLatestDigestUndoStatus as inspectLatestDigestUndo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from './memory-model.js';
 import { extractionResponseTokens, memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js?pending-recovery=1&output-recovery=2';
 import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.30';
-import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.30';
+import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, inWorldSourceEvidence, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.32';
 import { embedWorldInChat } from './portable.js?belief-wording=4&pending-recovery=1';
 import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.30';
 import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.30&belief-wording=4';
@@ -220,11 +220,12 @@ function validateResult(result, world, messages) {
         result.chronicleEntry = compileRollingStorySnapshot(result.storySoFar)
             || [result.sceneCapsule.opening, ...(result.sceneCapsule.beats || []), result.sceneCapsule.closing].filter(Boolean).join(' ');
     }
-    const provenanceBoundaries = authoritativeMetaBoundaries(messages);
+    const provenanceBoundaries = authoritativeMetaBoundaries(messages, world?.entities || []);
+    const sourceEvidence = inWorldSourceEvidence(messages);
     delete result._sourceScenarioContext;
-    assertAuthoritativeMetaProvenance(result, provenanceBoundaries);
+    assertAuthoritativeMetaProvenance(result, provenanceBoundaries, sourceEvidence);
     const validation = sanitizeReconciliationMetadata(result, world, messages, { neutralSupporting: true });
-    assertAuthoritativeMetaProvenance(result, provenanceBoundaries);
+    assertAuthoritativeMetaProvenance(result, provenanceBoundaries, sourceEvidence);
     result._authoritativeMetaBoundaries = provenanceBoundaries;
     // Overwrite any model-supplied field with source text captured by code.
     result._sourceScenarioContext = captureScenarioContext(messages);
@@ -968,6 +969,7 @@ async function waitForDetachedJob(id, worldId = '', expectedEpoch = null) {
                     : connection ? 'Waiting for the memory model to respond. Completed memory is saved.' : '';
         updateRuntime({
             status: job.status === 'complete' ? 'processing' : job.status === 'processing' && reconnecting ? 'reconnecting' : job.status,
+            memoryJob: job,
             retryStatus: connectionMessage || job.validation || 'Memory work is running; each completed section is saved.',
             ...(runtime.roleplayGate?.active && connectionMessage ? {
                 roleplayGate: { ...runtime.roleplayGate, message: connectionMessage }, injectionStatus: connectionMessage,
@@ -1021,6 +1023,7 @@ async function reconnectDetachedExtraction(worldId, chatKey) {
         const { jobs } = await api.listExtractionJobs({ worldId, chatKey });
         if (!current()) return;
         const active = jobs.find(job => job.status === 'queued' || job.status === 'processing');
+        updateRuntime({ memoryJobs: jobs, memoryJob: active || null });
         if (!active) {
             // A detached job can finish between the initial world load and
             // this status request. Refresh completed work too so the viewer,

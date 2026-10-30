@@ -234,6 +234,9 @@ export function assertCompleteExtractionRecords(result) {
 }
 
 export function extractionCompletenessFeedback(error) {
+    if (error?.code === 'CM_OOC_PROVENANCE' || /OOC provenance violation/u.test(error?.message || '')) {
+        return `\n\nThe previous extraction failed source attribution: ${String(error.message).slice(0, 1200)}\nGenerate a corrected complete JSON extraction from the same excerpt. Preserve the author-level correction as canon using neutral narration. Do not invent a character's speech, realization, disclosure, or knowledge to explain an author note. Keep actual in-world speech and knowledge only when supported by the in-world excerpt. Return all required fields, not a patch.`;
+    }
     if (error?.code === 'CM_INCOMPLETE_RECORDS') return `\n\nThe previous response was rejected: ${error.message}\n${EXTRACTION_COMPLETENESS_RULE}`;
     if (error?.code === 'CM_INVALID_JSON'
         || /without a valid JSON object|returned no JSON object|Extractor field .* is not an array|no valid chronological scene capsule|unexpected end.*JSON/i.test(error?.message || '')) {

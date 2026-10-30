@@ -2,7 +2,7 @@ import { getTokenCountAsync } from '/scripts/tokenizers.js';
 import { getContext } from '/scripts/st-context.js';
 import { EXTRACTION_VERSION } from './coverage.js';
 import { promptManager } from '/scripts/openai.js';
-import { loadBoundWorld } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1';
+import { loadBoundWorld } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=1';
 import { fingerprintMessage } from './message-digest.js?v=0.15.0-testing.30';
 import { runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.30';
 import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1';

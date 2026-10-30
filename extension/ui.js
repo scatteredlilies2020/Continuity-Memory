@@ -5,17 +5,17 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js?pending-recovery=1';
-import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1';
+import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=1';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js?belief-wording=4&pending-recovery=1';
 import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.30&belief-wording=4';
-import { clearRetrievalExpansionCache, expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.30&belief-wording=4&bounded-recall=1&pending-recovery=1&retrieval-json=1';
+import { clearRetrievalExpansionCache, expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.30&belief-wording=4&bounded-recall=1&pending-recovery=1&retrieval-json=1&output-planning=1&health-status=1&provenance-recovery=1';
 import { resolveRetrievalAssist } from './retrieval-assist.js?bounded-recall=1&catchup-gate=1';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
 import { describeMemoryEdit } from './memory-edit.js';
 import { createMemoryEditForm } from './memory-edit-form.js';
-import { commitManualMemoryEdit } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1';
+import { commitManualMemoryEdit } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=1';
 import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js?pending-recovery=1';
 import { normalizeExtractionOutputTokens } from './memory-response-policy.js?pending-recovery=1';
@@ -39,6 +39,7 @@ import { createRenderScheduler } from './render-scheduler.js';
 import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.30';
 import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.30';
 import { isTransientApiError } from './errors.js';
+import { continuityHealth, createHealthProblemTracker, notifyHealthProblem } from './health-status.js';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -60,6 +61,9 @@ let liveUiRecoveryPromise = null;
 let lastLiveUiRecoveryAt = Date.now();
 const LIVE_UI_RECOVERY_INTERVAL = 30000;
 let scheduleResumedMemoryMaintenance = null;
+let captureHealthProblems = null;
+let healthDialogContent = null;
+let lastHealthCoverage = {};
 const DIRECT_KINDS = Object.freeze(['extraction', 'retrieval', 'correction', 'summary']);
 const DIRECT_PROFILE_SETTINGS = Object.freeze({
     extraction: 'memoryProfileId',
@@ -1326,6 +1330,69 @@ function openStoredMemoryEditor(item, card) {
     } catch (error) { toast('error', error.message); }
 }
 
+function renderHealthStatus(coverage = lastHealthCoverage) {
+    lastHealthCoverage = coverage;
+    const settings = getSettings();
+    const health = continuityHealth(runtime, settings, coverage);
+    const problems = (settings.healthProblemHistory || []).filter(problem => problem.chatKey === getChatKey());
+    for (const id of ['continuity_health_card', 'continuity_chat_health', 'continuity_header_health']) {
+        const element = document.getElementById(id);
+        if (element) element.dataset.level = health.level;
+    }
+    setElementText('#continuity_health_title', health.label);
+    setElementText('#continuity_health_message', health.message);
+    setElementText('#continuity_health_backlog', health.backlog);
+    setElementText('#continuity_health_versions', health.versions);
+    setElementText('#continuity_header_health', health.label);
+    setElementText('#continuity_health_details', `Recent problems (${problems.length})`);
+    const button = document.getElementById('continuity_chat_health');
+    if (button) {
+        button.hidden = !getChatKey();
+        button.textContent = `CM: ${health.label} · ${health.totalPending} pending`;
+        button.title = `${health.message}\n${health.backlog}\nClick for status and recent problems.`;
+    }
+    if (healthDialogContent) {
+        healthDialogContent.textContent = `${health.label}\n${health.message}\n\n${health.backlog}\n${health.versions}\n\nRecent problems for this chat\n${problems.length
+            ? problems.map(problem => `${new Date(problem.time).toLocaleString()} · ${problem.source}${problem.count > 1 ? ` · ${problem.count} occurrences` : ''}\n${problem.message}`).join('\n\n')
+            : 'No problems have been recorded for this chat.'}`;
+    }
+}
+
+async function openHealthDetails() {
+    if (healthDialogContent) return;
+    const content = document.createElement('pre');
+    content.className = 'continuity-health-history';
+    healthDialogContent = content;
+    renderHealthStatus();
+    try {
+        await new Popup(content, POPUP_TYPE.TEXT, '', { okButton: 'Close', wide: true, leftAlign: true }).show();
+    } finally {
+        if (healthDialogContent === content) healthDialogContent = null;
+    }
+}
+
+function initHealthDisplay() {
+    captureHealthProblems = createHealthProblemTracker({
+        getChatKey,
+        getHistory: () => getSettings().healthProblemHistory || [],
+        saveHistory: history => { getSettings().healthProblemHistory = history; saveSettings(); },
+        isCancellation: isRuntimeCancellation,
+        onProblem: message => notifyHealthProblem(message, { chatKey: getChatKey(),
+            enabled: getSettings().showNotifications, toastr: window.toastr, options: { onclick: openHealthDetails } }),
+    });
+    if (!document.getElementById('continuity_chat_health')) {
+        const button = document.createElement('button');
+        button.id = 'continuity_chat_health';
+        button.type = 'button';
+        button.className = 'menu_button continuity-chat-health';
+        button.addEventListener('click', openHealthDetails);
+        document.getElementById('send_form')?.before(button);
+    }
+    document.getElementById('continuity_health_details')?.addEventListener('click', openHealthDetails);
+    captureHealthProblems(runtime);
+    globalThis.setInterval(() => { if (!document.hidden) renderHealthStatus(); }, 10000);
+}
+
 export function renderRuntime(refreshSettings = true) {
     const settings = getSettings();
     if (refreshSettings) {
@@ -1467,6 +1534,7 @@ export function renderRuntime(refreshSettings = true) {
     $('#continuity_arc_status').text(runtime.arcError ? `Chronicle promotion deferred: ${runtime.arcError}` : runtime.arcStatus || 'Chronicle parents are derived non-destructively when a layer exceeds its capacity.');
     $('#continuity_retry_status').text(runtime.retryStatus || 'No manual build running.');
     const coverage = getProcessingCoverage();
+    renderHealthStatus(coverage);
     $('#continuity_coverage').text(!runtime.world
         ? (getChatKey() ? 'Loading saved memory coverage…' : 'Open a chat to inspect memory coverage.')
         : coverage.total
@@ -1517,6 +1585,9 @@ export function renderRuntime(refreshSettings = true) {
         }
     }
     const diagnostic = {
+        health: continuityHealth(runtime, settings, coverage),
+        recentProblems: (settings.healthProblemHistory || []).filter(problem => problem.chatKey === getChatKey()),
+        memoryJob: runtime.memoryJob || null,
         engine: runtime.status,
         storyEngine: runtime.storyStatus,
         storyProcessing: runtime.storyProcessing,
@@ -2038,6 +2109,7 @@ function cancelCorrection() {
 export function initUI({ scheduleMemoryMaintenance = null } = {}) {
     scheduleResumedMemoryMaintenance = scheduleMemoryMaintenance;
     const settings = getSettings();
+    initHealthDisplay();
     installNativeChatExportBridge();
     installReviewRecoveryListeners();
     installLiveUiRecoveryListeners();
@@ -2315,7 +2387,10 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
     // Runtime updates often arrive in bursts while extraction or indexing is
     // progressing. One paint-aligned refresh preserves every final state while
     // preventing a burst from blocking SillyTavern's main browser thread.
-    onRuntimeChange(scheduleRuntimeRender);
+    onRuntimeChange(state => {
+        captureHealthProblems(state);
+        scheduleRuntimeRender();
+    });
     refreshModelProfiles();
     renderRuntime();
     void refreshWorlds().then(() => {

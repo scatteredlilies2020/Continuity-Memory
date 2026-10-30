@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import { isRateLimitError, isTransientApiError } from '../extension/errors.js';
 import { EXTRACTION_OUTPUT_RECOVERY_GUIDE, isAdaptiveExtractionSplitError, isExplicitExtractionOutputLimitError } from '../extension/extraction-recovery.js';
 import { extractionRecoveryRequest } from '../extension/memory-response-policy.js';
-import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries } from '../extension/extraction-context.js';
+import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, inWorldSourceEvidence } from '../extension/extraction-context.js';
 import { fingerprintMessage } from '../extension/message-digest.js';
 import { addDerivedChronicle, mergeExtraction } from '../extension/memory-model.js';
 import { isCurrentStorySnapshot } from '../extension/story-source.js';
@@ -109,11 +109,12 @@ function validateResult(result, world, messages) {
     for (const key of ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds']) {
         if (!Array.isArray(result[key])) throw new Error(`Extractor field "${key}" is not an array.`);
     }
-    const provenanceBoundaries = authoritativeMetaBoundaries(messages);
+    const provenanceBoundaries = authoritativeMetaBoundaries(messages, world?.entities || []);
+    const sourceEvidence = inWorldSourceEvidence(messages);
     delete result._sourceScenarioContext;
-    assertAuthoritativeMetaProvenance(result, provenanceBoundaries);
+    assertAuthoritativeMetaProvenance(result, provenanceBoundaries, sourceEvidence);
     const validation = sanitizeReconciliationMetadata(result, world, messages, { neutralSupporting: true });
-    assertAuthoritativeMetaProvenance(result, provenanceBoundaries);
+    assertAuthoritativeMetaProvenance(result, provenanceBoundaries, sourceEvidence);
     result._authoritativeMetaBoundaries = provenanceBoundaries;
     result._sourceScenarioContext = captureScenarioContext(messages);
     return { result, validation };
@@ -297,7 +298,7 @@ function retryDetached(job, operation, label = 'Connection interrupted', conflic
         maxAttempts: job.maxNetworkAttempts,
         onRetry: (error, delay, failures) => {
             job.networkFailures = failures;
-            job.connection = { phase: 'retrying', attempt: failures + 1, retryAt: Date.now() + delay, label };
+            job.connection = { phase: 'retrying', attempt: failures + 1, retryAt: Date.now() + delay, label, error: String(error.message || error).slice(0, 2000) };
             job.validation = `${label}; retrying the pending operation in ${Math.ceil(delay / 1000)}s (attempt ${failures + 1}).`;
             onRetry(error, failures);
         },

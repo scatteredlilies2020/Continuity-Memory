@@ -87,8 +87,12 @@ export function splitScenarioNotes(message, { preserveLabels = false } = {}) {
     };
 }
 
-export function authoritativeMetaBoundaries(messages) {
+export function authoritativeMetaBoundaries(messages, knownEntities = []) {
     const boundaries = [];
+    // A familiar subject's name is not an author-only proposition. Otherwise
+    // an OOC correction about Himmel makes every mention of Himmel or Frieren
+    // beside "said" or "realized" fail, regardless of what was actually said.
+    const identityTerms = new Set(knownEntities.flatMap(entity => words(entity?.name)));
     for (const message of messages || []) {
         const split = splitScenarioNotes(message);
         if (!split?.meta) continue;
@@ -98,6 +102,7 @@ export function authoritativeMetaBoundaries(messages) {
         const terms = [...new Set(words(split.meta).filter(term => term.length >= 3
             && !PROVENANCE_STOP_WORDS.has(term)
             && !inWorldTerms.has(term)
+            && !identityTerms.has(term)
             && !speakerTerms.has(term)))];
         boundaries.push({
             messageIndex: Number(message?.index),
@@ -106,6 +111,10 @@ export function authoritativeMetaBoundaries(messages) {
         });
     }
     return boundaries;
+}
+
+export function inWorldSourceEvidence(messages) {
+    return (messages || []).map(message => splitScenarioNotes(message)?.inWorld ?? messageText(message)).filter(Boolean);
 }
 
 function resultStrings(value, output = []) {
@@ -174,7 +183,7 @@ export function assertAuthoritativeMetaProvenance(result, boundaries, sourceEvid
     const conflicts = authoritativeMetaProvenanceConflicts(result, boundaries, sourceEvidence);
     if (!conflicts.length) return result;
     const first = conflicts[0];
-    throw new Error(`OOC provenance violation: generated memory attributes author-only canon as character speech or knowledge${first.speaker ? ` (source persona: ${first.speaker})` : ''}: “${first.sentence.slice(0, 220)}”`);
+    throw Object.assign(new Error(`OOC provenance violation: generated memory attributes author-only canon as character speech or knowledge${first.speaker ? ` (source persona: ${first.speaker})` : ''}: “${first.sentence.slice(0, 220)}”`), { code: 'CM_OOC_PROVENANCE' });
 }
 
 export function isAuthoritativeUserMetaMessage(message) {
