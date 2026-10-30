@@ -6,6 +6,7 @@
 .continuity-health-badge { font-size:.75em; margin-left:6px; font-weight:400; }
 .continuity-health-card { border-left-width:4px !important; overflow-wrap:anywhere; }
 .continuity-health-card small { display:block; margin-top:5px; }
+.continuity-health-card > .menu_button { width:fit-content; max-width:100%; overflow-wrap:normal; word-break:normal; }
 .continuity-health-history { white-space:pre-wrap; overflow-wrap:anywhere; text-align:left; max-height:65vh; overflow:auto; font-family:inherit; }
 [data-level="error"].continuity-health-card { border-color:#ff6b6b; background:rgba(220,70,70,.12); }
 [data-level="warning"].continuity-health-card { border-color:#d59b2b; background:rgba(213,155,43,.1); }
