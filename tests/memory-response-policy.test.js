@@ -34,7 +34,7 @@ test('extraction output targets stay soft and single-message recovery gets separ
 });
 
 test('detached recovery increases wire capacity without changing routing, reasoning, or stored requests', () => {
-    for (const [current, expected] of [[0, 16384], [8192, 16384], [16384, 32768], [32768, 32768], [65536, 65536]]) {
+    for (const [current, expected] of [[0, 16384], [8192, 16384], [16384, 32768], [32768, 65536], [65536, 65536]]) {
         const request = { model: 'gemini-test', max_tokens: current || undefined, reasoning_effort: 'high', custom_url: 'http://localhost/test' };
         const before = structuredClone(request);
         assert.deepEqual(extractionRecoveryRequest(request), { ...request, max_tokens: expected });
@@ -45,4 +45,11 @@ test('detached recovery increases wire capacity without changing routing, reason
     assert.equal(gpt.max_completion_tokens, 16384);
     assert.equal(extractionRecoveryRequest({ model: 'o3', max_completion_tokens: 8192 }).max_completion_tokens, 16384);
     assert.equal(extractionRecoveryRequest({ maxOutputTokens: 8192 }).maxOutputTokens, 16384);
+});
+
+test('planned completion capacity is separate from the soft target and recovery never lowers it', () => {
+    assert.equal(extractionResponseTokens(1200, false, 32768), 32768);
+    assert.equal(extractionResponseTokens(1200, true, 32768), 65536);
+    assert.equal(extractionResponseTokens(1200, true, 65536), 65536);
+    assert.equal(extractionResponseTokens(1200, true, 100000), 100000);
 });

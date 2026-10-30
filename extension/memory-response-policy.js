@@ -9,10 +9,13 @@ export function normalizeExtractionOutputTokens(value) {
     return Number.isFinite(requested) && requested > 0 ? requested : 0;
 }
 
-export function extractionResponseTokens(configured = 0, singleMessageRecovery = false) {
+export function extractionResponseTokens(configured = 0, singleMessageRecovery = false, plannedCapacity = null) {
     // The configured amount is prompt guidance. It must never become a wire
     // max_tokens cap that truncates an otherwise complete memory response.
-    return singleMessageRecovery ? SINGLE_MESSAGE_RECOVERY_RESPONSE_TOKENS : PROVIDER_MANAGED_MEMORY_RESPONSE_TOKENS;
+    const capacity = normalizeExtractionOutputTokens(plannedCapacity);
+    return singleMessageRecovery
+        ? Math.max(capacity, Math.min(65536, Math.max(SINGLE_MESSAGE_RECOVERY_RESPONSE_TOKENS, capacity * 2)))
+        : capacity || PROVIDER_MANAGED_MEMORY_RESPONSE_TOKENS;
 }
 
 export function extractionRecoveryRequest(request) {
@@ -21,7 +24,7 @@ export function extractionRecoveryRequest(request) {
         .map(key => normalizeExtractionOutputTokens(request[key])));
     // Recovery gets one larger request. Never lower an existing larger limit,
     // or turn a user-configured soft target into the normal request's cap.
-    const tokens = Math.max(current, Math.min(32768, Math.max(SINGLE_MESSAGE_RECOVERY_RESPONSE_TOKENS, current * 2)));
+    const tokens = Math.max(current, Math.min(65536, Math.max(SINGLE_MESSAGE_RECOVERY_RESPONSE_TOKENS, current * 2)));
     const output = request.max_completion_tokens != null
         ? { max_tokens: undefined, max_completion_tokens: tokens }
         : outputTokenPayload(request.model, tokens);

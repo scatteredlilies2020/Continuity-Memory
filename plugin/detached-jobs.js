@@ -397,7 +397,8 @@ async function extractTask(job, task, world) {
             if (isExplicitExtractionOutputLimitError(error)) {
                 // Multi-message tasks split immediately. A leaf cannot split,
                 // so give it one larger, concise request before failing safely.
-                if (task.messages.length !== 1 || outputRecovery) throw error;
+                if (task.messages.length !== 1) throw error;
+                if (outputRecovery) throw new Error(`Extraction output limit for message ${task.messages[0].index} after capacity recovery; it remains unprocessed. ${error.message}`, { cause: error });
                 outputRecovery = true;
                 maxAttempts = attempt + 1;
                 job.validation = 'Single-message extraction reached its output limit; retrying with more output capacity and concise JSON instructions.';

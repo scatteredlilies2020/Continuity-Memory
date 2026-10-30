@@ -122,7 +122,7 @@
                         </label>
                         <label>Extraction output target
                             <input id="continuity_extraction_output_tokens" class="text_pole" type="number" min="0" step="256">
-                            <small>Soft output target; 0 = provider default. Complete responses can exceed this target.</small>
+                            <small>Soft target for the whole JSON response; 0 = automatic compact target based on the excerpt. Response capacity includes separate reasoning headroom.</small>
                         </label>
                         <label>Retry after no progress (seconds)
                             <input id="continuity_idle_timeout" class="text_pole" type="number" min="1" step="30">

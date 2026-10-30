@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import { requestModel } from '../plugin/model-response.js';
 import * as prefillPolicy from '../extension/preset-prefill.js';
 import * as profilePolicy from '../extension/profile-request-policy.js';
+import { extractionResponseTokens, resolveMemoryResponseTokens } from '../extension/memory-response-policy.js';
+import { outputTokenPayload } from '../extension/model-compatibility.js';
 
 const engine = readFileSync(new URL('../extension/engine.js', import.meta.url), 'utf8');
 const plugin = readFileSync(new URL('../plugin/detached-jobs.js', import.meta.url), 'utf8');
@@ -133,6 +135,22 @@ test('detached request variants all retain prefill and disable native schema', (
     assert.ok(bundle.request);
     assert.ok(bundle.mandatoryRequest);
     assert.ok(bundle.uncontrolledRequest);
+});
+
+test('planned Digest capacity reaches every detached transport variant and model token field', () => {
+    for (const model of ['deepseek-test', 'gpt-5-test']) {
+        const fn = load(engine, 'detachedRequestBodies', dependencies({
+            extractionJsonSchema: {}, extractionResponseTokens, resolveMemoryResponseTokens, outputTokenPayload,
+            directRequestConfig: () => ({ provider: 'custom', model, url: 'https://example.invalid' }),
+            mandatoryThinkingPayload: () => ({ reasoning_effort: 'low' }),
+        }));
+        const bundle = fn({ prompt: 'task', fallbackPrompt: 'plain task', systemPrompt: 'system',
+            usesStructuredSchema: true, responseTokens: 32768 }, { profileId: '__direct__' });
+        for (const request of Object.values(bundle).filter(value => value?.messages)) {
+            assert.equal(request.max_completion_tokens ?? request.max_tokens, 32768);
+            if (model.startsWith('gpt-5')) assert.equal(request.max_tokens, undefined);
+        }
+    }
 });
 
 test('detached backend restores the assistant prefix before parsing', async () => {

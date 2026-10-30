@@ -11,7 +11,7 @@ import { api } from './api.js?pending-recovery=1';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError, isTransientApiError } from './errors.js';
 import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.30';
-import { resolveExtractionChunk } from './extraction-budget.js?pending-recovery=1';
+import { planExtractionOutput, resolveExtractionChunk } from './extraction-budget.js?pending-recovery=1&output-planning=1';
 import { normalizeHierarchyResult } from './hierarchy-result.js';
 import { captureScenarioContext } from './scenario-context.js';
 import { completeDigestMessages, latestCompleteDigestMessageIndex, digestStabilityRepairFrom, DIGEST_STABILITY_BUFFER_MESSAGES, partitionDigestStabilityBuffer, partitionPendingDigestMessages, resolveDigestGroupSize, selectAutomaticDigestMessages } from './digest-policy.js';
@@ -24,7 +24,7 @@ import { assertReviewedMemoryContent } from './review-content.js';
 import { parseJsonResponse } from './json-response.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedChronicle, freshResetResiduals, getLatestDigestUndoStatus as inspectLatestDigestUndo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from './memory-model.js';
-import { extractionResponseTokens, memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js?pending-recovery=1&output-recovery=1';
+import { extractionResponseTokens, memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js?pending-recovery=1&output-recovery=2';
 import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.30';
 import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.30';
 import { embedWorldInChat } from './portable.js?belief-wording=4&pending-recovery=1';
@@ -341,15 +341,13 @@ async function extractChunk(messages, world = runtime.world) {
         try {
             const feedback = extractionCompletenessFeedback(lastError);
             const recovery = attempt === 3;
-            const responseTokens = extractionResponseTokens(getSettings().extractionOutputTokens, recovery);
+            const responseTokens = extractionResponseTokens(getSettings().extractionOutputTokens, recovery, prepared.responseTokens);
             if (recovery) updateRuntime({ retryStatus: 'Single-message extraction output was incomplete; retrying with concise JSON instructions and more output capacity.' });
             // Some proxies accept the schema parameter without enforcing it.
             // Retry with explicit field definitions as well as corrective feedback.
             const retryPrompt = attempt > 1 && fallbackPrompt ? fallbackPrompt : prompt;
-            const target = Number(getSettings().extractionOutputTokens) || 0;
-            const lengthGuide = target > 0 ? `\n\nAim for roughly ${target} output tokens. This is a soft target: finish the complete JSON and preserve consequential continuity even when it needs more space.` : '';
             const recoveryGuide = recovery ? `\n\n${EXTRACTION_OUTPUT_RECOVERY_GUIDE}` : '';
-            const raw = await requestExtraction(retryPrompt + feedback + lengthGuide + recoveryGuide, systemPrompt, fallbackPrompt ? fallbackPrompt + feedback + lengthGuide + recoveryGuide : fallbackPrompt, responseTokens);
+            const raw = await requestExtraction(retryPrompt + feedback + recoveryGuide, systemPrompt, fallbackPrompt ? fallbackPrompt + feedback + recoveryGuide : fallbackPrompt, responseTokens);
             updateRuntime({ lastRawResponse: String(raw).slice(0, 30000) });
             const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
             const { result, validation } = validateResult(parsed, world, messages);
@@ -383,7 +381,8 @@ async function extractChunk(messages, world = runtime.world) {
             updateRuntime({ lastValidation: `Extraction attempt ${attempt}/${maxAttempts} failed: ${error.message}` });
             if (isRateLimitError(error)) throw new Error(`Rate limited; this chunk remains pending. Resume processing after the endpoint recovers.`, { cause: error });
             if (isExplicitExtractionOutputLimitError(error)) {
-                if (messages.length !== 1 || attempt === maxAttempts) throw error;
+                if (messages.length !== 1) throw error;
+                if (attempt === maxAttempts) throw new Error(`Extraction output limit for message ${messages[0].index} after capacity recovery; it remains unprocessed. ${error.message}`, { cause: error });
                 // Skip a second request with the same provider-managed limit.
                 attempt = 2;
             } else if (attempt === 2 && messages.length === 1 && !isAdaptiveExtractionSplitError(error)) {
@@ -396,6 +395,7 @@ async function extractChunk(messages, world = runtime.world) {
 
 function prepareExtractionPrompts(messages, world = runtime.world) {
     const settings = getSettings();
+    const output = planExtractionOutput(messages, settings.extractionOutputTokens);
     const detail = settings.detail;
     const detailInstruction = detail === 'light'
         ? 'Capture only details likely to matter again.'
@@ -404,7 +404,7 @@ function prepareExtractionPrompts(messages, world = runtime.world) {
             : 'Capture major developments and useful recurring or persistent details without recording filler.';
     const profileId = settings.memoryProfileId;
     const usesStructuredSchema = requestSupportsStructuredSchema(extractionJsonSchema, profileId, 'extraction', settings.thinkingMode, true);
-    const taskTemplate = `${settings.extractionTaskTemplate ?? DEFAULT_EXTRACTION_TASK_TEMPLATE}\n\n${EXTRACTION_OUTPUT_CHECK}`;
+    const taskTemplate = `${settings.extractionTaskTemplate ?? DEFAULT_EXTRACTION_TASK_TEMPLATE}\n\n${EXTRACTION_OUTPUT_CHECK}\n\n${output.guidance}`;
     const attributionContext = precedingUserAttributionContext(getContext().chat || [], messages);
     const taskValues = {
         detail: detailInstruction,
@@ -422,6 +422,7 @@ function prepareExtractionPrompts(messages, world = runtime.world) {
         fallbackPrompt,
         systemPrompt: buildExtractionSystemPrompt(settings.extractionSystemPrompt, settings.jbEnabled, settings.jbPrompt),
         usesStructuredSchema,
+        responseTokens: output.responseTokens,
     };
 }
 
@@ -754,7 +755,7 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
     return extractProfileResponse(response, apiMap, profile.name, prefill);
 }
 
-function detachedRequestBodies({ prompt, fallbackPrompt, systemPrompt, usesStructuredSchema }, {
+function detachedRequestBodies({ prompt, fallbackPrompt, systemPrompt, usesStructuredSchema, responseTokens }, {
     jsonSchema = extractionJsonSchema,
     layer = 'digest',
     profileId = getSettings().memoryProfileId,
@@ -816,7 +817,7 @@ function detachedRequestBodies({ prompt, fallbackPrompt, systemPrompt, usesStruc
         // Native active-chat settings require browser-side preset expansion.
         return null;
     }
-    const layerTokens = layer === 'digest' ? extractionResponseTokens(settings.extractionOutputTokens) : memoryResponseTokens(layer);
+    const layerTokens = layer === 'digest' ? extractionResponseTokens(settings.extractionOutputTokens, false, responseTokens) : memoryResponseTokens(layer);
     const responseLength = resolveMemoryResponseTokens(layerTokens, thinking.adapter) ?? undefined;
     const compatible = isolatedProfilePayload({
         ...outputTokenPayload(model, layerTokens),
@@ -866,12 +867,6 @@ function splitDetachedMessages(messages) {
 
 function prepareDetachedTask(messages, world) {
     const prepared = prepareExtractionPrompts(messages, world);
-    const target = Number(getSettings().extractionOutputTokens) || 0;
-    if (target > 0) {
-        const guide = `\n\nAim for roughly ${target} output tokens. This is a soft target; finish the complete JSON and preserve consequential continuity even when it needs more space.`;
-        prepared.prompt += guide;
-        prepared.fallbackPrompt += guide;
-    }
     const requests = detachedRequestBodies(prepared);
     if (!requests) return null;
     const split = splitDetachedMessages(messages);

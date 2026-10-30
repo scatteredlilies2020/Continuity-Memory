@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { planExtractionOutput } from '../extension/extraction-budget.js';
 import test from 'node:test';
 import { assertCompleteExtractionRecords, extractionSchema, EXTRACTION_FIELD_GUIDE, EXTRACTION_COMPLETENESS_RULE, extractionCompletenessFeedback } from '../extension/extraction-contract.js';
 import { buildExtractionSystemPrompt } from '../extension/prompts.js';
@@ -101,7 +102,7 @@ test('custom and default extraction prompts include first-response checks in bot
     const { runInNewContext } = await import('node:vm');
     const engine = readFileSync(new URL('../extension/engine.js', import.meta.url), 'utf8');
     for (const native of [false, true]) for (const template of [undefined, 'Custom task: {{messages}}']) {
-        const scope = { ...contract, ...prompts, runtime: { world: {} },
+        const scope = { ...contract, ...prompts, planExtractionOutput, runtime: { world: {} },
             getSettings: () => ({ extractionTaskTemplate: template }), getContext: () => ({ chat: [] }),
             extractionJsonSchema: {}, requestSupportsStructuredSchema: () => native,
             precedingUserAttributionContext: () => '', formatExtractionMessages: () => 'SOURCE',
@@ -112,8 +113,11 @@ test('custom and default extraction prompts include first-response checks in bot
         const result = runInNewContext(functions + '\nprepareExtractionPrompts([], {});', scope);
         for (const prompt of [result.prompt, result.fallbackPrompt]) {
             assert.ok(prompt.includes(contract.EXTRACTION_OUTPUT_CHECK));
+            assert.match(prompt, /entire JSON response, including the Digest and chronicleEntry/);
+            assert.match(prompt, /soft target, not a minimum/);
             assert.ok(prompt.includes('SOURCE') && prompt.includes('CANONICAL') && prompt.includes('TIME'));
         }
+        assert.equal(result.responseTokens, 32768);
     }
 });
 

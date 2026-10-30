@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createDetachedJob, getDetachedJob } from '../plugin/detached-jobs.js';
+import { planExtractionOutput } from '../extension/extraction-budget.js';
 
 const extracted = {
     scene: { location: 'Road', time: '', participants: ['Alice'], activity: 'Walking', mood: '' },
@@ -88,10 +89,36 @@ test('a truncated batch splits before its single-message leaf uses recovery', as
     assert.equal(result.world.sources.chat.processedMessages.length, 2);
 });
 
+test('a long message can complete on the first automatic request with compact guidance and planned capacity', async () => {
+    const root = task([144]);
+    root.messages[0].text = 'Alice walks along the road. '.repeat(660);
+    const plan = planExtractionOutput(root.messages);
+    root.request.max_tokens = plan.responseTokens;
+    root.request.messages[0].content += `\n\n${plan.guidance}`;
+    const result = await runExtraction('planned-single', root, body => {
+        assert.match(body.messages[0].content, /entire JSON response/);
+        return body.max_tokens > 16384 ? 'stop' : 'length';
+    });
+    assert.equal(result.finished.status, 'complete', result.finished.error);
+    assert.equal(result.requests.length, 1);
+    assert.equal(result.world.sources.chat.processedMessages[0].index, 144);
+});
+
+test('recovery of a planned request increases capacity instead of retrying the same or a lower cap', async () => {
+    const root = task([144]);
+    root.request.max_tokens = 32768;
+    root.fallbackRequest.max_tokens = 32768;
+    const result = await runExtraction('planned-recovery', root, body => body.max_tokens < 65536 ? 'length' : 'stop');
+    assert.equal(result.finished.status, 'complete', result.finished.error);
+    assert.deepEqual(result.requests.map(body => body.max_tokens), [32768, 65536]);
+    assert.equal(result.saves, 1);
+});
+
 test('persistent native MAX_TOKENS output limits stop after one recovery and save no coverage', async () => {
     const result = await runExtraction('persistent', task([0]), () => 'MAX_TOKENS');
     assert.equal(result.finished.status, 'error');
     assert.match(result.finished.error, /output limit/);
+    assert.match(result.finished.error, /message 0.*remains unprocessed/);
     assert.equal(result.requests.length, 2);
     assert.equal(result.saves, 0);
     assert.deepEqual(result.world.sources, {});

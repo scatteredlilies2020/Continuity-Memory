@@ -11,13 +11,13 @@ const engine = await readFile(new URL('../extension/engine.js', import.meta.url)
 const start = engine.indexOf('async function extractChunk(');
 const end = engine.indexOf('function prepareExtractionPrompts(', start);
 
-function makeExtractor(requestExtraction, settings = { extractionOutputTokens: 0 }) {
+function makeExtractor(requestExtraction, settings = { extractionOutputTokens: 0 }, plannedCapacity = undefined) {
     const runtime = {};
     const updates = [];
     const context = {
         runtime,
         getSettings: () => settings,
-        prepareExtractionPrompts: () => ({ prompt: 'prompt', fallbackPrompt: 'fallback', systemPrompt: 'system' }),
+        prepareExtractionPrompts: () => ({ prompt: 'prompt', fallbackPrompt: 'fallback', systemPrompt: 'system', responseTokens: plannedCapacity }),
         extractionCompletenessFeedback,
         extractionResponseTokens,
         requestExtraction,
@@ -54,6 +54,17 @@ test('a truncated multi-message chunk still splits instead of increasing output 
     });
     await assert.rejects(extract([{ index: 10 }, { index: 11 }]), /finish_reason: length/);
     assert.deepEqual(budgets, [null]);
+});
+
+test('browser extraction reserves planned capacity from the first call and preserves it during recovery', async () => {
+    const budgets = [];
+    const { extract } = makeExtractor(async (_prompt, _system, _fallback, budget) => {
+        budgets.push(budget);
+        if (budget < 65536) throw new Error('finish_reason: length');
+        return '{}';
+    }, { extractionOutputTokens: 1200 }, 32768);
+    await extract([{ index: 144 }]);
+    assert.deepEqual(budgets, [32768, 65536]);
 });
 
 test('a configured extraction target remains soft during initial and recovery requests', async () => {
