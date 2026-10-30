@@ -31,6 +31,20 @@ test('fast failures remain in saved history after a retry clears live error text
     assert.equal(h.history().length, 1, 'A browser reload must retain the user settings history.');
 });
 
+test('storage interruptions show automatic recovery and keep their history after reconnection', () => {
+    const h = trackerFixture();
+    const state = { storageError: 'Continuity server request timed out.' };
+    h.observe(state);
+    const health = continuityHealth(state, settings);
+    assert.equal(health.label, 'Reconnecting storage');
+    assert.match(health.message, /retries automatically/);
+    state.storageError = '';
+    h.observe(state);
+    assert.equal(continuityHealth(state, settings).level, 'ready');
+    assert.equal(h.history()[0].source, 'Storage');
+    assert.equal(h.history()[0].count, 1);
+});
+
 test('polling the same problem does not repeatedly save settings or show popups', () => {
     const h = trackerFixture();
     for (let i = 0; i < 20; i++) h.observe({ lastError: 'Output limit reached' });

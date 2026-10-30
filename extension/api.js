@@ -81,7 +81,8 @@ async function migrateAndRetireLegacyWorld(id) {
 
 async function call(method, ...args) {
     const backend = await getBackend();
-    if (method === 'health' && backend.health) return backend.health;
+    // Backend discovery is cached; connection health must be checked afresh.
+    if (method === 'health') return await backend.api.health();
     if (backend.api === pluginApi && method === 'listWorlds') {
         let [current, legacy] = await Promise.all([pluginApi.listWorlds(), fileApi.listWorlds()]);
         const currentById = new Map(current.worlds.map(world => [world.id, world]));

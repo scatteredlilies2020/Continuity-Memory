@@ -38,6 +38,7 @@ function harness() {
         toast: (...args) => calls.toast.push(args), saveSettings: () => { calls.settings++; },
         getPortableSnapshot: () => null,
         api: {
+            health: async () => ({ ok: true, detachedJobs: true }),
             listWorlds: async () => { calls.list++; return { worlds: [...saved.values()].map(world => ({ id: world.id, name: world.name,
                 counts: { retryableDigest: world.extractions.length } })) }; },
             getWorld: async id => { calls.read.push(id); return { world: structuredClone(saved.get(id)) }; },

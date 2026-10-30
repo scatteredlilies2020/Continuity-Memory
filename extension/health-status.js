@@ -52,6 +52,7 @@ export function createHealthProblemTracker({ getHistory, saveHistory, getChatKey
                 time: Date.parse(job.completedAt || job.createdAt) || now() });
         }
         const problems = [
+            ['Storage', state.storageError],
             ['Memory', state.lastError], ['Chronicle', state.arcError], ['Story', state.storyLastError],
             ['Embeddings', state.embeddingIndex?.status === 'error' ? state.embeddingIndex.error : ''],
             ['Connection', state.memoryJob?.connection?.phase === 'retrying' ? state.memoryJob.connection.error || state.retryStatus : ''],
@@ -89,6 +90,7 @@ export function continuityHealth(state, settings, coverage = {}, now = Date.now(
         || state.storyLastError || (settings.retrievalMode === 'embedding-hybrid' && index?.status === 'error' && index.error)
         || (!state.processing && !state.queue?.length && failedAfterLastSuccess && latestJob.error);
     if (failure) return result('error', 'Problem', String(failure));
+    if (state.storageError) return result('warning', 'Reconnecting storage', `${state.storageError} CM retries automatically while this tab is visible; saved memory is preserved.`);
     if (state.paused) return result('warning', 'Paused', 'Memory processing is paused. Saved sections remain intact.');
     if (state.roleplayGate?.active) return result('warning', 'Reply waiting', state.roleplayGate.message);
     if (state.status === 'reconnecting' || connection?.phase === 'retrying') {

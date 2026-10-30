@@ -3,7 +3,7 @@
   "loading_order": 60,
   "requires": [],
   "optional": [],
-  "js": "index.js?v=0.15.0-testing.32&embedding-continuation=2&pending-recovery=1&retrieval-json=1&output-recovery=1&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=1",
+  "js": "index.js?v=0.15.0-testing.32&embedding-continuation=2&pending-recovery=1&retrieval-json=1&output-recovery=1&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=1&storage-recovery=1",
   "css": "style.css?v=0.15.0-testing.32",
   "generate_interceptor": "continuityMemoryGenerateInterceptor",
   "author": "scatteredlilies2020",

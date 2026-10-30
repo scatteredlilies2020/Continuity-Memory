@@ -7,7 +7,7 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { resolveMemoryPrefill, prepareMemoryRequest, sendMemoryProfileRequest, prepareDetachedPrefills, generateEndpointMemory } from './preset-prefill-host.js?pending-recovery=1';
 import { memoryRequestMessages, responseWithPrefill, decodeMemoryResponse, memoryWireRequest } from './preset-prefill.js';
 import { oai_settings, openai_setting_names, openai_settings, proxies } from '/scripts/openai.js';
-import { api } from './api.js?pending-recovery=1';
+import { api } from './api.js?pending-recovery=1&storage-recovery=1';
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError, isTransientApiError } from './errors.js';
 import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.30';

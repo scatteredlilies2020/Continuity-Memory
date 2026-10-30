@@ -34,6 +34,22 @@ test('a confirmed absent plugin still supports file storage', async () => {
     assert.equal(h.probes(), 1);
 });
 
+test('health checks report an outage and recovery after backend discovery was cached', async () => {
+    let probes = 0;
+    const pluginApi = { health: async () => {
+        probes++;
+        if (probes === 3) throw new Error('Continuity server request timed out.');
+        return { version: probes < 4 ? 'old' : 'updated', detachedJobs: true };
+    } };
+    const scope = { backendPromise: undefined, fileApi: {}, pluginApi };
+    vm.createContext(scope);
+    for (const name of ['getBackend', 'call']) vm.runInContext(apiSource.match(new RegExp(`async function ${name}\\([^]*?^}`, 'm'))[0], scope);
+    assert.equal((await scope.call('health')).version, 'old');
+    await assert.rejects(scope.call('health'), /timed out/);
+    assert.equal((await scope.call('health')).version, 'updated');
+    assert.equal((await scope.getBackend()).api, pluginApi);
+});
+
 const engine = readFileSync(new URL('../extension/engine.js', import.meta.url), 'utf8');
 const engineErrorImports = engine.match(/import\s*\{([^}]+)\}\s*from\s*['"]\.\/errors\.js['"]/)[1];
 function pollingHarness(outcomes, wait = () => {}) {
@@ -134,4 +150,82 @@ test('browser reconnection refreshes persisted memory then schedules catch-up wi
         await scope.liveUiRecoveryPromise;
         assert.deepEqual(calls, paused ? ['load'] : ['load', 'catch-up']);
     }
+});
+
+test('a storage timeout clears after a verified refresh while an extraction failure remains visible', async () => {
+    let fail = true;
+    const error = new Error('Continuity server request timed out.');
+    const world = { id: 'saved' };
+    const state = { generation: 1, lastError: 'Extractor reached its output limit.' };
+    const scope = { refreshingWorlds: null, runtime: state, getChatKey: () => 'chat',
+        getSettings: () => ({ enabled: true }), updateRuntime: patch => Object.assign(state, patch),
+        api: { health: async () => { if (fail) throw error; return { detachedJobs: true, version: 'updated' }; } },
+        refreshCurrentChatWorlds: async () => world,
+    };
+    vm.createContext(scope);
+    vm.runInContext(ui.match(/export async function refreshWorlds\([^]*?^}/m)[0].replace('export ', ''), scope);
+    await assert.rejects(scope.refreshWorlds(), /timed out/);
+    assert.match(state.storageError, /timed out/);
+    fail = false;
+    assert.equal(await scope.refreshWorlds(), world);
+    assert.equal(state.storageError, '');
+    assert.equal(state.health.version, 'updated');
+    assert.equal(state.lastError, 'Extractor reached its output limit.');
+});
+
+test('storage refresh results cannot mark another chat healthy or overwrite its error', async () => {
+    for (const failure of [false, true]) {
+        let chatKey = 'first', resolve, reject;
+        const state = { generation: 1, storageError: 'Other chat problem' };
+        const scope = { refreshingWorlds: null, runtime: state, getChatKey: () => chatKey,
+            getSettings: () => ({ enabled: true }), updateRuntime: patch => Object.assign(state, patch),
+            api: { health: async () => ({ detachedJobs: true }) },
+            refreshCurrentChatWorlds: () => new Promise((done, fail) => { resolve = done; reject = fail; }),
+        };
+        vm.createContext(scope);
+        vm.runInContext(ui.match(/export async function refreshWorlds\([^]*?^}/m)[0].replace('export ', ''), scope);
+        const pending = scope.refreshWorlds();
+        await new Promise(setImmediate);
+        chatKey = 'second';
+        if (failure) {
+            reject(new Error('Failed'));
+            await assert.rejects(pending, /Failed/);
+        } else {
+            resolve(null);
+            assert.equal(await pending, null);
+        }
+        assert.equal(state.storageError, 'Other chat problem');
+    }
+});
+
+test('the visible-tab timer retries storage and resumes maintenance without a manual Build', async () => {
+    let tick, failures = 1;
+    const calls = [];
+    const state = { paused: false, stopSequence: 0, storageError: 'Timed out' };
+    const scope = { document: { hidden: false, getElementById: () => ({ addEventListener() {} }) },
+        liveUiRecoveryNeeded: false, liveUiRecoveryPromise: null, lastLiveUiRecoveryAt: Date.now(), LIVE_UI_RECOVERY_INTERVAL: 30000,
+        runtime: state, getChatKey: () => 'chat', getSettings: () => ({ enabled: true, retrievalMode: 'local' }),
+        createHealthProblemTracker: () => () => {}, captureHealthProblems: null,
+        isRuntimeCancellation: () => false, openHealthDetails() {},
+        repaintLiveSettings() {}, renderHealthStatus() {}, requestAnimationFrame: callback => callback(),
+        refreshWorlds: async () => { calls.push('load'); if (failures-- > 0) throw new Error('Timed out'); state.storageError = ''; return {}; },
+        scheduleResumedMemoryMaintenance: () => calls.push('catch-up'),
+        updateRuntime: patch => { throw new Error(`Unexpected extraction failure: ${patch.lastError}`); },
+        setInterval: callback => { tick = callback; },
+    };
+    vm.createContext(scope);
+    for (const name of ['recoverLiveUiAfterResume', 'initHealthDisplay']) vm.runInContext(ui.match(new RegExp(`function ${name}\\([^]*?^}`, 'm'))[0], scope);
+    scope.initHealthDisplay();
+    scope.document.hidden = true;
+    tick();
+    assert.deepEqual(calls, []);
+    scope.document.hidden = false;
+    tick();
+    await scope.liveUiRecoveryPromise;
+    assert.deepEqual(calls, ['load']);
+    tick();
+    await scope.liveUiRecoveryPromise;
+    assert.deepEqual(calls, ['load', 'load', 'catch-up']);
+    tick();
+    assert.deepEqual(calls, ['load', 'load', 'catch-up']);
 });

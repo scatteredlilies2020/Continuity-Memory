@@ -4,18 +4,18 @@ import { getContext } from '/scripts/st-context.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
-import { api } from './api.js?pending-recovery=1';
-import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=1';
+import { api } from './api.js?pending-recovery=1&storage-recovery=1';
+import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=1&storage-recovery=1';
 import { freshResetResiduals, worldCounts } from './memory-model.js';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js?belief-wording=4&pending-recovery=1';
 import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.30&belief-wording=4';
-import { clearRetrievalExpansionCache, expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.30&belief-wording=4&bounded-recall=1&pending-recovery=1&retrieval-json=1&output-planning=1&health-status=1&provenance-recovery=1';
+import { clearRetrievalExpansionCache, expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.30&belief-wording=4&bounded-recall=1&pending-recovery=1&retrieval-json=1&output-planning=1&health-status=1&provenance-recovery=1&storage-recovery=1';
 import { resolveRetrievalAssist } from './retrieval-assist.js?bounded-recall=1&catchup-gate=1';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js';
 import { describeMemoryEdit } from './memory-edit.js';
 import { createMemoryEditForm } from './memory-edit-form.js';
-import { commitManualMemoryEdit } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=1';
+import { commitManualMemoryEdit } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=1&storage-recovery=1';
 import { formatCorrectionPreview } from './memory-correction.js';
 import { resolveCorrectionResponseTokens } from './correction-policy.js?pending-recovery=1';
 import { normalizeExtractionOutputTokens } from './memory-response-policy.js?pending-recovery=1';
@@ -39,7 +39,7 @@ import { createRenderScheduler } from './render-scheduler.js';
 import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.30';
 import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.30';
 import { isTransientApiError } from './errors.js';
-import { continuityHealth, createHealthProblemTracker, notifyHealthProblem } from './health-status.js';
+import { continuityHealth, createHealthProblemTracker, notifyHealthProblem } from './health-status.js?storage-recovery=1';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -497,6 +497,7 @@ function recoverLiveUiAfterResume(forceReload = false) {
     liveUiRecoveryNeeded = false;
     if (liveUiRecoveryPromise) return;
     const recoveryChatKey = getChatKey();
+    const recoveryGeneration = runtime.generation;
     const stopSequence = runtime.stopSequence;
     liveUiRecoveryPromise = (async () => {
         await new Promise(resolve => requestAnimationFrame(resolve));
@@ -511,7 +512,11 @@ function recoverLiveUiAfterResume(forceReload = false) {
             && getChatKey() === recoveryChatKey) scheduleResumedMemoryMaintenance?.();
         repaintLiveSettings();
     })().catch(error => {
-        updateRuntime({ lastError: `Could not restore Continuity after browser resume: ${error.message}` });
+        // refreshWorlds records a recoverable storage problem separately. Do
+        // not turn it into a permanent extraction failure on every reconnect.
+        if (getChatKey() === recoveryChatKey && runtime.generation === recoveryGeneration && !runtime.storageError) {
+            updateRuntime({ lastError: `Could not restore Continuity after browser resume: ${error.message}` });
+        }
         repaintLiveSettings();
     }).finally(() => {
         liveUiRecoveryPromise = null;
@@ -699,7 +704,18 @@ export async function refreshWorlds() {
     const epoch = runtime.generation;
     if (refreshingWorlds?.chatKey === chatKey && refreshingWorlds.epoch === epoch) return await refreshingWorlds.promise;
     const entry = { chatKey, epoch, promise: null };
-    entry.promise = Promise.resolve().then(() => refreshCurrentChatWorlds(chatKey, epoch)).finally(() => {
+    const current = () => getChatKey() === chatKey && runtime.generation === epoch;
+    entry.promise = Promise.resolve().then(async () => {
+        const health = await api.health();
+        if (!current()) return null;
+        updateRuntime({ health });
+        const world = await refreshCurrentChatWorlds(chatKey, epoch);
+        if (current()) updateRuntime({ storageError: '' });
+        return world;
+    }).catch(error => {
+        if (current()) updateRuntime({ storageError: `Could not refresh stored memory: ${error.message}` });
+        throw error;
+    }).finally(() => {
         if (refreshingWorlds === entry) refreshingWorlds = null;
     });
     refreshingWorlds = entry;
@@ -1390,7 +1406,11 @@ function initHealthDisplay() {
     }
     document.getElementById('continuity_health_details')?.addEventListener('click', openHealthDetails);
     captureHealthProblems(runtime);
-    globalThis.setInterval(() => { if (!document.hidden) renderHealthStatus(); }, 10000);
+    globalThis.setInterval(() => {
+        if (document.hidden) return;
+        renderHealthStatus();
+        if (runtime.storageError && getSettings().enabled) recoverLiveUiAfterResume(true);
+    }, 10000);
 }
 
 export function renderRuntime(refreshSettings = true) {
@@ -2395,8 +2415,7 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
     renderRuntime();
     void refreshWorlds().then(() => {
         lastLiveUiRecoveryAt = Date.now();
-    }).catch(error => {
-        updateRuntime({ status: 'waiting', lastError: `Storage unavailable: ${error.message}` });
+    }).catch(() => {
         renderRuntime(false);
     });
     return {};

@@ -47,6 +47,7 @@ export const runtime = {
     pendingExtractionReview: null,
     world: null,
     health: null,
+    storageError: '',
 };
 
 export function updateRuntime(patch) {
