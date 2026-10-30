@@ -6,11 +6,9 @@
 .continuity-health-badge { font-size:.75em; margin-left:6px; font-weight:400; }
 .continuity-health-card { border-left-width:4px !important; overflow-wrap:anywhere; }
 .continuity-health-card small { display:block; margin-top:5px; }
-.continuity-chat-health { display:block; max-width:calc(100% - 12px); min-height:28px; padding:3px 8px; margin:2px 6px; font-size:.8em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.continuity-chat-health[hidden] { display:none; }
 .continuity-health-history { white-space:pre-wrap; overflow-wrap:anywhere; text-align:left; max-height:65vh; overflow:auto; font-family:inherit; }
-[data-level="error"].continuity-health-card, [data-level="error"].continuity-chat-health { border-color:#ff6b6b; background:rgba(220,70,70,.12); }
-[data-level="warning"].continuity-health-card, [data-level="warning"].continuity-chat-health { border-color:#d59b2b; background:rgba(213,155,43,.1); }
+[data-level="error"].continuity-health-card { border-color:#ff6b6b; background:rgba(220,70,70,.12); }
+[data-level="warning"].continuity-health-card { border-color:#d59b2b; background:rgba(213,155,43,.1); }
 .continuity-health-badge[data-level="error"] { color:#ff6b6b; font-weight:700; }
 .continuity-health-badge[data-level="warning"] { color:#e8bb65; }
 .continuity-health-badge[data-level="working"] { color:#8fc9ff; }

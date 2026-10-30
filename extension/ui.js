@@ -1351,7 +1351,7 @@ function renderHealthStatus(coverage = lastHealthCoverage) {
     const settings = getSettings();
     const health = continuityHealth(runtime, settings, coverage);
     const problems = (settings.healthProblemHistory || []).filter(problem => problem.chatKey === getChatKey());
-    for (const id of ['continuity_health_card', 'continuity_chat_health', 'continuity_header_health']) {
+    for (const id of ['continuity_health_card', 'continuity_header_health']) {
         const element = document.getElementById(id);
         if (element) element.dataset.level = health.level;
     }
@@ -1361,12 +1361,6 @@ function renderHealthStatus(coverage = lastHealthCoverage) {
     setElementText('#continuity_health_versions', health.versions);
     setElementText('#continuity_header_health', health.label);
     setElementText('#continuity_health_details', `Recent problems (${problems.length})`);
-    const button = document.getElementById('continuity_chat_health');
-    if (button) {
-        button.hidden = !getChatKey();
-        button.textContent = `CM: ${health.label} · ${health.totalPending} pending`;
-        button.title = `${health.message}\n${health.backlog}\nClick for status and recent problems.`;
-    }
     if (healthDialogContent) {
         healthDialogContent.textContent = `${health.label}\n${health.message}\n\n${health.backlog}\n${health.versions}\n\nRecent problems for this chat\n${problems.length
             ? problems.map(problem => `${new Date(problem.time).toLocaleString()} · ${problem.source}${problem.count > 1 ? ` · ${problem.count} occurrences` : ''}\n${problem.message}`).join('\n\n')
@@ -1396,14 +1390,6 @@ function initHealthDisplay() {
         onProblem: message => notifyHealthProblem(message, { chatKey: getChatKey(),
             enabled: getSettings().showNotifications, toastr: window.toastr, options: { onclick: openHealthDetails } }),
     });
-    if (!document.getElementById('continuity_chat_health')) {
-        const button = document.createElement('button');
-        button.id = 'continuity_chat_health';
-        button.type = 'button';
-        button.className = 'menu_button continuity-chat-health';
-        button.addEventListener('click', openHealthDetails);
-        document.getElementById('send_form')?.before(button);
-    }
     document.getElementById('continuity_health_details')?.addEventListener('click', openHealthDetails);
     captureHealthProblems(runtime);
     globalThis.setInterval(() => {

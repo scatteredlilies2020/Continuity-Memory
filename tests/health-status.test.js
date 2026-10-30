@@ -127,9 +127,9 @@ test('browser and server versions reveal a pending server restart', () => {
     }
 });
 
-test('the chat status control and problem view render errors safely even with the settings drawer closed', () => {
+test('settings status and problem history render errors safely without adding a chat control', () => {
     const source = readFileSync(new URL('../extension/ui.js', import.meta.url), 'utf8');
-    const elements = new Map(['continuity_health_card', 'continuity_chat_health', 'continuity_header_health',
+    const elements = new Map(['continuity_health_card', 'continuity_header_health',
         'continuity_health_title', 'continuity_health_message', 'continuity_health_backlog', 'continuity_health_versions', 'continuity_health_details']
         .map(id => [id, { dataset: {}, textContent: '' }]));
     const dialog = { textContent: '' };
@@ -139,9 +139,9 @@ test('the chat status control and problem view render errors safely even with th
         getChatKey: () => 'chat', continuityHealth, lastHealthCoverage: { pending: 16, extractable: 16 }, healthDialogContent: dialog };
     vm.runInNewContext(source.match(/^function setElementText\([^]*?^}/m)[0] + '\n'
         + source.match(/^function renderHealthStatus\([^]*?^}/m)[0] + '\nrenderHealthStatus();', context);
-    assert.match(elements.get('continuity_chat_health').textContent, /CM: Problem · 16 pending/);
+    assert.equal(elements.get('continuity_header_health').textContent, 'Problem');
     assert.equal(elements.get('continuity_health_message').textContent, '<img src=x onerror=alert(1)>');
-    assert.equal(elements.get('continuity_chat_health').dataset.level, 'error');
+    assert.equal(elements.get('continuity_health_card').dataset.level, 'error');
     assert.match(dialog.textContent, /Earlier problem/);
-    assert.match(source, /getElementById\('send_form'\)\?\.before\(button\)/);
+    assert.doesNotMatch(source, /continuity_chat_health|continuity-chat-health/);
 });
