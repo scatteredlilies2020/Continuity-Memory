@@ -206,7 +206,7 @@ test('the visible-tab timer retries storage and resumes maintenance without a ma
         liveUiRecoveryNeeded: false, liveUiRecoveryPromise: null, lastLiveUiRecoveryAt: Date.now(), LIVE_UI_RECOVERY_INTERVAL: 30000,
         runtime: state, getChatKey: () => 'chat', getSettings: () => ({ enabled: true, retrievalMode: 'local' }),
         createHealthProblemTracker: () => () => {}, captureHealthProblems: null,
-        isRuntimeCancellation: () => false, openHealthDetails() {},
+        isRuntimeCancellation: () => false, openHealthDetails() {}, clearCurrentHealthProblems() {},
         repaintLiveSettings() {}, renderHealthStatus() {}, requestAnimationFrame: callback => callback(),
         refreshWorlds: async () => { calls.push('load'); if (failures-- > 0) throw new Error('Timed out'); state.storageError = ''; return {}; },
         scheduleResumedMemoryMaintenance: () => calls.push('catch-up'),

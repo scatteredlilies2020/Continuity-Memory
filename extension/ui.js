@@ -39,7 +39,7 @@ import { createRenderScheduler } from './render-scheduler.js';
 import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.30';
 import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.30';
 import { isTransientApiError } from './errors.js';
-import { continuityHealth, createHealthProblemTracker, notifyHealthProblem } from './health-status.js?storage-recovery=1';
+import { clearHealthProblemHistory, continuityHealth, createHealthProblemTracker, notifyHealthProblem } from './health-status.js?storage-recovery=1&clear-problems=1';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -1361,11 +1361,21 @@ function renderHealthStatus(coverage = lastHealthCoverage) {
     setElementText('#continuity_health_versions', health.versions);
     setElementText('#continuity_header_health', health.label);
     setElementText('#continuity_health_details', `Recent problems (${problems.length})`);
+    const clearButton = document.getElementById('continuity_health_clear');
+    if (clearButton) clearButton.disabled = !getChatKey() || !problems.length;
     if (healthDialogContent) {
         healthDialogContent.textContent = `${health.label}\n${health.message}\n\n${health.backlog}\n${health.versions}\n\nRecent problems for this chat\n${problems.length
             ? problems.map(problem => `${new Date(problem.time).toLocaleString()} · ${problem.source}${problem.count > 1 ? ` · ${problem.count} occurrences` : ''}\n${problem.message}`).join('\n\n')
             : 'No problems have been recorded for this chat.'}`;
     }
+}
+
+function clearCurrentHealthProblems() {
+    const chatKey = getChatKey();
+    if (!chatKey) return;
+    clearHealthProblemHistory(getSettings(), chatKey);
+    saveSettings();
+    renderHealthStatus();
 }
 
 async function openHealthDetails() {
@@ -1375,7 +1385,10 @@ async function openHealthDetails() {
     healthDialogContent = content;
     renderHealthStatus();
     try {
-        await new Popup(content, POPUP_TYPE.TEXT, '', { okButton: 'Close', wide: true, leftAlign: true }).show();
+        await new Popup(content, POPUP_TYPE.TEXT, '', { okButton: 'Close', wide: true, leftAlign: true,
+            customButtons: [{ text: 'Clear this chat’s log', action: clearCurrentHealthProblems,
+                tooltip: 'Clear recorded problems only. Saved memory and current errors are unchanged.' }],
+        }).show();
     } finally {
         if (healthDialogContent === content) healthDialogContent = null;
     }
@@ -1385,12 +1398,14 @@ function initHealthDisplay() {
     captureHealthProblems = createHealthProblemTracker({
         getChatKey,
         getHistory: () => getSettings().healthProblemHistory || [],
+        getClearedAt: chatKey => getSettings().healthProblemClearedAt?.[chatKey] || 0,
         saveHistory: history => { getSettings().healthProblemHistory = history; saveSettings(); },
         isCancellation: isRuntimeCancellation,
         onProblem: message => notifyHealthProblem(message, { chatKey: getChatKey(),
             enabled: getSettings().showNotifications, toastr: window.toastr, options: { onclick: openHealthDetails } }),
     });
     document.getElementById('continuity_health_details')?.addEventListener('click', openHealthDetails);
+    document.getElementById('continuity_health_clear')?.addEventListener('click', clearCurrentHealthProblems);
     captureHealthProblems(runtime);
     globalThis.setInterval(() => {
         if (document.hidden) return;

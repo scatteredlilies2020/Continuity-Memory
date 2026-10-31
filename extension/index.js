@@ -7,7 +7,7 @@ import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackS
 import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.15.0-testing.30&belief-wording=4';
 import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.30';
 import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2&current-recall=1&bounded-recall=1&catchup-gate=1&pending-recovery=1&retrieval-json=1&output-planning=1&health-status=1&provenance-recovery=1&storage-recovery=1&settings-status=1';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2&current-recall=1&bounded-recall=1&catchup-gate=1&pending-recovery=1&retrieval-json=1&output-planning=1&health-status=1&provenance-recovery=1&storage-recovery=1&settings-status=1&clear-problems=1';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js?pending-recovery=1';
@@ -30,7 +30,7 @@ import { buildPlanningEvidence, createContinuityContextBridge } from './context-
 import { resolveRetrievalAssist } from './retrieval-assist.js?bounded-recall=1&catchup-gate=1';
 import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.30&belief-wording=4&bounded-recall=1&pending-recovery=1&retrieval-json=1&output-planning=1&health-status=1&provenance-recovery=1&storage-recovery=1';
 import { getGenerationTiming, timeGenerationStep } from './generation-timing.js';
-import { notifyHealthProblem } from './health-status.js?storage-recovery=1';
+import { notifyHealthProblem } from './health-status.js?storage-recovery=1&clear-problems=1';
 
 const PROMPT_KEY = 'continuity_memory_context';
 const continuityContextBridge = createContinuityContextBridge(getContext);
@@ -764,7 +764,7 @@ async function onChatRenamed(eventData) {
 }
 
 async function init() {
-    const templateResponse = await fetch(new URL('./settings.html?v=0.15.0-testing.34&output-planning=1&health-status=1&provenance-recovery=1&storage-recovery=1', import.meta.url));
+    const templateResponse = await fetch(new URL('./settings.html?v=0.15.0-testing.34&output-planning=1&health-status=1&provenance-recovery=1&storage-recovery=1&clear-problems=1', import.meta.url));
     if (!templateResponse.ok) throw new Error(`Could not load settings template: ${templateResponse.status} ${templateResponse.statusText}`);
     const html = $(await templateResponse.text());
     const container = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');

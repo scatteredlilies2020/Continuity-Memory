@@ -20,6 +20,17 @@ export function rememberHealthProblem(history, problem) {
     return [entry, ...history.filter(item => item.key !== key)].sort((a, b) => b.time - a.time).slice(0, MAX_PROBLEMS);
 }
 
+export function clearHealthProblemHistory(settings, chatKey, time = Date.now()) {
+    if (!chatKey) return 0;
+    const history = settings.healthProblemHistory || [];
+    settings.healthProblemHistory = history.filter(problem => problem.chatKey !== chatKey);
+    // Keep a per-chat watermark so polling or reloading old failed server jobs
+    // cannot recreate the history the user just cleared. New failures still log.
+    settings.healthProblemClearedAt = { ...settings.healthProblemClearedAt,
+        [chatKey]: Math.max(Number(settings.healthProblemClearedAt?.[chatKey]) || 0, time) };
+    return history.length - settings.healthProblemHistory.length;
+}
+
 export function notifyHealthProblem(message, { chatKey, enabled, toastr, now = Date.now(), options = {} } = {}) {
     if (!enabled || !toastr?.error) return false;
     const key = `${chatKey}|${problemIdentity(message)}`;
@@ -34,9 +45,10 @@ export function notifyHealthProblem(message, { chatKey, enabled, toastr, now = D
 // them. Only problem descriptions and job identifiers are saved, never prompts
 // or model response bodies.
 export function createHealthProblemTracker({ getHistory, saveHistory, getChatKey, onProblem = () => {},
-    isCancellation = () => false, now = () => Date.now() }) {
+    getClearedAt = () => 0, isCancellation = () => false, now = () => Date.now() }) {
     const seen = new Map();
     const record = (problem, notify = false) => {
+        if (problem.time <= (Number(getClearedAt(problem.chatKey)) || 0)) return;
         const history = getHistory();
         const next = rememberHealthProblem(history, problem);
         if (next === history) return;
@@ -63,7 +75,10 @@ export function createHealthProblemTracker({ getHistory, saveHistory, getChatKey
             if (seen.get(source) === signature) continue;
             seen.set(source, signature);
             if (!message || state.paused && isCancellation(new Error(message))) continue;
-            record({ chatKey, source, message, time: now(),
+            const failedJob = source === 'Memory' && state.memoryJob?.status === 'error'
+                && problemIdentity(state.memoryJob.error) === problemIdentity(message) ? state.memoryJob : null;
+            const time = failedJob ? Date.parse(failedJob.completedAt || failedJob.createdAt) || now() : now();
+            record({ chatKey, source, message, time,
                 id: ['Memory', 'Connection'].includes(source) ? state.memoryJob?.id : undefined }, source !== 'Connection');
         }
     };
