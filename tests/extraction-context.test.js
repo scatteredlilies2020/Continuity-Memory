@@ -141,6 +141,9 @@ test('new speakers shared with OOC stage directions are not author-only proposit
         'Reinhard told Emilia that the crest glowed.',
         'Reinhard recognized the crest.',
         'Emilia objected, but Reinhard said the crest glowed and Reinhard explained its significance.',
+        "Emilia later pleads with Reinhard on Felt's behalf and says she will not press charges.",
+        'After meeting Reinhard, Emilia says she owns the insignia.',
+        'Emilia told Reinhard the crest glowed and Reinhard explained its significance.',
     ]) assert.doesNotThrow(() => assertAuthoritativeMetaProvenance({ summary }, boundaries, evidence));
     // Removing a speaker's name must not remove the private proposition, or
     // erase that name when it is also the subject of information being shared.
@@ -151,6 +154,32 @@ test('new speakers shared with OOC stage directions are not author-only proposit
         'Emilia learned that Reinhard arrives to arrest Fern.',
         'Reinhard said that Emilia was searching for Reinhard.',
     ]) assert.throws(() => assertAuthoritativeMetaProvenance({ summary }, boundaries, evidence), /OOC provenance violation/);
+});
+
+test('attribution checks isolate reported content from preceding narration without losing disclosures', () => {
+    const boundaries = [{ messageIndex: 75, speaker: 'Elsa', terms: ['reinhard', 'secret', 'route'] }];
+    for (const summary of [
+        'Emilia pleads with Reinhard and says she will not press charges.',
+        'Emilia follows the secret route and says she owns the insignia.',
+        'After taking the secret route, Emilia knows the crest is genuine.',
+        'Emilia told Reinhard that she owns the insignia.',
+        'Emilia informed Reinhard van Astrea that she owns the insignia.',
+        'After meeting Reinhard, Emilia says, "I own the insignia."',
+    ]) assert.doesNotThrow(() => assertAuthoritativeMetaProvenance({ summary }, boundaries));
+    for (const summary of [
+        'Emilia pleads with Felt and says Reinhard knows the secret route.',
+        'After meeting Reinhard, Emilia says the secret route is safe.',
+        'Emilia says she owns the insignia and Reinhard revealed the secret route.',
+        '"The secret route is safe," Alice said.',
+        '“The secret route is safe,” Alice quietly explained.',
+        '“Reinhard knows the secret route,” she said.',
+        "'The secret route is safe,' Alice said.",
+        'Emilia told Reinhard that the secret route is safe.',
+        "Emilia told Reinhard's secret to Felt.",
+        '"I met Reinhard," Alice said.',
+        'The secret route is safe, Alice said.',
+        'The secret route, Alice said, was safe.',
+    ]) assert.throws(() => assertAuthoritativeMetaProvenance({ summary }, boundaries), /OOC provenance violation/);
 });
 
 const greetingNote = '**Note: This is Pre-mages flight, Pre-Zoltraak, Pre modern-magic, Pre-Demon King and Seven Sages of Destruction defeat';

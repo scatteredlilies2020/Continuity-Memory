@@ -158,19 +158,46 @@ function supportedAttribution(sentence, evidence, authorTerms) {
 }
 
 function attributionContentTerms(sentence) {
+    const attributions = [...sentence.matchAll(new RegExp(ATTRIBUTION_VERB.source, 'giu'))];
+    if (!attributions.length) return new Set();
+    const namedActor = "[\\p{Lu}][\\p{L}'’-]*(?:\\s+(?:(?:van|von|de|del|der|di|da|of)\\s+)*[\\p{Lu}][\\p{L}'’-]*)*";
+    // Only the attributed content can disclose an author-only proposition.
+    // Earlier narration ("Emilia pleads with Reinhard ... and says ...")
+    // is not part of what she says. Scanning the entire sentence incorrectly
+    // rejects ordinary dialogue whenever that narration names an OOC actor.
+    // Keep preposed quoted speech too: '"The route is safe," Alice said.'
+    const quotedBefore = prefix => {
+        const match = prefix.match(/(?:["“]([^"“”]+)["”]|‘([^‘’]+)’|'([^']+)')\s*,?\s*(?:[\p{L}'’-]+\s*){1,6}$/u);
+        return match ? match[1] || match[2] || match[3] : '';
+    };
     // A newly introduced speaker may not be in the entity registry yet. Their
     // name beside "said" is an identity, not the author-only information being
     // disclosed. Remove only named attribution subjects, not every occurrence
     // of their names: "Alice said Reinhard was arrested" must still protect
     // the proposition about Reinhard. Preserve all other content for validation.
-    let content = '';
-    let offset = 0;
-    for (const match of sentence.matchAll(new RegExp(ATTRIBUTION_VERB.source, 'giu'))) {
+    const lead = sentence.slice(0, attributions[0].index);
+    const tail = sentence.slice(attributions[0].index + attributions[0][0].length);
+    const inverted = new RegExp(`^([\\s\\S]+),\\s*(?:${namedActor}|he|she|they|I|we|you)(?:\\s+\\p{L}+){0,2}\\s*$`, 'u').exec(lead);
+    // Also preserve unquoted inverted/parenthetical reports, but not a leading
+    // contextual clause ("After meeting Reinhard, Emilia says, ...").
+    const reportedBefore = inverted && /^\s*(?:,|[.!?]*$)/u.test(tail)
+        && !/^(?:after|before|when|while|as|once|since|although|despite|during)\b/iu.test(inverted[1])
+        ? inverted[1] : '';
+    let content = `${quotedBefore(lead) || reportedBefore} `;
+    let offset = attributions[0].index;
+    for (const match of attributions) {
         const prefix = sentence.slice(offset, match.index);
-        const subject = /[\p{Lu}][\p{L}'’-]*(?:\s+(?:(?:van|von|de|del|der|di|da|of)\s+)*[\p{Lu}][\p{L}'’-]*)*\s*$/u.exec(prefix);
+        const subject = new RegExp(`${namedActor}\\s*$`, 'u').exec(prefix);
         content += subject ? prefix.slice(0, subject.index) : prefix;
         content += match[0];
         offset = match.index + match[0].length;
+        // The addressee in "Emilia told Reinhard ..." is also an identity,
+        // not a disclosed proposition. A possessive ("told Reinhard's secret")
+        // is content, however, and must remain protected.
+        if (/^(?:told|informed)$/iu.test(match[0])) {
+            const recipient = new RegExp(`^\\s+${namedActor}`, 'u').exec(sentence.slice(offset));
+            if (recipient && !/['’]s\b/u.test(recipient[0])) offset += recipient[0].length;
+        }
     }
     return new Set(words(content + sentence.slice(offset)));
 }
