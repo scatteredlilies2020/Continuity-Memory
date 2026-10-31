@@ -157,6 +157,24 @@ function supportedAttribution(sentence, evidence, authorTerms) {
     });
 }
 
+function attributionContentTerms(sentence) {
+    // A newly introduced speaker may not be in the entity registry yet. Their
+    // name beside "said" is an identity, not the author-only information being
+    // disclosed. Remove only named attribution subjects, not every occurrence
+    // of their names: "Alice said Reinhard was arrested" must still protect
+    // the proposition about Reinhard. Preserve all other content for validation.
+    let content = '';
+    let offset = 0;
+    for (const match of sentence.matchAll(new RegExp(ATTRIBUTION_VERB.source, 'giu'))) {
+        const prefix = sentence.slice(offset, match.index);
+        const subject = /[\p{Lu}][\p{L}'’-]*(?:\s+(?:(?:van|von|de|del|der|di|da|of)\s+)*[\p{Lu}][\p{L}'’-]*)*\s*$/u.exec(prefix);
+        content += subject ? prefix.slice(0, subject.index) : prefix;
+        content += match[0];
+        offset = match.index + match[0].length;
+    }
+    return new Set(words(content + sentence.slice(offset)));
+}
+
 export function authoritativeMetaProvenanceConflicts(result, boundaries, sourceEvidence = []) {
     const sentences = resultStrings(result).flatMap(value => String(value).split(/(?<=[.!?;])\s+|\n+/u)).filter(Boolean);
     const evidence = resultStrings(sourceEvidence).flatMap(value => String(value).split(/(?<=[.!?;])\s+|\n+/u)).filter(Boolean);
@@ -166,7 +184,7 @@ export function authoritativeMetaProvenanceConflicts(result, boundaries, sourceE
         for (const sentence of sentences) {
             if (!ATTRIBUTION_VERB.test(sentence)) continue;
             if (SAFE_PROVENANCE.test(sentence) || NEGATED_ATTRIBUTION.test(sentence)) continue;
-            const sentenceTerms = new Set(words(sentence));
+            const sentenceTerms = attributionContentTerms(sentence);
             const overlap = (boundary.terms || []).filter(term => sentenceTerms.has(term));
             if (!overlap.length) continue;
             // A parent may retain an attribution already established by its

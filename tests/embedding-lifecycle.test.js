@@ -11,7 +11,7 @@ import { embeddingCoverageReady } from '../extension/embedding-policy.js';
 import { asRoleplayBlockingError, isRoleplayBlockingError } from '../extension/generation-policy.js';
 
 const source = (await readFile(new URL('../extension/embedding-retrieval.js', import.meta.url), 'utf8'))
-    .replace(/^import .*;\n/gmu, '').replace(/^export /gmu, '');
+    .replace(/\r\n?/gu, '\n').replace(/^import .*;\n/gmu, '').replace(/^export /gmu, '');
 
 function deferred() {
     let resolve;

@@ -9,7 +9,7 @@ import { canReduceContext } from '../extension/reduction-policy.js';
 import { tailPolicy } from '../extension/tail-policy.js';
 
 const source = readFileSync(new URL('../extension/context-reducer.js', import.meta.url), 'utf8')
-    .replace(/^import .*\n/gmu, '').replace(/^export /gmu, '');
+    .replace(/\r\n?/gu, '\n').replace(/^import .*\n/gmu, '').replace(/^export /gmu, '');
 
 function fixture({ loaded = true, changed = false } = {}) {
     const chat = Array.from({ length: 12 }, (_, index) => ({ name: index % 2 ? 'Character' : 'User',

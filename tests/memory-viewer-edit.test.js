@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
-const ui = readFileSync(new URL('../extension/ui.js', import.meta.url), 'utf8');
+const ui = readFileSync(new URL('../extension/ui.js', import.meta.url), 'utf8').replace(/\r\n?/gu, '\n');
 const start = ui.indexOf('function renderMemoryViewer(');
 const end = start + ui.slice(start).indexOf('\n}\n') + 2;
 const renderer = ui.slice(start, end);

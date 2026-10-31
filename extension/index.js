@@ -764,7 +764,7 @@ async function onChatRenamed(eventData) {
 }
 
 async function init() {
-    const templateResponse = await fetch(new URL('./settings.html?v=0.15.0-testing.32&output-planning=1&health-status=1&provenance-recovery=1&storage-recovery=1', import.meta.url));
+    const templateResponse = await fetch(new URL('./settings.html?v=0.15.0-testing.33&output-planning=1&health-status=1&provenance-recovery=1&storage-recovery=1', import.meta.url));
     if (!templateResponse.ok) throw new Error(`Could not load settings template: ${templateResponse.status} ${templateResponse.statusText}`);
     const html = $(await templateResponse.text());
     const container = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');

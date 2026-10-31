@@ -126,6 +126,33 @@ test('Digest source evidence supports actual dialogue while excluding author-onl
     assert.throws(() => assertAuthoritativeMetaProvenance({ chronicleEntry: evidence[0] }, boundaries, inWorldSourceEvidence(messages.slice(0, 1))), /OOC provenance violation/);
 });
 
+test('new speakers shared with OOC stage directions are not author-only propositions', () => {
+    const messages = [
+        { index: 75, name: 'Elsa', isUser: true, text: 'OOC: Reinhard arrives to arrest Fern' },
+        { index: 78, name: 'Narrator', text: '"Emilia-sama," Reinhard speaks. "My presence here is no longer merely a matter of recovering lost property."\n"Young lady," Reinhard murmurs. "I sensed the light of that dragon crest when it passed through your hands."' },
+        { index: 79, name: 'Elsa', isUser: true, text: 'OOC: Rom attacks Reinhard' },
+    ];
+    const boundaries = authoritativeMetaBoundaries(messages);
+    const evidence = inWorldSourceEvidence(messages);
+    assert.ok(boundaries.every(boundary => boundary.terms.includes('reinhard')));
+    for (const summary of [
+        "Emilia tried to intervene by dropping charges as the insignia's owner, but Reinhard stated the issue went beyond ordinary theft because the insignia reacted to Felt.",
+        'Reinhard van Astrea explained why the crest glowed.',
+        'Reinhard told Emilia that the crest glowed.',
+        'Reinhard recognized the crest.',
+        'Emilia objected, but Reinhard said the crest glowed and Reinhard explained its significance.',
+    ]) assert.doesNotThrow(() => assertAuthoritativeMetaProvenance({ summary }, boundaries, evidence));
+    // Removing a speaker's name must not remove the private proposition, or
+    // erase that name when it is also the subject of information being shared.
+    for (const summary of [
+        'Reinhard stated that he would arrest Fern.',
+        'Reinhard learned that Rom attacks Reinhard.',
+        'Emilia revealed that Rom attacks Reinhard.',
+        'Emilia learned that Reinhard arrives to arrest Fern.',
+        'Reinhard said that Emilia was searching for Reinhard.',
+    ]) assert.throws(() => assertAuthoritativeMetaProvenance({ summary }, boundaries, evidence), /OOC provenance violation/);
+});
+
 const greetingNote = '**Note: This is Pre-mages flight, Pre-Zoltraak, Pre modern-magic, Pre-Demon King and Seven Sages of Destruction defeat';
 
 test('Chronicle parents preserve source-supported dialogue despite overlapping OOC vocabulary', () => {
