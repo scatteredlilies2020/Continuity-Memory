@@ -1,7 +1,7 @@
-import { supportingRecords } from './supporting-memories.js?v=0.15.0-testing.30';
+import { supportingRecords } from './supporting-memories.js?v=0.15.0-testing.30&historical-recall=1';
 import { formatEntityProfile } from './entity-profile.js';
 import { activeChronicleNodes } from './chronicle.js';
-import { memoryEditTarget } from './memory-edit.js';
+import { memoryEditTarget } from './memory-edit.js?historical-recall=1';
 
 export const MEMORY_VIEW_CATEGORIES = Object.freeze([
     { key: 'scene', label: 'Latest extracted checkpoint' },

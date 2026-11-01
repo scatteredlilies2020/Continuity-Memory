@@ -1,5 +1,5 @@
 import { resolveDigestGroupSize } from './digest-policy.js';
-import { CONTINUITY_VERSION } from './build-info.js';
+import { CONTINUITY_VERSION } from './build-info.js?historical-recall=1';
 
 const MAX_PROBLEMS = 40;
 const notificationTimes = new Map();

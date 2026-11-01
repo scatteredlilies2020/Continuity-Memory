@@ -273,7 +273,7 @@ test('browser cache keys load the clear-log feature without changing the server 
     const statusImport = /from '(\.\/health-status\.js[^']+)'/;
     assert.equal(source.match(statusImport)[1], ui.match(statusImport)[1], 'Health notifications must share one module instance.');
     assert.match(source.match(statusImport)[1], /clear-problems=1/);
-    assert.match(source, /from '\.\/ui\.js[^']*clear-problems=1'/);
+    assert.match(source, /from '\.\/ui\.js[^']*clear-problems=1(?:&[^']*)?'/);
     assert.match(source, /settings\.html[^']*clear-problems=1/);
     for (const file of ['../manifest.json', '../extension/manifest.json']) {
         const manifest = JSON.parse(readFileSync(new URL(file, import.meta.url)));

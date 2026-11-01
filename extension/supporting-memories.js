@@ -105,6 +105,40 @@ export function supportingRecords(world, collection) {
     });
 }
 
+// Character list indices can change on another device. Collapse only exact
+// observations from the same named chat and message range in the recall view.
+// Storage, distinct times, attribution and changed reactions remain intact.
+export function deduplicateSupportingRecall(records, chatKey = '') {
+    const chatIdentity = key => text(key).replace(/^character:[^:]+:chat:/u, 'chat:');
+    const selected = new Map();
+    for (const item of records) {
+        const sources = item.sources || [];
+        if (!sources.length) { selected.set(item, item); continue; }
+        const ranges = [...new Set(sources.map(source => JSON.stringify([
+            chatIdentity(source.chatKey), source.from, source.to, source.kind, source.correctionId,
+        ])))].sort();
+        const anchorIdentity = value => {
+            const match = /^Digest-[a-f\d]+-(\d+)-(\d+)$/iu.exec(text(value));
+            const sameRange = match && sources.filter(source => Number(source.from) === Number(match[1])
+                && Number(source.to) === Number(match[2]));
+            const chats = new Set((sameRange || []).map(source => chatIdentity(source.chatKey)));
+            return chats.size === 1 ? `${[...chats][0]} messages ${match[1]}–${match[2]}` : value;
+        };
+        const identity = supportingIdentity({ ...item,
+            temporalAnchorId: anchorIdentity(item.temporalAnchorId),
+            ...(item.temporal ? { temporal: { ...item.temporal,
+                ...(item.temporal.anchorId ? { anchorId: anchorIdentity(item.temporal.anchorId) } : {}),
+                ...(item.temporal.referenceId ? { referenceId: anchorIdentity(item.temporal.referenceId) } : {}),
+            } } : {}),
+        });
+        const key = JSON.stringify([identity, ranges]);
+        const prior = selected.get(key);
+        if (!prior || sources.some(source => source.chatKey === chatKey)
+            && !prior.sources.some(source => source.chatKey === chatKey)) selected.set(key, item);
+    }
+    return [...selected.values()];
+}
+
 export function supportingEvidenceText(item, { compact = false } = {}) {
     const ranges = unique((item.sources || []).filter(source => Number.isFinite(Number(source.from))
         && Number.isFinite(Number(source.to))).map(source => `${source.chatKey || 'source'} messages ${source.from}–${source.to}`));

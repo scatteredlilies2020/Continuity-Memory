@@ -1,4 +1,4 @@
-import { supportingRecords, supportingEvidenceText } from './supporting-memories.js?v=0.15.0-testing.30';
+import { supportingRecords, supportingEvidenceText, deduplicateSupportingRecall } from './supporting-memories.js?v=0.15.0-testing.30&historical-recall=1';
 const STOP_WORDS = new Set('a an the and that this with from into have has had was were are am can did does will shall may might must for but not never neither nor you your they them their she her him his its our out about just then than there here what when where who how why would could should been being also very more most some any all to of in on at as by or if it is be do we he me my up no so us during between through within without among around these those having already enough still really much many someone something anything everything nothing themselves himself herself myself itself each every other another such both either same only even yet else once again now then'.split(' '));
 const IRREGULAR_NEGATIVE_BASES = new Map([
     ['ca', 'can'],
@@ -1165,6 +1165,16 @@ function recordSourceRanges(item) {
         .map(source => ({ chatKey: source.chatKey, from: Number(source.from), to: Number(source.to) }));
 }
 
+function recordSourceLabel(item) {
+    const source = latestSourceRange(item);
+    return source ? `${source.chatKey} messages ${source.from}–${source.to}` : 'source time unspecified';
+}
+
+function recordedKnowledgeRow(item, label = 'Recorded knowledge') {
+    const value = isKnowledgeBoundaryFact(item) ? plain(item.value) : anchoredRelativeText(item.value, item);
+    return `- [${label} — ${recordSourceLabel(item)}] ${plain(item.subject)} — ${plain(item.predicate)}: ${value}`;
+}
+
 const STORY_MONTHS = new Map([
     ['january', 1], ['february', 2], ['march', 3], ['april', 4], ['may', 5], ['june', 6],
     ['july', 7], ['august', 8], ['september', 9], ['october', 10], ['november', 11], ['december', 12],
@@ -1596,15 +1606,14 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     addSection('User corrections', selectedCorrections.map(item =>
         memoryRow('correction', item, `- ${plain(item.summary || item.instruction)}${(item.operations || []).some(operation => operation.futurePolicy === 'allow-supported-change') ? ' [corrects recorded scope; permitted later changes do not rewrite this history]' : ''}`)));
 
-    const knowledgeBoundaryResults = recordSelections('Knowledge boundaries — hard constraints', 'fact', rank(
+    const knowledgeBoundaryResults = recordSelections('Recorded knowledge', 'fact', rank(
         availableFacts.filter(isKnowledgeBoundaryFact),
         queryTerms,
         () => 20,
         'fact',
         semanticRanks,
     ).filter(result => result.eligible || result.semanticEligible || boundaryHolderIsInContext(result.item, queryTerms)).slice(0, 12));
-    addSection('Knowledge boundaries — hard constraints', knowledgeBoundaryResults.map(({ item }) => memoryRow('fact', item,
-        `- ${plain(item.subject)} — ${plain(item.predicate)}: ${plain(item.value)} [HARD LIMIT: world truth elsewhere does not grant this character knowledge.]`)));
+    addSection('Recorded knowledge', knowledgeBoundaryResults.map(({ item }) => memoryRow('fact', item, recordedKnowledgeRow(item))));
 
     const sceneParticipants = new Set((storedSceneIsCurrentFocus ? world.scene?.participants || [] : [])
         .map(value => plain(value).toLocaleLowerCase()));
@@ -1617,8 +1626,7 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         .slice(0, 8)
         .map(item => ({ item }));
     recordSelections('Established character knowledge', 'fact', establishedKnowledge, 'current participant and topic');
-    addSection('Established character knowledge', establishedKnowledge.map(({ item }) => memoryRow('fact', item,
-        `- ${plain(item.subject)} — ${plain(item.predicate)}: ${anchoredRelativeText(item.value, item)}`)));
+    addSection('Established character knowledge', establishedKnowledge.map(({ item }) => memoryRow('fact', item, recordedKnowledgeRow(item))));
 
     const capsules = world.capsules || [];
     const chronological = capsules.filter(item => sourceIsCurrent(item) && !whollyRaw(item)).slice().sort((a, b) => {
@@ -1644,8 +1652,8 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     });
     addSection('Recent continuity', capsuleRows);
 
-    const supportingThreadItems = supportingRecords(world, 'threads').filter(sourceIsCurrent);
-    const supportingBackgroundItems = supportingRecords(world, 'backgrounds').filter(sourceIsCurrent);
+    const supportingThreadItems = deduplicateSupportingRecall(supportingRecords(world, 'threads').filter(sourceIsCurrent), chatKey);
+    const supportingBackgroundItems = deduplicateSupportingRecall(supportingRecords(world, 'backgrounds').filter(sourceIsCurrent), chatKey);
     const rankedSupporting = [
         ...rank(supportingThreadItems.filter(item => !whollyRaw(item)), queryTerms, () => 0, 'thread', semanticRanks)
             .map(result => ({ ...result, category: 'thread' })),
@@ -1879,7 +1887,9 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
         if (category === 'entity') return `- [entity] ${item.name}${item.type ? ` (${item.type})` : ''}: ${formatEntityProfile(item) || plain(item.description)}${item.aliases?.length ? `; aliases: ${item.aliases.join(', ')}` : ''}`;
         if (category === 'address') return `- [address] ${plain(item.subject)}→${plain(addressFactAddressee(item))}: ${plain(item.value)}`;
         if (category === 'perspective') return `- [character perspective; interpret as written] ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)}`;
-        if (category === 'fact') return `- [fact] ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)}`;
+        if (category === 'fact') return isKnowledgeBoundaryFact(item) || isEstablishedKnowledgeFact(item)
+            ? recordedKnowledgeRow(item, 'fact')
+            : `- [fact] ${item.subject} — ${item.predicate}: ${anchoredRelativeText(item.value, item)}`;
         if (category === 'state') return `- [${isLastKnownActiveState(world, item, chatKey) ? 'last-known; not confirmed current' : 'state'}] ${item.subject} — ${item.attribute}: ${anchoredRelativeText(item.value, item)}`;
         if (category === 'relationship') {
             const description = plain(item.dynamic);
@@ -1954,8 +1964,8 @@ export function buildMemoryPrompt(world, recentMessages, budgetTokens = 2500, ch
     parts.value += '</continuity>';
     return { prompt: parts.value, estimatedTokens: estimatedTokens(parts.value), retrievalDiagnostics };
 }
-import { DEFAULT_INJECTION_INSTRUCTION, INJECTION_GUIDANCE } from './prompts.js?v=0.15.0-testing.30&belief-wording=4';
-import { renderInjectionSections } from './injection-layout.js';
-import { embeddingRecordKey } from './embedding-index.js?v=0.15.0-testing.30';
+import { DEFAULT_INJECTION_INSTRUCTION, INJECTION_GUIDANCE } from './prompts.js?v=0.15.0-testing.30&belief-wording=4&historical-recall=1';
+import { renderInjectionSections } from './injection-layout.js?historical-recall=1';
+import { embeddingRecordKey } from './embedding-index.js?v=0.15.0-testing.30&historical-recall=1';
 import { isAttributedBeliefFact, migrateLegacyBeliefs } from './attributed-beliefs.js';
-import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js';
+import { addressFactAddressee, isAddressFact } from './reconciliation-policy.js?historical-recall=1';

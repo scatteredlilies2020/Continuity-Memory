@@ -1,7 +1,7 @@
-import { applyCorrectionProposal } from './memory-correction.js';
+import { applyCorrectionProposal } from './memory-correction.js?historical-recall=1';
 import { chronicleTextFromCapsule, refreshChronicleStory } from './chronicle.js';
 import { entityProfile, formatEntityProfile, PROFILE_FIELDS } from './entity-profile.js';
-import { supportingHistory, supportingIdentity, supportingRecords } from './supporting-memories.js?v=0.15.0-testing.30';
+import { supportingHistory, supportingIdentity, supportingRecords } from './supporting-memories.js?v=0.15.0-testing.30&historical-recall=1';
 import { randomUuid } from './uuid.js';
 
 const field = (key, label, type = 'text', options) => ({ key, label, type, ...(options ? { options } : {}) });

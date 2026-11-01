@@ -1,14 +1,14 @@
 import { extractMessageFromData } from '/script.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
-import { resolveMemoryPrefill, sendMemoryProfileRequest } from './preset-prefill-host.js?pending-recovery=1';
+import { resolveMemoryPrefill, sendMemoryProfileRequest } from './preset-prefill-host.js?pending-recovery=1&historical-recall=1';
 import { memoryRequestMessages, responseWithPrefill } from './preset-prefill.js';
 import { isThinkingControlError, thinkingControlFallbackPayload } from './thinking-policy.js?v=0.15.0-testing.30';
-import { generateWithThinkingPolicy, requestDirectText, resolveThinkingModeForProfile } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=1&storage-recovery=1';
+import { generateWithThinkingPolicy, requestDirectText, resolveThinkingModeForProfile } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=1&storage-recovery=1&historical-recall=1';
 import { parseExpandedTerms } from './semantic-terms.js?v=0.15.0-testing.30&retrieval-json=1';
 import { recentRetrievalQuery } from './retrieval-query.js?v=0.15.0-testing.30';
-import { getSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1';
+import { getSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&historical-recall=1';
 import { buildThinkingRequest } from './thinking-policy.js?v=0.15.0-testing.30';
-import { buildRetrievalSystemPrompt, DEFAULT_RETRIEVAL_QUERY_TEMPLATE, DEFAULT_RETRIEVAL_SYSTEM_PROMPT, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.30&belief-wording=4';
+import { buildRetrievalSystemPrompt, DEFAULT_RETRIEVAL_QUERY_TEMPLATE, DEFAULT_RETRIEVAL_SYSTEM_PROMPT, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.30&belief-wording=4&historical-recall=1';
 import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.30';
 import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.30';
 import { checkRetrievalDeadline } from './retrieval-assist.js?bounded-recall=1&catchup-gate=1';

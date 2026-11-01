@@ -1,5 +1,5 @@
 import { randomUuid } from './uuid.js';
-import { addressFactIdentity } from './reconciliation-policy.js';
+import { addressFactIdentity } from './reconciliation-policy.js?historical-recall=1';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { syncChronicleBase } from './chronicle.js';
 

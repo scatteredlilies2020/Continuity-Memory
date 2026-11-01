@@ -1,9 +1,9 @@
 import { saveSettingsDebounced } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getContext } from '/scripts/st-context.js';
-import { upgradeOocMetaAuthorityPrompt, upgradePromptWording } from './prompts.js?v=0.15.0-testing.30&belief-wording=4';
-import { PRE_LEAN_INJECTION_INSTRUCTIONS, PRE_PLAIN_CHARACTER_PROFILE_RULE } from './prompts.js?v=0.15.0-testing.30&belief-wording=4';
-import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CANONICAL_THIRD_PERSON_RULE, CHARACTER_PROFILE_RULE, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, PRE_PERSPECTIVE_SCOPE_EPISTEMIC_MEMORY_RULES, EXTREME_CANON_FIDELITY_RULE, EXTREME_SUMMARY_FIDELITY_RULE, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, DIGEST_EPISTEMIC_COVERAGE_RULE, LEGACY_EPISTEMIC_MEMORY_RULES, OOC_META_AUTHORITY_RULE, PRE_ATOMIC_IDENTITY_DIGEST_EPISTEMIC_COVERAGE_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRICT_OOC_META_AUTHORITY_RULE, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.15.0-testing.30&belief-wording=4';
+import { upgradeOocMetaAuthorityPrompt, upgradePromptWording } from './prompts.js?v=0.15.0-testing.30&belief-wording=4&historical-recall=1';
+import { PRE_LEAN_INJECTION_INSTRUCTIONS, PRE_PLAIN_CHARACTER_PROFILE_RULE } from './prompts.js?v=0.15.0-testing.30&belief-wording=4&historical-recall=1';
+import { CANONICAL_EPISTEMIC_MEMORY_RULES, CANONICAL_RECORD_RULES, CANONICAL_THIRD_PERSON_RULE, CHARACTER_PROFILE_RULE, CONTINUITY_COVERAGE_RULES, DURABLE_MEMORY_RULES, EPISTEMIC_MEMORY_RULES, PRE_PERSPECTIVE_SCOPE_EPISTEMIC_MEMORY_RULES, EXTREME_CANON_FIDELITY_RULE, EXTREME_SUMMARY_FIDELITY_RULE, HIERARCHY_ATTRIBUTION_RULE, IDENTITY_RESOLUTION_RULES, DIGEST_EPISTEMIC_COVERAGE_RULE, LEGACY_EPISTEMIC_MEMORY_RULES, OOC_META_AUTHORITY_RULE, PRE_ATOMIC_IDENTITY_DIGEST_EPISTEMIC_COVERAGE_RULE, PRE_KNOWLEDGE_BOUNDARY_INJECTION_INSTRUCTION, PRE_KNOWLEDGE_GAP_EPISTEMIC_MEMORY_RULES, PRE_KNOWLEDGE_GAP_INJECTION_INSTRUCTION, PRE_MEMBERSHIP_DISTINCTION_EPISTEMIC_MEMORY_RULES, PRE_STRICT_OOC_META_AUTHORITY_RULE, PRE_STRUCTURED_KNOWLEDGE_BOUNDARY_RULES, PROMPT_DEFAULTS, RELATIONAL_ADDRESS_RULE, RELATIONSHIP_DESCRIPTION_RULE, TARGET_ID_SAFETY_RULE } from './prompts.js?v=0.15.0-testing.30&belief-wording=4&historical-recall=1';
 import { DEFAULT_DIGEST_GROUP_SIZE } from './digest-policy.js';
 import { DEFAULT_CORRECTION_RESPONSE_TOKENS } from './correction-policy.js?pending-recovery=1';
 import { applyReviewBeforeCommitDefault, DEFAULT_REVIEW_BEFORE_COMMIT } from './review-policy.js?v=0.15.0-testing.30';
@@ -111,12 +111,12 @@ function promptFingerprint(value) {
 export function getSettings() {
     if (!extension_settings[EXTENSION_NAME]) extension_settings[EXTENSION_NAME] = {};
     const settings = extension_settings[EXTENSION_NAME];
-    if (Number(settings.leanInjectionInstructionVersion || 0) < 2) {
+    if (Number(settings.leanInjectionInstructionVersion || 0) < 3) {
         // Upgrade only shipped defaults, never a user's customized instruction.
         if (PRE_LEAN_INJECTION_INSTRUCTIONS.includes(settings.injectionInstruction)) {
             settings.injectionInstruction = PROMPT_DEFAULTS.injectionInstruction;
         }
-        settings.leanInjectionInstructionVersion = 2;
+        settings.leanInjectionInstructionVersion = 3;
         saveSettingsDebounced();
     }
     if (Number(settings.oocMetaAuthorityPromptVersion || 0) < 3) {

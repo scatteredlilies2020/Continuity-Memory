@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 // Every detail character, duplicate line and qualifier participates in the
 // fingerprint. Event/Chronicle ordering has separate tests.
 const headings = new Set([
-    'Checkpoint', 'Addresses', 'User corrections', 'Knowledge boundaries — hard constraints',
+    'Checkpoint', 'Addresses', 'User corrections', 'Knowledge boundaries — hard constraints', 'Recorded knowledge',
     'Established character knowledge', 'Recent continuity', 'Supporting memories', 'Entities',
     'Current state', 'Last-known ongoing conditions (not reconfirmed)', 'Relationships',
     'Character perspectives (not established facts)', 'Facts', 'Past events',
@@ -20,5 +20,7 @@ export function injectionEvidence(prompt) {
     if (start < 0) return [];
     const retiredGuide = 'Historical accounts in source order, not a current-status ledger. Plans, conditions, and uncertainty belong to their recorded point; later evidence may supersede them. Preserve character knowledge boundaries when reading across intervals.';
     return lines.slice(start).filter(line => line && !headings.has(line) && line !== retiredGuide && line !== '</continuity>')
-        .map(line => line.replace(presentationTag, '- ')).sort();
+        .map(line => line.replace(presentationTag, '- ')
+            .replace(/\[Recorded knowledge — [^\]]+\] /gu, '')
+            .replace(/\[fact — [^\]]+\]/gu, '[fact]')).sort();
 }

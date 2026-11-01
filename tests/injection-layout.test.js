@@ -37,9 +37,9 @@ test('consolidated groups preserve complete bodies, qualifiers, duplicates and w
     const sections = [
         { title: 'Checkpoint', rows: ['- Location: the tower', '- Time: dusk'] },
         { title: 'User corrections', rows: [`- ${'Long correction. '.repeat(100)}COMPLETE_CORRECTION_END`] },
-        { title: 'Knowledge boundaries — hard constraints', rows: ['- Sol does not know. [HARD LIMIT: world truth elsewhere does not grant this character knowledge.]'] },
+        { title: 'Recorded knowledge', rows: ['- [Recorded knowledge — messages 0–7] Sol does not know.'] },
         { title: 'Addresses', rows: ['- Mira→Sol: captain'] },
-        { title: 'Established character knowledge', rows: ['- Mira knows the password.'] },
+        { title: 'Established character knowledge', rows: ['- [Recorded knowledge — messages 8–15] Mira knows the password.'] },
         { title: 'Recent continuity', rows: ['- A remembered scene.'] },
         { title: 'Supporting memories', rows: ['- [Historical observation — messages 8–15; rumored] A conditional plan, not a pending task.'] },
         { title: 'Entities', rows: ['- Mira: full profile; aliases: Keeper'] },
@@ -59,9 +59,10 @@ test('consolidated groups preserve complete bodies, qualifiers, duplicates and w
     assert.deepEqual(sections, before);
     assert.deepEqual(result.split('\n').filter(line => /^(?:Memory constraints|Current context|Relevant details):$/u.test(line)),
         ['Memory constraints:', 'Current context:', 'Relevant details:']);
+    assert.ok(result.indexOf('Sol does not know') > result.indexOf('Relevant details:'));
     assert.match(result, /\[Current state\] Mira — injury/);
     assert.match(result, /\[last-known; not confirmed current\]/);
-    assert.match(result, /\[Established character knowledge\] Mira knows/);
+    assert.match(result, /\[Recorded knowledge — messages 8–15\] Mira knows/);
     assert.match(result, /\[subjective; not an established fact\]/);
     assert.ok(result.indexOf('First event:') < result.indexOf('Second event:'));
 });

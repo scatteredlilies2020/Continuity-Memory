@@ -1,4 +1,4 @@
-import { normalizeSupportingResult } from './supporting-memories.js?v=0.15.0-testing.30';
+import { normalizeSupportingResult } from './supporting-memories.js?v=0.15.0-testing.30&historical-recall=1';
 import { canonicalMemorySubject, canonicalStateAttribute, isActiveState, stateIdentity } from './state-lifecycle.js';
 import { canonicalCharacterProfileField, characterProfileDetailIsAdmissible, durableCharacterProfileDetail, entityProfile as storedEntityProfile, formatEntityProfile, normalizeEntityProfile } from './entity-profile.js';
 import { canonicalProseIsThirdPerson, thirdPersonOnlyProse } from './canonical-prose.js';

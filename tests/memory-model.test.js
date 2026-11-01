@@ -1099,11 +1099,11 @@ test('a clean zero-correction replay preserves identity, prior knowledge, secrec
     assert.ok(target.facts.some(item => item.subject === 'Darth Segundus' && item.predicate === 'knowledge of Caelen Veyr' && item.category === 'knowledge'));
 
     const injected = buildMemoryPrompt(target, [{ name: 'Lucas', mes: 'Did you know it was a Jedi Council Member there?' }], 5000, chatKey);
-    assert.match(injected.prompt, /\[Established character knowledge\] Darth Segundus — knowledge of Caelen Veyr/i);
+    assert.match(injected.prompt, /\[Recorded knowledge — [^\]]+\] Darth Segundus — knowledge of Caelen Veyr/i);
     assert.match(injected.prompt, /Caelen Veyr \(person\).*Jedi Master and former Jedi Council member/i);
 
     const secrecy = buildMemoryPrompt(target, [{ name: 'Lucas', mes: 'Does Darth Segundus know Toska?' }], 5000, chatKey);
-    assert.match(secrecy.prompt, /Darth Segundus — knowledge of Toska.*HARD LIMIT/i);
+    assert.match(secrecy.prompt, /\[Recorded knowledge — [^\]]+\] Darth Segundus — knowledge of Toska/i);
 });
 
 test('later explicit knowledge retires the matching stale knowledge boundary', () => {
@@ -1565,7 +1565,7 @@ test('retrieval reserves room for every populated memory category', () => {
     assert.ok(result.estimatedTokens <= 1000);
 });
 
-test('retrieval makes a relevant character knowledge boundary an explicit hard constraint', () => {
+test('retrieval presents relevant character knowledge as source-bound history', () => {
     const target = world();
     target.entities.push(
         { id: 'lucas', name: 'Lucas Alcazar', type: 'person', aliases: ['Lucas'], description: 'A Sith.', importance: 5 },
@@ -1591,9 +1591,9 @@ test('retrieval makes a relevant character knowledge boundary an explicit hard c
         { name: 'User', is_user: true, mes: 'I ask Segundus whether he expected me to die.' },
     ], 2200, 'chat', ['Darth Segundus reaction to Lucas']);
 
-    assert.match(result.prompt, /Memory constraints:[\s\S]*\[HARD LIMIT:/);
+    assert.match(result.prompt, /Relevant details:[\s\S]*\[Recorded knowledge — source time unspecified\]/);
     assert.match(result.prompt, /Darth Segundus — knowledge of Toska: Does not know Toska exists/i);
-    assert.match(result.prompt, /HARD LIMIT: world truth elsewhere does not grant this character knowledge/i);
+    assert.doesNotMatch(result.prompt, /HARD LIMIT|Memory constraints:/i);
     assert.doesNotMatch(result.prompt, /exact anchor unavailable/i);
     assert.equal(result.prompt.match(/knowledge of Toska/g)?.length, 1);
 });

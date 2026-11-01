@@ -1,6 +1,6 @@
 import { fingerprintMessage } from './message-digest.js?v=0.15.0-testing.30';
 import { digestStabilityRepairFrom } from './digest-policy.js';
-import { mergeExtraction, removeChatContributions, restoreRetainedReplayRecords } from './memory-model.js';
+import { mergeExtraction, removeChatContributions, restoreRetainedReplayRecords } from './memory-model.js?historical-recall=1';
 import { refreshChronicleStory, syncChronicleBase } from './chronicle.js';
 
 function remapWorldChatKey(world, from, to) {

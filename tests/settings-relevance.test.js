@@ -6,6 +6,16 @@ import { DEFAULT_INJECTION_INSTRUCTION, PRE_LEAN_INJECTION_INSTRUCTIONS, CHARACT
 const settingsUrl = new URL('../extension/settings.js', import.meta.url);
 let instance = 0;
 
+test('historical recall migration clears shipped directives and preserves custom guidance', async () => {
+    for (const instruction of PRE_LEAN_INJECTION_INSTRUCTIONS) {
+        const settings = (await loadSettings({ leanInjectionInstructionVersion: 2, injectionInstruction: instruction })).getSettings();
+        assert.equal(settings.injectionInstruction, DEFAULT_INJECTION_INSTRUCTION);
+        assert.equal(settings.leanInjectionInstructionVersion, 3);
+    }
+    const custom = 'Preserve my custom source labels.';
+    assert.equal((await loadSettings({ leanInjectionInstructionVersion: 2, injectionInstruction: custom })).getSettings().injectionInstruction, custom);
+});
+
 test('summary prefill defaults blank and off and preserves saved custom values', async () => {
     const defaults = (await loadSettings()).getSettings();
     assert.equal(defaults.summaryPrefillEnabled, false);
@@ -94,7 +104,7 @@ for (const [index, instruction] of PRE_LEAN_INJECTION_INSTRUCTIONS.entries()) {
             const { getSettings } = await loadSettings({ ...saved, injectionInstruction: instruction });
             assert.equal(getSettings().injectionInstruction, DEFAULT_INJECTION_INSTRUCTION);
             assert.equal(getSettings().injectionInstruction, DEFAULT_INJECTION_INSTRUCTION, 'migration is idempotent');
-            assert.equal(getSettings().leanInjectionInstructionVersion, 2);
+            assert.equal(getSettings().leanInjectionInstructionVersion, 3);
         }
     });
 }

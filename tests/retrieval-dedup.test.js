@@ -99,7 +99,7 @@ test('knowledge already rendered before an entity is not repeated as inline cano
     });
     const result = buildMemoryPrompt(target, user('Aster examines the lantern seal.'), 6000, 'chat');
 
-    assert.match(result.prompt, /\[Established character knowledge\]/u);
+    assert.match(result.prompt, /\[Recorded knowledge —/u);
     assert.equal(count(result.prompt, value), 1);
 });
 
