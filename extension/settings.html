@@ -238,7 +238,7 @@
                         <label>Embedding endpoint base URL
                             <input id="continuity_embedding_proxy_url" class="text_pole" type="text" autocomplete="off" spellcheck="false" placeholder="https://api.openai.com (default)">
                         </label>
-                        <small>Leave blank for <code>https://api.openai.com</code>, or enter a proxy base URL. SillyTavern adds <code>/v1/embeddings</code>.</small>
+                        <small>Leave blank for <code>https://api.openai.com</code>, or enter a proxy base URL (with or without trailing <code>/v1</code>). The CM server plugin preserves path prefixes and adds <code>/v1/embeddings</code>. Without the plugin, URL handling depends on your SillyTavern version or fork.</small>
                     </div>
                     <div class="continuity-embedding-openrouter-setting">
                         <label>OpenRouter endpoint base URL

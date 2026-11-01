@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { getProxyBatchVector, loadProxyEmbeddingHost } from './proxy-embeddings.js';
 
 const STORE_VERSION = 1;
 const COLLECTION_RE = /^[a-zA-Z0-9_-]{1,160}$/;
@@ -234,12 +235,11 @@ export async function embedBatchesInOrder(texts, embedBatch, { batchSize = 10, c
     return results.flat();
 }
 
-export async function hostEmbedTexts({ provider, texts, directories }) {
+export async function hostEmbedTexts({ provider, texts, directories }, { loadProxyHost = loadProxyEmbeddingHost } = {}) {
     let embedBatch;
     if (provider.source === 'vllm') {
-        const moduleUrl = pathToFileURL(path.join(process.cwd(), 'src', 'vectors', 'vllm-vectors.js')).href;
-        const { getVllmBatchVector } = await import(moduleUrl);
-        embedBatch = batch => getVllmBatchVector(batch, provider.apiUrl, provider.model, directories);
+        const host = await loadProxyHost();
+        embedBatch = batch => getProxyBatchVector(batch, provider, directories, host);
     } else if (provider.source === 'openrouter') {
         const moduleUrl = pathToFileURL(path.join(process.cwd(), 'src', 'vectors', 'openai-vectors.js')).href;
         const { getOpenAIBatchVector } = await import(moduleUrl);
