@@ -165,6 +165,37 @@ test('detached backend restores the assistant prefix before parsing', async () =
     assert.equal(await fn(job, { messages: prefillPolicy.memoryRequestMessages('task', 'system', '{') }), '{"result":true}');
 });
 
+test('detached fork SDK extraction decodes request-local prefill and rejects truncated output', async () => {
+    const finishReason = load(plugin, 'finishReason', {});
+    const fn = load(plugin, 'backendRequestOnce', {
+        ...prefillPolicy, requestModel,
+        completionText: load(plugin, 'completionText', {}),
+        assertNotTruncated: load(plugin, 'assertNotTruncated', { finishReason }),
+    });
+    let reason = 'stop';
+    const job = {
+        controller: new AbortController(), requestTimeoutMs: 1000,
+        fetchImpl: async (_url, options) => {
+            const wire = JSON.parse(options.body);
+            assert.equal(wire.stream, true);
+            assert.equal(wire.maxOutputTokens, 8192);
+            assert.equal(wire.continuity_prefill, undefined);
+            const events = [
+                { type: 'reasoning-delta', text: 'Private reasoning', index: 0 },
+                { type: 'text-delta', text: '{"value":"{\\\"result\\\":true}"}', index: 0 },
+                { type: 'finish', finishReason: reason, index: 0 },
+            ];
+            return new Response(events.map(value => `data: ${JSON.stringify(value)}\n\n`).join('') + 'data: [DONE]\n\n',
+                { headers: { 'Content-Type': 'text/event-stream', 'X-SillyTavern-Stream-Format': 'ai-sdk' } });
+        },
+    };
+    const body = { messages: [], maxOutputTokens: 8192, continuity_prefill: { structured: { multiField: false } } };
+    assert.equal(await fn(job, body), '{"result":true}');
+    assert.ok(job.connection.reasoningCharacters > 0);
+    reason = 'length';
+    await assert.rejects(fn(job, body), /reached its output limit/);
+});
+
 test('requests without prefill preserve schema behavior', async () => {
     const schema = { value: {} };
     let sent;

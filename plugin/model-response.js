@@ -45,15 +45,22 @@ export async function requestModel(fetchImpl, url, options, idleMs = 120000, onP
             if (!data) return;
             if (data === '[DONE]') { done = true; return; }
             const value = JSON.parse(data);
-            if (value.error) throw Object.assign(new Error(value.error.message || String(value.error)), { status: value.error.code });
+            if (value.error) throw Object.assign(new Error(value.error.message || String(value.error)), { status: value.status ?? value.error.code });
+            // SDK-backed forks stream typed events instead of OpenAI choices.
+            // Only collect the first completion, just as we do for choices[0].
+            const sdk = typeof value.type === 'string';
+            if (sdk && value.index != null && value.index !== 0) return;
+            if (sdk && value.type === 'abort') throw new Error('Detached API response was aborted.');
             const choice = value.choices?.[0];
             const delta = choice?.delta;
             const parts = value.candidates?.[0]?.content?.parts || [];
-            const text = typeof delta?.content === 'string' ? delta.content
+            const text = sdk && value.type === 'text-delta' && typeof value.text === 'string' ? value.text
+                : typeof delta?.content === 'string' ? delta.content
                 : Array.isArray(delta?.content) ? delta.content.map(part => part.text || '').join('')
                 : typeof choice?.text === 'string' ? choice.text
                 : parts.filter(part => !part.thought).map(part => part.text || '').join('');
-            const reasoning = delta?.reasoning_content || delta?.reasoning
+            const reasoning = (sdk && value.type === 'reasoning-delta' && typeof value.text === 'string' ? value.text : '')
+                || delta?.reasoning_content || delta?.reasoning
                 || parts.filter(part => part.thought).map(part => part.text || '').join('');
             if (text || reasoning) touch();
             output += text;
@@ -62,7 +69,10 @@ export async function requestModel(fetchImpl, url, options, idleMs = 120000, onP
                 reasoningCharacters += typeof reasoning === 'string' ? reasoning.length : 0;
                 onProgress({ phase: 'receiving', lastProgressAt: Date.now(), outputCharacters: output.length, reasoningCharacters });
             }
-            finish = choice?.finish_reason || value.candidates?.[0]?.finishReason || finish;
+            // A step can finish while generation continues. Only the overall
+            // SDK finish event proves completion after a connection closes.
+            finish = choice?.finish_reason || value.candidates?.[0]?.finishReason
+                || (sdk && value.type === 'finish' ? value.finishReason : '') || finish;
         };
         for await (const chunk of response.body) {
             controller.signal.throwIfAborted();

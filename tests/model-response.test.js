@@ -20,6 +20,67 @@ function chunksResponse(chunks, headers = {}) {
     }), { headers });
 }
 
+const sdkEvent = value => `data: ${JSON.stringify({ ...value, index: value.index ?? 0 })}\n\n`;
+
+for (const contentType of [null, 'application/json', 'text/event-stream']) {
+    test(`decodes fork AI SDK text without storing reasoning (${contentType})`, async () => {
+        const progress = [];
+        const stream = sdkEvent({ type: 'warnings', warnings: [] })
+            + sdkEvent({ type: 'reasoning-start', id: 'r' })
+            + sdkEvent({ type: 'reasoning-delta', id: 'r', text: 'Private reasoning' })
+            + sdkEvent({ type: 'reasoning-end', id: 'r' })
+            + sdkEvent({ type: 'text-start', id: 't' })
+            + sdkEvent({ type: 'text-delta', id: 't', text: reply.slice(0, 12) })
+            + sdkEvent({ type: 'metadata', usage: {} })
+            + sdkEvent({ type: 'text-delta', id: 't', text: reply.slice(12) })
+            + sdkEvent({ type: 'text-end', id: 't' })
+            + sdkEvent({ type: 'finish', finishReason: 'stop' })
+            + sdkEvent({ type: 'text-delta', text: 'Second completion', index: 1 })
+            + sdkEvent({ type: 'finish', finishReason: 'length', index: 1 })
+            + 'data: [DONE]\n\n';
+        const { payload } = await requestModel(async () => chunksResponse(stream.match(/.{1,7}/gs),
+            contentType ? { 'Content-Type': contentType, 'X-SillyTavern-Stream-Format': 'ai-sdk' } : {}),
+        'http://example.invalid', {}, 1000, item => progress.push(item));
+        assert.equal(payload.choices[0].message.content, reply);
+        assert.equal(payload.choices[0].finish_reason, 'stop');
+        assert.ok(progress.some(item => item.reasoningCharacters === 'Private reasoning'.length));
+        assert.equal(progress.at(-1).outputCharacters, reply.length);
+        assert.ok(!JSON.stringify({ payload, progress }).includes('Private reasoning'));
+    });
+}
+
+test('AI SDK reasoning resets the watchdog while metadata alone does not', async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    let controller;
+    const response = new Response(new ReadableStream({ start(value) { controller = value; } }));
+    const pending = requestModel(async () => response, 'http://example.invalid', {}, 70);
+    const rejected = assert.rejects(pending, /timed out waiting for progress/);
+    await new Promise(setImmediate);
+    for (let n = 0; n < 5; n++) {
+        t.mock.timers.tick(50);
+        controller.enqueue(encode(sdkEvent({ type: 'reasoning-delta', text: 'thinking' })));
+        await new Promise(setImmediate);
+    }
+    controller.enqueue(encode(sdkEvent({ type: 'metadata', usage: {} })));
+    await new Promise(setImmediate);
+    t.mock.timers.tick(71);
+    await rejected;
+    controller.close();
+});
+
+test('AI SDK completion limits, errors, aborts and disconnects remain authoritative', async () => {
+    const request = events => requestModel(async () => chunksResponse(events.map(sdkEvent)), 'http://example.invalid', {}, 1000);
+    const { payload } = await request([{ type: 'text-delta', text: reply }, { type: 'finish', finishReason: 'length' }]);
+    assert.equal(payload.choices[0].finish_reason, 'length');
+    await assert.rejects(request([{ error: { message: 'Rate limited' }, status: 429 }]),
+        error => error.status === 429 && error.message === 'Rate limited');
+    await assert.rejects(request([{ type: 'abort' }]), /aborted/);
+    for (const ending of [null, { type: 'finish-step', finishReason: 'stop' }, { type: 'finish', finishReason: 'stop', index: 1 }]) {
+        await assert.rejects(request([{ type: 'text-delta', text: reply }, ...(ending ? [ending] : [])]),
+            /closed before the response completed/);
+    }
+});
+
 for (const contentType of [null, 'text/plain', 'application/json', 'text/event-stream; charset=utf-8']) {
     test(`decodes a completed model stream with content type ${contentType}`, async () => {
         const progress = [];
