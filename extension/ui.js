@@ -585,22 +585,32 @@ async function exportNativeChatWithPortableMemory(target, filenameFull, chatId, 
         return;
     }
 
-    let world;
+    let exported;
+    let memoryError;
     try {
-        world = (await api.getWorld(worldId)).world;
-    } catch (error) {
-        if (error.status !== 404) throw error;
-        const embedded = getPortableSnapshotFromChatExport(payload.result);
-        if (embedded?.world?.id === worldId) world = embedded.world;
-        else throw new Error('This chat references Continuity memory that is missing from this SillyTavern user. Restore or import the memory before exporting the chat.');
-    }
+        let world;
+        try {
+            world = (await api.getWorld(worldId)).world;
+        } catch (error) {
+            if (error.status !== 404) throw error;
+            const embedded = getPortableSnapshotFromChatExport(payload.result);
+            if (embedded?.world?.id === worldId) world = embedded.world;
+            else throw new Error('This chat references Continuity memory that is missing from this SillyTavern user.');
+        }
 
-    const parsed = parseChatExport(payload.result);
-    const alignment = alignWorldToChat(world, collectFingerprintMessages(parsed.messages), chatKey);
-    if (!alignment.ok) throw new Error(`The chat was not exported with memory because its stored memory does not match: ${alignment.message}`);
-    const portable = embedPortableMemoryInChatExport(payload.result, alignment.world);
-    downloadPortableChat(portable, filenameFull);
-    toast('success', 'Chat exported with its current Continuity memory included.');
+        const parsed = parseChatExport(payload.result);
+        const alignment = alignWorldToChat(world, collectFingerprintMessages(parsed.messages), chatKey);
+        if (!alignment.ok) throw new Error(alignment.message);
+        exported = embedPortableMemoryInChatExport(payload.result, alignment.world);
+    } catch (error) {
+        // A missing or unverifiable memory must not prevent exporting messages.
+        // Strip it only from the download; leave the saved chat and memory intact.
+        exported = removePortableMemoryFromChatExport(payload.result);
+        memoryError = error.message;
+    }
+    downloadPortableChat(exported, filenameFull);
+    if (memoryError) toast('warning', `Chat messages exported without Continuity memory. ${memoryError} The original saved chat and memory were left untouched.`);
+    else toast('success', 'Chat exported with its current Continuity memory included.');
     target.blur?.();
 }
 
@@ -899,9 +909,14 @@ async function recoverStoredWorldForCurrentChat(missingBoundWorldId) {
         characterName: context.name2,
         chatId: context.chatId,
     }).world;
+    // Message fingerprints alone cannot distinguish fresh chats sharing a card's
+    // greeting. Limit automatic recovery to this conversation's identity before
+    // reading memory files; unrelated chats must never become candidates.
+    const expectedName = `${context.name2 || 'Chat'} · ${context.chatId || 'Memory'}`;
+    const candidates = worlds.filter(world => world.id === missingBoundWorldId || world.name === expectedName);
     const ordered = exact
-        ? [exact, ...worlds.filter(world => world.id !== exact.id)]
-        : worlds;
+        ? [exact, ...candidates.filter(world => world.id !== exact.id)]
+        : candidates;
     const messages = collectFingerprintMessages(context.chat || []);
     const matches = [];
     for (const summary of ordered) {

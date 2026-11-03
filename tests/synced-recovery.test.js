@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { rankSuperiorSyncedWorlds } from '../extension/chat-ownership.js';
+import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from '../extension/chat-ownership.js';
 import { alignWorldToChat, collectFingerprintMessages, fingerprintMessage } from '../extension/message-digest.js';
 import { freshResetResiduals } from '../extension/memory-model.js';
 
@@ -31,7 +31,7 @@ function harness() {
         activeChat: 'chat', settings, getSettings: () => settings,
         getContext: () => ({ name2: 'Person', chatId: 'Chat', chat }),
         getChatKey: () => scope.activeChat, getBoundWorldId: () => settings.chatWorlds[scope.activeChat] || '',
-        rankSuperiorSyncedWorlds, alignWorldToChat, collectFingerprintMessages, freshResetResiduals,
+        rankSuperiorSyncedWorlds, resolveMissingWorldBinding, alignWorldToChat, collectFingerprintMessages, freshResetResiduals,
         bindCurrentChat: id => { settings.chatWorlds[scope.activeChat] = id; },
         updateRuntime: patch => Object.assign(scope.runtime, patch), renderRuntime() {},
         embedWorldInChat: async world => { calls.embed.push(structuredClone(world)); }, clearPortableSnapshot: async () => {},
@@ -265,6 +265,43 @@ function invalidPortableHarness() {
     install(ui, 'verifyMemoryAlignment', h.scope);
     return { ...h, portable };
 }
+
+test('a new chat never reads or attaches another chat memory with identical messages', async () => {
+    const h = harness();
+    delete h.settings.chatWorlds.chat;
+    h.scope.worlds = [{ id: h.candidate.id, name: 'Person · Earlier chat' }];
+    const result = await h.scope.recoverStoredWorldForCurrentChat('');
+    assert.equal(result.world, null);
+    assert.deepEqual(h.calls.read, []);
+    assert.deepEqual(h.calls.save, []);
+    assert.deepEqual(h.calls.embed, []);
+    assert.equal(h.settings.chatWorlds.chat, undefined);
+});
+
+test('missing binding recovery reads only the same named conversation and verifies its messages', async () => {
+    const h = harness();
+    h.settings.chatWorlds.chat = 'missing-binding';
+    h.scope.worlds = [
+        { id: 'unrelated', name: 'Person · Earlier chat' },
+        { id: h.candidate.id, name: h.candidate.name },
+    ];
+    const result = await h.scope.recoverStoredWorldForCurrentChat('missing-binding');
+    assert.equal(result.world.id, h.candidate.id);
+    assert.deepEqual(h.calls.read, [h.candidate.id]);
+    assert.equal(h.settings.chatWorlds.chat, h.candidate.id);
+    assert.equal(h.calls.embed.length, 1);
+});
+
+test('same named recovery still rejects changed conversation history', async () => {
+    const h = harness();
+    delete h.settings.chatWorlds.chat;
+    h.saved.get(h.candidate.id).sources['old-device-chat'].processedMessages[0].fingerprint = 'different';
+    const result = await h.scope.recoverStoredWorldForCurrentChat('');
+    assert.equal(result.world, null);
+    assert.deepEqual(h.calls.save, []);
+    assert.deepEqual(h.calls.embed, []);
+    assert.equal(h.settings.chatWorlds.chat, undefined);
+});
 
 test('invalid embedded fingerprints recover from an independently verified same-revision stored copy', async () => {
     const h = invalidPortableHarness();
