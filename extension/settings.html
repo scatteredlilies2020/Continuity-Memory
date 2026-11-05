@@ -172,7 +172,7 @@
                         <option value="embedding-hybrid">Semantic embeddings + local matching</option>
                     </select>
                 </label>
-                <small>Choose one mode. All modes use the current conversation and the same memory categories. Optional AI or embedding lookups have a ten-second deadline, then fall back to local recall.</small>
+                <small>Choose one mode. Switching away from embeddings keeps stored vectors and stops building after the current batch. All modes use the current conversation and the same memory categories. Optional AI or embedding lookups have a ten-second deadline, then fall back to local recall.</small>
                 <div class="continuity-ai-setting continuity-card-inset">
                     <small>Uses an AI model to turn the current conversation into search phrases, then retrieves existing memory. It does not generate replacement memories or query embeddings. Failed or slow requests fall back to local recall.</small>
                     <label>AI retrieval model

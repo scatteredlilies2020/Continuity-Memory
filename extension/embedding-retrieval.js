@@ -91,12 +91,16 @@ function waitForEmbeddingRestart(signal, delay = EMBEDDING_STALL_RESTART_DELAY_M
     });
 }
 
+function embeddingBuildAllowed() {
+    return getSettings().retrievalMode === 'embedding-hybrid' && indexingControl === 'running';
+}
+
 async function insertEmbeddingBatch(base, items, signal, onRestart = () => {}) {
     let pending = items;
     let restart = 0;
     let reconcile = false;
     while (true) {
-        if (indexingControl !== 'running') return { interrupted: true };
+        if (!embeddingBuildAllowed()) return { interrupted: true };
         try {
             if (reconcile) {
                 // A lost response may still have stored the batch. A failed
@@ -105,12 +109,12 @@ async function insertEmbeddingBatch(base, items, signal, onRestart = () => {}) {
                 const savedHashes = new Set((Array.isArray(saved) ? saved : []).map(Number).filter(Number.isFinite));
                 pending = items.filter(item => !savedHashes.has(Number(item.hash)));
                 if (!pending.length) return { ok: true, inserted: 0, recovered: true };
-                if (indexingControl !== 'running') return { interrupted: true };
+                if (!embeddingBuildAllowed()) return { interrupted: true };
             }
             return await vectorRequest('insert', { ...base, items: pending }, signal);
         } catch (error) {
             if (signal?.aborted) throw error;
-            if (indexingControl !== 'running') return { interrupted: true };
+            if (!embeddingBuildAllowed()) return { interrupted: true };
             if (!isRetryableEmbeddingError(error)) throw error;
             const delay = embeddingRetryDelay(++restart);
             onRestart(restart, delay);
@@ -130,7 +134,10 @@ function setIndexStatus(patch) {
 
 function interruptedResult(world, provider) {
     const status = indexingControl === 'stopped' ? 'stopped' : 'paused';
-    const result = { status, phase: status === 'stopped' ? 'Stopped; completed vectors were preserved' : 'Paused after the current batch', provider: provider.label, worldId: world.id };
+    const phase = getSettings().retrievalMode !== 'embedding-hybrid'
+        ? 'Embedding retrieval is off; stored vectors were preserved'
+        : status === 'stopped' ? 'Stopped; completed vectors were preserved' : 'Paused after the current batch';
+    const result = { status, phase, provider: provider?.label, worldId: world.id };
     setIndexStatus(result);
     return result;
 }
@@ -156,6 +163,7 @@ export function stopEmbeddingIndexing() {
 
 export async function resumeEmbeddingIndexing(world) {
     if (!world?.id) throw new Error('Open a chat with Continuity memory first.');
+    if (getSettings().retrievalMode !== 'embedding-hybrid') return interruptedResult(world);
     indexingControl = 'running';
     setIndexStatus({ status: 'syncing', phase: 'Resuming from stored vector hashes', error: '', worldId: world.id });
     return ensureEmbeddingIndex(world);
@@ -225,12 +233,13 @@ export async function inspectEmbeddingIndex(world, { signal } = {}) {
 
 export async function ensureEmbeddingIndex(world, force = false, lockHeld = false) {
     if (!world?.id) throw new Error('No Continuity memory is open for embedding indexing.');
+    if (getSettings().retrievalMode !== 'embedding-hybrid') return interruptedResult(world);
     if (!lockHeld && globalThis.navigator?.locks?.request) {
         const lockName = `continuity-embedding-index:${world.id}`;
         return globalThis.navigator.locks.request(lockName, () => ensureEmbeddingIndex(world, force, true));
     }
     const provider = providerRequest();
-    if (indexingControl !== 'running') return interruptedResult(world, provider);
+    if (!embeddingBuildAllowed()) return interruptedResult(world, provider);
     const signature = indexSignature(world, provider);
     if (!force && syncedIndexes.get(world.id) === signature) return { status: 'ready', unchanged: true, provider: provider.label };
     if (!force && activeSyncs.has(signature)) return activeSyncs.get(signature);
@@ -258,7 +267,7 @@ export async function ensureEmbeddingIndex(world, force = false, lockHeld = fals
         });
         const base = { ...provider.body, collectionId: collectionId(world.id) };
         const saved = await vectorRequest('list', base, controller.signal) || [];
-        if (indexingControl !== 'running') return interruptedResult(world, provider);
+        if (!embeddingBuildAllowed()) return interruptedResult(world, provider);
         const desiredByHash = new Map(documents.map(document => [document.hash, document]));
         const savedHashes = [...new Set((Array.isArray(saved) ? saved : []).map(Number).filter(Number.isFinite))];
         const stale = savedHashes.filter(hash => !desiredByHash.has(hash));
@@ -314,7 +323,7 @@ export async function ensureEmbeddingIndex(world, force = false, lockHeld = fals
                     error: '',
                 });
             });
-            if (indexingControl !== 'running') return interruptedResult(world, provider);
+            if (!embeddingBuildAllowed()) return interruptedResult(world, provider);
             setIndexStatus({
                 status: 'syncing',
                 phase: `Completed embedding batch ${batch} of ${batches}`,
@@ -329,7 +338,7 @@ export async function ensureEmbeddingIndex(world, force = false, lockHeld = fals
                 batches,
                 worldId: world.id,
             });
-            if (indexingControl !== 'running') return interruptedResult(world, provider);
+            if (!embeddingBuildAllowed()) return interruptedResult(world, provider);
         }
         // Keep obsolete vectors until every replacement has been stored. If a
         // mobile browser suspends or closes mid-build, the last usable index
@@ -349,8 +358,9 @@ export async function ensureEmbeddingIndex(world, force = false, lockHeld = fals
                 batches,
                 worldId: world.id,
             });
+            if (!embeddingBuildAllowed()) return interruptedResult(world, provider);
             await vectorRequest('delete', { ...base, hashes: stale }, controller.signal);
-            if (indexingControl !== 'running') return interruptedResult(world, provider);
+            if (!embeddingBuildAllowed()) return interruptedResult(world, provider);
         for (const key of queryCache.keys()) if (key.startsWith(`${world.id}|`)) queryCache.delete(key);
         }
         syncedIndexes.set(world.id, signature);
@@ -358,7 +368,7 @@ export async function ensureEmbeddingIndex(world, force = false, lockHeld = fals
         setIndexStatus(result);
         return result;
     })().catch(error => {
-        if (error?.name === 'AbortError' && indexingControl !== 'running') return interruptedResult(world, provider);
+        if (error?.name === 'AbortError' && !embeddingBuildAllowed()) return interruptedResult(world, provider);
         setIndexStatus({ status: 'error', provider: provider.label, error: error.message, worldId: world.id });
         throw error;
     }).finally(() => {
@@ -372,7 +382,13 @@ export async function ensureEmbeddingIndex(world, force = false, lockHeld = fals
 }
 
 export function scheduleEmbeddingIndexSync(world, delay = 300, allowAutomaticBuild = true) {
-    if (!world?.id || getSettings().retrievalMode !== 'embedding-hybrid') return;
+    if (getSettings().retrievalMode !== 'embedding-hybrid') {
+        clearSyncTimers();
+        // Release a retry backoff so the build can observe the mode change.
+        for (const finish of activeRestartWaiters) finish();
+        return;
+    }
+    if (!world?.id) return;
     const existing = syncTimers.get(world.id);
     if (existing) clearTimeout(existing);
     syncTimers.set(world.id, setTimeout(() => {
@@ -443,6 +459,7 @@ function waitForGenerationEmbeddingCoverage(world, work, signal) {
 export async function ensureGenerationEmbeddingIndex(world, { signal } = {}) {
     while (true) {
         signal?.throwIfAborted();
+        if (getSettings().retrievalMode !== 'embedding-hybrid') return;
         if (generationEmbeddingCoverageReady(world)) return;
         if (indexingControl !== 'running') {
             throw asRoleplayBlockingError(new Error('Embedding indexing is paused or stopped. Resume the index before retrying this reply.'));
@@ -521,6 +538,7 @@ export async function purgeEmbeddingIndex(worldId) {
 
 export async function rebuildEmbeddingIndex(world) {
     if (!world?.id) throw new Error('Open a chat with Continuity memory before rebuilding its embedding index.');
+    if (getSettings().retrievalMode !== 'embedding-hybrid') return interruptedResult(world);
     indexingControl = 'running';
     await purgeEmbeddingIndex(world.id);
     return ensureEmbeddingIndex(world, true);
