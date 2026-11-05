@@ -1,4 +1,4 @@
-import { asRoleplayBlockingError, roleplayBacklogPolicy } from './generation-policy.js?v=0.15.0-testing.30';
+import { asRoleplayBlockingError, roleplayBacklogPolicy } from './generation-policy.js?v=0.15.0-testing.30&catchup-gate=3';
 
 // Stop waiting for shared work without stopping the work itself. Extraction
 // and index builds belong to CM's controls, independently of the RP Stop.

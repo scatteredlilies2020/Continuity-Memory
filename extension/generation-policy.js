@@ -12,7 +12,7 @@ export function roleplayBacklogPolicy(pendingMessages, groupSize, requiredMessag
     const pending = Math.max(0, Math.round(Number(pendingMessages) || 0));
     const eligible = completeDigestMessageCount(pending, size);
     const required = Math.max(0, Math.round(Number(requiredMessages) || 0));
-    const hardLimit = size * 2;
+    const hardLimit = size * 3;
     return {
         pending,
         eligible,
@@ -32,7 +32,7 @@ export function roleplayStoryBacklogPolicy(pendingMessages, batchSize, repairReq
     const size = Math.max(2, Math.round(Number(batchSize) || 8));
     const pending = Math.max(0, Math.round(Number(pendingMessages) || 0));
     const eligible = Math.floor(pending / size) * size;
-    const hardLimit = size * 2;
+    const hardLimit = size * 3;
     return {
         pending,
         eligible,

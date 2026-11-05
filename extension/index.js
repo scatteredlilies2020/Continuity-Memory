@@ -7,7 +7,7 @@ import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackS
 import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.15.0-testing.30&belief-wording=4&historical-recall=1';
 import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.30';
 import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&historical-recall=1';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2&current-recall=1&bounded-recall=1&catchup-gate=1&pending-recovery=1&retrieval-json=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&settings-status=1&clear-problems=1&historical-recall=1';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2&current-recall=1&bounded-recall=1&catchup-gate=3&pending-recovery=1&retrieval-json=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&settings-status=1&clear-problems=1&historical-recall=1';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js?pending-recovery=1';
@@ -19,7 +19,7 @@ import { ensureGenerationEmbeddingIndex, getCachedEmbeddingMemory, queryEmbeddin
 import { previewRetrieval } from './retrieval-preview.js?pending-recovery=1';
 import { isTransientApiError } from './errors.js?v=0.15.0-testing.30';
 import { asRoleplayBlockingError, isRoleplayBlockingError, roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.15.0-testing.30&output-recovery=1';
-import { ensureGenerationMemory, waitForGenerationTask } from './generation-readiness.js?catchup-gate=2&output-recovery=1';
+import { ensureGenerationMemory, waitForGenerationTask } from './generation-readiness.js?catchup-gate=3&output-recovery=1';
 import { isDigestStabilityProtectedMessage, latestCompleteDigestMessageIndex } from './digest-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
 import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.15.0-testing.30';
@@ -30,7 +30,7 @@ import { buildPlanningEvidence, createContinuityContextBridge } from './context-
 import { resolveRetrievalAssist } from './retrieval-assist.js?bounded-recall=1&catchup-gate=1';
 import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.30&belief-wording=4&bounded-recall=1&pending-recovery=1&retrieval-json=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1';
 import { getGenerationTiming, timeGenerationStep } from './generation-timing.js';
-import { notifyHealthProblem } from './health-status.js?storage-recovery=1&clear-problems=1&historical-recall=1';
+import { notifyHealthProblem } from './health-status.js?storage-recovery=1&clear-problems=1&historical-recall=1&catchup-gate=3';
 
 const PROMPT_KEY = 'continuity_memory_context';
 const continuityContextBridge = createContinuityContextBridge(getContext);

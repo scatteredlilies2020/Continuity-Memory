@@ -19,7 +19,7 @@ function harness(pending, overrides = {}) {
 }
 
 test('ordinary backlog bypasses extraction, active-work waits, and subscriptions', async () => {
-    for (const pending of [0, 8, 15]) {
+    for (const pending of [0, 8, 15, 16, 23]) {
         const h = harness(pending);
         h.state.processing = true;
         h.state.paused = true;
@@ -30,27 +30,27 @@ test('ordinary backlog bypasses extraction, active-work waits, and subscriptions
     }
 });
 
-test('two stable pending batches trigger catch-up with the original source snapshot', async () => {
-    const h = harness(16);
+test('three stable pending batches trigger catch-up with the original source snapshot', async () => {
+    const h = harness(24);
     const world = await h.run();
     assert.equal(h.calls.length, 1);
     assert.equal(h.calls[0], h.options.sourceMessages);
-    assert.equal(h.waits[0].hardLimit, 16);
+    assert.equal(h.waits[0].hardLimit, 24);
     assert.equal(world.revision, 2);
     assert.equal(h.listeners.size, 0);
 });
 
 test('the catch-up threshold follows the configured Digest batch size', async () => {
-    const below = harness(23, { batchSize: 12 });
+    const below = harness(35, { batchSize: 12 });
     await below.run();
     assert.equal(below.calls.length, 0);
-    const over = harness(24, { batchSize: 12 });
+    const over = harness(36, { batchSize: 12 });
     await over.run();
     assert.equal(over.calls.length, 1);
 });
 
 test('an existing extraction can satisfy catch-up without starting duplicate work', async () => {
-    const h = harness(16);
+    const h = harness(24);
     h.state.processing = true;
     const run = h.run();
     assert.equal(h.listeners.size, 1);
@@ -61,7 +61,7 @@ test('an existing extraction can satisfy catch-up without starting duplicate wor
 });
 
 test('saved coverage releases the reply while the existing job and its queue continue', async () => {
-    const h = harness(16);
+    const h = harness(24);
     h.state.processing = true;
     h.state.queue = [{}];
     let ready = false;
@@ -69,7 +69,7 @@ test('saved coverage releases the reply while the existing job and its queue con
     h.emit({ world: { ...h.state.world, revision: 2, pending: 8 } });
     await new Promise(resolve => setTimeout(resolve, 0));
     try {
-        assert.equal(ready, true, 'The reply must not wait for unrelated work after pending falls below 16.');
+        assert.equal(ready, true, 'The reply must not wait for unrelated work after pending falls below 24.');
         assert.equal(h.state.processing, true);
         assert.equal(h.state.queue.length, 1);
         assert.equal(h.listeners.size, 0);
@@ -89,10 +89,10 @@ test('catch-up started by a reply releases at the threshold without awaiting the
     const run = h.run().then(world => { ready = true; return world; });
     await started;
     try {
-        h.emit({ world: { ...h.state.world, revision: 2, pending: 16 } });
+        h.emit({ world: { ...h.state.world, revision: 2, pending: 24 } });
         await new Promise(resolve => setTimeout(resolve, 0));
-        assert.equal(ready, false, 'Exactly 16 pending still requires catch-up.');
-        h.emit({ world: { ...h.state.world, revision: 3, pending: 8 } });
+        assert.equal(ready, false, 'Exactly 24 pending still requires catch-up.');
+        h.emit({ world: { ...h.state.world, revision: 3, pending: 16 } });
         await new Promise(resolve => setTimeout(resolve, 0));
         assert.equal(ready, true, 'A saved chunk must release the reply before the extraction promise settles.');
         assert.equal(h.state.processing, true);
@@ -108,7 +108,7 @@ test('a later failure in shared work cannot reject an already released reply', a
     let start, fail;
     const started = new Promise(resolve => { start = resolve; });
     const work = new Promise((_resolve, reject) => { fail = reject; });
-    const h = harness(16, { extract: () => { h.emit({ processing: true }); start(); return work; } });
+    const h = harness(24, { extract: () => { h.emit({ processing: true }); start(); return work; } });
     const run = h.run();
     await started;
     h.emit({ world: { ...h.state.world, revision: 2, pending: 8 } });
@@ -120,13 +120,13 @@ test('a later failure in shared work cannot reject an already released reply', a
 });
 
 test('an extraction failure before sufficient coverage still rejects the waiting reply', async () => {
-    const h = harness(16, { extract: async () => { throw new Error('Extraction failed before saving.'); } });
+    const h = harness(24, { extract: async () => { throw new Error('Extraction failed before saving.'); } });
     await assert.rejects(h.run(), /Extraction failed before saving/);
     assert.equal(h.listeners.size, 0);
 });
 
 test('a previous catch-up error permits a fresh attempt on the next reply', async () => {
-    const h = harness(16);
+    const h = harness(24);
     h.state.status = 'error';
     h.state.lastError = 'Memory catch-up failed; Extractor reached its output limit (finish_reason: length).';
     assert.equal((await h.run()).pending, 2);
@@ -135,7 +135,7 @@ test('a previous catch-up error permits a fresh attempt on the next reply', asyn
 });
 
 test('failure of an active extraction still rejects the reply waiting on it', async () => {
-    const h = harness(16);
+    const h = harness(24);
     h.state.processing = true;
     const run = h.run();
     const rejected = assert.rejects(run, /Extractor reached its output limit/);
@@ -147,7 +147,7 @@ test('failure of an active extraction still rejects the reply waiting on it', as
 
 test('RP Stop releases an active-work wait and removes its runtime listener', async () => {
     const controller = new AbortController();
-    const h = harness(16, { signal: controller.signal });
+    const h = harness(24, { signal: controller.signal });
     h.state.processing = true;
     const run = h.run();
     const rejected = assert.rejects(run, { name: 'AbortError' });
@@ -162,7 +162,7 @@ test('RP Stop releases a catch-up task that ignores cancellation without stoppin
     let started;
     const ready = new Promise(resolve => { started = resolve; });
     const controller = new AbortController();
-    const h = harness(16, { signal: controller.signal, extract: () => { started(); return new Promise(() => {}); } });
+    const h = harness(24, { signal: controller.signal, extract: () => { started(); return new Promise(() => {}); } });
     const run = h.run();
     const rejected = assert.rejects(run, { name: 'AbortError' });
     await ready;
@@ -172,7 +172,7 @@ test('RP Stop releases a catch-up task that ignores cancellation without stoppin
 });
 
 test('a large backlog respects an explicit CM pause and never resumes processing', async () => {
-    const h = harness(16);
+    const h = harness(24);
     h.state.paused = true;
     await assert.rejects(h.run(), isRoleplayBlockingError);
     assert.equal(h.state.paused, true);
@@ -180,7 +180,7 @@ test('a large backlog respects an explicit CM pause and never resumes processing
 });
 
 test('CM Stop during an active-work wait cancels catch-up rather than releasing stale memory', async () => {
-    const h = harness(16);
+    const h = harness(24);
     h.state.processing = true;
     const run = h.run();
     const rejected = assert.rejects(run, isRoleplayBlockingError);
@@ -191,7 +191,7 @@ test('CM Stop during an active-work wait cancels catch-up rather than releasing 
 });
 
 test('catch-up that makes no progress cannot silently release the reply', async () => {
-    const h = harness(16, { extract: async () => null });
+    const h = harness(24, { extract: async () => null });
     await assert.rejects(h.run(), error => isRoleplayBlockingError(error) && /no progress/.test(error.message));
 });
 

@@ -39,7 +39,7 @@ import { createRenderScheduler } from './render-scheduler.js';
 import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.30';
 import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.30';
 import { isTransientApiError } from './errors.js';
-import { clearHealthProblemHistory, continuityHealth, createHealthProblemTracker, notifyHealthProblem } from './health-status.js?storage-recovery=1&clear-problems=1&historical-recall=1';
+import { clearHealthProblemHistory, continuityHealth, createHealthProblemTracker, notifyHealthProblem } from './health-status.js?storage-recovery=1&clear-problems=1&historical-recall=1&catchup-gate=3';
 
 let worlds = [];
 let creatingChatMemory = null;

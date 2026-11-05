@@ -1,4 +1,5 @@
 import { resolveDigestGroupSize } from './digest-policy.js';
+import { roleplayBacklogPolicy } from './generation-policy.js?v=0.15.0-testing.30&catchup-gate=3';
 import { CONTINUITY_VERSION } from './build-info.js?historical-recall=1';
 
 const MAX_PROBLEMS = 40;
@@ -94,7 +95,7 @@ export function continuityHealth(state, settings, coverage = {}, now = Date.now(
     const versions = `Browser ${CONTINUITY_VERSION} · ${state.health?.detachedJobs
         ? `server ${state.health.version || 'unknown'}${state.health.version !== CONTINUITY_VERSION ? ' — restart SillyTavern to load the updated server plugin' : ''}`
         : state.health ? 'SillyTavern file storage' : 'checking storage'}`;
-    const backlog = `${totalPending} pending · ${pending} stable · automatic batch ${size} · reply catch-up at ${size * 2}`;
+    const backlog = `${totalPending} pending · ${pending} stable · automatic batch ${size} · reply catch-up at ${roleplayBacklogPolicy(pending, size).hardLimit}`;
     const result = (level, label, message) => ({ level, label, message, backlog, versions, totalPending });
     if (!settings.enabled) return result('muted', 'Disabled', 'Continuity Memory is turned off.');
     const latestJob = [...(job ? [job] : []), ...(state.memoryJobs || [])]

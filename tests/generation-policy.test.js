@@ -37,46 +37,49 @@ test('old source mutations cancel overlapping work and repair their suffix', () 
     });
 });
 
-test('allows one background Digest batch of headroom before roleplay must catch up', () => {
+test('starts background Digest at eight while replies have headroom until 24', () => {
     assert.deepEqual(roleplayBacklogPolicy(1, 8), {
         pending: 1,
         eligible: 0,
         required: 0,
         blocking: 0,
         backgroundThreshold: 8,
-        hardLimit: 16,
+        hardLimit: 24,
         shouldCatchUp: false,
     });
     assert.equal(roleplayBacklogPolicy(8, 8).shouldCatchUp, false);
+    assert.equal(roleplayBacklogPolicy(8, 8).backgroundThreshold, 8);
     assert.equal(roleplayBacklogPolicy(15, 8).shouldCatchUp, false);
-    assert.equal(roleplayBacklogPolicy(16, 8).shouldCatchUp, true);
+    assert.equal(roleplayBacklogPolicy(16, 8).shouldCatchUp, false);
+    assert.equal(roleplayBacklogPolicy(23, 8).shouldCatchUp, false);
+    assert.equal(roleplayBacklogPolicy(24, 8).shouldCatchUp, true);
     assert.equal(roleplayBacklogPolicy(16, 8).eligible, 16);
 });
 
 test('excludes the provisional newest AI output from the catch-up boundary', () => {
-    const eligible = Array.from({ length: 15 }, (_, index) => ({
+    const eligible = Array.from({ length: 23 }, (_, index) => ({
         mes: `Stable ${index}`,
         name: 'User',
         is_user: true,
     }));
     const provisional = { mes: 'Mutable newest reply', name: 'Character', is_user: false };
     const pending = collectMemoryEligibleMessages([...eligible, provisional]).length;
-    assert.equal(pending, 15);
+    assert.equal(pending, 23);
     assert.equal(roleplayBacklogPolicy(pending, 8).shouldCatchUp, false);
-    assert.equal(roleplayBacklogPolicy([...eligible, { mes: 'Stable 15', is_user: true }].length, 8).shouldCatchUp, true);
+    assert.equal(roleplayBacklogPolicy([...eligible, { mes: 'Stable 23', is_user: true }].length, 8).shouldCatchUp, true);
 });
 
 test('scales the protected background headroom with the configured Digest group size', () => {
-    assert.deepEqual(roleplayBacklogPolicy(23, 12), {
-        pending: 23,
-        eligible: 12,
+    assert.deepEqual(roleplayBacklogPolicy(35, 12), {
+        pending: 35,
+        eligible: 24,
         required: 0,
-        blocking: 12,
+        blocking: 24,
         backgroundThreshold: 12,
-        hardLimit: 24,
+        hardLimit: 36,
         shouldCatchUp: false,
     });
-    assert.equal(roleplayBacklogPolicy(24, 12).shouldCatchUp, true);
+    assert.equal(roleplayBacklogPolicy(36, 12).shouldCatchUp, true);
 });
 
 test('deliberately undone memory is visible without blocking below the normal backlog limit', () => {
@@ -87,10 +90,10 @@ test('deliberately undone memory is visible without blocking below the normal ba
     assert.equal(result.shouldCatchUp, false);
 });
 
-test('uses the same two-batch pending threshold for Story So Far', () => {
-    assert.equal(roleplayStoryBacklogPolicy(15, 8).shouldCatchUp, false);
-    assert.equal(roleplayStoryBacklogPolicy(16, 8).shouldCatchUp, true);
-    assert.equal(roleplayStoryBacklogPolicy(16, 8).eligible, 16);
+test('uses the same three-batch pending threshold for Story So Far', () => {
+    assert.equal(roleplayStoryBacklogPolicy(23, 8).shouldCatchUp, false);
+    assert.equal(roleplayStoryBacklogPolicy(24, 8).shouldCatchUp, true);
+    assert.equal(roleplayStoryBacklogPolicy(24, 8).eligible, 24);
     assert.equal(roleplayStoryBacklogPolicy(1, 8, true).shouldCatchUp, true);
 });
 

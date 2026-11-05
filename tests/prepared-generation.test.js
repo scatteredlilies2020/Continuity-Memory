@@ -329,10 +329,23 @@ test('memory completed during lookup is retrieved again against the newest revis
     assert.equal(fixture.selections[0].ranks.get('fact:revision-4'), 1);
 });
 
-test('the actual interceptor waits at two pending batches and retrieves from caught-up memory', async () => {
+test('the actual interceptor permits 16 through 23 pending while background work continues', async () => {
+    for (const pending of [16, 23]) {
+        const fixture = interceptorFixture(null, chat);
+        fixture.context.runtime.processing = true;
+        fixture.context.getProcessingCoverage = () => ({ pending: pending + 2, extractable: pending });
+        await withoutWaiting(fixture.run([...chat], 60000, null, 'normal'));
+        assert.deepEqual(fixture.calls, []);
+        assert.equal(fixture.lookups.length, 1);
+        assert.equal(fixture.context.runtime.processing, true);
+        assert.equal(fixture.context.runtime.roleplayGate, null);
+    }
+});
+
+test('the actual interceptor waits at three pending batches and retrieves from caught-up memory', async () => {
     const fixture = interceptorFixture(null, chat);
-    fixture.context.getProcessingCoverage = selectedWorld => ({ pending: selectedWorld.revision === 3 ? 18 : 2,
-        extractable: selectedWorld.revision === 3 ? 16 : 0, latestIndex: 0 });
+    fixture.context.getProcessingCoverage = selectedWorld => ({ pending: selectedWorld.revision === 3 ? 26 : 2,
+        extractable: selectedWorld.revision === 3 ? 24 : 0, latestIndex: 0 });
     let extractions = 0;
     fixture.context.maybeAutoExtract = async (force, sources) => {
         assert.equal(force, true);
@@ -362,7 +375,7 @@ test('the actual interceptor waits for index catch-up before using fresh semanti
 
 test('failed mandatory catch-up cancels the reply instead of silently falling back', async () => {
     const fixture = interceptorFixture(null, chat);
-    fixture.context.getProcessingCoverage = () => ({ pending: 18, extractable: 16 });
+    fixture.context.getProcessingCoverage = () => ({ pending: 26, extractable: 24 });
     fixture.context.maybeAutoExtract = async () => null;
     const aborted = [];
     await fixture.run([...chat], 60000, value => aborted.push(value), 'normal');

@@ -167,7 +167,7 @@ test('health shows thinking, retrying, backlog, and loss of model progress separ
     let health = continuityHealth(state, settings, { pending: 14, extractable: 12 }, time);
     assert.equal(health.label, 'Model thinking');
     assert.match(health.message, /148–151/);
-    assert.match(health.backlog, /automatic batch 8 · reply catch-up at 16/);
+    assert.match(health.backlog, /automatic batch 8 · reply catch-up at 24/);
     health = continuityHealth(state, settings, {}, time + 121000);
     assert.equal(health.label, 'No recent progress');
     assert.equal(continuityHealth({ status: 'reconnecting', retryStatus: 'Network unavailable' }, settings).label, 'Retrying');
