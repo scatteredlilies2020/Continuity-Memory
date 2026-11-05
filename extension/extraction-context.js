@@ -124,18 +124,49 @@ function resultStrings(value, output = []) {
     return output;
 }
 
+function attributionActor(prefix) {
+    // Roles are also speakers. Keep the role itself so "the carter" cannot
+    // license dialogue attributed to "the baker" or to another character.
+    const role = prefix.match(/\b(?:[Tt]he|[Aa]n?)\s+([\p{Ll}][\p{L}'’-]*(?:\s+[\p{Ll}][\p{L}'’-]*){0,2})\s*$/u)?.[1];
+    const name = prefix.match(/([\p{Lu}][\p{L}'’-]*)\s*$/u)?.[1];
+    return (role || name || '').toLocaleLowerCase();
+}
+
+function attributionSourceEvidence(sourceEvidence) {
+    const sources = resultStrings(sourceEvidence);
+    const sentences = sources.flatMap(value => String(value).split(/(?<=[.!?;])\s+|\n+/u)).filter(Boolean);
+    // Dialogue often follows an action beat rather than a reporting verb:
+    // The carter touches his cap. "Your name is good, my lady."
+    // Recover only adjacent, explicit speakers in the same paragraph. Never
+    // borrow a speaker across paragraphs or treat an author note as dialogue.
+    const actor = "(?:[Tt]he|[Aa]n?)\\s+[\\p{Ll}][\\p{L}'’-]*(?:\\s+[\\p{Ll}][\\p{L}'’-]*){0,2}|[\\p{Lu}][\\p{L}'’-]*(?:\\s+[\\p{Lu}][\\p{L}'’-]*)*";
+    const beat = '(?:nods|nodded|smiles|smiled|grins|grinned|sighs|sighed|shrugs|shrugged|straightens|straightened|laughs|laughed|(?:touches|touched|tips|tipped)\\s+(?:his|her|their)\\s+(?:cap|hat))';
+    const beforeQuote = new RegExp(`(?:^|[.!?]\\s+)((?:${actor}))\\s+(${beat}[^.!?"“”]*)[.!?]?\\s*$`, 'u');
+    const speakerChange = new RegExp(`(?:[,;]|\\b(?:and|but|while|when|as|then))\\s+(?:${actor}|he|she|they|who)\\b`, 'u');
+    for (const source of sources) for (const paragraph of String(source).split(/\n\s*\n/u)) {
+        if (SAFE_PROVENANCE.test(paragraph) || NEGATED_ATTRIBUTION.test(paragraph)) continue;
+        for (const quote of paragraph.matchAll(/["“]([^"“”]+)["”]/gu)) {
+            const match = beforeQuote.exec(paragraph.slice(0, quote.index));
+            if (!match || ATTRIBUTION_VERB.test(match[2]) || speakerChange.test(match[2])) continue;
+            const speaker = match[1];
+            for (const content of quote[1].split(/(?<=[.!?;])\s+/u)) sentences.push(`${speaker} said ${content}`);
+        }
+    }
+    return sentences;
+}
+
 function supportedAttribution(sentence, evidence, authorTerms) {
     const normalized = words(sentence).join(' ');
     const attribution = /\b(?:said|says|stated|asserted|claimed|revealed|disclosed|told|informed|admitted|announced|explained|mentioned|shared|communicated|declared|warned|asked|knew|knows|learned|realized|recognized|understood|discovered)\b/iu;
     const signature = text => {
         const match = ATTRIBUTION_VERB.exec(text) || attribution.exec(text);
         if (!match) return null;
-        const actor = text.slice(0, match.index).match(/([\p{Lu}][\p{L}'’-]*)\s*$/u)?.[1];
+        const actor = attributionActor(text.slice(0, match.index));
         if (!actor) return null;
         return {
             actor,
             knowledge: /^(?:knew|knows|learned|realized|recognized|understood|discovered)$/iu.test(match[0]),
-            terms: words(text.slice(match.index + match[0].length)).filter(term => !PROVENANCE_STOP_WORDS.has(term)),
+            terms: [...attributionContentTerms(text)].filter(term => !PROVENANCE_STOP_WORDS.has(term) && !attribution.test(term)),
         };
     };
     const candidate = signature(sentence);
@@ -177,7 +208,8 @@ function attributionContentTerms(sentence) {
     // the proposition about Reinhard. Preserve all other content for validation.
     const lead = sentence.slice(0, attributions[0].index);
     const tail = sentence.slice(attributions[0].index + attributions[0][0].length);
-    const inverted = new RegExp(`^([\\s\\S]+),\\s*(?:${namedActor}|he|she|they|I|we|you)(?:\\s+\\p{L}+){0,2}\\s*$`, 'u').exec(lead);
+    const roleActor = "(?:the|a|an)\\s+[\\p{Ll}][\\p{L}'’-]*(?:\\s+[\\p{Ll}][\\p{L}'’-]*){0,2}";
+    const inverted = new RegExp(`^([\\s\\S]+),\\s*(?:${namedActor}|${roleActor}|he|she|they|I|we|you)(?:\\s+\\p{L}+){0,2}\\s*$`, 'u').exec(lead);
     // Also preserve unquoted inverted/parenthetical reports, but not a leading
     // contextual clause ("After meeting Reinhard, Emilia says, ...").
     const reportedBefore = inverted && /^\s*(?:,|[.!?]*$)/u.test(tail)
@@ -204,7 +236,7 @@ function attributionContentTerms(sentence) {
 
 export function authoritativeMetaProvenanceConflicts(result, boundaries, sourceEvidence = []) {
     const sentences = resultStrings(result).flatMap(value => String(value).split(/(?<=[.!?;])\s+|\n+/u)).filter(Boolean);
-    const evidence = resultStrings(sourceEvidence).flatMap(value => String(value).split(/(?<=[.!?;])\s+|\n+/u)).filter(Boolean);
+    const evidence = attributionSourceEvidence(sourceEvidence);
     const conflicts = [];
     for (const boundary of boundaries || []) {
         const speaker = String(boundary?.speaker || '').trim();
@@ -229,6 +261,69 @@ export function assertAuthoritativeMetaProvenance(result, boundaries, sourceEvid
     if (!conflicts.length) return result;
     const first = conflicts[0];
     throw Object.assign(new Error(`OOC provenance violation: generated memory attributes author-only canon as character speech or knowledge${first.speaker ? ` (source persona: ${first.speaker})` : ''}: “${first.sentence.slice(0, 220)}”`), { code: 'CM_OOC_PROVENANCE' });
+}
+
+// Word overlap is a useful diagnostic, but cannot establish whether a model
+// actually invented a disclosure. It must never stop a Digest or Chronicle.
+// Withhold affected generated records and retain the source account instead;
+// neither relabel invented speech as canon nor silently lose the source facts.
+export function recoverAuthoritativeMetaProvenance(result, boundaries, sourceEvidence = [], sourceContext = [], sourceMessages = []) {
+    const conflicts = authoritativeMetaProvenanceConflicts(result, boundaries, sourceEvidence);
+    const recovery = { conflicts: conflicts.length, withheldRecords: 0 };
+    if (!conflicts.length) return recovery;
+    const sentences = value => String(value).split(/(?<=[.!?;])\s+|\n+/u).filter(Boolean);
+    const rejected = new Set(conflicts.map(conflict => conflict.sentence.trim()));
+    const affected = value => resultStrings(value).some(text => sentences(text).some(sentence => rejected.has(sentence.trim())));
+    const clean = value => {
+        if (typeof value === 'string') return sentences(value).filter(sentence => !rejected.has(sentence.trim())).join(' ');
+        if (Array.isArray(value)) return value.map(clean).filter(item => item !== '');
+        if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, clean(item)]));
+        return value;
+    };
+    const source = sourceMessages.length
+        ? sourceMessages.flatMap(message => {
+            const text = splitScenarioNotes(message)?.inWorld ?? messageText(message);
+            return text.trim() ? [`[Source message ${message.index}: ${message.name || 'Unknown speaker'}]\n${text}`] : [];
+        })
+        : resultStrings(sourceEvidence).filter(text => text.trim());
+    // Source notes retain explicit author scope, never character knowledge.
+    const notes = (sourceContext || []).filter(note => note?.kind === 'scenario-note')
+        .flatMap(note => sentences(note.text).map(sentence => `Author-level context: ${sentence}`));
+    const fallback = [...source, ...notes].join('\n\n') || 'The source establishes author-level context without an in-world disclosure.';
+    for (const category of ['facts', 'states', 'relationships', 'events', 'threads', 'backgrounds', 'identityResolutions', 'recordMerges']) {
+        if (!Array.isArray(result[category])) continue;
+        result[category] = result[category].filter(record => {
+            if (!affected(record)) return true;
+            recovery.withheldRecords++;
+            return false;
+        });
+    }
+    if (Array.isArray(result.entities)) result.entities = result.entities.flatMap(entity => {
+        if (!affected(entity)) return [entity];
+        if (affected([entity.name, entity.type, entity.aliases])) {
+            recovery.withheldRecords++;
+            return [];
+        }
+        recovery.withheldRecords++;
+        return [clean(entity)];
+    });
+    for (const key of ['scene', 'sceneCapsule', 'storySoFar', 'title', 'storyTime', 'participants', 'turningPoints', 'emotionalArc', 'closingState', 'openThreads']) {
+        if (affected(result[key])) result[key] = clean(result[key]);
+    }
+    if (result.sceneCapsule && typeof result.sceneCapsule === 'object') {
+        const capsule = result.sceneCapsule;
+        if (!String(capsule.title || '').trim()) capsule.title = 'Source account';
+        if (!capsule.opening && !capsule.beats?.length && !capsule.closing) capsule.opening = fallback;
+        // Preserve the complete source account even if the compact capsule's
+        // fields are clipped for display. Safe generated records stay intact.
+        result.chronicleEntry = fallback;
+    } else if (typeof result.summary === 'string') {
+        result.summary = fallback;
+        if (!String(result.title || '').trim()) result.title = 'Source account';
+    } else if (typeof result.chronicleEntry === 'string') {
+        result.chronicleEntry = fallback;
+    }
+    return recovery;
 }
 
 export function isAuthoritativeUserMetaMessage(message) {

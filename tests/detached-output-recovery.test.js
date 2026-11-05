@@ -135,18 +135,19 @@ test('truncation after a malformed response still gets exactly one capacity reco
     assert.equal(result.saves, 1);
 });
 
-test('provenance failures receive corrective feedback instead of repeating an identical request', async () => {
+test('provenance uncertainty saves the scoped source account without retrying or failing the job', async () => {
     const root = task([144]);
     root.messages[0].text = 'OOC: Alice has a secret route.';
-    const result = await runExtraction('provenance-feedback', root, (body, attempt) => {
-        if (attempt === 1) return { finish: 'stop', content: { ...extracted, chronicleEntry: 'Alice revealed the secret route.' } };
-        assert.match(JSON.stringify(body.messages), /previous extraction failed source attribution/);
-        assert.match(JSON.stringify(body.messages), /Do not invent a character/);
-        return { finish: 'stop', content: { ...extracted, chronicleEntry: 'The secret route belongs to Alice.' } };
+    const result = await runExtraction('provenance-recovery', root, (_body, attempt) => {
+        assert.equal(attempt, 1, 'Provenance uncertainty must not require another model response.');
+        return { finish: 'stop', content: { ...extracted, chronicleEntry: 'Alice revealed the secret route.' } };
     });
     assert.equal(result.finished.status, 'complete', result.finished.error);
-    assert.equal(result.requests.length, 2);
+    assert.equal(result.requests.length, 1);
     assert.equal(result.saves, 1);
+    assert.match(result.world.capsules[0].chronicleText, /Author-level context: OOC: Alice has a secret route/);
+    assert.doesNotMatch(result.world.capsules[0].chronicleText, /Alice revealed/);
+    assert.equal(result.world.sources.chat.processedMessages[0].index, 144);
 });
 
 test('repeated commute disconnects split a large batch and preserve saved sections through further outages', async () => {

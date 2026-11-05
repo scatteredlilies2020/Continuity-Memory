@@ -15,6 +15,8 @@ Memory processing runs in the background. If part of a chat has not been process
 
 Memory records history, not required behavior. Earlier refusals, agreements and knowledge apply at their recorded time; later play can change them. Recall shows knowledge with its source range and removes exact duplicate observations caused by changed character indices, while keeping the original stored history.
 
+Author notes remain author-level context. When generated speech or knowledge overlaps an author note and its attribution is uncertain, Digest and Chronicle processing retain the source account and withhold affected generated records instead of stopping with a provenance error. Unaffected records are kept. This fallback can be longer than a generated summary; its source text and author scope are preserved.
+
 ## Installation
 
 1. In SillyTavern, open **Extensions** and choose **Install Extension**.

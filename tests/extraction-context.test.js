@@ -126,6 +126,52 @@ test('Digest source evidence supports actual dialogue while excluding author-onl
     assert.throws(() => assertAuthoritativeMetaProvenance({ chronicleEntry: evidence[0] }, boundaries, inWorldSourceEvidence(messages.slice(0, 1))), /OOC provenance violation/);
 });
 
+test('role speakers can summarize dialogue following an action beat despite incidental OOC vocabulary', () => {
+    const messages = [
+        { index: 402, name: 'Re Zero', text: 'The carter touches his cap. "Your name is good, my lady. I will say so if anyone asks." He stows the coins and drives away.' },
+        { index: 404, name: 'Re Zero', text: 'OOC: Good question. The dispatch has not been fully spelled out yet. Here is what makes narrative sense.\n\nThe dispatch remains on the desk.' },
+    ];
+    const boundaries = authoritativeMetaBoundaries(messages);
+    const evidence = inWorldSourceEvidence(messages);
+    assert.ok(boundaries[0].terms.includes('good'), 'Exercise the incidental overlap that caused the rejection.');
+    for (const summary of [
+        'the carter says her name is good and departs.',
+        'The carter said her name was good.',
+        'Carter said her name was good.',
+    ]) assert.doesNotThrow(() => assertAuthoritativeMetaProvenance({ summary }, boundaries, evidence));
+    for (const summary of [
+        'The baker says her name is good and departs.',
+        'Emilia said her name was good.',
+        'The carter learned her name was good.',
+        'The carter says the dispatch makes narrative sense.',
+    ]) assert.throws(() => assertAuthoritativeMetaProvenance({ summary }, boundaries, evidence), /OOC provenance violation/);
+    assert.throws(() => assertAuthoritativeMetaProvenance({ summary: 'The carter says her name is good.' }, boundaries,
+        inWorldSourceEvidence(messages.slice(1))), /OOC provenance violation/);
+});
+
+test('role attribution support preserves the speaker, proposition, modality and negation', () => {
+    const boundaries = [{ terms: ['secret', 'route', 'safe'] }];
+    const result = { summary: 'The guard said the secret route was safe.' };
+    for (const source of [
+        'The guard stated the secret route was safe.',
+        'The guard nods. “The secret route is safe.”',
+        '“The secret route is safe,” the guard said.',
+        '“The secret route is safe,” the guard said, tipping his cap.',
+        'The secret route is safe, the guard said.',
+    ]) assert.doesNotThrow(() => assertAuthoritativeMetaProvenance(result, boundaries, [source]));
+    for (const source of [
+        'The baker nods. "The secret route is safe."',
+        'The guard nods.\n\n"The secret route is safe."',
+        'OOC: The guard nods. "The secret route is safe."',
+        'The guard nods. "The secret route is not safe."',
+        'The guard nods. "The secret route might be safe."',
+        'The guard nods. "The secret route is dangerous."',
+        'The guard reads a note. "The secret route is safe."',
+        'The guard smiles while Alice says, "The secret route is safe."',
+        'The guard nods and the baker grins, "The secret route is safe."',
+    ]) assert.throws(() => assertAuthoritativeMetaProvenance(result, boundaries, [source]), /OOC provenance violation/);
+});
+
 test('new speakers shared with OOC stage directions are not author-only propositions', () => {
     const messages = [
         { index: 75, name: 'Elsa', isUser: true, text: 'OOC: Reinhard arrives to arrest Fern' },

@@ -26,7 +26,7 @@ import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedChronicle, freshResetResiduals, getLatestDigestUndoStatus as inspectLatestDigestUndo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from './memory-model.js?historical-recall=1';
 import { extractionResponseTokens, memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js?pending-recovery=1&output-recovery=2';
 import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.30';
-import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, inWorldSourceEvidence, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.34';
+import { recoverAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, inWorldSourceEvidence, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.36';
 import { embedWorldInChat } from './portable.js?belief-wording=4&pending-recovery=1&historical-recall=1';
 import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.30';
 import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.30&belief-wording=4&historical-recall=1';
@@ -223,9 +223,15 @@ function validateResult(result, world, messages) {
     const provenanceBoundaries = authoritativeMetaBoundaries(messages, world?.entities || []);
     const sourceEvidence = inWorldSourceEvidence(messages);
     delete result._sourceScenarioContext;
-    assertAuthoritativeMetaProvenance(result, provenanceBoundaries, sourceEvidence);
+    const sourceContext = captureScenarioContext(messages);
+    const before = recoverAuthoritativeMetaProvenance(result, provenanceBoundaries, sourceEvidence, sourceContext, messages);
     const validation = sanitizeReconciliationMetadata(result, world, messages, { neutralSupporting: true });
-    assertAuthoritativeMetaProvenance(result, provenanceBoundaries, sourceEvidence);
+    const after = recoverAuthoritativeMetaProvenance(result, provenanceBoundaries, sourceEvidence, sourceContext, messages);
+    const recoveredProvenance = before.conflicts + after.conflicts;
+    if (recoveredProvenance) {
+        validation.warnings ||= [];
+        validation.warnings.push(`Used the source account for ${recoveredProvenance} uncertain generated attribution(s); unaffected records were kept.`);
+    }
     result._authoritativeMetaBoundaries = provenanceBoundaries;
     // Overwrite any model-supplied field with source text captured by code.
     result._sourceScenarioContext = captureScenarioContext(messages);
@@ -1334,7 +1340,7 @@ function chronicleProvenanceBoundaries(nodes) {
 
 function validateChronicleResult(result, layer, nodes) {
     const normalized = validateArcResult(result, layer);
-    assertAuthoritativeMetaProvenance(normalized, chronicleProvenanceBoundaries(nodes), nodes.map(node => node.text || node.summary || ''));
+    recoverAuthoritativeMetaProvenance(normalized, chronicleProvenanceBoundaries(nodes), nodes.map(node => node.text || node.summary || ''));
     return normalized;
 }
 
@@ -1371,7 +1377,7 @@ async function generateChroniclePromotion(nodes, previousError = null) {
 
 async function saveChroniclePromotion(world, result, nodes, embed = true) {
     const worldId = world.id;
-    assertAuthoritativeMetaProvenance(result, chronicleProvenanceBoundaries(nodes), nodes.map(node => node.text || node.summary || ''));
+    recoverAuthoritativeMetaProvenance(result, chronicleProvenanceBoundaries(nodes), nodes.map(node => node.text || node.summary || ''));
     let created;
     for (let attempt = 0; attempt < 4; attempt++) {
         if (attempt) world = (await api.getWorld(worldId)).world;
@@ -1816,7 +1822,7 @@ export async function restartHierarchyFromDigest() {
             if (runtime.generation !== epoch) throw new Error('Chronicle rebuild was stopped; the previously saved hierarchy was kept.');
             result = await reviewHierarchyBeforeSave(result, `C${destination}`, nodes, 'hierarchy', () => generateChroniclePromotion(nodes));
             if (runtime.generation !== epoch) throw new Error('Chronicle rebuild was stopped; the previously saved hierarchy was kept.');
-            assertAuthoritativeMetaProvenance(result, chronicleProvenanceBoundaries(nodes), nodes.map(node => node.text || node.summary || ''));
+            recoverAuthoritativeMetaProvenance(result, chronicleProvenanceBoundaries(nodes), nodes.map(node => node.text || node.summary || ''));
             addDerivedChronicle(world, result, nodes);
             chroniclePromotions++;
         }

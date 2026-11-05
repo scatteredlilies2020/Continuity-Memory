@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import { isRateLimitError, isTransientApiError } from '../extension/errors.js';
 import { EXTRACTION_OUTPUT_RECOVERY_GUIDE, isAdaptiveExtractionSplitError, isExplicitExtractionOutputLimitError } from '../extension/extraction-recovery.js';
 import { extractionRecoveryRequest } from '../extension/memory-response-policy.js';
-import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, inWorldSourceEvidence } from '../extension/extraction-context.js';
+import { recoverAuthoritativeMetaProvenance, authoritativeMetaBoundaries, inWorldSourceEvidence } from '../extension/extraction-context.js';
 import { fingerprintMessage } from '../extension/message-digest.js';
 import { addDerivedChronicle, mergeExtraction } from '../extension/memory-model.js';
 import { isCurrentStorySnapshot } from '../extension/story-source.js';
@@ -112,9 +112,15 @@ function validateResult(result, world, messages) {
     const provenanceBoundaries = authoritativeMetaBoundaries(messages, world?.entities || []);
     const sourceEvidence = inWorldSourceEvidence(messages);
     delete result._sourceScenarioContext;
-    assertAuthoritativeMetaProvenance(result, provenanceBoundaries, sourceEvidence);
+    const sourceContext = captureScenarioContext(messages);
+    const before = recoverAuthoritativeMetaProvenance(result, provenanceBoundaries, sourceEvidence, sourceContext, messages);
     const validation = sanitizeReconciliationMetadata(result, world, messages, { neutralSupporting: true });
-    assertAuthoritativeMetaProvenance(result, provenanceBoundaries, sourceEvidence);
+    const after = recoverAuthoritativeMetaProvenance(result, provenanceBoundaries, sourceEvidence, sourceContext, messages);
+    const recoveredProvenance = before.conflicts + after.conflicts;
+    if (recoveredProvenance) {
+        validation.warnings ||= [];
+        validation.warnings.push(`Used the source account for ${recoveredProvenance} uncertain generated attribution(s); unaffected records were kept.`);
+    }
     result._authoritativeMetaBoundaries = provenanceBoundaries;
     result._sourceScenarioContext = captureScenarioContext(messages);
     return { result, validation };
@@ -203,12 +209,12 @@ async function requestHierarchy(job, layer, records, label, previousError = null
         } else throw error;
     }
     const result = validateHierarchyResult(parseJsonResponse(raw), label);
-    assertAuthoritativeMetaProvenance(result, chronicleProvenanceBoundaries(records), records.map(node => node.text || node.summary || ''));
+    recoverAuthoritativeMetaProvenance(result, chronicleProvenanceBoundaries(records), records.map(node => node.text || node.summary || ''));
     return result;
 }
 
 async function saveChronicleResult(job, result, sourceRecords) {
-    assertAuthoritativeMetaProvenance(result, chronicleProvenanceBoundaries(sourceRecords), sourceRecords.map(node => node.text || node.summary || ''));
+    recoverAuthoritativeMetaProvenance(result, chronicleProvenanceBoundaries(sourceRecords), sourceRecords.map(node => node.text || node.summary || ''));
     return retryDetached(job, async () => {
         const world = await job.loadWorld();
         if (job.cancelled) throw new Error('Detached processing was cancelled.');

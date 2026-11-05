@@ -611,7 +611,7 @@ test('detached jobs report source tokens and promote Recursive Chronicle without
     assert.equal(loaded.payload.world.chronicle.filter(item => Number(item.level) === 1).length, 1);
 });
 
-test('Chronicle-only jobs recover transport and validation failures without re-extracting Digest', async t => {
+test('Chronicle-only jobs recover transport, JSON and provenance problems without re-extracting Digest', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-promotion-retry-'));
     t.after(() => fs.rm(root, { recursive: true, force: true }));
     const router = mockRouter();
@@ -629,8 +629,7 @@ test('Chronicle-only jobs recover transport and validation failures without re-e
             assert.match(prompt, /previous parent failed validation:.*valid JSON object/);
             return Response.json({ choices: [{ message: { content: JSON.stringify({ summary: 'Alice revealed the secret route.' }) } }] });
         }
-        assert.match(prompt, /previous parent failed validation: OOC provenance violation/);
-        return Response.json({ choices: [{ message: { content: JSON.stringify({ title: 'Journey', summary: 'Alice continues her journey.' }) } }] });
+        assert.fail('Provenance uncertainty must recover from source without another model request.');
     };
     await init(router, { syncExtension: false, fetchImpl, detachedRetryDelayMs: 10, detachedMaxRetryDelayMs: 10 });
     const created = await call(router.routes.get('POST /worlds'), root, { body: { name: 'Pending promotion' } });
@@ -661,11 +660,14 @@ test('Chronicle-only jobs recover transport and validation failures without re-e
     assert.equal(job.hierarchyError, '');
     assert.equal(job.chronicle, 1);
     assert.equal(job.chunks, 0);
-    assert.equal(calls, 8);
+    assert.equal(calls, 7);
     const loaded = (await call(router.routes.get('GET /worlds/:id'), root, { params: { id: worldId } })).payload.world;
     assert.equal(loaded.capsules.length, 30);
     assert.equal(loaded.chronicle.filter(node => node.level === 0).length, 30);
     assert.equal(loaded.chronicle.filter(node => node.level === 1).length, 1);
+    const parent = loaded.chronicle.find(node => node.level === 1);
+    assert.match(parent.text, /Alice travels/);
+    assert.doesNotMatch(parent.text, /Alice revealed the secret route/);
     const covered = new Set(loaded.chronicle.flatMap(node => node.childIds));
     assert.equal(loaded.chronicle.filter(node => node.level === 0 && !covered.has(node.id)).length, 20);
 });
