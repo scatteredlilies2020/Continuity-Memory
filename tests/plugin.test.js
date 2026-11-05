@@ -27,8 +27,8 @@ test('storage policy routes persist per-user settings and reject unsafe values',
     const router = mockRouter();
     await init(router, { syncExtension: false });
     const get = () => call(router.routes.get('GET /storage-policy'), root);
-    assert.equal((await get()).payload.policy.shardRetentionDays, 7);
-    for (const days of [0, 14, 3650]) {
+    assert.equal((await get()).payload.policy.shardRetentionDays, 1);
+    for (const days of [0, 1, 7, 14, 3650]) {
         const saved = await call(router.routes.get('PUT /storage-policy'), root, { body: { shardRetentionDays: days } });
         assert.equal(saved.status, 200);
         assert.equal((await get()).payload.policy.shardRetentionDays, days);

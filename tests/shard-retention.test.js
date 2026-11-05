@@ -29,10 +29,10 @@ test('retention protects canonical and conflict references and gives old files a
     const { dirs, directory } = await fixture(t);
     await fs.writeFile(path.join(dirs.worlds, 'test-world.sync-conflict-20261101-device.json'), JSON.stringify(manifest([conflict])));
     await fs.utimes(path.join(directory, obsolete), new Date(0), new Date(0));
-    assert.deepEqual(await readShardPolicy(dirs), { shardRetentionDays: 7 });
+    assert.deepEqual(await readShardPolicy(dirs), { shardRetentionDays: 1 });
     assert.equal((await pruneWorldShards(dirs, 'test-world', { nowMs: DAY * 100 })).deleted, 0);
-    assert.equal((await pruneWorldShards(dirs, 'test-world', { nowMs: DAY * 106 })).deleted, 0);
-    const result = await pruneWorldShards(dirs, 'test-world', { nowMs: DAY * 107 });
+    assert.equal((await pruneWorldShards(dirs, 'test-world', { nowMs: DAY * 101 - 1 })).deleted, 0);
+    const result = await pruneWorldShards(dirs, 'test-world', { nowMs: DAY * 101 });
     assert.equal(result.deleted, 1);
     assert.equal(result.bytes, 2);
     assert.deepEqual((await fs.readdir(directory)).sort(), [active, conflict].sort());
@@ -162,7 +162,7 @@ test('large directories rotate through bounded scan and deletion batches', async
     const first = await pruneWorldShards(dirs, 'test-world', { nowMs: DAY * 100 });
     assert.equal(first.scanned, SHARD_SCAN_LIMIT);
     assert.equal(first.deleted, 0);
-    const second = await pruneWorldShards(dirs, 'test-world', { nowMs: DAY * 101 });
+    const second = await pruneWorldShards(dirs, 'test-world', { nowMs: DAY * 100.5 });
     assert.equal(second.scanned, SHARD_SCAN_LIMIT);
     assert.equal(second.pending, count + 2, 'cursor reaches previously unvisited files');
     const third = await pruneWorldShards(dirs, 'test-world', { nowMs: DAY * 108 });
@@ -177,7 +177,7 @@ test('unchanged small-world ledgers do not produce sync churn', async t => {
     const ledger = path.join(dirs.root, 'shard-retention', 'test-world.json');
     await fs.utimes(ledger, new Date(0), new Date(0));
     const before = await fs.stat(ledger);
-    await pruneWorldShards(dirs, 'test-world', { nowMs: DAY * 101 });
+    await pruneWorldShards(dirs, 'test-world', { nowMs: DAY * 100.5 });
     assert.equal((await fs.stat(ledger)).mtimeMs, before.mtimeMs);
 });
 

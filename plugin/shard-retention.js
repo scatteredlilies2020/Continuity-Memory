@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ARCHIVE_CATEGORIES, COMPACT_STORAGE_VERSION } from '../extension/storage-compaction.js';
 
-export const DEFAULT_SHARD_RETENTION_DAYS = 7;
+export const DEFAULT_SHARD_RETENTION_DAYS = 1;
 const DAY_MS = 86400000;
 const WORLD_ID = /^[a-z0-9][a-z0-9_-]{0,79}$/;
 const SHARD_FILE = /^[A-Za-z][A-Za-z0-9-]*-\d{4,}-[a-f0-9]{16}\.json$/;

@@ -42,11 +42,11 @@
                 <details id="continuity_storage_upkeep">
                     <summary>Storage upkeep</summary>
                     <label>Superseded shard sync grace period (days)
-                        <input id="continuity_shard_retention" class="text_pole" type="number" min="0" max="3650" step="1" value="7">
+                        <input id="continuity_shard_retention" class="text_pole" type="number" min="0" max="3650" step="1" value="1">
                     </label>
                     <button id="continuity_save_storage_policy" class="menu_button" type="button" disabled>Save storage policy</button>
                     <small id="continuity_storage_policy_status" role="status">Open to load the server policy.</small>
-                    <small>Lightweight background upkeep checks all this user’s worlds when CM connects or saves, at most hourly. Each world checks up to 1,024 obsolete files and removes at most 256 per pass, without AI calls or loading full memories. Current and local Syncthing-conflict manifests protect their shards. Only unreferenced files observed for the entire grace period can be removed. Default: 7 days; 0 keeps old versions indefinitely. Increase this if devices stay offline longer: an older manifest arriving after cleanup may need files that were removed. Digest, Chronicle sources, structured memory, and chat files are not pruned.</small>
+                    <small>Lightweight background upkeep checks all this user’s worlds when CM connects or saves, at most hourly. Each world checks up to 1,024 obsolete files and removes at most 256 per pass, without AI calls or loading full memories. Current and local Syncthing-conflict manifests protect their shards. Only unreferenced files observed for the entire grace period can be removed. Default: 1 day; 0 keeps old versions indefinitely. Increase this if devices stay offline longer: an older manifest arriving after cleanup may need files that were removed. Digest, Chronicle sources, structured memory, and chat files are not pruned.</small>
                 </details>
                 <details>
                     <summary>Transfer memory</summary>

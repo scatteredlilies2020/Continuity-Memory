@@ -109,7 +109,7 @@ test('storage upkeep exposes the real server policy without loading it until ope
     const ui = await readFile(new URL('../extension/ui.js', import.meta.url), 'utf8');
     const api = await readFile(new URL('../extension/api.js', import.meta.url), 'utf8');
     assert.match(html, /id="continuity_storage_upkeep"/u);
-    assert.match(html, /id="continuity_shard_retention"[^>]*min="0"[^>]*value="7"/u);
+    assert.match(html, /id="continuity_shard_retention"[^>]*min="0"[^>]*value="1"/u);
     assert.match(html, /id="continuity_save_storage_policy"[^>]*disabled/u);
     assert.match(ui, /addEventListener\('toggle', async event =>/u);
     assert.match(ui, /await api\.getStoragePolicy\(\)/u);
