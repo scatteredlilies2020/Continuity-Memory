@@ -60,6 +60,71 @@ test('an existing extraction can satisfy catch-up without starting duplicate wor
     assert.equal(h.listeners.size, 0);
 });
 
+test('saved coverage releases the reply while the existing job and its queue continue', async () => {
+    const h = harness(16);
+    h.state.processing = true;
+    h.state.queue = [{}];
+    let ready = false;
+    const run = h.run().then(world => { ready = true; return world; });
+    h.emit({ world: { ...h.state.world, revision: 2, pending: 8 } });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    try {
+        assert.equal(ready, true, 'The reply must not wait for unrelated work after pending falls below 16.');
+        assert.equal(h.state.processing, true);
+        assert.equal(h.state.queue.length, 1);
+        assert.equal(h.listeners.size, 0);
+        assert.equal(h.calls.length, 0);
+    } finally {
+        h.emit({ processing: false, queue: [] });
+        await run;
+    }
+});
+
+test('catch-up started by a reply releases at the threshold without awaiting the entire extraction', async () => {
+    let start, finish;
+    const started = new Promise(resolve => { start = resolve; });
+    const work = new Promise(resolve => { finish = resolve; });
+    const h = harness(24, { extract: () => { h.emit({ processing: true }); start(); return work; } });
+    let ready = false;
+    const run = h.run().then(world => { ready = true; return world; });
+    await started;
+    try {
+        h.emit({ world: { ...h.state.world, revision: 2, pending: 16 } });
+        await new Promise(resolve => setTimeout(resolve, 0));
+        assert.equal(ready, false, 'Exactly 16 pending still requires catch-up.');
+        h.emit({ world: { ...h.state.world, revision: 3, pending: 8 } });
+        await new Promise(resolve => setTimeout(resolve, 0));
+        assert.equal(ready, true, 'A saved chunk must release the reply before the extraction promise settles.');
+        assert.equal(h.state.processing, true);
+        assert.equal(h.listeners.size, 0);
+    } finally {
+        finish();
+        h.emit({ processing: false });
+        await run;
+    }
+});
+
+test('a later failure in shared work cannot reject an already released reply', async () => {
+    let start, fail;
+    const started = new Promise(resolve => { start = resolve; });
+    const work = new Promise((_resolve, reject) => { fail = reject; });
+    const h = harness(16, { extract: () => { h.emit({ processing: true }); start(); return work; } });
+    const run = h.run();
+    await started;
+    h.emit({ world: { ...h.state.world, revision: 2, pending: 8 } });
+    assert.equal((await run).pending, 8);
+    assert.equal(h.listeners.size, 0);
+    fail(new Error('Later Chronicle task failed.'));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(h.state.processing, true, 'The reply only releases its wait; it does not stop the shared job.');
+});
+
+test('an extraction failure before sufficient coverage still rejects the waiting reply', async () => {
+    const h = harness(16, { extract: async () => { throw new Error('Extraction failed before saving.'); } });
+    await assert.rejects(h.run(), /Extraction failed before saving/);
+    assert.equal(h.listeners.size, 0);
+});
+
 test('a previous catch-up error permits a fresh attempt on the next reply', async () => {
     const h = harness(16);
     h.state.status = 'error';

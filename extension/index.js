@@ -19,7 +19,7 @@ import { ensureGenerationEmbeddingIndex, getCachedEmbeddingMemory, queryEmbeddin
 import { previewRetrieval } from './retrieval-preview.js?pending-recovery=1';
 import { isTransientApiError } from './errors.js?v=0.15.0-testing.30';
 import { asRoleplayBlockingError, isRoleplayBlockingError, roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.15.0-testing.30&output-recovery=1';
-import { ensureGenerationMemory, waitForGenerationTask } from './generation-readiness.js?catchup-gate=1&output-recovery=1';
+import { ensureGenerationMemory, waitForGenerationTask } from './generation-readiness.js?catchup-gate=2&output-recovery=1';
 import { isDigestStabilityProtectedMessage, latestCompleteDigestMessageIndex } from './digest-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
 import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.15.0-testing.30';

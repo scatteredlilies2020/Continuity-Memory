@@ -13,6 +13,8 @@ Continuity Memory automatically builds and updates memory for long SillyTavern c
 
 Memory processing runs in the background. If part of a chat has not been processed yet, those messages remain available as raw chat. Summaries and retrieval help with continuity, but they are not a perfect replacement for the original conversation.
 
+With the default eight-message Digest batch, replies wait for extraction only at 16 or more stable pending messages. Each saved chunk rechecks that threshold: once fewer than 16 remain, the reply proceeds while any remaining extraction, Chronicle work, and queued jobs continue in the background. Embedding retrieval separately requires at least 90% index coverage.
+
 Memory records history, not required behavior. Earlier refusals, agreements and knowledge apply at their recorded time; later play can change them. Recall shows knowledge with its source range and removes exact duplicate observations caused by changed character indices, while keeping the original stored history.
 
 Author notes remain author-level context. When generated speech or knowledge overlaps an author note and its attribution is uncertain, Digest and Chronicle processing retain the source account and withhold affected generated records instead of stopping with a provenance error. Unaffected records are kept. This fallback can be longer than a generated summary; its source text and author scope are preserved.
