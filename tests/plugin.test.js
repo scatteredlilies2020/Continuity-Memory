@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { init, syncBundledExtension } from '../plugin/index.js';
+import { waitForStorageMaintenance } from '../plugin/shard-retention.js';
 import { applyManualMemoryEdit } from '../extension/memory-edit.js';
 
 function mockRouter() {
@@ -16,6 +17,27 @@ function mockRouter() {
         delete(route, handler) { routes.set(`DELETE ${route}`, handler); },
     };
 }
+
+test('storage policy routes persist per-user settings and reject unsafe values', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-storage-policy-'));
+    t.after(async () => {
+        await waitForStorageMaintenance({ root: path.join(root, 'continuity-memory') });
+        await fs.rm(root, { recursive: true, force: true });
+    });
+    const router = mockRouter();
+    await init(router, { syncExtension: false });
+    const get = () => call(router.routes.get('GET /storage-policy'), root);
+    assert.equal((await get()).payload.policy.shardRetentionDays, 7);
+    for (const days of [0, 14, 3650]) {
+        const saved = await call(router.routes.get('PUT /storage-policy'), root, { body: { shardRetentionDays: days } });
+        assert.equal(saved.status, 200);
+        assert.equal((await get()).payload.policy.shardRetentionDays, days);
+    }
+    for (const value of [-1, 1.5, '7', undefined]) {
+        assert.equal((await call(router.routes.get('PUT /storage-policy'), root, { body: { shardRetentionDays: value } })).status, 400);
+    }
+    assert.equal((await get()).payload.policy.shardRetentionDays, 3650);
+});
 
 async function call(handler, root, { body = {}, params = {}, query = {}, headers = {}, socket = { localPort: 8000 } } = {}) {
     const req = { body, params, query, headers, socket, user: { directories: { root } } };
@@ -31,7 +53,10 @@ async function call(handler, root, { body = {}, params = {}, query = {}, headers
 
 test('manual entry edits survive server storage and stale saves cannot overwrite them', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-manual-edit-'));
-    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    t.after(async () => {
+        await waitForStorageMaintenance({ root: path.join(root, 'continuity-memory') });
+        await fs.rm(root, { recursive: true, force: true });
+    });
     const router = mockRouter();
     await init(router, { syncExtension: false });
     const created = await call(router.routes.get('POST /worlds'), root, { body: { name: 'Manual edit' } });
@@ -52,7 +77,10 @@ test('manual entry edits survive server storage and stale saves cannot overwrite
 
 test('unsupported server storage requires an update instead of recovering an older conflict copy', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-format-'));
-    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    t.after(async () => {
+        await waitForStorageMaintenance({ root: path.join(root, 'continuity-memory') });
+        await fs.rm(root, { recursive: true, force: true });
+    });
     const router = mockRouter();
     await init(router, { syncExtension: false });
     const created = await call(router.routes.get('POST /worlds'), root, { body: { name: 'Newer format' } });
@@ -86,7 +114,10 @@ test('unsupported server storage requires an update instead of recovering an old
 
 test('invalid current-format server manifests still recover from validated conflict copies', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-corrupt-manifest-'));
-    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    t.after(async () => {
+        await waitForStorageMaintenance({ root: path.join(root, 'continuity-memory') });
+        await fs.rm(root, { recursive: true, force: true });
+    });
     const router = mockRouter();
     await init(router, { syncExtension: false });
     const created = await call(router.routes.get('POST /worlds'), root, { body: { name: 'Recoverable manifest' } });
@@ -110,7 +141,10 @@ test('invalid current-format server manifests still recover from validated confl
 
 test('server plugin creates, saves, and explicitly deletes worlds', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-test-'));
-    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    t.after(async () => {
+        await waitForStorageMaintenance({ root: path.join(root, 'continuity-memory') });
+        await fs.rm(root, { recursive: true, force: true });
+    });
     const router = mockRouter();
     await init(router, { syncExtension: false });
 
@@ -158,7 +192,10 @@ test('server plugin creates, saves, and explicitly deletes worlds', async t => {
 
 test('server storage retains immutable shards and heals a broken Syncthing manifest from a validated conflict copy', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-syncthing-test-'));
-    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    t.after(async () => {
+        await waitForStorageMaintenance({ root: path.join(root, 'continuity-memory') });
+        await fs.rm(root, { recursive: true, force: true });
+    });
     const router = mockRouter();
     await init(router, { syncExtension: false });
 
@@ -203,7 +240,10 @@ test('server storage retains immutable shards and heals a broken Syncthing manif
 
 test('server recovery restores an incomplete world from a portable snapshot after backing up its manifest', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-portable-recovery-test-'));
-    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    t.after(async () => {
+        await waitForStorageMaintenance({ root: path.join(root, 'continuity-memory') });
+        await fs.rm(root, { recursive: true, force: true });
+    });
     const router = mockRouter();
     await init(router, { syncExtension: false });
 
@@ -243,7 +283,10 @@ test('server recovery restores an incomplete world from a portable snapshot afte
 
 test('server load replaces obsolete Story snapshots with a source-linked Chronicle frontier', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-story-migration-'));
-    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    t.after(async () => {
+        await waitForStorageMaintenance({ root: path.join(root, 'continuity-memory') });
+        await fs.rm(root, { recursive: true, force: true });
+    });
     const router = mockRouter();
     await init(router, { syncExtension: false });
     const created = await call(router.routes.get('POST /worlds'), root, { body: { name: 'Story migration' } });
@@ -267,7 +310,10 @@ test('server load replaces obsolete Story snapshots with a source-linked Chronic
 
 test('server plugin migrates a monolithic world on its next save', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-plugin-migration-'));
-    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    t.after(async () => {
+        await waitForStorageMaintenance({ root: path.join(root, 'continuity-memory') });
+        await fs.rm(root, { recursive: true, force: true });
+    });
     const worlds = path.join(root, 'continuity-memory', 'worlds');
     await fs.mkdir(worlds, { recursive: true });
     const legacy = {
@@ -295,7 +341,10 @@ test('server plugin migrates a monolithic world on its next save', async t => {
 
 test('server migration preserves a file-backed world identity and revision', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-backend-migration-'));
-    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    t.after(async () => {
+        await waitForStorageMaintenance({ root: path.join(root, 'continuity-memory') });
+        await fs.rm(root, { recursive: true, force: true });
+    });
     const router = mockRouter();
     await init(router, { syncExtension: false });
     const source = {
@@ -328,7 +377,10 @@ test('server migration preserves a file-backed world identity and revision', asy
 
 test('detached extraction jobs remain separate from roleplay generation and save Digest without a browser', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-detached-test-'));
-    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    t.after(async () => {
+        await waitForStorageMaintenance({ root: path.join(root, 'continuity-memory') });
+        await fs.rm(root, { recursive: true, force: true });
+    });
     const extracted = {
         storySoFar: 'Alice begins the morning by making tea without sugar.',
         scene: { location: 'Kitchen', time: 'Morning', participants: ['Alice'], activity: 'Making tea', mood: 'calm' },
@@ -393,7 +445,10 @@ test('detached extraction jobs remain separate from roleplay generation and save
 
 test('detached incomplete records retry with feedback before committing any coverage', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-detached-test-'));
-    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    t.after(async () => {
+        await waitForStorageMaintenance({ root: path.join(root, 'continuity-memory') });
+        await fs.rm(root, { recursive: true, force: true });
+    });
     const extracted = {
         storySoFar: 'Alice begins the morning by making tea without sugar.',
         scene: { location: 'Kitchen', time: 'Morning', participants: ['Alice'], activity: 'Making tea', mood: 'calm' },
@@ -462,7 +517,10 @@ test('detached incomplete records retry with feedback before committing any cove
 
 test('detached repeated incomplete output leaves the entire section pending', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-detached-test-'));
-    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    t.after(async () => {
+        await waitForStorageMaintenance({ root: path.join(root, 'continuity-memory') });
+        await fs.rm(root, { recursive: true, force: true });
+    });
     const extracted = {
         storySoFar: 'Alice begins the morning by making tea without sugar.',
         scene: { location: 'Kitchen', time: 'Morning', participants: ['Alice'], activity: 'Making tea', mood: 'calm' },
@@ -517,7 +575,10 @@ test('detached repeated incomplete output leaves the entire section pending', as
 
 test('detached jobs report source tokens and promote Recursive Chronicle without a browser', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-detached-hierarchy-test-'));
-    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    t.after(async () => {
+        await waitForStorageMaintenance({ root: path.join(root, 'continuity-memory') });
+        await fs.rm(root, { recursive: true, force: true });
+    });
     const extracted = {
         storySoFar: 'Alice continues steadily along the road toward the destination.',
         scene: { location: 'Road', time: 'Later', participants: ['Alice'], activity: 'Walking', mood: 'calm' },
@@ -613,7 +674,10 @@ test('detached jobs report source tokens and promote Recursive Chronicle without
 
 test('Chronicle-only jobs recover transport, JSON and provenance problems without re-extracting Digest', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-promotion-retry-'));
-    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    t.after(async () => {
+        await waitForStorageMaintenance({ root: path.join(root, 'continuity-memory') });
+        await fs.rm(root, { recursive: true, force: true });
+    });
     const router = mockRouter();
     let calls = 0;
     let worldId;
@@ -622,14 +686,25 @@ test('Chronicle-only jobs recover transport, JSON and provenance problems withou
         const loaded = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: worldId } });
         assert.equal(loaded.payload.world.capsules.length, 30);
         assert.equal(loaded.payload.world.chronicle.length, 30, 'failed candidates must not be saved');
-        const prompt = JSON.parse(options.body).messages[0].content;
+        const prompt = JSON.parse(options.body).messages.find(message => message.role === 'user').content;
         if (calls <= 5) return Response.json({ error: true });
         if (calls === 6) return Response.json({ choices: [{ message: { content: '{' } }] });
         if (calls === 7) {
             assert.match(prompt, /previous parent failed validation:.*valid JSON object/);
             return Response.json({ choices: [{ message: { content: JSON.stringify({ summary: 'Alice revealed the secret route.' }) } }] });
         }
-        assert.fail('Provenance uncertainty must recover from source without another model request.');
+        if (calls === 8) {
+            const reviewPrompt = JSON.parse(options.body).messages.find(message => message.role === 'user').content;
+            assert.match(reviewPrompt, /Review these heuristic provenance flags/);
+            return Response.json({ choices: [{ message: { content: JSON.stringify({ assessments: [{
+                sentence: 'Alice revealed the secret route.', violation: true,
+                reason: 'Alice never disclosed the route in the sources.', evidence: [],
+            }] }) } }] });
+        }
+        assert.equal(calls, 9, 'Confirmed misattribution must request a corrected summary, not substitute source text.');
+        assert.match(prompt, /previous parent failed validation:.*OOC provenance violation/);
+        assert.match(prompt, /do not paste the source nodes back/);
+        return Response.json({ choices: [{ message: { content: JSON.stringify({ summary: 'Alice continues her journey.' }) } }] });
     };
     await init(router, { syncExtension: false, fetchImpl, detachedRetryDelayMs: 10, detachedMaxRetryDelayMs: 10 });
     const created = await call(router.routes.get('POST /worlds'), root, { body: { name: 'Pending promotion' } });
@@ -660,13 +735,13 @@ test('Chronicle-only jobs recover transport, JSON and provenance problems withou
     assert.equal(job.hierarchyError, '');
     assert.equal(job.chronicle, 1);
     assert.equal(job.chunks, 0);
-    assert.equal(calls, 7);
+    assert.equal(calls, 9);
     const loaded = (await call(router.routes.get('GET /worlds/:id'), root, { params: { id: worldId } })).payload.world;
     assert.equal(loaded.capsules.length, 30);
     assert.equal(loaded.chronicle.filter(node => node.level === 0).length, 30);
     assert.equal(loaded.chronicle.filter(node => node.level === 1).length, 1);
     const parent = loaded.chronicle.find(node => node.level === 1);
-    assert.match(parent.text, /Alice travels/);
+    assert.equal(parent.text, 'Alice continues her journey.');
     assert.doesNotMatch(parent.text, /Alice revealed the secret route/);
     const covered = new Set(loaded.chronicle.flatMap(node => node.childIds));
     assert.equal(loaded.chronicle.filter(node => node.level === 0 && !covered.has(node.id)).length, 20);
@@ -674,7 +749,10 @@ test('Chronicle-only jobs recover transport, JSON and provenance problems withou
 
 test('server plugin installs and updates its bundled frontend without overwriting an unmanaged install', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-frontend-test-'));
-    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    t.after(async () => {
+        await waitForStorageMaintenance({ root: path.join(root, 'continuity-memory') });
+        await fs.rm(root, { recursive: true, force: true });
+    });
     const source = path.join(root, 'source');
     const target = path.join(root, 'extensions', 'Continuity-Memory');
     await fs.mkdir(source, { recursive: true });
@@ -699,7 +777,10 @@ test('server plugin installs and updates its bundled frontend without overwritin
 
 test('server save and reload preserve records beyond the old 100000-item collection cap', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-large-world-'));
-    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    t.after(async () => {
+        await waitForStorageMaintenance({ root: path.join(root, 'continuity-memory') });
+        await fs.rm(root, { recursive: true, force: true });
+    });
     const router = mockRouter();
     await init(router, { syncExtension: false });
     const created = await call(router.routes.get('POST /worlds'), root, { body: { name: 'Large world' } });
@@ -716,7 +797,10 @@ test('server save and reload preserve records beyond the old 100000-item collect
 test('server storage archives covered detail and restores it for reads, edits and branch replay', async t => {
     const { summarizedWorld } = await import('./helpers/compaction-world.js');
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-compaction-'));
-    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    t.after(async () => {
+        await waitForStorageMaintenance({ root: path.join(root, 'continuity-memory') });
+        await fs.rm(root, { recursive: true, force: true });
+    });
     const router = mockRouter(); await init(router, { syncExtension: false });
     const created = await call(router.routes.get('POST /worlds'), root, { body: { name: 'Compacted' } });
     const world = summarizedWorld(created.payload.world);

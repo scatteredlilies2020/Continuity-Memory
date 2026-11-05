@@ -28,6 +28,8 @@ async function request(path, options = {}) {
 
 const pluginApi = {
     health: () => request('/health'),
+    getStoragePolicy: () => request('/storage-policy'),
+    saveStoragePolicy: policy => request('/storage-policy', { method: 'PUT', body: JSON.stringify(policy) }),
     listWorlds: () => request('/worlds'),
     getWorld: id => request(`/worlds/${encodeURIComponent(id)}`),
     createWorld: name => request('/worlds', { method: 'POST', body: JSON.stringify({ name }) }),
@@ -121,6 +123,8 @@ async function call(method, ...args) {
 
 export const api = {
     health: () => call('health'),
+    getStoragePolicy: () => pluginApi.getStoragePolicy(),
+    saveStoragePolicy: policy => pluginApi.saveStoragePolicy(policy),
     listWorlds: () => call('listWorlds'),
     getWorld: id => call('getWorld', id),
     createWorld: name => call('createWorld', name),

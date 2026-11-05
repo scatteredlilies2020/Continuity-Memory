@@ -107,6 +107,7 @@ export function authoritativeMetaBoundaries(messages, knownEntities = []) {
         boundaries.push({
             messageIndex: Number(message?.index),
             speaker,
+            authorText: split.meta,
             terms: terms.slice(0, 48),
         });
     }
@@ -263,14 +264,17 @@ export function assertAuthoritativeMetaProvenance(result, boundaries, sourceEvid
     throw Object.assign(new Error(`OOC provenance violation: generated memory attributes author-only canon as character speech or knowledge${first.speaker ? ` (source persona: ${first.speaker})` : ''}: “${first.sentence.slice(0, 220)}”`), { code: 'CM_OOC_PROVENANCE' });
 }
 
-// Word overlap is a useful diagnostic, but cannot establish whether a model
-// actually invented a disclosure. It must never stop a Digest or Chronicle.
-// Withhold affected generated records and retain the source account instead;
-// neither relabel invented speech as canon nor silently lose the source facts.
+// Digest extraction can retain a source account rather than lose coverage.
+// A Chronicle parent must remain a generated summary: ask the existing bounded
+// correction loop to resolve uncertain attribution, never replace compression
+// with a concatenation of its children. Original children stay stored separately.
 export function recoverAuthoritativeMetaProvenance(result, boundaries, sourceEvidence = [], sourceContext = [], sourceMessages = []) {
     const conflicts = authoritativeMetaProvenanceConflicts(result, boundaries, sourceEvidence);
     const recovery = { conflicts: conflicts.length, withheldRecords: 0 };
     if (!conflicts.length) return recovery;
+    if (typeof result.summary === 'string') {
+        assertAuthoritativeMetaProvenance(result, boundaries, sourceEvidence);
+    }
     const sentences = value => String(value).split(/(?<=[.!?;])\s+|\n+/u).filter(Boolean);
     const rejected = new Set(conflicts.map(conflict => conflict.sentence.trim()));
     const affected = value => resultStrings(value).some(text => sentences(text).some(sentence => rejected.has(sentence.trim())));
@@ -317,9 +321,6 @@ export function recoverAuthoritativeMetaProvenance(result, boundaries, sourceEvi
         // Preserve the complete source account even if the compact capsule's
         // fields are clipped for display. Safe generated records stay intact.
         result.chronicleEntry = fallback;
-    } else if (typeof result.summary === 'string') {
-        result.summary = fallback;
-        if (!String(result.title || '').trim()) result.title = 'Source account';
     } else if (typeof result.chronicleEntry === 'string') {
         result.chronicleEntry = fallback;
     }

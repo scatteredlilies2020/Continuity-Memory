@@ -1,4 +1,5 @@
 import { LEGACY_DIGEST_RESCAN_MESSAGE } from './legacy-support.js';
+import { chronicleSizeStatus, chronicleTokenTarget } from './chronicle.js';
 import { characters, getRequestHeaders, saveChatConditional, this_chid } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
@@ -1532,6 +1533,7 @@ export function renderRuntime(refreshSettings = true) {
         $('#continuity_hierarchy_mode').val(settings.hierarchyMode);
         $('#continuity_chronicle_capacity').val(settings.chronicleLayerCapacity);
         $('#continuity_chronicle_fan_in').val(settings.chroniclePromotionSize);
+        $('#continuity_chronicle_token_target').val(chronicleTokenTarget(settings));
         $('#continuity_thinking').val(settings.thinkingMode);
         $('#continuity_retrieval_thinking').val(settings.retrievalThinkingMode);
         setControlValue('#continuity_retrieval_prompt', settings.retrievalSystemPrompt);
@@ -1570,6 +1572,7 @@ export function renderRuntime(refreshSettings = true) {
     $('#continuity_arc_status').text(runtime.arcError ? `Chronicle promotion deferred: ${runtime.arcError}` : runtime.arcStatus || 'Chronicle parents are derived non-destructively when a layer exceeds its capacity.');
     $('#continuity_retry_status').text(runtime.retryStatus || 'No manual build running.');
     const coverage = getProcessingCoverage();
+    setElementText('#continuity_chronicle_size', chronicleSizeStatus(runtime.world, getChatKey(), settings));
     renderHealthStatus(coverage);
     $('#continuity_coverage').text(!runtime.world
         ? (getChatKey() ? 'Loading saved memory coverage…' : 'Open a chat to inspect memory coverage.')
@@ -2169,6 +2172,29 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
     });
     setSetting('#continuity_enabled', 'enabled', Boolean, () => scheduleMemoryMaintenance?.());
     setSetting('#continuity_notifications', 'showNotifications', Boolean);
+    document.getElementById('continuity_storage_upkeep')?.addEventListener('toggle', async event => {
+        if (!event.currentTarget.open) return;
+        $('#continuity_save_storage_policy').prop('disabled', true);
+        try {
+            const { policy } = await api.getStoragePolicy();
+            $('#continuity_shard_retention').val(policy.shardRetentionDays);
+            $('#continuity_save_storage_policy').prop('disabled', false);
+            $('#continuity_storage_policy_status').text('Server policy loaded. Applies to all this user’s worlds.');
+        } catch (error) {
+            $('#continuity_storage_policy_status').text(error.status === 404
+                ? 'Restart SillyTavern to load the server plugin with storage upkeep support.' : error.message);
+        }
+    });
+    $('#continuity_save_storage_policy').on('click', async () => {
+        $('#continuity_save_storage_policy').prop('disabled', true);
+        try {
+            const { policy } = await api.saveStoragePolicy({ shardRetentionDays: Number($('#continuity_shard_retention').val()) });
+            $('#continuity_storage_policy_status').text(policy.shardRetentionDays
+                ? `Saved: superseded shards become eligible after ${policy.shardRetentionDays} full day(s) observed unreferenced.`
+                : 'Saved: automatic shard pruning is disabled. Old versions will accumulate indefinitely.');
+        } catch (error) { $('#continuity_storage_policy_status').text(error.message); }
+        finally { $('#continuity_save_storage_policy').prop('disabled', false); }
+    });
     setSetting('#continuity_retrieval_mode', 'retrievalMode', value => ['ai-expanded', 'embedding-hybrid'].includes(value) ? value : 'local');
     setSetting('#continuity_story_so_far', 'storySoFarEnabled', Boolean);
     setSetting('#continuity_summary_thinking', 'summaryThinkingMode');
@@ -2261,6 +2287,7 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
     };
     setSetting('#continuity_hierarchy_mode', 'hierarchyMode', value => value === 'off' ? 'off' : 'chronicle', scheduleChronicleMaintenance);
     setSetting('#continuity_chronicle_capacity', 'chronicleLayerCapacity', value => Math.min(100, Math.max(8, Number(value) || 24)), scheduleChronicleMaintenance);
+    setSetting('#continuity_chronicle_token_target', 'chronicleTokenTarget', value => chronicleTokenTarget({ chronicleTokenTarget: value }), scheduleChronicleMaintenance);
     setSetting('#continuity_chronicle_fan_in', 'chroniclePromotionSize', value => {
         const capacity = Math.min(100, Math.max(8, Number(getSettings().chronicleLayerCapacity) || 24));
         return Math.min(capacity, Math.max(3, Number(value) || 10));

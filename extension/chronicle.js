@@ -3,6 +3,47 @@ import { randomUuid } from './uuid.js';
 export const CHRONICLE_VERSION = 1;
 export const DEFAULT_CHRONICLE_CAPACITY = 24;
 export const DEFAULT_CHRONICLE_FAN_IN = 10;
+export const DEFAULT_CHRONICLE_TOKEN_TARGET = 8000;
+
+// Planning estimates only; provider tokenizers differ. Never clip stored prose.
+export function chronicleTokenTarget(settings = {}) {
+    const value = Number(settings.chronicleTokenTarget);
+    return Number.isFinite(value) && value > 0 ? Math.max(1000, Math.min(64000, Math.round(value))) : DEFAULT_CHRONICLE_TOKEN_TARGET;
+}
+
+export function chronicleSize(nodes) {
+    if (!nodes?.length) return 0;
+    return Math.ceil(renderChronicleFrontier({ chronicle: nodes.map(node => ({ ...node, childIds: [] })) }, nodes[0].chatKey).length / 4);
+}
+
+// Compare the exact prose that would be injected, including every detail field
+// and recovered provenance. Character counts are deterministic on both sides;
+// they are not a claim about a provider's tokenizer.
+export function validateChronicleCompression(result, children) {
+    const preview = { chronicle: [] };
+    const parent = addChroniclePromotion(preview, result, children);
+    const sourceCharacters = renderChronicleFrontier({ chronicle: children.map(node => ({ ...node, childIds: [] })) }, parent.chatKey).length;
+    const parentCharacters = renderChronicleFrontier(preview, parent.chatKey).length;
+    if (parentCharacters >= sourceCharacters) {
+        throw Object.assign(new Error(`Chronicle compression did not shrink: parent ${parentCharacters} characters versus sources ${sourceCharacters}. Shorten ALL prose fields together, remove repeated detail, and preserve consequential events and knowledge boundaries. Source memory was kept.`), { code: 'CONTINUITY_COMPRESSION_NOT_SMALLER' });
+    }
+    return { sourceCharacters, parentCharacters };
+}
+
+export function chronicleCompressionGuide(nodes, settings = {}) {
+    const source = chronicleSize(nodes);
+    const target = Math.max(128, Math.min(2000, Math.floor(chronicleTokenTarget(settings) / 4), Math.ceil(source * 0.30)));
+    return `Compression planning target: approximately ${target} tokens TOTAL across all parent prose fields (source approximately ${source} tokens). Aim for about 30% of the source size or less. This is a soft target, not a wire output limit: finish complete sentences and retain consequential causes, outcomes, attribution, conditions, and who knows what. Merge repeated developments, omit incidental detail, and do not repeat the summary in turningPoints, closingState, or other fields. Original children remain stored for detailed retrieval. Never invent, truncate, or erase a critical knowledge boundary to meet the target.`;
+}
+
+export function chronicleSizeStatus(world, chatKey, settings = {}) {
+    const nodes = activeChronicleNodes(world, chatKey);
+    const levels = [...new Set(nodes.map(node => Number(node.level) || 0))].sort((a, b) => a - b);
+    const parts = levels.map(level => `C${level}: ~${chronicleSize(nodes.filter(node => Number(node.level) === level))} tokens`);
+    const total = chronicleSize(nodes);
+    const target = chronicleTokenTarget(settings);
+    return `Story so far: ~${total} tokens / ${target} target${parts.length ? ` (${parts.join(' · ')})` : ''}. Estimates use 4 characters/token; complete nodes are never clipped.${total > target ? ' Over target: promotion is needed, or too few same-layer nodes remain to combine.' : ''}`;
+}
 
 function clean(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -137,6 +178,14 @@ export function nextChroniclePromotion(world, settings = {}) {
             const sameLevel = frontier.filter(item => Number(item.level) === level);
             if (sameLevel.length <= capacity) continue;
             return sameLevel.slice(0, fanIn);
+        }
+        // Prefer the oldest eligible interval under size pressure, including
+        // higher layers, rather than repeatedly compressing the newest C0 tail.
+        if (chronicleSize(frontier) > chronicleTokenTarget(settings)) {
+            const groups = levels.map(level => frontier.filter(item => Number(item.level) === level))
+                .filter(group => group.length >= 2)
+                .sort((a, b) => Number(a[0].from ?? 0) - Number(b[0].from ?? 0));
+            if (groups.length) return groups[0].slice(0, fanIn);
         }
     }
     return null;

@@ -2,6 +2,22 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 
+test('Rebuild Chronicles is beside Build and Stop, outside destructive reset controls', async () => {
+    const source = await readFile(new URL('../extension/settings.html', import.meta.url), 'utf8');
+    const processing = source.slice(source.indexOf('<h4>Processing</h4>'));
+    const primaryRow = processing.match(/<div class="continuity-button-row">([\s\S]*?)<\/div>/u)?.[1];
+    assert.ok(primaryRow);
+    for (const id of ['continuity_build', 'continuity_rebuild_hierarchy', 'continuity_stop']) {
+        assert.ok(primaryRow.includes(`id="${id}"`), `${id} must be in the main processing row`);
+    }
+    assert.match(primaryRow, /> Rebuild Chronicles<\/button>/u);
+    assert.equal((source.match(/id="continuity_rebuild_hierarchy"/gu) || []).length, 1);
+    const resetControls = processing.slice(processing.indexOf('<details>'), processing.indexOf('</details>'));
+    assert.ok(resetControls.includes('id="continuity_restart_build"'));
+    assert.ok(!resetControls.includes('id="continuity_rebuild_hierarchy"'));
+    assert.match(processing, /replacing the saved hierarchy only when the entire rebuild succeeds/u);
+});
+
 test('runtime settings remain live regardless of drawer visibility', async () => {
     const source = await readFile(new URL('../extension/ui.js', import.meta.url), 'utf8');
     assert.doesNotMatch(source, /continuityPanelIsOpen/u);
@@ -86,4 +102,18 @@ test('embedding settings appear directly after retrieval mode and before Story s
     assert.ok(embeddingCard > retrievalMode);
     assert.ok(storyToggle > embeddingCard);
     assert.equal((source.match(/class="continuity-embedding-setting continuity-card-inset"/g) || []).length, 1);
+});
+
+test('storage upkeep exposes the real server policy without loading it until opened', async () => {
+    const html = await readFile(new URL('../extension/settings.html', import.meta.url), 'utf8');
+    const ui = await readFile(new URL('../extension/ui.js', import.meta.url), 'utf8');
+    const api = await readFile(new URL('../extension/api.js', import.meta.url), 'utf8');
+    assert.match(html, /id="continuity_storage_upkeep"/u);
+    assert.match(html, /id="continuity_shard_retention"[^>]*min="0"[^>]*value="7"/u);
+    assert.match(html, /id="continuity_save_storage_policy"[^>]*disabled/u);
+    assert.match(ui, /addEventListener\('toggle', async event =>/u);
+    assert.match(ui, /await api\.getStoragePolicy\(\)/u);
+    assert.match(ui, /await api\.saveStoragePolicy\(/u);
+    assert.match(api, /getStoragePolicy:.*storage-policy/u);
+    assert.match(html, /1,024 obsolete files/u);
 });

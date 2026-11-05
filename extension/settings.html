@@ -39,6 +39,15 @@
                 <small>Created only when extraction begins, then kept separate for this chat. Briefly opening untouched chats creates no files.</small>
                 <label class="checkbox_label"><input id="continuity_embed_chat" type="checkbox"><span>Keep portable memory in chat files (global)</span></label>
                 <small>On: stored chats and SillyTavern JSONL exports include the latest matching Continuity memory for transfer between devices. Off: neither stored chats nor chat exports include a portable copy; normal memory remains in SillyTavern's user storage.</small>
+                <details id="continuity_storage_upkeep">
+                    <summary>Storage upkeep</summary>
+                    <label>Superseded shard sync grace period (days)
+                        <input id="continuity_shard_retention" class="text_pole" type="number" min="0" max="3650" step="1" value="7">
+                    </label>
+                    <button id="continuity_save_storage_policy" class="menu_button" type="button" disabled>Save storage policy</button>
+                    <small id="continuity_storage_policy_status" role="status">Open to load the server policy.</small>
+                    <small>Lightweight background upkeep checks all this user’s worlds when CM connects or saves, at most hourly. Each world checks up to 1,024 obsolete files and removes at most 256 per pass, without AI calls or loading full memories. Current and local Syncthing-conflict manifests protect their shards. Only unreferenced files observed for the entire grace period can be removed. Default: 7 days; 0 keeps old versions indefinitely. Increase this if devices stay offline longer: an older manifest arriving after cleanup may need files that were removed. Digest, Chronicle sources, structured memory, and chat files are not pruned.</small>
+                </details>
                 <details>
                     <summary>Transfer memory</summary>
                     <div class="continuity-button-row">
@@ -293,8 +302,9 @@
                 </div>
                 <label class="checkbox_label"><input id="continuity_story_so_far" type="checkbox"><span>Include Recursive Chronicle layers (default)</span></label>
                 <small>Each Digest creates one source-linked C0 entry. Older entries are periodically promoted into compact C1, C2, and higher layers without deleting their sources. Structured memory books remain separate and unchanged.</small>
-                <small>The complete active Chronicle frontier is included without token clipping. Adjust layer capacity and promotion group size below to control when older nodes are summarized; these are not hard token limits.</small>
-                <div id="continuity_story_progress" class="continuity-progress">C0 is updated with Digest extraction; parent layers are promoted only when a layer exceeds capacity.</div>
+                <small>The complete active Chronicle frontier is included without token clipping. Older nodes are summarized when a layer exceeds capacity or the Story token target is exceeded. Targets are estimates, not hard limits.</small>
+                <div id="continuity_chronicle_size" class="continuity-progress"></div>
+                <div id="continuity_story_progress" class="continuity-progress">C0 is updated with Digest extraction; parent layers are promoted when node capacity or the Story token target is exceeded.</div>
                 <small id="continuity_story_status">No Chronicle is stored for this chat yet.</small>
                 <details>
                     <summary>Advanced retrieval history</summary>
@@ -409,13 +419,17 @@
                         </label>
                         <label>Nodes allowed per layer
                             <input id="continuity_chronicle_capacity" class="text_pole" type="number" min="8" max="100" step="1">
-                            <small>default 24; promotion begins only after a layer exceeds this capacity</small>
+                            <small>default 24; promotion begins above this count or under Story token pressure</small>
                         </label>
                     </div>
                     <div class="continuity-grid two">
                         <label>Child nodes per promotion
                             <input id="continuity_chronicle_fan_in" class="text_pole" type="number" min="3" max="100" step="1">
                             <small>default 10; one promotion call covers this many same-layer nodes</small>
+                        </label>
+                        <label>Story so far token target
+                            <input id="continuity_chronicle_token_target" class="text_pole" type="number" min="1000" max="64000" step="500">
+                            <small>Default 8000, estimated at 4 characters/token. Over target, combine the oldest eligible same-layer nodes. Parents aim for 30% of their sources, with a maximum planning target of 2000 tokens. Complete prose is retained even if it exceeds the target.</small>
                         </label>
                     </div>
                     <small>Every parent records its exact child IDs. All C0 and child nodes are retained; only the compact active frontier is injected.</small>
@@ -461,20 +475,19 @@
                 <h4>Processing</h4>
                 <div class="continuity-button-row">
                     <button id="continuity_build" class="menu_button"><i class="fa-solid fa-hammer"></i> Build</button>
+                    <button id="continuity_rebuild_hierarchy" class="menu_button"><i class="fa-solid fa-layer-group"></i> Rebuild Chronicles</button>
                     <button id="continuity_repair_rollback" class="menu_button" style="display: none;"><i class="fa-solid fa-clock-rotate-left"></i> Repair rollback</button>
                     <button id="continuity_stop" class="menu_button redWarningBG"><i class="fa-solid fa-stop"></i> Stop & clear queue</button>
                     <button id="continuity_undo_latest_digest" class="menu_button"><i class="fa-solid fa-rotate-left"></i> Undo latest Digest</button>
                 </div>
                 <small>Build creates missing structured memory and Chronicle C0 entries side by side, then promotes eligible Chronicle layers without redoing completed chunks.</small>
+                <small>Rebuild Chronicles keeps Digest, structured memory, and extraction records. It recreates C0 from Digest and regenerates eligible parent layers, replacing the saved hierarchy only when the entire rebuild succeeds.</small>
                 <div id="continuity_coverage" class="continuity-progress">Checking chat coverage…</div>
                 <div id="continuity_progress" class="continuity-progress"></div>
                 <div id="continuity_arc_status" class="continuity-progress"></div>
                 <div id="continuity_retry_status" class="continuity-progress"></div>
                 <details>
                     <summary>Start over from scratch…</summary>
-                    <button id="continuity_rebuild_hierarchy" class="menu_button"><i class="fa-solid fa-layer-group"></i> Rebuild every Chronicle layer</button>
-                    <small>Keeps Digest, structured memory, and extraction records. Recreates every C0 locally from Digest, then rebuilds eligible recursive parent layers.</small>
-                    <hr>
                     <button id="continuity_restart_build" class="menu_button redWarningBG"><i class="fa-solid fa-radiation"></i> Erase everything & start over</button>
                     <small>Immediately erases all Continuity memory for this world, including Chronicle layers, reviewed corrections, structured books, Digest, extraction records, retrieval cache, and vectors, then rebuilds from the first message. Each completed chunk is saved. No backup is saved.</small>
                 </details>

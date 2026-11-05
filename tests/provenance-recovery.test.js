@@ -5,6 +5,7 @@ import { runInNewContext } from 'node:vm';
 import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, inWorldSourceEvidence, recoverAuthoritativeMetaProvenance } from '../extension/extraction-context.js';
 import { assertCompleteExtractionRecords } from '../extension/extraction-contract.js';
 import { captureScenarioContext } from '../extension/scenario-context.js';
+import { chronicleRetryFeedback, retryChroniclePromotion } from '../extension/chronicle-retry.js';
 
 const messages = [
     { index: 20, name: 'Alice', isUser: true, text: 'OOC: The secret route is safe.\n\n"Good morning."' },
@@ -52,15 +53,45 @@ test('OOC-only extraction retains author canon in its original scope', () => {
     assertCompleteExtractionRecords(result);
 });
 
-test('Chronicle provenance recovery retains child accounts instead of a fabricated disclosure', () => {
+test('Chronicle provenance uncertainty requests correction without rewriting the generated parent', () => {
     const result = { title: unsupported, summary: unsupported, participants: ['Alice', 'Bob'], turningPoints: [unsupported, 'Bob arrives.'], openThreads: [] };
-    const recovery = recoverAuthoritativeMetaProvenance(result, boundaries, evidence);
-    assert.ok(recovery.conflicts);
-    assert.equal(result.title, 'Source account');
-    assert.match(result.summary, /Bob arrives with a lantern/);
-    assert.deepEqual(result.turningPoints, ['Bob arrives.']);
-    assert.doesNotMatch(JSON.stringify(result), /Bob learned/);
-    assertAuthoritativeMetaProvenance(result, boundaries, evidence);
+    const before = structuredClone(result);
+    assert.throws(() => recoverAuthoritativeMetaProvenance(result, boundaries, evidence), { code: 'CM_OOC_PROVENANCE' });
+    assert.deepEqual(result, before, 'Validation must not replace the summary or rewrite its detail fields.');
+});
+
+test('Chronicle correction saves model-written prose, never a source concatenation', async () => {
+    const sourcesBefore = JSON.stringify({ boundaries, evidence });
+    let calls = 0;
+    const corrected = { title: 'Arrival', summary: 'Bob arrives at the gate with a lantern.', participants: ['Bob'], turningPoints: [], openThreads: [] };
+    const accepted = await retryChroniclePromotion(previous => {
+        calls++;
+        if (previous) {
+            assert.equal(previous.code, 'CM_OOC_PROVENANCE');
+            const feedback = chronicleRetryFeedback(previous);
+            assert.match(feedback, /author notes must not become character speech/);
+            assert.match(feedback, /do not paste the source nodes back/);
+        }
+        const result = calls === 1 ? { ...corrected, summary: unsupported } : structuredClone(corrected);
+        recoverAuthoritativeMetaProvenance(result, boundaries, evidence);
+        return result;
+    }, { wait: async () => {} });
+    assert.equal(calls, 2);
+    assert.deepEqual(accepted, corrected);
+    assert.notEqual(accepted.summary, evidence.join('\n\n'));
+    assert.equal(JSON.stringify({ boundaries, evidence }), sourcesBefore);
+});
+
+test('persistent Chronicle attribution failures stop without copying or modifying sources', async () => {
+    const result = { title: 'Arrival', summary: unsupported, turningPoints: [] };
+    const before = JSON.stringify({ result, boundaries, evidence });
+    let calls = 0;
+    await assert.rejects(retryChroniclePromotion(() => {
+        calls++;
+        recoverAuthoritativeMetaProvenance(result, boundaries, evidence);
+    }, { wait: async () => {} }), error => error.code === 'CONTINUITY_INVALID_RESPONSE' && error.cause.code === 'CM_OOC_PROVENANCE');
+    assert.equal(calls, 3);
+    assert.equal(JSON.stringify({ result, boundaries, evidence }), before);
 });
 
 test('source-supported output remains unchanged', () => {

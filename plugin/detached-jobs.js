@@ -12,11 +12,12 @@ import { addDerivedChronicle, mergeExtraction } from '../extension/memory-model.
 import { isCurrentStorySnapshot } from '../extension/story-source.js';
 import { migrateLegacyBeliefs } from '../extension/attributed-beliefs.js';
 import { normalizeHierarchyResult } from '../extension/hierarchy-result.js';
+import { validateChronicleProvenance } from '../extension/chronicle-provenance.js';
 import { captureScenarioContext } from '../extension/scenario-context.js';
 import { renderPromptTemplate } from '../extension/prompts.js';
 import { sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
 import { isMandatoryThinkingError, isThinkingControlError } from '../extension/thinking-policy.js';
-import { nextChroniclePromotion } from '../extension/chronicle.js';
+import { nextChroniclePromotion, chronicleCompressionGuide, validateChronicleCompression } from '../extension/chronicle.js';
 import { chronicleRetryFeedback, retryChroniclePromotion } from '../extension/chronicle-retry.js';
 import { retryConnection } from '../extension/connection-retry.js';
 import { EXTRACTION_VERSION } from '../extension/coverage.js';
@@ -141,9 +142,11 @@ function formatChronicleNodes(nodes) {
     return nodes.map((node, index) => JSON.stringify({
         sequence: index + 1,
         layer: `C${Number(node.level) || 0}`,
+        title: node.title || '',
         storyTime: node.storyTime,
         text: node.text || node.summary,
         turningPoints: node.turningPoints || [],
+        emotionalArc: node.emotionalArc || '',
         closingState: node.closingState || '',
         openThreads: node.openThreads || [],
     })).join('\n');
@@ -151,16 +154,6 @@ function formatChronicleNodes(nodes) {
 
 function validateHierarchyResult(result, label) {
     return normalizeHierarchyResult(result, label);
-}
-
-function chronicleProvenanceBoundaries(nodes) {
-    const seen = new Set();
-    return (nodes || []).flatMap(node => node?.provenanceBoundaries || []).filter(boundary => {
-        const key = JSON.stringify(boundary);
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-    });
 }
 
 function hierarchyPrompt(layer, records, withSchema) {
@@ -184,15 +177,21 @@ function requestFromTemplate(template, placeholder, prompt) {
     return request;
 }
 
-async function requestHierarchy(job, layer, records, label, previousError = null) {
-    const feedback = chronicleRetryFeedback(previousError);
-    const prompt = hierarchyPrompt(layer, records, layer.usesStructuredSchema) + feedback;
-    const fallbackPrompt = layer.usesStructuredSchema ? hierarchyPrompt(layer, records, false) + feedback : prompt;
-    const primary = requestFromTemplate(layer.request, layer.placeholder, prompt);
-    const fallback = requestFromTemplate(layer.fallbackRequest, layer.placeholder, fallbackPrompt);
-    const mandatory = requestFromTemplate(layer.mandatoryRequest, layer.placeholder, prompt);
-    const mandatoryFallback = requestFromTemplate(layer.mandatoryFallbackRequest, layer.placeholder, fallbackPrompt);
-    const uncontrolled = requestFromTemplate(layer.uncontrolledRequest, layer.placeholder, fallbackPrompt);
+async function requestHierarchyText(job, layer, prompt, fallbackPrompt, reviewSystem = null, reviewSchema = null) {
+    const prepare = (template, text) => {
+        const request = requestFromTemplate(template, layer.placeholder, text);
+        if (request && reviewSystem) {
+            request.messages = request.messages.filter(message => message.role !== 'system');
+            request.messages.unshift({ role: 'system', content: reviewSystem });
+            if (request.json_schema) request.json_schema = reviewSchema;
+        }
+        return request;
+    };
+    const primary = prepare(layer.request, prompt);
+    const fallback = prepare(layer.fallbackRequest, fallbackPrompt);
+    const mandatory = prepare(layer.mandatoryRequest, prompt);
+    const mandatoryFallback = prepare(layer.mandatoryFallbackRequest, fallbackPrompt);
+    const uncontrolled = prepare(layer.uncontrolledRequest, fallbackPrompt);
     let raw;
     try {
         raw = await backendRequest(job, primary);
@@ -208,13 +207,28 @@ async function requestHierarchy(job, layer, records, label, previousError = null
             }
         } else throw error;
     }
+    return raw;
+}
+
+function reviewChronicleProvenance(job, result, records) {
+    return validateChronicleProvenance(result, records, (prompt, system, schema) =>
+        requestHierarchyText(job, job.hierarchy.chronicle, prompt, prompt, system, schema));
+}
+
+async function requestHierarchy(job, layer, records, label, previousError = null) {
+    const feedback = `\n\n${chronicleCompressionGuide(records, job.hierarchy?.settings)}${chronicleRetryFeedback(previousError)}`;
+    const prompt = hierarchyPrompt(layer, records, layer.usesStructuredSchema) + feedback;
+    const fallbackPrompt = layer.usesStructuredSchema ? hierarchyPrompt(layer, records, false) + feedback : prompt;
+    const raw = await requestHierarchyText(job, layer, prompt, fallbackPrompt);
     const result = validateHierarchyResult(parseJsonResponse(raw), label);
-    recoverAuthoritativeMetaProvenance(result, chronicleProvenanceBoundaries(records), records.map(node => node.text || node.summary || ''));
+    validateChronicleCompression(result, records);
+    await reviewChronicleProvenance(job, result, records);
     return result;
 }
 
 async function saveChronicleResult(job, result, sourceRecords) {
-    recoverAuthoritativeMetaProvenance(result, chronicleProvenanceBoundaries(sourceRecords), sourceRecords.map(node => node.text || node.summary || ''));
+    await reviewChronicleProvenance(job, result, sourceRecords);
+    validateChronicleCompression(result, sourceRecords);
     return retryDetached(job, async () => {
         const world = await job.loadWorld();
         if (job.cancelled) throw new Error('Detached processing was cancelled.');

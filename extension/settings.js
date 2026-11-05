@@ -81,6 +81,7 @@ const DEFAULTS = Object.freeze({
     hierarchyMode: 'chronicle',
     chronicleLayerCapacity: 24,
     chroniclePromotionSize: 10,
+    chronicleTokenTarget: 8000,
     thinkingMode: 'auto',
     contextReductionEnabled: true,
     rawTailMode: 'tokens',

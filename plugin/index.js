@@ -10,6 +10,7 @@ import { syncChronicleBase } from '../extension/chronicle.js';
 import { cancelDetachedJob, createDetachedJob, getDetachedJob, listDetachedJobs } from './detached-jobs.js';
 import { registerVectorRoutes } from './vector-store.js';
 import { CONTINUITY_VERSION } from '../extension/build-info.js';
+import { maintainStorageRetention, readShardPolicy, withShardWorldLock, writeShardPolicy } from './shard-retention.js';
 
 const PLUGIN = 'continuity-memory';
 const VERSION = CONTINUITY_VERSION;
@@ -412,6 +413,12 @@ async function optionalWorld(dirs, id) {
 }
 
 async function writeShardedWorld(dirs, world, previousManifest = null) {
+    const manifest = await withShardWorldLock(dirs, world.id, () => writeShardedWorldLocked(dirs, world, previousManifest));
+    void maintainStorageRetention(dirs);
+    return manifest;
+}
+
+async function writeShardedWorldLocked(dirs, world, previousManifest = null) {
     const partition = compactWorldStorage(world);
     world = partition.world;
     const directory = shardDirectory(dirs, world.id);
@@ -467,9 +474,8 @@ async function writeShardedWorld(dirs, world, previousManifest = null) {
             }
         }
         await atomicWrite(worldPath(dirs, world.id), manifest);
-        // Shards are immutable and content-addressed. Keep superseded versions so
-        // a Syncthing-delayed or rolled-back manifest can never point at a shard
-        // this device has already deleted.
+        // Superseded files are retained through the configurable sync grace
+        // period, rather than accumulating every version indefinitely.
     } catch (error) {
         await Promise.allSettled(candidates.map(file => fs.rm(shardFilePath(dirs, world.id, file), { force: true })));
         throw error;
@@ -514,10 +520,19 @@ export async function init(router, {
         console.log(`[${PLUGIN}] frontend ${frontend.status} at ${frontend.path}`);
     }
     registerVectorRoutes(router, { embedTexts });
+    router.get('/storage-policy', async (req, res) => {
+        try { res.json({ ok: true, policy: await readShardPolicy(await ensureStorage(req)) }); }
+        catch (error) { sendError(res, error); }
+    });
+    router.put('/storage-policy', async (req, res) => {
+        try { res.json({ ok: true, policy: await writeShardPolicy(await ensureStorage(req), req.body) }); }
+        catch (error) { sendError(res, error); }
+    });
     router.get('/health', async (req, res) => {
         try {
             const dirs = await ensureStorage(req);
             const files = (await fs.readdir(dirs.worlds)).filter(canonicalWorldFilename);
+            void maintainStorageRetention(dirs);
             res.json({ ok: true, plugin: PLUGIN, version: VERSION, schemaVersion: SCHEMA_VERSION, storageVersion: STORAGE_VERSION, detachedJobs: true, detachedChronicle: true, worlds: files.length, storage: dirs.root });
         } catch (error) {
             sendError(res, error);
