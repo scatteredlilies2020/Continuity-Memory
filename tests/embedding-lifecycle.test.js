@@ -24,7 +24,7 @@ function harness(fetchFn, overrides = {}) {
     const listeners = new Set();
     const settings = { retrievalMode: 'embedding-hybrid', embeddingAutoSync: true,
         embeddingProxyUrl: 'http://localhost:9999', embeddingProxyModel: 'test-model' };
-    const api = runInNewContext(`${source}\n({ ensureEmbeddingIndex, ensureGenerationEmbeddingIndex, queryEmbeddingMemory, inspectEmbeddingIndex, scheduleEmbeddingIndexSync, pauseEmbeddingIndexing, stopEmbeddingIndexing, resumeEmbeddingIndexing })`, {
+    const api = runInNewContext(`${source}\n({ rebuildEmbeddingIndex, ensureEmbeddingIndex, ensureGenerationEmbeddingIndex, queryEmbeddingMemory, inspectEmbeddingIndex, scheduleEmbeddingIndexSync, pauseEmbeddingIndexing, stopEmbeddingIndexing, resumeEmbeddingIndexing })`, {
         buildEmbeddingDocuments, buildEmbeddingQuery, semanticRanksFromResponse, resolveEmbeddingProvider,
         createVectorStorageRequester: () => createVectorStorageRequester(fetchFn), vectorStorageError,
         embeddingRetryDelay, isRetryableEmbeddingError, checkRetrievalDeadline, embeddingCoverageReady, asRoleplayBlockingError,
@@ -413,4 +413,108 @@ test('permanent authentication, model, and stored-vector failures remain actiona
         await assert.rejects(api.ensureEmbeddingIndex(world()), /Vector Storage insert failed/);
         assert.equal(inserts, 1);
     }
+});
+
+
+test('non-embedding modes preserve stored vectors without starting any build path', async () => {
+    for (const mode of ['local', 'ai-expanded']) {
+        const { api, settings } = harness(() => assert.fail('Unselected embeddings must not access vector storage'));
+        settings.retrievalMode = mode;
+        settings.embeddingProxyModel = ''; // No embedding configuration is needed.
+        const memory = world();
+        await api.ensureEmbeddingIndex(memory);
+        await api.ensureEmbeddingIndex(memory, true);
+        await api.resumeEmbeddingIndexing(memory);
+        await api.rebuildEmbeddingIndex(memory);
+        await api.ensureGenerationEmbeddingIndex(memory);
+        api.scheduleEmbeddingIndexSync(memory, 0);
+        await new Promise(resolve => setTimeout(resolve, 20));
+    }
+});
+
+test('deselecting embeddings during a batch preserves stored vectors and stops further batches and cleanup', async () => {
+    for (const mode of ['local', 'ai-expanded']) {
+        const started = deferred(), release = deferred();
+        const saved = new Set([-1]); // An old vector must survive as well.
+        const calls = [];
+        const { api, settings } = harness(async (url, options) => {
+            const route = url.split('/').pop();
+            calls.push(route);
+            if (route === 'list') return json([...saved]);
+            if (route === 'delete') {
+                assert.equal(settings.retrievalMode, 'embedding-hybrid');
+                for (const hash of JSON.parse(options.body).hashes) saved.delete(hash);
+                return json({ ok: true });
+            }
+            assert.equal(route, 'insert', 'switching modes must not delete existing vectors');
+            started.resolve();
+            await release.promise;
+            for (const item of JSON.parse(options.body).items) saved.add(item.hash);
+            return json({ ok: true });
+        });
+        const memory = world();
+        const building = api.ensureEmbeddingIndex(memory);
+        await started.promise;
+        settings.retrievalMode = mode;
+        api.scheduleEmbeddingIndexSync(memory, 0);
+        release.resolve();
+        const result = await building;
+        assert.equal(result.status, 'paused');
+        assert.deepEqual(calls, ['list', 'insert']);
+        assert.equal(saved.size, 41, 'keep the old vector and the completed current batch');
+        assert.ok(saved.has(-1));
+
+        // Selecting embeddings again can resume from the preserved batch.
+        settings.retrievalMode = 'embedding-hybrid';
+        await api.resumeEmbeddingIndexing(memory);
+        assert.equal(saved.size, 85);
+        assert.equal(calls.filter(route => route === 'insert').length, 3);
+    }
+});
+
+test('deselecting embeddings while checking stored hashes prevents inserts and deletes', async () => {
+    const started = deferred(), release = deferred();
+    const { api, settings } = harness(async url => {
+        assert.ok(url.endsWith('/list'));
+        started.resolve();
+        await release.promise;
+        return json([-1]);
+    });
+    const building = api.ensureEmbeddingIndex(world());
+    await started.promise;
+    settings.retrievalMode = 'local';
+    release.resolve();
+    assert.equal((await building).status, 'paused');
+});
+
+test('deselecting embeddings clears queued builds even if embeddings are selected again before the timer fires', async () => {
+    let calls = 0;
+    const { api, settings } = harness(async () => { calls++; return json([]); });
+    const memory = world();
+    api.scheduleEmbeddingIndexSync(memory, 10);
+    settings.retrievalMode = 'local';
+    api.scheduleEmbeddingIndexSync(memory, 0);
+    settings.retrievalMode = 'embedding-hybrid';
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal(calls, 0);
+});
+
+test('deselecting embeddings releases provider retry backoff without retrying or deleting vectors', async () => {
+    const waiting = deferred();
+    const calls = [];
+    const { api, settings } = harness(async url => {
+        const route = url.split('/').pop();
+        calls.push(route);
+        if (route === 'list') return json([-1]);
+        return new Response('', { status: 503 });
+    }, { setTimeout: (callback, delay) => {
+        if (delay === 10000) waiting.resolve();
+        return setTimeout(callback, delay);
+    } });
+    const building = api.ensureEmbeddingIndex(world());
+    await within(waiting.promise);
+    settings.retrievalMode = 'local';
+    api.scheduleEmbeddingIndexSync(world(), 0);
+    assert.equal((await within(building)).status, 'paused');
+    assert.deepEqual(calls, ['list', 'insert']);
 });

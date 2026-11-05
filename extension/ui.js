@@ -2199,7 +2199,7 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
     setSetting('#continuity_story_so_far', 'storySoFarEnabled', Boolean);
     setSetting('#continuity_summary_thinking', 'summaryThinkingMode');
     $('#continuity_retrieval_mode').on('change', () => {
-        if (getSettings().retrievalMode === 'embedding-hybrid' && runtime.world) scheduleEmbeddingIndexSync(runtime.world, 0);
+        scheduleEmbeddingIndexSync(runtime.world, 0);
     });
     setSetting('#continuity_retrieval_messages', 'retrievalQueryMessages', value => Math.min(50, Math.max(2, Number(value) || 6)));
     setSetting('#continuity_embedding_provider_choice', 'embeddingProvider', value => value === 'openrouter' ? 'openrouter' : 'proxy');
