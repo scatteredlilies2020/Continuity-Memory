@@ -312,9 +312,9 @@
                 </div>
                 <label class="checkbox_label"><input id="continuity_story_so_far" type="checkbox"><span>Include Recursive Chronicle layers (default)</span></label>
                 <small>Each Digest creates one source-linked C0 entry. Older entries are periodically promoted into compact C1, C2, and higher layers without deleting their sources. Structured memory books remain separate and unchanged.</small>
-                <small>The complete active Chronicle frontier is included without token clipping. Older nodes are summarized when a layer exceeds capacity or the Story token target is exceeded. Targets are estimates, not hard limits.</small>
+                <small>The complete active Chronicle frontier is included without token clipping. Older nodes are summarized only when their layer exceeds capacity. Targets are estimates, not hard limits.</small>
                 <div id="continuity_chronicle_size" class="continuity-progress"></div>
-                <div id="continuity_story_progress" class="continuity-progress">C0 is updated with Digest extraction; parent layers are promoted when node capacity or the Story token target is exceeded.</div>
+                <div id="continuity_story_progress" class="continuity-progress">C0 is updated with Digest extraction; parent layers are promoted only when their layer exceeds node capacity.</div>
                 <small id="continuity_story_status">No Chronicle is stored for this chat yet.</small>
                 <details>
                     <summary>Advanced retrieval history</summary>
@@ -437,9 +437,9 @@
                             <input id="continuity_chronicle_fan_in" class="text_pole" type="number" min="3" max="100" step="1">
                             <small>default 10; one promotion call covers this many same-layer nodes</small>
                         </label>
-                        <label>Story so far token target
+                        <label>Story compression planning target
                             <input id="continuity_chronicle_token_target" class="text_pole" type="number" min="1000" max="64000" step="500">
-                            <small>Default 8000, estimated at 4 characters/token. Over target, combine the oldest eligible same-layer nodes. Parents aim for 30% of their sources, with a maximum planning target of 2000 tokens. Complete prose is retained even if it exceeds the target.</small>
+                            <small>Default 8000, estimated at 4 characters/token. Planning only: this never promotes a layer before it exceeds node capacity. Parents aim for 30% of their sources, with a maximum planning target of 2000 tokens. Complete prose is retained even if it exceeds the target.</small>
                         </label>
                     </div>
                     <small>Every parent records its exact child IDs. All C0 and child nodes are retained; only the compact active frontier is injected.</small>

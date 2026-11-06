@@ -6,13 +6,13 @@ import crypto from 'node:crypto';
 import { isRateLimitError, isTransientApiError } from '../extension/errors.js';
 import { EXTRACTION_OUTPUT_RECOVERY_GUIDE, isAdaptiveExtractionSplitError, isExplicitExtractionOutputLimitError } from '../extension/extraction-recovery.js';
 import { extractionRecoveryRequest } from '../extension/memory-response-policy.js';
-import { recoverAuthoritativeMetaProvenance, authoritativeMetaBoundaries, inWorldSourceEvidence } from '../extension/extraction-context.js';
+import { authoritativeMetaBoundaries, inWorldSourceEvidence } from '../extension/extraction-context.js';
 import { fingerprintMessage } from '../extension/message-digest.js';
 import { addDerivedChronicle, mergeExtraction } from '../extension/memory-model.js';
 import { isCurrentStorySnapshot } from '../extension/story-source.js';
 import { migrateLegacyBeliefs } from '../extension/attributed-beliefs.js';
 import { normalizeHierarchyResult } from '../extension/hierarchy-result.js';
-import { validateChronicleProvenance } from '../extension/chronicle-provenance.js';
+import { validateChronicleProvenance, validateExtractionProvenance } from '../extension/chronicle-provenance.js';
 import { captureScenarioContext } from '../extension/scenario-context.js';
 import { renderPromptTemplate } from '../extension/prompts.js';
 import { sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
@@ -111,17 +111,8 @@ function validateResult(result, world, messages) {
         if (!Array.isArray(result[key])) throw new Error(`Extractor field "${key}" is not an array.`);
     }
     const provenanceBoundaries = authoritativeMetaBoundaries(messages, world?.entities || []);
-    const sourceEvidence = inWorldSourceEvidence(messages);
     delete result._sourceScenarioContext;
-    const sourceContext = captureScenarioContext(messages);
-    const before = recoverAuthoritativeMetaProvenance(result, provenanceBoundaries, sourceEvidence, sourceContext, messages);
     const validation = sanitizeReconciliationMetadata(result, world, messages, { neutralSupporting: true });
-    const after = recoverAuthoritativeMetaProvenance(result, provenanceBoundaries, sourceEvidence, sourceContext, messages);
-    const recoveredProvenance = before.conflicts + after.conflicts;
-    if (recoveredProvenance) {
-        validation.warnings ||= [];
-        validation.warnings.push(`Used the source account for ${recoveredProvenance} uncertain generated attribution(s); unaffected records were kept.`);
-    }
     result._authoritativeMetaBoundaries = provenanceBoundaries;
     result._sourceScenarioContext = captureScenarioContext(messages);
     return { result, validation };
@@ -181,8 +172,8 @@ async function requestHierarchyText(job, layer, prompt, fallbackPrompt, reviewSy
     const prepare = (template, text) => {
         const request = requestFromTemplate(template, layer.placeholder, text);
         if (request && reviewSystem) {
-            request.messages = request.messages.filter(message => message.role !== 'system');
-            request.messages.unshift({ role: 'system', content: reviewSystem });
+            request.messages = [{ role: 'system', content: reviewSystem }, { role: 'user', content: text }];
+            delete request.continuity_prefill;
             if (request.json_schema) request.json_schema = reviewSchema;
         }
         return request;
@@ -408,7 +399,13 @@ async function extractTask(job, task, world) {
                 }
             }
             const parsed = parseJsonResponse(raw);
+            const review = (prompt, system, schema) => requestHierarchyText(job, {
+                ...task, placeholder: '__CM_PROVENANCE_REVIEW__',
+                request, fallbackRequest, mandatoryRequest, mandatoryFallbackRequest, uncontrolledRequest,
+            }, prompt, prompt, system, schema);
+            await validateExtractionProvenance(parsed, task.messages, world?.entities || [], review);
             const validated = validateResult(parsed, world, task.messages);
+            await validateExtractionProvenance(validated.result, task.messages, world?.entities || [], review);
             job.validation = validationLabel(validated.validation, attempt);
             return validated.result;
         } catch (error) {

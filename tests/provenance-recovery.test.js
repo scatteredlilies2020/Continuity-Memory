@@ -5,6 +5,7 @@ import { runInNewContext } from 'node:vm';
 import { assertAuthoritativeMetaProvenance, authoritativeMetaBoundaries, inWorldSourceEvidence, recoverAuthoritativeMetaProvenance } from '../extension/extraction-context.js';
 import { assertCompleteExtractionRecords } from '../extension/extraction-contract.js';
 import { captureScenarioContext } from '../extension/scenario-context.js';
+import { validateExtractionProvenance } from '../extension/chronicle-provenance.js';
 import { chronicleRetryFeedback, retryChroniclePromotion } from '../extension/chronicle-retry.js';
 
 const messages = [
@@ -14,6 +15,12 @@ const messages = [
 const boundaries = authoritativeMetaBoundaries(messages);
 const evidence = inWorldSourceEvidence(messages);
 const context = captureScenarioContext(messages);
+
+test('raw statboxes and legacy source dumps cannot be accepted as C0 prose', () => {
+    for (const chronicleEntry of ['<stat>Time = noon</stat>', '[Source message 424: Narrator] Full original response']) {
+        assert.throws(() => assertCompleteExtractionRecords({ chronicleEntry }), { code: 'CM_INCOMPLETE_RECORDS' });
+    }
+});
 const unsupported = 'Bob learned the secret route was safe.';
 const safeFact = { subject: 'Bob', predicate: 'carries', value: 'a lantern', category: 'possession' };
 function extraction() {
@@ -26,31 +33,25 @@ function extraction() {
     };
 }
 
-test('uncertain provenance preserves the complete source and safe records without throwing or inventing canon', () => {
+test('Digest provenance failures never copy source prose or statboxes into C0', () => {
     const result = extraction();
-    const recovery = recoverAuthoritativeMetaProvenance(result, boundaries, evidence, context, messages);
-    assert.ok(recovery.conflicts);
-    assert.equal(recovery.withheldRecords, 1);
-    assert.deepEqual(result.facts, [safeFact]);
-    assertCompleteExtractionRecords(result);
-    assert.doesNotMatch(JSON.stringify(result), /Bob learned/);
-    assert.match(result.chronicleEntry, /Source message 20: Alice/);
-    assert.match(result.chronicleEntry, /Alice waits beside the gate/);
-    assert.match(result.chronicleEntry, /Author-level context: OOC: The secret route is safe/);
-    assert.ok(result.sceneCapsule.opening);
-    assertAuthoritativeMetaProvenance(result, boundaries, evidence);
     const before = structuredClone(result);
-    assert.equal(recoverAuthoritativeMetaProvenance(result, boundaries, evidence, context, messages).conflicts, 0);
-    assert.deepEqual(result, before, 'Repeated validation must not duplicate or erase the source fallback.');
+    assert.throws(() => recoverAuthoritativeMetaProvenance(result, boundaries, evidence, context, messages), {code:'CM_OOC_PROVENANCE'});
+    assert.deepEqual(result,before);
 });
 
-test('OOC-only extraction retains author canon in its original scope', () => {
-    const source = messages.slice(0, 1).map(message => ({ ...message, text: 'OOC: The secret route is safe.' }));
-    const result = extraction();
-    recoverAuthoritativeMetaProvenance(result, authoritativeMetaBoundaries(source), [], captureScenarioContext(source), source);
-    assert.match(result.chronicleEntry, /^Author-level context: OOC: The secret route is safe/);
-    assert.doesNotMatch(JSON.stringify(result), /Bob learned/);
-    assertCompleteExtractionRecords(result);
+test('Digest source review rejects invented knowledge without modifying the candidate', async () => {
+    const result=extraction(); const before=structuredClone(result);
+    await assert.rejects(validateExtractionProvenance(result,messages,[], async prompt => {
+        const data=JSON.parse(prompt.slice(prompt.lastIndexOf('\n\n')+2));
+        return {assessments:[...new Set(data.flags.map(f=>f.sentence))].map(sentence=>({sentence,violation:true,reason:'Only the author note establishes this.',evidence:[]}))};
+    }), {code:'CM_OOC_PROVENANCE'});
+    assert.deepEqual(result,before);
+});
+
+test('author-only excerpts retain boundaries for review rather than inventing a source account', async () => {
+    const source=[{...messages[0],text:'OOC: The secret route is safe.'}];
+    await assert.rejects(validateExtractionProvenance(extraction(),source,[],async () => ({assessments:[]})), {code:'CM_PROVENANCE_REVIEW_INVALID'});
 });
 
 test('Chronicle provenance uncertainty requests correction without rewriting the generated parent', () => {
@@ -101,40 +102,27 @@ test('source-supported output remains unchanged', () => {
     assert.deepEqual(result, before);
 });
 
-test('lunch stage directions overlapping ordinary Rem dialogue recover without another extraction', () => {
+test('source-grounded Digest review accepts a false positive without replacing prose', async () => {
     const source = [
         { index: 405, name: 'Elsa', isUser: true, text: 'OOC: Advance to lunch later.' },
         { index: 406, name: 'Re Zero', text: 'Rem folds the cloth. "After lunch, if Ram agrees," she answers. "The west guest room, three doors down."' },
     ];
-    const result = extraction();
-    result.facts = [safeFact];
-    result.chronicleEntry = 'Rem says later if Ram agrees and gives the west guest room three doors down, then reflects that the child copies her sister.';
-    const scope = authoritativeMetaBoundaries(source);
-    const excerpts = inWorldSourceEvidence(source);
-    assert.throws(() => assertAuthoritativeMetaProvenance(result, scope, excerpts), /OOC provenance violation/);
-    assert.ok(recoverAuthoritativeMetaProvenance(result, scope, excerpts, captureScenarioContext(source), source).conflicts);
-    assert.match(result.chronicleEntry, /After lunch, if Ram agrees/);
-    assert.deepEqual(result.facts, [safeFact]);
-    assertAuthoritativeMetaProvenance(result, scope, excerpts);
+    const result=extraction(); result.facts=[safeFact]; result.scene.activity='Rem folds a cloth.';
+    result.sceneCapsule={title:'Lunch',opening:'Rem folds a cloth.',beats:[],closing:''};
+    result.chronicleEntry='Rem says later if Ram agrees and gives the west guest room three doors down, then reflects that the child copies her sister.';
+    const before=structuredClone(result);
+    await validateExtractionProvenance(result,source,[],async prompt=>{
+        const data=JSON.parse(prompt.slice(prompt.lastIndexOf('\n\n')+2));
+        return {assessments:[...new Set(data.flags.map(f=>f.sentence))].map(sentence=>({sentence,violation:false,reason:'The source establishes the lunch dialogue.',evidence:[{source:1,quote:'After lunch, if Ram agrees'}]}))};
+    });
+    assert.deepEqual(result,before);
+    assert.doesNotMatch(result.chronicleEntry,/Source message|<stat>/);
 });
 
-for (const file of ['extension/engine.js', 'plugin/detached-jobs.js']) test(`${file} recovers provenance before and after reconciliation`, async () => {
-    const source = await readFile(new URL(`../${file}`, import.meta.url), 'utf8');
-    assert.doesNotMatch(source, /assertAuthoritativeMetaProvenance/, 'Every production path, including Chronicle saves, must use recovery.');
-    const validate = source.match(/^function validateResult\([^]*?^}/m)[0];
-    const result = extraction();
-    const validated = runInNewContext(`${validate}\nvalidateResult(result, {}, messages)`, {
-        result, messages, authoritativeMetaBoundaries, inWorldSourceEvidence, recoverAuthoritativeMetaProvenance,
-        captureScenarioContext, assertCompleteExtractionRecords,
-        migrateLegacyBeliefs: () => {},
-        sanitizeReconciliationMetadata: candidate => {
-            assert.doesNotMatch(JSON.stringify(candidate), /Bob learned/, 'First recovery runs before reconciliation.');
-            candidate.relationships = [{ from: 'Alice', to: 'Bob', dynamic: unsupported }];
-            return {};
-        },
-    });
-    assert.equal(validated.result.relationships.length, 0, 'Reconciliation must not reintroduce an unsafe generated record.');
-    assert.match(validated.validation.warnings[0], /source account/);
-    assert.deepEqual(validated.result._sourceScenarioContext, context);
-    assertAuthoritativeMetaProvenance(validated.result, boundaries, evidence);
+for(const file of ['extension/engine.js','plugin/detached-jobs.js']) test(file+' reviews Digest output before and after reconciliation without source fallback',async()=>{
+    const code=await readFile(new URL('../'+file,import.meta.url),'utf8');
+    assert.doesNotMatch(code,/recoverAuthoritativeMetaProvenance/);
+    const calls=code.match(/await validateExtractionProvenance\(/g)||[];
+    assert.equal(calls.length,2);
+    assert.ok(code.indexOf('await validateExtractionProvenance') < code.indexOf('= validateResult(parsed'));
 });

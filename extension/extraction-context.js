@@ -264,67 +264,11 @@ export function assertAuthoritativeMetaProvenance(result, boundaries, sourceEvid
     throw Object.assign(new Error(`OOC provenance violation: generated memory attributes author-only canon as character speech or knowledge${first.speaker ? ` (source persona: ${first.speaker})` : ''}: “${first.sentence.slice(0, 220)}”`), { code: 'CM_OOC_PROVENANCE' });
 }
 
-// Digest extraction can retain a source account rather than lose coverage.
-// A Chronicle parent must remain a generated summary: ask the existing bounded
-// correction loop to resolve uncertain attribution, never replace compression
-// with a concatenation of its children. Original children stay stored separately.
-export function recoverAuthoritativeMetaProvenance(result, boundaries, sourceEvidence = [], sourceContext = [], sourceMessages = []) {
-    const conflicts = authoritativeMetaProvenanceConflicts(result, boundaries, sourceEvidence);
-    const recovery = { conflicts: conflicts.length, withheldRecords: 0 };
-    if (!conflicts.length) return recovery;
-    if (typeof result.summary === 'string') {
-        assertAuthoritativeMetaProvenance(result, boundaries, sourceEvidence);
-    }
-    const sentences = value => String(value).split(/(?<=[.!?;])\s+|\n+/u).filter(Boolean);
-    const rejected = new Set(conflicts.map(conflict => conflict.sentence.trim()));
-    const affected = value => resultStrings(value).some(text => sentences(text).some(sentence => rejected.has(sentence.trim())));
-    const clean = value => {
-        if (typeof value === 'string') return sentences(value).filter(sentence => !rejected.has(sentence.trim())).join(' ');
-        if (Array.isArray(value)) return value.map(clean).filter(item => item !== '');
-        if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, clean(item)]));
-        return value;
-    };
-    const source = sourceMessages.length
-        ? sourceMessages.flatMap(message => {
-            const text = splitScenarioNotes(message)?.inWorld ?? messageText(message);
-            return text.trim() ? [`[Source message ${message.index}: ${message.name || 'Unknown speaker'}]\n${text}`] : [];
-        })
-        : resultStrings(sourceEvidence).filter(text => text.trim());
-    // Source notes retain explicit author scope, never character knowledge.
-    const notes = (sourceContext || []).filter(note => note?.kind === 'scenario-note')
-        .flatMap(note => sentences(note.text).map(sentence => `Author-level context: ${sentence}`));
-    const fallback = [...source, ...notes].join('\n\n') || 'The source establishes author-level context without an in-world disclosure.';
-    for (const category of ['facts', 'states', 'relationships', 'events', 'threads', 'backgrounds', 'identityResolutions', 'recordMerges']) {
-        if (!Array.isArray(result[category])) continue;
-        result[category] = result[category].filter(record => {
-            if (!affected(record)) return true;
-            recovery.withheldRecords++;
-            return false;
-        });
-    }
-    if (Array.isArray(result.entities)) result.entities = result.entities.flatMap(entity => {
-        if (!affected(entity)) return [entity];
-        if (affected([entity.name, entity.type, entity.aliases])) {
-            recovery.withheldRecords++;
-            return [];
-        }
-        recovery.withheldRecords++;
-        return [clean(entity)];
-    });
-    for (const key of ['scene', 'sceneCapsule', 'storySoFar', 'title', 'storyTime', 'participants', 'turningPoints', 'emotionalArc', 'closingState', 'openThreads']) {
-        if (affected(result[key])) result[key] = clean(result[key]);
-    }
-    if (result.sceneCapsule && typeof result.sceneCapsule === 'object') {
-        const capsule = result.sceneCapsule;
-        if (!String(capsule.title || '').trim()) capsule.title = 'Source account';
-        if (!capsule.opening && !capsule.beats?.length && !capsule.closing) capsule.opening = fallback;
-        // Preserve the complete source account even if the compact capsule's
-        // fields are clipped for display. Safe generated records stay intact.
-        result.chronicleEntry = fallback;
-    } else if (typeof result.chronicleEntry === 'string') {
-        result.chronicleEntry = fallback;
-    }
-    return recovery;
+// Compatibility validator: attribution failures require model correction, never
+// verbatim source replacement. Production paths use source-grounded review.
+export function recoverAuthoritativeMetaProvenance(result, boundaries, sourceEvidence = []) {
+    assertAuthoritativeMetaProvenance(result, boundaries, sourceEvidence);
+    return { conflicts: 0, withheldRecords: 0 };
 }
 
 export function isAuthoritativeUserMetaMessage(message) {

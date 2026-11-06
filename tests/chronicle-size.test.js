@@ -32,38 +32,32 @@ test('Story target has safe defaults and finite bounds', () => {
     assert.equal(chronicleTokenTarget({ chronicleTokenTarget: 999999 }), 64000);
 });
 
-test('size pressure promotes below node capacity and prefers older higher layers', () => {
+test('token estimates never promote partially filled layers', () => {
     const world = { chronicle: [node('old-a', 1, 0), node('old-b', 1, 10), node('new-a', 0, 20), node('new-b', 0, 30)] };
-    const before = JSON.stringify(world);
-    assert.deepEqual(nextChroniclePromotion(world, { chronicleTokenTarget: 1000 }).map(n => n.id), ['old-a', 'old-b']);
-    assert.equal(JSON.stringify(world), before);
-    assert.equal(nextChroniclePromotion(world, { chronicleTokenTarget: 64000 }), null);
+    assert.equal(nextChroniclePromotion(world, { chronicleTokenTarget: 1000 }), null);
 });
 
-test('compaction retains children but injects their parent only, and terminates without clipping', () => {
-    const world = { chronicle: Array.from({ length: 5 }, (_, i) => node(`entry-${i}`, 0, i * 10)) };
-    const originals = JSON.stringify(world.chronicle);
-    const settings = { chronicleTokenTarget: 1000, chroniclePromotionSize: 3 };
-    let promotions = 0;
-    for (let children; (children = nextChroniclePromotion(world, settings));) {
-        addChroniclePromotion(world, { summary: `Compressed history ${promotions}.` }, children);
-        assert.ok(++promotions < 10);
-    }
-    assert.equal(JSON.stringify(world.chronicle.slice(0, 5)), originals);
-    assert.ok(chronicleSize(activeChronicleNodes(world, 'chat')) <= 1000);
-    const rendered = renderChronicleFrontier(world, 'chat');
-    assert.ok(rendered.includes('Compressed history'));
-    assert.ok(!rendered.includes('entry-0'));
+test('59 C0 entries retain a full recent tail without premature C2 or C3', () => {
+    const world = { chronicle: Array.from({ length: 59 }, (_, i) => node('entry-' + i, 0, i * 8)) };
+    for (let children; (children = nextChroniclePromotion(world));) addChroniclePromotion(world, {summary:'Compact history.'}, children);
+    const frontier = activeChronicleNodes(world, 'chat');
+    assert.equal(frontier.filter(n => n.level === 0).length, 19);
+    assert.equal(frontier.filter(n => n.level === 1).length, 4);
+    assert.equal(world.chronicle.some(n => n.level > 1), false);
+    assert.equal(world.chronicle.filter(n => n.level === 0).length, 59);
+});
 
-    // Even a model that ignores compression cannot cause an endless promotion
-    // loop: every promotion removes at least two children from the frontier.
-    const huge = { chronicle: [node('a', 0, 0), node('b', 0, 10)] };
-    const children = nextChroniclePromotion(huge, settings);
-    const summary = 'Critical information. '.repeat(1000);
-    addChroniclePromotion(huge, { summary }, children);
-    assert.equal(nextChroniclePromotion(huge, settings), null);
-    assert.ok(renderChronicleFrontier(huge, 'chat').includes(summary.trim()));
-    assert.match(chronicleSizeStatus(huge, 'chat', settings), /Over target/);
+test('every layer promotes only its oldest group on overflow, including above C2', () => {
+    for (const level of [0,1,2,3,4]) {
+        const world = {chronicle:Array.from({length:24}, (_,i)=>node('n'+i,level,i*8))};
+        assert.equal(nextChroniclePromotion(world),null);
+        world.chronicle.push(node('overflow',level,192));
+        const children=nextChroniclePromotion(world);
+        assert.deepEqual(children.map(n=>n.id),Array.from({length:10},(_,i)=>'n'+i));
+        addChroniclePromotion(world,{summary:'Compact.'},children);
+        assert.equal(activeChronicleNodes(world,'chat').filter(n=>n.level===level).length,15);
+        assert.equal(nextChroniclePromotion(world),null);
+    }
 });
 
 test('token pressure never mixes chats or layers and counts retained parent details', () => {
