@@ -28,6 +28,8 @@ const DEFAULTS = Object.freeze({
     embeddingProxyModel: 'text-embedding-3-small',
     embeddingOpenRouterUrl: '',
     embeddingOpenRouterModel: 'openai/text-embedding-3-large',
+    embeddingProxySecretId: '',
+    embeddingOpenRouterSecretId: '',
     embeddingAutoSync: true,
     autoExtract: true,
     reviewBeforeCommit: DEFAULT_REVIEW_BEFORE_COMMIT,
