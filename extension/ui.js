@@ -32,6 +32,7 @@ import { blockSyncedRecovery } from './synced-recovery-policy.js?belief-wording=
 import { queryEmbeddingMemory, embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2&current-recall=1&bounded-recall=1&catchup-gate=1&pending-recovery=1&historical-recall=1';
 import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.30';
 import { discoveredModelIds, embeddingDiscoveryRequest } from './model-discovery.js?embedding-discovery=1';
+import { bindModelSelector, populateModelSelector, syncModelSelector } from './model-selector.js?model-selection=1';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
 import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.30&historical-recall=1';
 import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.30';
@@ -108,7 +109,9 @@ function renderDirectCategory(settings, kind) {
     $(directControl(kind, 'url'))
         .val(openRouter ? settings[`${kind}OpenRouterUrl`] : settings[`${kind}DirectUrl`])
         .attr('placeholder', openRouter ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1');
-    $(directControl(kind, 'model')).val(openRouter ? settings[`${kind}OpenRouterModel`] : settings[`${kind}DirectModel`]);
+    syncModelSelector(document.querySelector(directControl(kind, 'model')),
+        document.querySelector(directControl(kind, 'model_select')),
+        openRouter ? settings[`${kind}OpenRouterModel`] : settings[`${kind}DirectModel`]);
     $(directControl(kind, 'key_status')).text(directSecretSaved(kind, settings)
         ? `A ${directLabel(kind)} ${openRouter ? 'OpenRouter key' : 'password/key'} is saved.`
         : `No ${directLabel(kind)} ${openRouter ? 'OpenRouter key' : 'password/key'} saved; keyless endpoints remain supported.`);
@@ -1233,7 +1236,7 @@ function updateEmbeddingProviderUI(settings) {
 }
 
 function setEmbeddingModelValue(selector, model) {
-    $(selector).val(String(model || '').trim());
+    syncModelSelector(document.querySelector(selector), document.querySelector(`${selector}_select`), model);
 }
 
 function embeddingSecretSlot() {
@@ -1255,7 +1258,7 @@ async function saveEmbeddingKey(showToast = true) {
 function populateEmbeddingModels(selector, models, selected) {
     const choices = $(`${selector}_choices`).empty();
     for (const model of models) $('<option>').val(model).appendTo(choices);
-    setEmbeddingModelValue(selector, selected);
+    populateModelSelector(document.querySelector(selector), document.querySelector(`${selector}_select`), models, selected);
 }
 
 async function fetchEmbeddingModels() {
@@ -1274,7 +1277,7 @@ async function fetchEmbeddingModels() {
     const current = openRouter ? settings.embeddingOpenRouterModel : settings.embeddingProxyModel;
     const models = embeddingModelChoices(ids, current);
     populateEmbeddingModels(openRouter ? '#continuity_embedding_openrouter_model' : '#continuity_embedding_proxy_model', models, current);
-    $('#continuity_embedding_models_status').text(`${models.length} model suggestion(s) loaded. Type an embedding model ID if it is missing; discovery may include non-embedding models.`);
+    $('#continuity_embedding_models_status').text(`${models.length} model option(s) loaded. Select a model above, or type a missing embedding model ID manually.`);
     return models;
 }
 
@@ -2208,6 +2211,10 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
     setSetting('#continuity_embedding_openrouter_url', 'embeddingOpenRouterUrl', value => String(value || '').trim());
     setSetting('#continuity_embedding_proxy_model', 'embeddingProxyModel', value => String(value || '').trim());
     setSetting('#continuity_embedding_openrouter_model', 'embeddingOpenRouterModel', value => String(value || '').trim());
+    for (const provider of ['proxy', 'openrouter']) {
+        const selector = `#continuity_embedding_${provider}_model`;
+        bindModelSelector(document.querySelector(selector), document.querySelector(`${selector}_select`));
+    }
     setSetting('#continuity_embedding_top_k', 'embeddingTopK', value => Math.min(200, Math.max(10, Number(value) || 100)));
     setSetting('#continuity_embedding_threshold', 'embeddingThreshold', value => Math.min(1, Math.max(0, Number(value) || 0)));
     setSetting('#continuity_embedding_auto_sync', 'embeddingAutoSync', Boolean);
@@ -2326,9 +2333,8 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
                 $(directControl(kind, 'models_status')).text(error.message);
                 toast('error', error.message);
             }));
-        $(directControl(kind, 'model_select')).on('change', function () {
-            $(directControl(kind, 'model')).val($(this).val()).trigger('change');
-        });
+        bindModelSelector(document.querySelector(directControl(kind, 'model')),
+            document.querySelector(directControl(kind, 'model_select')));
     }
     setSetting('#continuity_extraction_prompt', 'extractionSystemPrompt', String);
     setSetting('#continuity_jb_prompt', 'jbPrompt', String);
