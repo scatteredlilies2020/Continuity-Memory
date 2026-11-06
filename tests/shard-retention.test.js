@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { maintainStorageRetention, pruneWorldShards, readShardPolicy, SHARD_DELETE_LIMIT, SHARD_SCAN_LIMIT, withShardWorldLock, writeShardPolicy } from '../plugin/shard-retention.js';
+import { maintainStorageRetention, pruneBackupVersions, pruneWorldShards, readShardPolicy, SHARD_DELETE_LIMIT, SHARD_SCAN_LIMIT, withShardWorldLock, writeShardPolicy } from '../plugin/shard-retention.js';
 
 const DAY = 86400000;
 const active = 'facts-0000-aaaaaaaaaaaaaaaa.json';
@@ -187,9 +187,12 @@ test('one non-overlapping background sweep reaches unopened worlds and throttles
     await fs.mkdir(other);
     await fs.writeFile(path.join(dirs.worlds, 'other-world.json'), JSON.stringify({ ...manifest([]), id: 'other-world' }));
     await fs.copyFile(path.join(directory, obsolete), path.join(other, obsolete));
+    const backup = await backupFixture(t, dirs);
+    const expired = await backup.write('worlds/test-world~20000101-000000.json');
     const first = maintainStorageRetention(dirs);
     assert.equal(maintainStorageRetention(dirs), first, 'simultaneous calls share the sweep');
     await first;
+    await assert.rejects(fs.stat(expired), { code: 'ENOENT' });
     for (const id of ['test-world', 'other-world']) {
         const ledger = JSON.parse(await fs.readFile(path.join(dirs.root, 'shard-retention', `${id}.json`), 'utf8'));
         assert.ok(ledger.orphans[obsolete]);
@@ -198,4 +201,121 @@ test('one non-overlapping background sweep reaches unopened worlds and throttles
     await fs.utimes(ledger, new Date(0), new Date(0));
     await maintainStorageRetention(dirs);
     assert.equal((await fs.stat(ledger)).mtimeMs, 0);
+});
+
+async function backupFixture(t, dirs) {
+    const root = path.join(path.dirname(dirs.root), '.stversions', path.basename(dirs.root));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    return { root, async write(relative, text = 'backup') {
+        const file = path.join(root, relative);
+        await fs.mkdir(path.dirname(file), { recursive: true });
+        await fs.writeFile(file, text);
+        return file;
+    } };
+}
+
+const backupNow = new Date(2026, 0, 3).getTime();
+const versionedShard = (index, date = '20260101') => `facts-${String(index).padStart(4, '0')}-aaaaaaaaaaaaaaaa~${date}-000000.json`;
+
+test('backup upkeep removes expired manifest, shard and vector copies while preserving live memory and young backups', async t => {
+    const { dirs, directory, canonical } = await fixture(t);
+    const backup = await backupFixture(t, dirs);
+    const liveVector = path.join(dirs.root, 'vectors', 'continuity_test-world', 'a'.repeat(64) + '.json');
+    await fs.mkdir(path.dirname(liveVector), { recursive: true });
+    await fs.writeFile(liveVector, 'saved embeddings');
+    const expired = [await backup.write('worlds/test-world~20260101-000000.json'),
+        await backup.write(`worlds/test-world.shards/${versionedShard(0)}`),
+        await backup.write(`vectors/continuity_test-world/${'a'.repeat(64)}~20260101-000000.json`)];
+    const young = await backup.write(`worlds/test-world.shards/${versionedShard(1, '20260103')}`);
+    // A very old source mtime does not make a newly archived copy expire early.
+    await fs.utimes(young, new Date(0), new Date(0));
+    const unknown = await backup.write('worlds/test-world.shards/notes~20260101-000000.json');
+    const otherApp = await backup.write('../other-extension/worlds/test-world~20260101-000000.json');
+    t.after(() => fs.rm(path.dirname(path.dirname(otherApp)), { recursive: true, force: true }));
+    const before = await fs.readFile(canonical, 'utf8');
+    const result = await pruneBackupVersions(dirs, { nowMs: backupNow });
+    assert.equal(result.deleted, 3);
+    for (const file of expired) await assert.rejects(fs.stat(file), { code: 'ENOENT' });
+    assert.equal(await fs.readFile(young, 'utf8'), 'backup');
+    assert.equal(await fs.readFile(unknown, 'utf8'), 'backup');
+    assert.equal(await fs.readFile(otherApp, 'utf8'), 'backup');
+    assert.equal(await fs.readFile(canonical, 'utf8'), before);
+    assert.equal((await fs.readdir(directory)).length, 3);
+    assert.equal(await fs.readFile(liveVector, 'utf8'), 'saved embeddings');
+});
+
+test('backup retention uses exact age boundaries, rejects invalid version dates and honors disabled or invalid policies', async t => {
+    const { dirs } = await fixture(t);
+    const backup = await backupFixture(t, dirs);
+    const expired = await backup.write('worlds/test-world~20260102-000000.json');
+    const invalid = await backup.write('worlds/test-world~20260230-000000.json');
+    assert.equal((await pruneBackupVersions(dirs, { nowMs: backupNow - 1 })).deleted, 0);
+    await writeShardPolicy(dirs, { shardRetentionDays: 0 });
+    assert.equal((await pruneBackupVersions(dirs, { nowMs: backupNow })).disabled, true);
+    await fs.writeFile(path.join(dirs.root, 'storage-policy.json'), '{bad');
+    await assert.rejects(pruneBackupVersions(dirs, { nowMs: backupNow }));
+    await fs.stat(expired);
+    await writeShardPolicy(dirs, { shardRetentionDays: 1 });
+    assert.equal((await pruneBackupVersions(dirs, { nowMs: backupNow })).deleted, 1);
+    await fs.stat(invalid);
+});
+
+test('an explicitly requested archive purge also removes recent backup copies without changing live files', async t => {
+    const { dirs, directory } = await fixture(t);
+    const backup = await backupFixture(t, dirs);
+    await backup.write('worlds/deleted-world~20260103-000000.json');
+    await backup.write(`worlds/deleted-world.shards/${versionedShard(0, '20260103')}`);
+    assert.equal((await pruneBackupVersions(dirs, { nowMs: backupNow, removeAll: true })).deleted, 2);
+    assert.equal((await fs.readdir(directory)).length, 3);
+});
+
+test('native recovery backups expire without pruning current manifests or arbitrary repair files', async t => {
+    const { dirs, canonical } = await fixture(t);
+    const directory = path.join(dirs.worlds, 'recovery-backups');
+    await fs.mkdir(directory);
+    const expired = path.join(directory, '2026-01-01T00-00-00-000-test-world-abcdef.json');
+    await fs.writeFile(expired, 'old manifest');
+    const unknown = path.join(directory, 'notes.json');
+    await fs.writeFile(unknown, 'keep');
+    assert.equal((await pruneBackupVersions(dirs, { nowMs: backupNow })).deleted, 1);
+    await assert.rejects(fs.stat(expired), { code: 'ENOENT' });
+    await fs.stat(canonical);
+    await fs.stat(unknown);
+});
+
+test('large backup archives respect deletion limits and resume across passes', async t => {
+    const { dirs } = await fixture(t);
+    const backup = await backupFixture(t, dirs);
+    for (let i = 0; i < SHARD_DELETE_LIMIT + 2; i++) await backup.write(`worlds/test-world.shards/${versionedShard(i)}`);
+    const first = await pruneBackupVersions(dirs, { nowMs: backupNow });
+    assert.equal(first.deleted, SHARD_DELETE_LIMIT);
+    assert.equal(first.remaining, 2);
+    const second = await pruneBackupVersions(dirs, { nowMs: backupNow });
+    assert.equal(second.deleted, 2);
+    assert.equal(second.remaining, 0);
+});
+
+test('backup scan cursor reaches expired entries beyond a full batch of recent backups', async t => {
+    const { dirs } = await fixture(t);
+    const backup = await backupFixture(t, dirs);
+    for (let i = 0; i < SHARD_SCAN_LIMIT; i++) await backup.write(`worlds/test-world.shards/${versionedShard(i, '20260103')}`);
+    await backup.write(`worlds/test-world.shards/${versionedShard(SHARD_SCAN_LIMIT)}`);
+    const first = await pruneBackupVersions(dirs, { nowMs: backupNow });
+    assert.equal(first.scanned, SHARD_SCAN_LIMIT);
+    assert.equal(first.deleted, 0);
+    assert.equal((await pruneBackupVersions(dirs, { nowMs: backupNow })).deleted, 1);
+});
+
+test('backup directory and file symlinks never reach files outside the archive', async t => {
+    const { dirs, canonical } = await fixture(t);
+    const backup = await backupFixture(t, dirs);
+    const linkedFile = await backup.write('worlds/test-world~20260101-000000.json');
+    await fs.unlink(linkedFile);
+    await fs.symlink(canonical, linkedFile);
+    await assert.rejects(pruneBackupVersions(dirs, { nowMs: backupNow }), /refused non-file/);
+    await fs.unlink(linkedFile);
+    await fs.rmdir(path.dirname(linkedFile));
+    await fs.symlink(dirs.worlds, path.dirname(linkedFile), 'junction');
+    await assert.rejects(pruneBackupVersions(dirs, { nowMs: backupNow }), /linked path/);
+    await fs.stat(canonical);
 });

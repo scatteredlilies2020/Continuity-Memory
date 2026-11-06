@@ -2190,7 +2190,7 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
         try {
             const { policy } = await api.saveStoragePolicy({ shardRetentionDays: Number($('#continuity_shard_retention').val()) });
             $('#continuity_storage_policy_status').text(policy.shardRetentionDays
-                ? `Saved: superseded shards become eligible after ${policy.shardRetentionDays} full day(s) observed unreferenced.`
+                ? `Saved: superseded shards become eligible after ${policy.shardRetentionDays} full day(s) observed unreferenced; backup versions expire after the same period.`
                 : 'Saved: automatic shard pruning is disabled. Old versions will accumulate indefinitely.');
         } catch (error) { $('#continuity_storage_policy_status').text(error.message); }
         finally { $('#continuity_save_storage_policy').prop('disabled', false); }
