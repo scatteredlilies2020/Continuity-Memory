@@ -92,6 +92,35 @@ async function loadSettings(saved = {}) {
     return import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 }
 
+test('connection URLs, models, and secret references survive provider switches and reload', async () => {
+    const saved = {};
+    for (const kind of ['extraction', 'retrieval', 'correction', 'summary']) {
+        for (const provider of ['Direct', 'OpenRouter']) {
+            saved[`${kind}${provider}Url`] = `https://${kind}-${provider.toLowerCase()}.example/v1`;
+            saved[`${kind}${provider}Model`] = `${kind}/${provider.toLowerCase()}`;
+            saved[`${kind}${provider}SecretId`] = `id-${kind}-${provider}`;
+        }
+        saved[`${kind}DirectProvider`] = 'openrouter';
+    }
+    for (const provider of ['Proxy', 'OpenRouter']) {
+        saved[`embedding${provider}Url`] = `https://${provider.toLowerCase()}.example/v1`;
+        saved[`embedding${provider}Model`] = `embedding/${provider.toLowerCase()}`;
+        saved[`embedding${provider}SecretId`] = `id-embedding-${provider}`;
+    }
+    const module = await loadSettings(saved);
+    const settings = module.getSettings();
+    settings.extractionDirectProvider = 'custom';
+    settings.embeddingProvider = 'proxy';
+    module.saveSettings();
+    const reloaded = (await loadSettings(JSON.parse(JSON.stringify(settings)))).getSettings();
+    for (const [key, value] of Object.entries(saved)) {
+        if (!key.endsWith('Provider')) assert.equal(reloaded[key], value, key);
+    }
+    const defaults = (await loadSettings()).getSettings();
+    assert.equal(defaults.embeddingProxySecretId, '');
+    assert.equal(defaults.embeddingOpenRouterSecretId, '');
+});
+
 test('fresh settings retain lean guidance without retired migration add-ons', async () => {
     const { getSettings } = await loadSettings();
     assert.equal(getSettings().injectionInstruction, DEFAULT_INJECTION_INSTRUCTION);

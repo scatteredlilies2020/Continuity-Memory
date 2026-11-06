@@ -33,6 +33,7 @@ import { queryEmbeddingMemory, embeddingProviderDescription, inspectEmbeddingInd
 import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.30';
 import { discoveredModelIds, embeddingDiscoveryRequest } from './model-discovery.js?embedding-discovery=1';
 import { bindModelSelector, populateModelSelector, syncModelSelector } from './model-selector.js?model-selection=1';
+import { createCredentialMemory, directCredentialContext, embeddingCredentialContext } from './credential-memory.js?connection-memory=1';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
 import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.30&historical-recall=1';
 import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.30';
@@ -89,6 +90,47 @@ function directControl(kind, suffix) {
     return `#continuity_${kind}_direct_${suffix}`;
 }
 
+const credentialContexts = new WeakMap();
+const credentialMemory = createCredentialMemory({
+    write: (...args) => writeSecret(...args),
+    remember: (setting, id) => { getSettings()[setting] = id; saveSettings(); },
+});
+
+function renderCredentialInput(selector, context) {
+    const input = document.querySelector(selector);
+    if (!input) return;
+    const previous = credentialContexts.get(input);
+    if (previous && previous.setting !== context.setting && credentialMemory.get(previous)) {
+        void credentialMemory.save(previous)
+            .then(() => renderRuntime())
+            .catch(error => toast('error', error.message));
+    }
+    credentialContexts.set(input, context);
+    const value = credentialMemory.get(context);
+    if (input.value !== value) input.value = value;
+}
+
+function bindCredentialInput(selector) {
+    $(selector).on('input', function () {
+        const context = credentialContexts.get(this);
+        if (context) credentialMemory.set(context, this.value);
+    }).on('change', function () {
+        const context = credentialContexts.get(this);
+        if (!context) return;
+        credentialMemory.set(context, this.value);
+        void credentialMemory.save(context)
+            .then(() => renderRuntime())
+            .catch(error => toast('error', error.message));
+    });
+}
+
+function rememberTextInput(selector, setting) {
+    $(selector).on('input', function () {
+        getSettings()[setting] = String(this.value || '').trim();
+        saveSettings();
+    });
+}
+
 function directSecretSaved(kind, settings) {
     const provider = settings[`${kind}DirectProvider`] === 'openrouter' ? 'openrouter' : 'custom';
     const slot = provider === 'openrouter' ? SECRET_KEYS.OPENROUTER : SECRET_KEYS.CUSTOM;
@@ -103,6 +145,7 @@ function renderDirectCategory(settings, kind) {
     const profileSetting = DIRECT_PROFILE_SETTINGS[kind];
     const direct = settings[profileSetting] === DIRECT_PROFILE_ID;
     const openRouter = settings[`${kind}DirectProvider`] === 'openrouter';
+    renderCredentialInput(directControl(kind, 'key'), directCredentialContext(settings, kind, SECRET_KEYS));
     $(DIRECT_PROFILE_SELECTORS[kind]).val(directProfileChoice(settings[profileSetting], openRouter ? 'openrouter' : 'custom'));
     $(`.continuity-${kind}-direct-setting`).toggle(direct);
     $(directControl(kind, 'provider')).val(openRouter ? 'openrouter' : 'custom');
@@ -115,6 +158,7 @@ function renderDirectCategory(settings, kind) {
     $(directControl(kind, 'key_status')).text(directSecretSaved(kind, settings)
         ? `A ${directLabel(kind)} ${openRouter ? 'OpenRouter key' : 'password/key'} is saved.`
         : `No ${directLabel(kind)} ${openRouter ? 'OpenRouter key' : 'password/key'} saved; keyless endpoints remain supported.`);
+    $(directControl(kind, 'key_status')).append(' Keys save automatically when you leave the field; blank keeps the saved key.');
 }
 
 function setControlValue(selector, value) {
@@ -1150,17 +1194,13 @@ function bindModelProfileSelector(kind) {
 async function saveDirectApiKey(kind) {
     if (!DIRECT_KINDS.includes(kind)) throw new Error('Unknown direct API category.');
     const settings = getSettings();
-    const provider = settings[`${kind}DirectProvider`] === 'openrouter' ? 'openrouter' : 'custom';
     const input = directControl(kind, 'key');
     const value = String($(input).val() || '').trim();
-    if (!value) throw new Error(`Enter the ${directLabel(kind)} API password first.`);
-    const slot = provider === 'openrouter' ? SECRET_KEYS.OPENROUTER : SECRET_KEYS.CUSTOM;
-    const id = await writeSecret(slot, value, `Continuity ${directLabel(kind)} ${provider === 'openrouter' ? 'OpenRouter key' : 'API password'}`);
-    if (!id) throw new Error('SillyTavern could not save the direct API password.');
-    settings[provider === 'openrouter' ? `${kind}OpenRouterSecretId` : `${kind}DirectSecretId`] = id;
-    saveSettings();
-    $(input).val('');
+    const context = directCredentialContext(settings, kind, SECRET_KEYS);
+    if (value) credentialMemory.set(context, value);
+    const saved = await credentialMemory.save(context);
     renderRuntime();
+    return saved;
 }
 
 async function fetchDirectModels(kind) {
@@ -1221,6 +1261,7 @@ function updateInjectionPlacementUI(settings) {
 
 function updateEmbeddingProviderUI(settings) {
     const openRouter = settings.embeddingProvider === 'openrouter';
+    renderCredentialInput('#continuity_embedding_api_key', embeddingCredentialContext(settings, SECRET_KEYS));
     $('#continuity_embedding_provider_choice').val(openRouter ? 'openrouter' : 'proxy');
     $('#continuity_embedding_key_label').text(openRouter ? 'OpenRouter API key' : 'Proxy password / embedding API key');
     $('#continuity_embedding_api_key').attr('placeholder', openRouter ? 'Leave blank to keep the saved OpenRouter key' : 'Leave blank to keep the saved proxy password');
@@ -1239,20 +1280,15 @@ function setEmbeddingModelValue(selector, model) {
     syncModelSelector(document.querySelector(selector), document.querySelector(`${selector}_select`), model);
 }
 
-function embeddingSecretSlot() {
-    return getSettings().embeddingProvider === 'openrouter' ? SECRET_KEYS.OPENROUTER : SECRET_KEYS.VLLM;
-}
-
 async function saveEmbeddingKey(showToast = true) {
     const value = String($('#continuity_embedding_api_key').val() || '').trim();
-    if (!value) return false;
-    const openRouter = getSettings().embeddingProvider === 'openrouter';
-    const id = await writeSecret(embeddingSecretSlot(), value, `Continuity ${openRouter ? 'OpenRouter' : 'proxy'}`);
-    if (!id) throw new Error('SillyTavern could not save the embedding API key.');
-    $('#continuity_embedding_api_key').val('');
+    const context = embeddingCredentialContext(getSettings(), SECRET_KEYS);
+    if (value) credentialMemory.set(context, value);
+    const saved = await credentialMemory.save(context);
     renderRuntime();
-    if (showToast) toast('success', 'Embedding API key saved securely.');
-    return true;
+    if (showToast) toast(saved ? 'success' : 'info', saved
+        ? 'Embedding API key saved securely.' : 'No new key entered; existing saved key kept unchanged.');
+    return saved;
 }
 
 function populateEmbeddingModels(selector, models, selected) {
@@ -2206,11 +2242,17 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
     });
     setSetting('#continuity_retrieval_messages', 'retrievalQueryMessages', value => Math.min(50, Math.max(2, Number(value) || 6)));
     setSetting('#continuity_embedding_provider_choice', 'embeddingProvider', value => value === 'openrouter' ? 'openrouter' : 'proxy');
-    $('#continuity_embedding_provider_choice').on('change', () => $('#continuity_embedding_api_key').val(''));
+    bindCredentialInput('#continuity_embedding_api_key');
     setSetting('#continuity_embedding_proxy_url', 'embeddingProxyUrl', value => String(value || '').trim());
     setSetting('#continuity_embedding_openrouter_url', 'embeddingOpenRouterUrl', value => String(value || '').trim());
     setSetting('#continuity_embedding_proxy_model', 'embeddingProxyModel', value => String(value || '').trim());
     setSetting('#continuity_embedding_openrouter_model', 'embeddingOpenRouterModel', value => String(value || '').trim());
+    for (const [selector, setting] of [
+        ['#continuity_embedding_proxy_url', 'embeddingProxyUrl'],
+        ['#continuity_embedding_openrouter_url', 'embeddingOpenRouterUrl'],
+        ['#continuity_embedding_proxy_model', 'embeddingProxyModel'],
+        ['#continuity_embedding_openrouter_model', 'embeddingOpenRouterModel'],
+    ]) rememberTextInput(selector, setting);
     for (const provider of ['proxy', 'openrouter']) {
         const selector = `#continuity_embedding_${provider}_model`;
         bindModelSelector(document.querySelector(selector), document.querySelector(`${selector}_select`));
@@ -2225,7 +2267,6 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
         if (runtime.world) scheduleEmbeddingIndexSync(runtime.world, 0);
     });
     $('#continuity_embedding_save_key').on('click', () => {
-        if (!String($('#continuity_embedding_api_key').val() || '').trim()) return toast('error', 'Enter an embedding API key first.');
         saveEmbeddingKey().then(() => {
             if (runtime.world) scheduleEmbeddingIndexSync(runtime.world, 0);
         }).catch(error => toast('error', error.message));
@@ -2313,7 +2354,8 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
             saveSettings();
             renderRuntime();
         });
-        $(`${directControl(kind, 'url')}, ${directControl(kind, 'model')}`).on('change', function () {
+        bindCredentialInput(directControl(kind, 'key'));
+        $(`${directControl(kind, 'url')}, ${directControl(kind, 'model')}`).on('input change', function (event) {
             const settings = getSettings();
             const model = this.id.endsWith('_model');
             const openRouter = settings[`${kind}DirectProvider`] === 'openrouter';
@@ -2322,10 +2364,12 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
                 : `${kind}Direct${model ? 'Model' : 'Url'}`;
             settings[key] = String($(this).val() || '').trim();
             saveSettings();
-            renderRuntime();
+            if (event.type === 'change') renderRuntime();
         });
         $(directControl(kind, 'save_key')).on('click', () => saveDirectApiKey(kind)
-            .then(() => toast('success', `${directLabel(kind)} API password saved securely.`))
+            .then(saved => toast(saved ? 'success' : 'info', saved
+                ? `${directLabel(kind)} API password saved securely.`
+                : 'No new password entered; existing saved key kept unchanged.'))
             .catch(error => toast('error', error.message)));
         $(directControl(kind, 'fetch_models')).on('click', () => fetchDirectModels(kind)
             .then(models => toast('success', `Fetched ${models.length} ${directLabel(kind)} model(s).`))
