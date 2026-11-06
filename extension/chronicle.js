@@ -42,7 +42,7 @@ export function chronicleSizeStatus(world, chatKey, settings = {}) {
     const parts = levels.map(level => `C${level}: ~${chronicleSize(nodes.filter(node => Number(node.level) === level))} tokens`);
     const total = chronicleSize(nodes);
     const target = chronicleTokenTarget(settings);
-    return `Story so far: ~${total} tokens / ${target} target${parts.length ? ` (${parts.join(' · ')})` : ''}. Estimates use 4 characters/token; complete nodes are never clipped.${total > target ? ' Over target: promotion is needed, or too few same-layer nodes remain to combine.' : ''}`;
+    return `Story so far: ~${total} tokens / ${target} target${parts.length ? ` (${parts.join(' · ')})` : ''}. Estimates use 4 characters/token; complete nodes are never clipped.${total > target ? ' Over target; layers still fill to capacity before promotion.' : ''}`;
 }
 
 function clean(value) {
@@ -178,14 +178,6 @@ export function nextChroniclePromotion(world, settings = {}) {
             const sameLevel = frontier.filter(item => Number(item.level) === level);
             if (sameLevel.length <= capacity) continue;
             return sameLevel.slice(0, fanIn);
-        }
-        // Prefer the oldest eligible interval under size pressure, including
-        // higher layers, rather than repeatedly compressing the newest C0 tail.
-        if (chronicleSize(frontier) > chronicleTokenTarget(settings)) {
-            const groups = levels.map(level => frontier.filter(item => Number(item.level) === level))
-                .filter(group => group.length >= 2)
-                .sort((a, b) => Number(a[0].from ?? 0) - Number(b[0].from ?? 0));
-            if (groups.length) return groups[0].slice(0, fanIn);
         }
     }
     return null;

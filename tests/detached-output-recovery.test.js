@@ -135,19 +135,24 @@ test('truncation after a malformed response still gets exactly one capacity reco
     assert.equal(result.saves, 1);
 });
 
-test('provenance uncertainty saves the scoped source account without retrying or failing the job', async () => {
-    const root = task([144]);
-    root.messages[0].text = 'OOC: Alice has a secret route.';
-    const result = await runExtraction('provenance-recovery', root, (_body, attempt) => {
-        assert.equal(attempt, 1, 'Provenance uncertainty must not require another model response.');
-        return { finish: 'stop', content: { ...extracted, chronicleEntry: 'Alice revealed the secret route.' } };
+test('Digest provenance receives a semantic review and corrective retry, never a source dump', async () => {
+    const root=task([144]); root.messages[0].text='OOC: Alice has a secret route.';
+    const result=await runExtraction('provenance-review',root,(body,attempt)=>{
+        if(attempt===1) return {finish:'stop',content:{...extracted,chronicleEntry:'Alice revealed the secret route.'}};
+        if(attempt===2) {
+            assert.match(body.messages[0].content,/check source attribution/);
+            const prompt=body.messages[1].content;
+            const data=JSON.parse(prompt.slice(prompt.lastIndexOf('\n\n')+2));
+            return {finish:'stop',content:{assessments:[...new Set(data.flags.map(f=>f.sentence))].map(sentence=>({sentence,violation:true,reason:'Author context alone does not establish disclosure.',evidence:[]}))}};
+        }
+        assert.match(JSON.stringify(body.messages),/failed source attribution/);
+        return {finish:'stop',content:{...extracted,chronicleEntry:'Author-level context establishes a secret route; no in-world disclosure occurs.'}};
     });
-    assert.equal(result.finished.status, 'complete', result.finished.error);
-    assert.equal(result.requests.length, 1);
-    assert.equal(result.saves, 1);
-    assert.match(result.world.capsules[0].chronicleText, /Author-level context: OOC: Alice has a secret route/);
-    assert.doesNotMatch(result.world.capsules[0].chronicleText, /Alice revealed/);
-    assert.equal(result.world.sources.chat.processedMessages[0].index, 144);
+    assert.equal(result.finished.status,'complete',result.finished.error);
+    assert.equal(result.requests.length,3);
+    assert.equal(result.saves,1);
+    assert.doesNotMatch(result.world.capsules[0].chronicleText,/Alice revealed|Source message|<stat>/);
+    assert.equal(result.world.sources.chat.processedMessages[0].index,144);
 });
 
 test('repeated commute disconnects split a large batch and preserve saved sections through further outages', async () => {

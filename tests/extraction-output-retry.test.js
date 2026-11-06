@@ -23,6 +23,7 @@ function makeExtractor(requestExtraction, settings = { extractionOutputTokens: 0
         requestExtraction,
         updateRuntime: patch => updates.push(patch),
         parseJsonResponse,
+        validateExtractionProvenance: async result => result,
         validateResult: parsed => ({ result: parsed, validation: {} }),
         applySourceAttributionFailClosed: () => 0,
         isRateLimitError: () => false,

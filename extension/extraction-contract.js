@@ -213,6 +213,11 @@ export const EXTRACTION_COMPLETENESS_RULE = `Return complete source-supported re
 
 export function assertCompleteExtractionRecords(result) {
     const problems = [];
+    const narrative = [result?.chronicleEntry, result?.sceneCapsule?.opening,
+        ...(result?.sceneCapsule?.beats || []), result?.sceneCapsule?.closing].filter(value => typeof value === 'string');
+    if (narrative.some(text => /<\/?stat\b|\[Source message\s+\d+:/iu.test(text))) {
+        problems.push('Chronicle prose must summarize events, not reproduce raw source wrappers or statboxes');
+    }
     for (const [category, fields] of Object.entries(requiredText)) {
         if (!Array.isArray(result?.[category])) continue; // Shape and legacy migrations are checked by the caller.
         result[category].forEach((record, index) => {
@@ -234,7 +239,7 @@ export function assertCompleteExtractionRecords(result) {
 }
 
 export function extractionCompletenessFeedback(error) {
-    if (error?.code === 'CM_OOC_PROVENANCE' || /OOC provenance violation/u.test(error?.message || '')) {
+    if (error?.code === 'CM_OOC_PROVENANCE' || error?.code === 'CM_PROVENANCE_REVIEW_INVALID' || /OOC provenance violation/u.test(error?.message || '')) {
         return `\n\nThe previous extraction failed source attribution: ${String(error.message).slice(0, 1200)}\nGenerate a corrected complete JSON extraction from the same excerpt. Preserve the author-level correction as canon using neutral narration. Do not invent a character's speech, realization, disclosure, or knowledge to explain an author note. Keep actual in-world speech and knowledge only when supported by the in-world excerpt. Return all required fields, not a patch.`;
     }
     if (error?.code === 'CM_INCOMPLETE_RECORDS') return `\n\nThe previous response was rejected: ${error.message}\n${EXTRACTION_COMPLETENESS_RULE}`;

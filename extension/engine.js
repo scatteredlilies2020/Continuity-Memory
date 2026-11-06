@@ -13,7 +13,7 @@ import { isRateLimitError, isTransientApiError } from './errors.js';
 import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.30';
 import { planExtractionOutput, resolveExtractionChunk } from './extraction-budget.js?pending-recovery=1&output-planning=1';
 import { normalizeHierarchyResult } from './hierarchy-result.js';
-import { validateChronicleProvenance } from './chronicle-provenance.js';
+import { validateChronicleProvenance, validateExtractionProvenance, chronicleProvenanceSources } from './chronicle-provenance.js';
 import { captureScenarioContext } from './scenario-context.js';
 import { completeDigestMessages, latestCompleteDigestMessageIndex, digestStabilityRepairFrom, DIGEST_STABILITY_BUFFER_MESSAGES, partitionDigestStabilityBuffer, partitionPendingDigestMessages, resolveDigestGroupSize, selectAutomaticDigestMessages } from './digest-policy.js';
 import { applyCorrectionProposal, augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from './memory-correction.js?historical-recall=1';
@@ -27,7 +27,7 @@ import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { addDerivedChronicle, freshResetResiduals, getLatestDigestUndoStatus as inspectLatestDigestUndo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from './memory-model.js?historical-recall=1';
 import { extractionResponseTokens, memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js?pending-recovery=1&output-recovery=2';
 import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.30';
-import { recoverAuthoritativeMetaProvenance, authoritativeMetaBoundaries, formatExtractionMessages, inWorldSourceEvidence, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.37&chronicle-summary-recovery=1';
+import { authoritativeMetaBoundaries, formatExtractionMessages, inWorldSourceEvidence, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.37&chronicle-summary-recovery=1';
 import { embedWorldInChat } from './portable.js?belief-wording=4&pending-recovery=1&historical-recall=1';
 import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.30';
 import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.30&belief-wording=4&historical-recall=1';
@@ -44,7 +44,7 @@ import { stableStoryMessages } from './story-cadence.js?v=0.15.0-testing.30';
 import { compileRollingStorySnapshot } from './story-snapshot.js?v=0.15.0-testing.30';
 import { planStoryMutationRecovery } from './story-checkpoints.js?v=0.15.0-testing.30';
 import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.30';
-import { nextChroniclePromotion, chronicleCompressionGuide, validateChronicleCompression } from './chronicle.js';
+import { nextChroniclePromotion, chronicleCompressionGuide, validateChronicleCompression, chronicleSize } from './chronicle.js';
 import { chronicleRetryFeedback, isRetryableChronicleError, retryChroniclePromotion } from './chronicle-retry.js?pending-recovery=1';
 import { retryConnection } from './connection-retry.js?pending-recovery=1';
 import { randomUuid } from './uuid.js';
@@ -222,17 +222,8 @@ function validateResult(result, world, messages) {
             || [result.sceneCapsule.opening, ...(result.sceneCapsule.beats || []), result.sceneCapsule.closing].filter(Boolean).join(' ');
     }
     const provenanceBoundaries = authoritativeMetaBoundaries(messages, world?.entities || []);
-    const sourceEvidence = inWorldSourceEvidence(messages);
     delete result._sourceScenarioContext;
-    const sourceContext = captureScenarioContext(messages);
-    const before = recoverAuthoritativeMetaProvenance(result, provenanceBoundaries, sourceEvidence, sourceContext, messages);
     const validation = sanitizeReconciliationMetadata(result, world, messages, { neutralSupporting: true });
-    const after = recoverAuthoritativeMetaProvenance(result, provenanceBoundaries, sourceEvidence, sourceContext, messages);
-    const recoveredProvenance = before.conflicts + after.conflicts;
-    if (recoveredProvenance) {
-        validation.warnings ||= [];
-        validation.warnings.push(`Used the source account for ${recoveredProvenance} uncertain generated attribution(s); unaffected records were kept.`);
-    }
     result._authoritativeMetaBoundaries = provenanceBoundaries;
     // Overwrite any model-supplied field with source text captured by code.
     result._sourceScenarioContext = captureScenarioContext(messages);
@@ -358,7 +349,10 @@ async function extractChunk(messages, world = runtime.world) {
             const raw = await requestExtraction(retryPrompt + feedback + recoveryGuide, systemPrompt, fallbackPrompt ? fallbackPrompt + feedback + recoveryGuide : fallbackPrompt, responseTokens);
             updateRuntime({ lastRawResponse: String(raw).slice(0, 30000) });
             const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
+            const review = (prompt, system, schema) => requestStructured(prompt, system, schema, prepared.responseTokens);
+            await validateExtractionProvenance(parsed, messages, world?.entities || [], review);
             const { result, validation } = validateResult(parsed, world, messages);
+            await validateExtractionProvenance(result, messages, world?.entities || [], review);
             const failedClosedRecords = applySourceAttributionFailClosed(result, [
                 ...(validation.sourceAttributionConflicts || []),
                 ...(validation.relationshipEndpointConflicts || []),
@@ -1359,7 +1353,7 @@ function formatChronicleNodes(nodes) {
     })).join('\n');
 }
 
-async function generateChroniclePromotion(nodes, previousError = null) {
+async function generateChroniclePromotion(nodes, previousError = null, sourceRepair = false) {
     const settings = getSettings();
     const profileId = settings.arcProfileId || settings.memoryProfileId;
     const directKind = settings.arcProfileId === DIRECT_PROFILE_ID ? 'summary' : 'extraction';
@@ -1375,7 +1369,12 @@ async function generateChroniclePromotion(nodes, previousError = null) {
     const raw = await withRuntimeConnection(() => requestStructured(prompt, buildHierarchySystemPrompt(settings.chronicleSystemPrompt ?? DEFAULT_CHRONICLE_SYSTEM_PROMPT), chronicleJsonSchema, memoryResponseTokens('chronicle'), profileId, directKind, fallbackPrompt, thinkingMode, true));
     updateRuntime({ lastArcResponse: String(raw).slice(0, 20000) });
     const layer = `C${(Number(nodes[0]?.level) || 0) + 1}`;
-    const result = validateChronicleResult(typeof raw === 'string' ? parseJsonResponse(raw) : raw, layer, nodes);
+    const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
+    const result = sourceRepair ? validateArcResult(parsed, 'C0 repair') : validateChronicleResult(parsed, layer, nodes);
+    if (sourceRepair && (chronicleSize([{ ...nodes[0], text: chronicleProvenanceSources([result])[0] }]) >= chronicleSize(nodes)
+        || /<\/?stat\b|\[Source message\s+\d+:/iu.test(chronicleProvenanceSources([result])[0]))) {
+        throw Object.assign(new Error('C0 repair must be a smaller generated summary without raw statboxes or source wrappers.'), { code: 'CONTINUITY_COMPRESSION_NOT_SMALLER' });
+    }
     return reviewChronicleProvenance(result, nodes);
 }
 
@@ -1401,7 +1400,7 @@ async function saveChroniclePromotion(world, result, nodes, embed = true) {
     return created;
 }
 
-async function generateChronicleWithRetry(nodes, epoch) {
+async function generateChronicleWithRetry(nodes, epoch, sourceRepair = false) {
     const controller = new AbortController();
     const inspect = state => {
         if (state.paused || state.generation !== epoch) {
@@ -1412,7 +1411,7 @@ async function generateChronicleWithRetry(nodes, epoch) {
     inspect(runtime);
     let result;
     try {
-        result = await retryChroniclePromotion(error => generateChroniclePromotion(nodes, error), {
+        result = await retryChroniclePromotion(error => generateChroniclePromotion(nodes, error, sourceRepair), {
             signal: controller.signal,
             onRetry: (error, delay, failures) => updateRuntime({
                 arcError: error.message,
@@ -1811,6 +1810,16 @@ export async function restartHierarchyFromDigest() {
         if (!(world.capsules || []).length) throw new Error('There are no Digest records to build Chronicle parents from. Use Build or erase everything and start over.');
         const digestKept = world.capsules.length;
         const baseRevision = Number(world.revision) || 0;
+        // Repair legacy source-copy fallbacks before deriving the replacement
+        // tree. Work stays in this clone until the final revision-checked save.
+        for (const capsule of world.capsules) {
+            if (!/<\/?stat\b|\[Source message\s+\d+:/iu.test(capsule.chronicleText || '')) continue;
+            if (runtime.generation !== epoch) throw new Error('Chronicle repair stopped; saved memory was kept.');
+            updateRuntime({ arcStatus: `Regenerating source-dump C0 ${capsule.from}–${capsule.to} as summary prose…` });
+            const source = { ...capsule, text: capsule.chronicleText, level: 0, childIds: [] };
+            const repaired = await generateChronicleWithRetry([source], epoch, true);
+            capsule.chronicleText = chronicleProvenanceSources([repaired])[0];
+        }
         resetWorldHierarchy(world);
         let chroniclePromotions = 0;
 

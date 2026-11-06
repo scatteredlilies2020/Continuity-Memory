@@ -41,6 +41,7 @@ for (const success of [true, false]) test(`detached malformed JSON retry ${succe
             }
             return success && calls === 2 ? '{"facts":[]}' : '{"facts":[';
         },
+        validateExtractionProvenance: async result => result,
         validateResult: result => { validations++; return { result, validation: {} }; },
         validationLabel: () => 'Valid detached extraction after retry',
     };
