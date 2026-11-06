@@ -31,6 +31,7 @@ import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDel
 import { blockSyncedRecovery } from './synced-recovery-policy.js?belief-wording=4&pending-recovery=1&historical-recall=1';
 import { queryEmbeddingMemory, embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2&current-recall=1&bounded-recall=1&catchup-gate=1&pending-recovery=1&historical-recall=1';
 import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.30';
+import { discoveredModelIds, embeddingDiscoveryRequest } from './model-discovery.js?embedding-discovery=1';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
 import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.30&historical-recall=1';
 import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.30';
@@ -1183,9 +1184,7 @@ async function fetchDirectModels(kind) {
         }),
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok || payload?.error) throw new Error(payload?.error?.message || `Model discovery failed (${response.status} ${response.statusText}).`);
-    const source = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : [];
-    const models = [...new Set(source.map(item => typeof item === 'string' ? item : item?.id || item?.name).map(String).map(item => item.trim()).filter(Boolean))].sort();
+    const models = discoveredModelIds(response, payload);
     const current = String($(modelInput).val() || '').trim();
     if (current && !models.includes(current)) models.unshift(current);
     if (!models.length) throw new Error('The endpoint returned no model IDs. Manual model entry remains available.');
@@ -1264,15 +1263,16 @@ async function fetchEmbeddingModels() {
     const settings = getSettings();
     const openRouter = settings.embeddingProvider === 'openrouter';
     const provider = resolveEmbeddingProvider(settings);
-    const response = await fetch('/api/backends/text-completions/status', {
+    const discovery = embeddingDiscoveryRequest(provider);
+    const response = await fetch(discovery.url, {
         method: 'POST',
         headers: getRequestHeaders(),
-        body: JSON.stringify({ api_server: provider.body.apiUrl, api_type: openRouter ? 'openrouter' : 'vllm' }),
+        body: JSON.stringify(discovery.body),
     });
-    if (!response.ok) throw new Error(`Model discovery failed (${response.status} ${response.statusText}).`);
-    const payload = await response.json();
+    const payload = await response.json().catch(() => ({}));
+    const ids = discoveredModelIds(response, payload);
     const current = openRouter ? settings.embeddingOpenRouterModel : settings.embeddingProxyModel;
-    const models = embeddingModelChoices(payload, current);
+    const models = embeddingModelChoices(ids, current);
     populateEmbeddingModels(openRouter ? '#continuity_embedding_openrouter_model' : '#continuity_embedding_proxy_model', models, current);
     $('#continuity_embedding_models_status').text(`${models.length} model suggestion(s) loaded. Type an embedding model ID if it is missing; discovery may include non-embedding models.`);
     return models;
@@ -2228,7 +2228,7 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
         fetchEmbeddingModels()
             .then(models => toast('success', `Fetched ${models.length} embedding model option(s).`))
             .catch(error => {
-                $('#continuity_embedding_models_status').text(`Model discovery failed: ${error.message} Manual model entry remains available.`);
+                $('#continuity_embedding_models_status').text(error.message);
                 toast('error', error.message);
             });
     });
