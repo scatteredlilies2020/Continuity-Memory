@@ -14,6 +14,7 @@ const locks = new Map();
 const lastMaintenance = new Map();
 const storageRuns = new Map();
 const lastStorageMaintenance = new Map();
+const backupRuns = new Map();
 export const SHARD_SCAN_LIMIT = 1024;
 export const SHARD_DELETE_LIMIT = 256;
 
@@ -215,6 +216,113 @@ export async function maintainShardRetention(dirs, id) {
     }
 }
 
+function backupTimestamp(filename) {
+    // Syncthing preserves the original mtime. Its version suffix records when
+    // the backup was actually archived, using the server's local time.
+    const match = /~(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})\.json$/.exec(filename);
+    if (!match) return null;
+    const parts = match.slice(1).map(Number);
+    const date = new Date(parts[0], parts[1] - 1, ...parts.slice(2));
+    const actual = [date.getFullYear(), date.getMonth() + 1, date.getDate(), date.getHours(), date.getMinutes(), date.getSeconds()];
+    return actual.every((value, index) => value === parts[index]) ? date.getTime() : null;
+}
+
+async function backupCandidates(dirs) {
+    const candidates = [];
+    const versionRoot = path.join(path.dirname(dirs.root), '.stversions', path.basename(dirs.root));
+    async function entries(directory) {
+        try {
+            await assertPlainPath(directory, true);
+            return await fs.readdir(directory, { withFileTypes: true });
+        } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+    }
+    const add = (directory, entry, since) => {
+        if (since === null) return;
+        if (!entry.isFile() || entry.isSymbolicLink()) throw new Error(`Backup cleanup refused non-file: ${path.join(directory, entry.name)}`);
+        candidates.push({ file: path.join(directory, entry.name), since });
+    };
+    for (const category of ['worlds', 'vectors']) {
+        const directory = path.join(versionRoot, category);
+        for (const entry of await entries(directory)) {
+            const original = entry.name.replace(/~\d{8}-\d{6}(?=\.json$)/, '');
+            if (category === 'worlds' && original.endsWith('.json')
+                && WORLD_ID.test(original.slice(0, -5).split('.sync-conflict-')[0])) {
+                add(directory, entry, backupTimestamp(entry.name));
+            } else if (category === 'worlds' && entry.name.endsWith('.shards') && WORLD_ID.test(entry.name.slice(0, -7))
+                || category === 'vectors' && /^continuity_[a-zA-Z0-9_-]+$/.test(entry.name)) {
+                const child = path.join(directory, entry.name);
+                for (const version of await entries(child)) {
+                    const name = version.name.replace(/~\d{8}-\d{6}(?=\.json$)/, '');
+                    if (category === 'worlds' ? SHARD_FILE.test(name) : /^[a-f0-9]{64}\.json$/.test(name)) {
+                        add(child, version, backupTimestamp(version.name));
+                    }
+                }
+            }
+        }
+    }
+    // CM also makes a manifest backup before a native recovery operation.
+    const recovery = path.join(dirs.worlds, 'recovery-backups');
+    for (const entry of await entries(recovery)) {
+        const match = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})-(.+)-[a-f0-9]{6}\.json$/.exec(entry.name);
+        if (!match || !WORLD_ID.test(match[6])) continue;
+        const since = Date.parse(`${match[1]}T${match[2]}:${match[3]}:${match[4]}.${match[5]}Z`);
+        if (Number.isFinite(since)) add(recovery, entry, since);
+    }
+    return candidates.sort((left, right) => left.file < right.file ? -1 : left.file > right.file ? 1 : 0);
+}
+
+// Only backup copies are visited here. Live manifests, shards, vectors and
+// other applications' version archives are outside these exact directories.
+export function pruneBackupVersions(dirs, options = {}) {
+    const key = path.resolve(dirs.root);
+    const previous = backupRuns.get(key) || Promise.resolve();
+    const pending = previous.catch(() => {}).then(() => pruneBackupVersionsLocked(dirs, options));
+    backupRuns.set(key, pending);
+    return pending.finally(() => { if (backupRuns.get(key) === pending) backupRuns.delete(key); });
+}
+
+async function pruneBackupVersionsLocked(dirs, { nowMs = Date.now(), removeAll = false } = {}) {
+    const policy = await readShardPolicy(dirs);
+    if (!policy.shardRetentionDays && !removeAll) return { deleted: 0, bytes: 0, disabled: true };
+    const candidates = await backupCandidates(dirs);
+    const cursorFile = path.join(dirs.root, 'backup-retention.json');
+    let cursor = '';
+    try {
+        await assertPlainPath(cursorFile, false);
+        const ledger = JSON.parse(await fs.readFile(cursorFile, 'utf8'));
+        if (ledger.version !== 1 || typeof ledger.cursor !== 'string') throw new Error('Invalid backup retention cursor');
+        cursor = ledger.cursor;
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    const previousCursor = cursor;
+    let start = candidates.findIndex(candidate => candidate.file > cursor);
+    if (start < 0) start = 0;
+    const batch = [...candidates.slice(start), ...candidates.slice(0, start)].slice(0, SHARD_SCAN_LIMIT);
+    let deleted = 0, bytes = 0, scanned = 0;
+    for (const candidate of batch) {
+        scanned++;
+        cursor = candidate.file;
+        if (!removeAll && nowMs - candidate.since < policy.shardRetentionDays * DAY_MS) continue;
+        let stat;
+        try {
+            await assertPlainPath(candidate.file, false);
+            stat = await fs.lstat(candidate.file);
+        } catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+        if ((await readShardPolicy(dirs)).shardRetentionDays !== policy.shardRetentionDays) break;
+        try { await fs.unlink(candidate.file); }
+        catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+        deleted++;
+        bytes += stat.size;
+        if (deleted === SHARD_DELETE_LIMIT) break;
+    }
+    const next = candidates.length > scanned ? cursor : '';
+    // Avoid creating a ledger for an archive that has never existed.
+    if (next !== previousCursor) {
+        await assertPlainPath(dirs.root, true);
+        await atomicJson(cursorFile, { version: 1, cursor: next });
+    }
+    return { deleted, bytes, scanned, remaining: candidates.length - deleted };
+}
+
 // Called by health checks and saves, without awaiting it in request handlers.
 // One sequential, hourly sweep per user also reaches worlds not recently opened.
 // Only manifests and file metadata are read; no full worlds or AI calls.
@@ -233,6 +341,8 @@ export function maintainStorageRetention(dirs) {
             const id = entry.name.slice(0, -7);
             if (WORLD_ID.test(id) && canonical.has(`${id}.json`)) await maintainShardRetention(dirs, id);
         }
+        const backups = await pruneBackupVersions(dirs);
+        if (backups.deleted) console.info(`[continuity-memory] Pruned ${backups.deleted} backup versions (${backups.bytes} bytes).`);
     })().catch(error => console.warn(`[continuity-memory] Storage upkeep skipped: ${error.message}`))
         .finally(() => { if (storageRuns.get(key) === pending) storageRuns.delete(key); });
     storageRuns.set(key, pending);
