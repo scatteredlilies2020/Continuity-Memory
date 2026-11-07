@@ -4,7 +4,7 @@ import test from 'node:test';
 import {
     buildExtractionSystemPrompt, buildHierarchySystemPrompt, upgradePromptWording,
     DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_CHRONICLE_SYSTEM_PROMPT,
-    DURABLE_MEMORY_RULES, CHARACTER_PROFILE_RULE, EPISTEMIC_MEMORY_RULES,
+    DURABLE_MEMORY_RULES, CHARACTER_PROFILE_RULE, PRE_ASSERTION_CHARACTER_PROFILE_RULE, EPISTEMIC_MEMORY_RULES,
     CHRONICLE_ENTRY_RULE, CHRONICLE_ENTRY_LENGTH_RULE, SOURCE_SCOPE_RULE,
     EXTREME_CANON_FIDELITY_RULE, EXTREME_SUMMARY_FIDELITY_RULE,
 } from '../extension/prompts.js';
@@ -31,6 +31,13 @@ test('wording upgrader leaves independently written instructions alone', () => {
     const custom = 'Keep my descriptions detailed. Working for a guild can imply membership in this setting.';
     assert.equal(upgradePromptWording(custom), custom);
     assert.equal(upgradePromptWording(upgradePromptWording(old.extractionSystemPrompt)), upgradePromptWording(old.extractionSystemPrompt));
+});
+
+test('previous profile rule upgrades without dropping custom prompt additions', () => {
+    const previous = `Custom prefix.\n${PRE_ASSERTION_CHARACTER_PROFILE_RULE}\nCustom suffix.`;
+    const expected = `Custom prefix.\n${CHARACTER_PROFILE_RULE}\nCustom suffix.`;
+    assert.equal(upgradePromptWording(previous), expected);
+    assert.equal(upgradePromptWording(expected), expected);
 });
 
 test('current state excludes future plans without losing ongoing-state rules', () => {

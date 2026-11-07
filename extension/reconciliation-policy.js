@@ -3148,7 +3148,14 @@ function characterProfileObjectiveParts(message) {
     return sourceEvidenceChunks({ ...message, text: source, mes: undefined })
         .map(({ text: chunk, authoritative }) => {
             if (!chunk || /^<\/?[^>]+>$/u.test(chunk) || chunk === '```' || looksLikeStructuredProfilePanel(chunk)) return '';
-            if (authoritative || !AUDIT_SOURCE_SUBJECTIVE.test(chunk)) return chunk;
+            if (authoritative || !AUDIT_SOURCE_SUBJECTIVE.test(chunk)) {
+                // A narrated question/report is an observable speech act, not
+                // an assertion of its embedded proposition. Keep the owner
+                // anchor, but never use the reported content as biography.
+                return chunk
+                    .replace(/\b(?:asks?|asked|wonders?|wondered|questions?|questioned|denies?|denied|claims?|claimed|suggests?|suggested|imagines?|imagined)\b[^.!?]*?\b(?:whether|if|that|why|who|what|how)\b[^.!?]*/giu, '')
+                    .replace(/\b(?:is|was|are|were)\s+(?:not|never|no longer|neither)\b[^.!?]*/giu, '');
+            }
             // Quoted claims cannot establish appearance or personality. Keep
             // only a bare proper-name self-introduction as a discourse anchor
             // so immediately preceding objective narration can be attributed
@@ -3615,7 +3622,10 @@ function sourceDerivedCharacterProfile(entity, objectiveWindows, messages, resul
     };
     const grammaticalSubject = [...new Set([entity?.name, ...(entity?.aliases || [])].map(cleanText).filter(Boolean))]
         .map(escaped).join('|');
-    const copula = new RegExp(`(?:^|[^\\p{L}\\p{N}])(?:${grammaticalSubject}|he|she|they)\\s+(?:is|was|appears?|seems?)\\s+([^.!?]{2,180})`, 'giu');
+    // Only a direct, owner-bound assertion can generate a profile. Searching
+    // anywhere in the window promotes embedded questions ("she asks whether
+    // he is a knight") into the questioner's own role.
+    const copula = new RegExp(`(?:^|[.!?]\\s+)[\\s*“”"'‘’]*(?:${grammaticalSubject}|he|she|they)\\s+(?:is|was)\\s+([^.!?]{2,180})`, 'giu');
     const appearanceCue = /\b(?:bald|beard|build|cheek(?:ed|s)?|complexion|ear[sd]?|eye[sd]?|face|facial|freckle[sd]?|hair|height|horn[sd]?|markings?|moustache|mustache|scar(?:red|s)?|short|skin|stature|tall|tattoo(?:ed|s)?|voice|wing[sd]?|blood|bruise|dust|grime|injur|mud|tear|wound)\b/iu;
     const ageCue = /\b(?:age[ds]?|adolescen(?:ce|t|ts)|adult|child(?:hood|ren)?|elder(?:ly)?|infants?|middle[- ]aged|minors?|newborns?|preteens?|teen(?:age[drs]?|s)?|toddlers?|young(?:er|est)?|years?[- ]old|year[- ]old|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)\b|\b(?:at most|about|around|approximately|nearly|only|roughly|under|over)\s+(?:\d{1,3}|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)\b|\b(?:\d{1,3}|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)\s+(?:at most|years? old)\b|^(?:0|[1-9]\d?|1[0-4]\d|150)$/iu;
     const roleCue = /\b(?:acolyte|adviser|advisor|agent|apprentice|attendant|captain|commander|council|doctor|emperor|empress|guard|heir|investigator|Jedi|king|knight|leader|lieutenant|mage|master|member|mentor|minister|mistress|officer|Padawan|pilot|prince|princess|queen|seneschal|Sith|soldier|student|teacher|veteran)\b/iu;
@@ -3630,6 +3640,7 @@ function sourceDerivedCharacterProfile(entity, objectiveWindows, messages, resul
     };
     for (const window of objectiveWindows) {
         for (const match of window.matchAll(copula)) {
+            if (/^(?:not|never|no longer|neither)\b/iu.test(cleanText(match[1]))) continue;
             for (const detail of characterProfileDetails(match[1])) addObserved(detail);
         }
     }
