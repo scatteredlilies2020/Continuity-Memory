@@ -118,6 +118,8 @@ export function characterProfileDetailIsAdmissible(field, detail) {
     if (!value || value.length < 2 || value.length > 180 || PROFILE_CONTROL_SYNTAX.test(raw) || !canonicalProseIsThirdPerson(raw)) return false;
     if (/^(?:unknown|none|n\/a|not established|unrevealed)$/iu.test(value)) return false;
     if (NON_ATOMIC_PROFILE_SUBJECT.test(value)) return false;
+    if (/^(?:not|never|no longer|neither)\b/iu.test(value)) return false;
+    if (/\b(?:as|while|when)\s+(?:the|he|she|they|it)\b/iu.test(value)) return false;
     if (PROFILE_UNCERTAINTY.test(value)) return false;
     if (TRANSIENT_PROFILE_CONTEXT.test(value) && !DURABLE_BEHAVIOR.test(value)) return false;
     if (field === 'ageDemographics') return AGE_DEMOGRAPHICS.test(value)
@@ -125,6 +127,7 @@ export function characterProfileDetailIsAdmissible(field, detail) {
     if (field === 'appearance') return !AGE_DEMOGRAPHICS.test(value) && !TEMPORARY_APPEARANCE.test(value);
     if (field === 'roleBackground') {
         return !TRANSIENT_ROLE.test(value) && !NON_BIOGRAPHICAL_ROLE.test(value)
+            && !/^(?:only (?:one|person)|already\b)|\binto the same picture\b/iu.test(value)
             && !NON_ATOMIC_ROLE_CLAUSE.test(value)
             && (!AGE_DEMOGRAPHICS.test(value) || DURABLE_ROLE.test(value))
             && !TEMPORARY_PERSONALITY.test(value) && (!DURABLE_APPEARANCE.test(value) || DURABLE_ROLE.test(value));
