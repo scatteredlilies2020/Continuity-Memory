@@ -3145,7 +3145,47 @@ function sourceEvidenceParts(message) {
 
 function characterProfileObjectiveParts(message) {
     const source = stripGeneratedProfileControlBlocks(String(message?.text ?? message?.mes ?? '')).replace(/\r/g, ' ');
-    return sourceEvidenceChunks({ ...message, text: source, mes: undefined })
+    const spans = splitScenarioNotes({ ...message, text: source, mes: undefined })?.spans || [{ type: 'inWorld', text: source }];
+    // Track quotation spans before sentence splitting. Otherwise the second
+    // sentence of dialogue loses its opening quote and looks like narration.
+    // Empty chunks are ownership barriers, not disposable whitespace.
+    const chunks = [];
+    const appendNarration = (text, authoritative) => {
+        for (const part of text.split(/\n+|(?<=[.!?])\s+(?=[\p{L}\p{N}“"'*_<])/u)) {
+            if (cleanText(part)) chunks.push({ text: cleanText(part), authoritative });
+        }
+    };
+    for (const span of spans) {
+        const authoritative = span.type === 'meta';
+        if (authoritative) {
+            appendNarration(span.text, true);
+            continue;
+        }
+        let start = 0;
+        for (let index = 0; index < span.text.length; index++) {
+            const opening = span.text[index];
+            const single = opening === "'" || opening === '‘';
+            if (!['"', '“', "'", '‘'].includes(opening)
+                || (single && /[\p{L}\p{N}]/u.test(span.text[index - 1] || ''))) continue;
+            const closing = opening === '“' ? '”' : opening === '‘' ? '’' : opening;
+            let end = index + 1;
+            while (end < span.text.length) {
+                if (span.text[end] === closing && !(single
+                    && /[\p{L}\p{N}]/u.test(span.text[end - 1] || '')
+                    && /[\p{L}\p{N}]/u.test(span.text[end + 1] || ''))) break;
+                end++;
+            }
+            appendNarration(span.text.slice(start, index), false);
+            const speech = span.text.slice(index + 1, end);
+            const introduction = speech.match(/\b(?:I\s+am|I['’]m|my\s+name\s+is)\s+[\p{Lu}][\p{L}\p{N}'’-]*(?:\s+[\p{Lu}][\p{L}\p{N}'’-]*){0,3}\b/u);
+            chunks.push({ text: introduction?.[0] || '', authoritative: false });
+            chunks.push({ text: '', authoritative: false });
+            index = end;
+            start = end + 1;
+        }
+        appendNarration(span.text.slice(start), false);
+    }
+    return chunks
         .map(({ text: chunk, authoritative }) => {
             if (!chunk || /^<\/?[^>]+>$/u.test(chunk) || chunk === '```' || looksLikeStructuredProfilePanel(chunk)) return '';
             if (authoritative || !AUDIT_SOURCE_SUBJECTIVE.test(chunk)) {
@@ -3163,8 +3203,7 @@ function characterProfileObjectiveParts(message) {
             const introduction = chunk.match(/\b(?:I\s+am|I['’]m|my\s+name\s+is)\s+[\p{Lu}][\p{L}\p{N}'’-]*(?:\s+[\p{Lu}][\p{L}\p{N}'’-]*){0,3}\b/u);
             return introduction?.[0] || '';
         })
-        .map(chunk => cleanText(chunk.replace(/^\*+|\*+$/gu, '')))
-        .filter(Boolean);
+        .map(chunk => cleanText(chunk.replace(/^\*+|\*+$/gu, '')));
 }
 
 const PROFILE_PANEL_NAME = /(?:^|[-_ ])(?:character|current|scene|world)?[-_ ]*(?:dashboard|hud|metadata|panel|profile|sheet|stat(?:e|s|us)?|status|tracker)(?:$|[-_ ])/iu;
@@ -3323,7 +3362,7 @@ function characterProfileSubjectPattern(entity) {
     // Profile evidence must make the named entity the grammatical topic. A
     // bare nearby mention is not enough: "Toska studies Lucas" is evidence
     // about Toska's action, not Lucas's body, history, or temperament.
-    const intrinsicPossessive = '(?:age|appearance|background|beard|build|complexion|eyes?|face|hair|habits?|height|history|markings?|personality|quirks?|role|scars?|skin|stammer|stature|stutter|temperament|voice)';
+    const intrinsicPossessive = '(?:age|appearance|background|beard|braids?|build|complexion|ears?|eyes?|face|fur|hair|habits?|height|history|horns?|knuckles?|markings?|personality|quirks?|role|scars?|skin|stammer|stature|stutter|tails?|temperament|voice|whiskers?|wings?)';
     return new RegExp(
         `^(?:[\\s*“”"'‘’([{]*)(?:(?:OOC\\s*:\\s*)|(?:[^,]{1,80},\\s+))?(?:${identity})(?:[’']s\\s+${intrinsicPossessive}\\b|\\b(?![’']))`,
         'iu',
@@ -3437,7 +3476,7 @@ function characterProfileEvidenceWindows(entity, objectiveSequences, people) {
                     // An object mention such as "nearly hit the seneschal"
                     // does not transfer ownership. Stop only when another
                     // known person is the grammatical subject.
-                    if (otherPeople.some(person => characterProfileHasExplicitSubject(segments[prior], person))) break;
+                    if (!segments[prior] || otherPeople.some(person => characterProfileHasExplicitSubject(segments[prior], person))) break;
                     start = prior;
                     windows.push(segments.slice(start, index + 1).join(' '));
                 }
@@ -3626,31 +3665,35 @@ function sourceDerivedCharacterProfile(entity, objectiveWindows, messages, resul
     // anywhere in the window promotes embedded questions ("she asks whether
     // he is a knight") into the questioner's own role.
     const copula = new RegExp(`(?:^|[.!?]\\s+)[\\s*“”"'‘’]*(?:${grammaticalSubject}|he|she|they)\\s+(?:is|was)\\s+([^.!?]{2,180})`, 'giu');
-    const appearanceCue = /\b(?:bald|beard|build|cheek(?:ed|s)?|complexion|ear[sd]?|eye[sd]?|face|facial|freckle[sd]?|hair|height|horn[sd]?|markings?|moustache|mustache|scar(?:red|s)?|short|skin|stature|tall|tattoo(?:ed|s)?|voice|wing[sd]?|blood|bruise|dust|grime|injur|mud|tear|wound)\b/iu;
+    const appearanceCue = /\b(?:bald|beard|braid[sd]?|build|cheek(?:ed|s)?|complexion|ear[sd]?|eye[sd]?|face|facial|freckle[sd]?|fur|hair|height|horn[sd]?|knuckles?|markings?|moustache|mustache|scar(?:red|s)?|short|skin|stature|tails?|tall|tattoo(?:ed|s)?|voice|weathered|whiskers?|wing[sd]?|blood|bruise|dust|grime|injur|mud|tear|wound)\b/iu;
     const ageCue = /\b(?:age[ds]?|adolescen(?:ce|t|ts)|adult|child(?:hood|ren)?|elder(?:ly)?|infants?|middle[- ]aged|minors?|newborns?|preteens?|teen(?:age[drs]?|s)?|toddlers?|young(?:er|est)?|years?[- ]old|year[- ]old|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)\b|\b(?:at most|about|around|approximately|nearly|only|roughly|under|over)\s+(?:\d{1,3}|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)\b|\b(?:\d{1,3}|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)\s+(?:at most|years? old)\b|^(?:0|[1-9]\d?|1[0-4]\d|150)$/iu;
     const roleCue = /\b(?:acolyte|adviser|advisor|agent|apprentice|attendant|captain|commander|council|doctor|emperor|empress|guard|heir|investigator|Jedi|king|knight|leader|lieutenant|mage|master|member|mentor|minister|mistress|officer|Padawan|pilot|prince|princess|queen|seneschal|Sith|soldier|student|teacher|veteran)\b/iu;
     const worldviewCue = /\b(?:adherent|belie(?:f|fs|ve[sd]?)|believer|creed|devout|ideology|principle|worldview)\b/iu;
     const behaviorCue = /\b(?:always|characteristically|habit(?:ual|ually)?|often|quirk|regularly|repeatedly|stammer|stumble|stutter|temper(?:ament|ed)?|typically|usually)\b|\bby nature\b/iu;
     const addObserved = detail => {
         const value = cleanText(detail);
-        if (/^(?:a|an|the)\s+/iu.test(value) || roleCue.test(value)) add('roleBackground', value);
+        if (roleCue.test(value)) add('roleBackground', value);
         else if (ageCue.test(value)) add('ageDemographics', value);
         else if (worldviewCue.test(value) || behaviorCue.test(value)) add('personalityQuirks', value.replace(/\s+by nature$/iu, ''));
         else if (appearanceCue.test(value)) add('appearance', value);
+        else if (/^(?:a|an|the)\s+/iu.test(value)) add('roleBackground', value);
     };
     for (const window of objectiveWindows) {
         for (const match of window.matchAll(copula)) {
             if (/^(?:not|never|no longer|neither)\b/iu.test(cleanText(match[1]))) continue;
+            // A progressive scene action is not a list of identity predicates.
+            // In "She is sitting ... beside a bundle, a hair ribbon ...",
+            // comma-separated objects must not become her appearance or role.
+            if (/^(?:sitting|standing|lying|walking|running|holding|carrying|wearing|watching|looking|smiling|waiting|turning|moving|reaching|opening|closing|eating|drinking)\b/iu.test(cleanText(match[1]))) continue;
             for (const detail of characterProfileDetails(match[1])) addObserved(detail);
         }
     }
     const variants = [entity?.name, ...(entity?.aliases || [])].map(cleanText).filter(Boolean);
     const variantPattern = variants.map(escaped).join('|');
     for (const message of messages || []) {
-        const source = cleanText(message?.text ?? message?.mes);
+        const source = cleanText(stripGeneratedProfileControlBlocks(String(message?.text ?? message?.mes ?? '')));
         if (!source || !variantPattern || !textMentionsIdentityVariant(source, variants)) continue;
-        const ownedClauses = source.split(/\n+|(?<=[.!?])\s+/u)
-            .map(cleanText)
+        const ownedClauses = characterProfileObjectiveParts(message)
             .filter(clause => characterProfileHasExplicitSubject(clause.replace(/^OOC\s*:\s*/iu, ''), entity));
         for (const clause of ownedClauses) {
             if (/\b(?:has\s+(?:a\s+)?s(?:tutter|utter)|stutters?|stammers?)\b/iu.test(clause)) add('personalityQuirks', 'stutters');
@@ -3662,8 +3705,8 @@ function sourceDerivedCharacterProfile(entity, objectiveWindows, messages, resul
         // direct, owner-bound evidence. Dialogue remains invalid evidence for
         // unrelated appearance or personality proposals.
         const selfIntroduction = new RegExp(`\\b(?:I\\s+am|I['’]m|my\\s+name\\s+is)\\s+(?:${variantPattern})\\b`, 'iu');
-        if (selfIntroduction.test(source)
-            && (source.match(/(?:^|[\s“"'‘’])([\p{L}])-\1[\p{L}]+/giu) || []).length >= 2) {
+        if (quotedSpeechSegments(source).some(speech => selfIntroduction.test(speech)
+            && (speech.match(/(?:^|[\s“"'‘’])([\p{L}])-\1[\p{L}]+/giu) || []).length >= 2)) {
             add('personalityQuirks', 'stutters');
         }
     }
@@ -3688,9 +3731,12 @@ export function sanitizeStructuredCharacterProfiles(result, world, messages) {
         if (objective.length) objectiveSequences.push(objective);
     }
     const people = [...(world?.entities || []), ...result.entities].filter(item => entityIsPersonLike(item?.type));
-    const isBareEntityIdentity = value => /^\p{Lu}[\p{L}\p{N}'’-]*$/u.test(cleanText(value))
-        || people.some(person => [person?.name, ...(person?.aliases || [])]
-            .some(identity => normalized(identity) === normalized(value)));
+    const isBareEntityIdentity = value => people.some(person => [person?.name, ...(person?.aliases || [])]
+        .some(identity => normalized(identity) === normalized(value)))
+        // Capitalization alone cannot make a known trait ("Fur", "Tall",
+        // "Stutters") a proper name. Grounding still checks every proposal.
+        || (/^\p{Lu}[\p{L}\p{N}'’-]*$/u.test(cleanText(value))
+            && !CHARACTER_PROFILE_ORDER.some(field => durableCharacterProfileDetail(field, value)));
     let discarded = 0;
     const warnings = [];
     for (const entity of result.entities) {
@@ -3703,8 +3749,11 @@ export function sanitizeStructuredCharacterProfiles(result, world, messages) {
         const targetId = cleanText(entity?.targetId);
         const existing = (world?.entities || []).find(item => (targetId && cleanText(item?.id) === targetId)
             || normalized(item?.name) === normalized(entity?.name));
-        const objectiveWindows = characterProfileEvidenceWindows(entity, objectiveSequences, people);
-        const derived = sourceDerivedCharacterProfile(entity, objectiveWindows, messages, result, world);
+        // Existing identity aliases are matching context, never biographical
+        // evidence. A model omitting aliases must not lose the source subject.
+        const evidenceEntity = { ...entity, aliases: [...new Set([...(existing?.aliases || []), ...(entity.aliases || [])])] };
+        const objectiveWindows = characterProfileEvidenceWindows(evidenceEntity, objectiveSequences, people);
+        const derived = sourceDerivedCharacterProfile(evidenceEntity, objectiveWindows, messages, result, world);
         const prior = storedEntityProfile(existing);
         const hadStoredProfile = Object.keys(prior).length > 0;
         const versionAudit = characterProfileNeedsVersionAudit(existing, world);
@@ -3718,7 +3767,7 @@ export function sanitizeStructuredCharacterProfiles(result, world, messages) {
             const priorDetails = characterProfileDetails(prior[key]);
             for (const detail of priorDetails) {
                 if (!isBareEntityIdentity(detail) && characterProfileDetailIsAdmissible(key, detail)
-                    && (!versionAudit || characterProfileDetailSupported(detail, entity, null, objectiveWindows))) {
+                    && (!versionAudit || characterProfileDetailSupported(detail, evidenceEntity, null, objectiveWindows))) {
                     safe[key] ||= [];
                     safe[key].push(detail);
                 }
@@ -3731,7 +3780,7 @@ export function sanitizeStructuredCharacterProfiles(result, world, messages) {
                 const independentlyDerived = destination && derived[destination]
                     .some(candidate => normalized(candidate) === normalized(detail));
                 if (!isBareEntityIdentity(detail)
-                    && (independentlyDerived || characterProfileDetailSupported(detail, entity, existing, objectiveWindows))
+                    && (independentlyDerived || characterProfileDetailSupported(detail, evidenceEntity, existing, objectiveWindows))
                     && destination
                     && durableCharacterProfileDetail(destination, detail, objectiveWindows)) supportedByField[destination].push(detail);
                 else {

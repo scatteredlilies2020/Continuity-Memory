@@ -206,7 +206,7 @@ test('default prompts support arbitrary scenario ontologies and calibrate import
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /State is a replaceable condition/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /durable, tense-neutral identity summaries/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /characterProfile fields roleBackground, ageDemographics, appearance, personalityQuirks/);
-    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Use \[\] for unknown groups and all groups of a non-person/);
+    assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Use \[\] for unknown\/non-person groups/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /Never invent details/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /explicit names and third person, never I\/we\/you or player-facing advice/);
     assert.match(DEFAULT_EXTRACTION_SYSTEM_PROMPT, /source-grounded intentions and questions in supporting memories/);

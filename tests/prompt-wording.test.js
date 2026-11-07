@@ -4,7 +4,7 @@ import test from 'node:test';
 import {
     buildExtractionSystemPrompt, buildHierarchySystemPrompt, upgradePromptWording,
     DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_CHRONICLE_SYSTEM_PROMPT,
-    DURABLE_MEMORY_RULES, CHARACTER_PROFILE_RULE, PRE_ASSERTION_CHARACTER_PROFILE_RULE, EPISTEMIC_MEMORY_RULES,
+    DURABLE_MEMORY_RULES, CHARACTER_PROFILE_RULE, PRE_ASSERTION_CHARACTER_PROFILE_RULE, PRE_QUOTATION_CHARACTER_PROFILE_RULE, EPISTEMIC_MEMORY_RULES,
     CHRONICLE_ENTRY_RULE, CHRONICLE_ENTRY_LENGTH_RULE, SOURCE_SCOPE_RULE,
     EXTREME_CANON_FIDELITY_RULE, EXTREME_SUMMARY_FIDELITY_RULE,
 } from '../extension/prompts.js';
@@ -34,10 +34,13 @@ test('wording upgrader leaves independently written instructions alone', () => {
 });
 
 test('previous profile rule upgrades without dropping custom prompt additions', () => {
-    const previous = `Custom prefix.\n${PRE_ASSERTION_CHARACTER_PROFILE_RULE}\nCustom suffix.`;
     const expected = `Custom prefix.\n${CHARACTER_PROFILE_RULE}\nCustom suffix.`;
-    assert.equal(upgradePromptWording(previous), expected);
+    for (const rule of [PRE_ASSERTION_CHARACTER_PROFILE_RULE, PRE_QUOTATION_CHARACTER_PROFILE_RULE]) {
+        assert.equal(upgradePromptWording(`Custom prefix.\n${rule}\nCustom suffix.`), expected);
+    }
     assert.equal(upgradePromptWording(expected), expected);
+    assert.match(CHARACTER_PROFILE_RULE, /objective narration or explicit author notes, never quoted claims/);
+    assert.match(CHARACTER_PROFILE_RULE, /retain explicit habits and physical traits/);
 });
 
 test('current state excludes future plans without losing ongoing-state rules', () => {
@@ -49,9 +52,9 @@ test('current state excludes future plans without losing ongoing-state rules', (
 });
 
 test('plain profile and knowledge rules retain attribution and membership distinctions', () => {
-    assert.match(CHARACTER_PROFILE_RULE, /Put age and life stage only in ageDemographics/);
-    assert.match(CHARACTER_PROFILE_RULE, /Exclude temporary actions, reactions, details about other people, comparison tables, and status panels/);
-    assert.match(CHARACTER_PROFILE_RULE, /Use \[\] for unknown groups and all groups of a non-person/);
+    assert.match(CHARACTER_PROFILE_RULE, /Age\/life stage only in ageDemographics/);
+    assert.match(CHARACTER_PROFILE_RULE, /Exclude actions, reactions, other people, comparison tables\/status panels/);
+    assert.match(CHARACTER_PROFILE_RULE, /Use \[\] for unknown\/non-person groups/);
     assert.match(EPISTEMIC_MEMORY_RULES, /One character knowing something does not mean another knows it/);
     assert.match(EPISTEMIC_MEMORY_RULES, /Narration alone does not mean a character learned it/);
     assert.match(EPISTEMIC_MEMORY_RULES, /Working for an organization does not by itself establish membership/);
