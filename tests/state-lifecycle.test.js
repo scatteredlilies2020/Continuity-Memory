@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canonicalMemorySubject, stateIdentity } from '../extension/state-lifecycle.js';
+import { canonicalMemorySubject, stateIdentity, withCanonicalSubjectIndex } from '../extension/state-lifecycle.js';
 
 test('a recurring role does not resolve to an earlier named holder of that role', () => {
     const world = { entities: [{ name: 'Warden Oddo', aliases: ['Oddo', 'the warden', 'road-warden'] }] };
@@ -26,4 +26,22 @@ test('name matching preserves aliases and unique short names without dropping id
     world.entities.push({ name: 'Caelen Ren', aliases: ['Silver Fox'] });
     assert.equal(canonicalMemorySubject(world, 'Caelen'), 'Caelen');
     assert.equal(canonicalMemorySubject(world, 'Silver Fox'), 'Silver Fox');
+});
+
+test('scoped subject lookup agrees with mutable-world lookup, including ambiguity and split aliases', () => {
+    const world = { entities: [
+        { name: 'Caelen Veyr', aliases: ['Silver Fox'] },
+        { name: 'Toska', aliases: ["Caelen's master"] },
+        { name: 'Warden Oddo', aliases: ['Oddo', 'road-warden'] },
+        { name: 'Caelen Ren', aliases: ['Silver Wolf'] },
+        { name: 'Aria', aliases: ['Silver', 'Fox'] },
+    ] };
+    const names = ['Caelen', 'Silver Fox', 'Silver Wolf', 'Silver', 'Fox',
+        'Silver Fox envoy', 'Caelen’s master', 'Oddo', 'road-warden',
+        'checkpoint road-warden', 'Aria', 'unknown', ''];
+    const expected = names.map(name => canonicalMemorySubject(world, name));
+    const indexed = withCanonicalSubjectIndex(world, () => names.map(name => canonicalMemorySubject(world, name)));
+    assert.deepEqual(indexed, expected);
+    world.entities[0].aliases = ['Golden Fox'];
+    assert.equal(canonicalMemorySubject(world, 'Golden Fox'), 'Caelen Veyr');
 });

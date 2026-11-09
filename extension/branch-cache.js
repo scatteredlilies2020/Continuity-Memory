@@ -140,30 +140,37 @@ export function forkWorldToBranch(world, currentMessages, targetChatKey, sourceC
             operation.protectedThrough[targetChatKey] = Math.min(operation.protectedThrough[targetChatKey], sharedThrough);
         }
     }
-    const branchedWorld = structuredClone(previousWorld);
-    removeChatContributions(branchedWorld, targetChatKey);
-    for (const item of retained) {
-        mergeExtraction(branchedWorld, structuredClone(item.result), {
-            chatKey: targetChatKey,
-            from: Number(item.from),
-            to: Number(item.to),
-            allowStateUpdates: true,
-            replayStoredExtraction: true,
-            messageFingerprints: extractionFingerprints(item, stored)
-                .map(([index, fingerprint]) => ({ index, fingerprint })),
-        });
-    }
-    restoreRetainedReplayRecords(branchedWorld, previousWorld, targetChatKey);
-    syncChronicleBase(branchedWorld, targetChatKey);
-    const retainedNodeIds = new Set((branchedWorld.chronicle || []).map(item => item.id));
-    const retainedParents = (previousWorld.chronicle || [])
-        .filter(item => item.chatKey === targetChatKey && Number(item.level) > 0)
-        .slice()
-        .sort((left, right) => Number(left.level) - Number(right.level));
-    for (const parent of retainedParents) {
-        if (retainedNodeIds.has(parent.id) || !(parent.childIds || []).every(id => retainedNodeIds.has(id))) continue;
-        branchedWorld.chronicle.push(structuredClone(parent));
-        retainedNodeIds.add(parent.id);
+    // If every stored Digest is fingerprint-verified and the branch only adds
+    // undigested messages, the remapped parent is already the exact prefix.
+    // Avoid rebuilding the entire world just to change its chat identifier.
+    const completePrefix = !Number.isFinite(repairFrom)
+        && retained.length === (world.extractions || []).filter(item => item?.chatKey === sourceKey).length;
+    const branchedWorld = completePrefix ? previousWorld : structuredClone(previousWorld);
+    if (!completePrefix) {
+        removeChatContributions(branchedWorld, targetChatKey);
+        for (const item of retained) {
+            mergeExtraction(branchedWorld, structuredClone(item.result), {
+                chatKey: targetChatKey,
+                from: Number(item.from),
+                to: Number(item.to),
+                allowStateUpdates: true,
+                replayStoredExtraction: true,
+                messageFingerprints: extractionFingerprints(item, stored)
+                    .map(([index, fingerprint]) => ({ index, fingerprint })),
+            });
+        }
+        restoreRetainedReplayRecords(branchedWorld, previousWorld, targetChatKey);
+        syncChronicleBase(branchedWorld, targetChatKey);
+        const retainedNodeIds = new Set((branchedWorld.chronicle || []).map(item => item.id));
+        const retainedParents = (previousWorld.chronicle || [])
+            .filter(item => item.chatKey === targetChatKey && Number(item.level) > 0)
+            .slice()
+            .sort((left, right) => Number(left.level) - Number(right.level));
+        for (const parent of retainedParents) {
+            if (retainedNodeIds.has(parent.id) || !(parent.childIds || []).every(id => retainedNodeIds.has(id))) continue;
+            branchedWorld.chronicle.push(structuredClone(parent));
+            retainedNodeIds.add(parent.id);
+        }
     }
     refreshChronicleStory(branchedWorld, targetChatKey);
 
