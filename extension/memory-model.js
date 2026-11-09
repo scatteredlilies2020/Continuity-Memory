@@ -3,7 +3,7 @@ import { LEGACY_DIGEST_RESCAN_MESSAGE } from './legacy-support.js';
 import { EXTRACTION_VERSION } from './coverage.js';
 import { correctionBaselines, correctionProtectsRecord, isSuppressedByCorrection, releaseAdvancedCorrection } from './memory-correction.js?historical-recall=1';
 import { addressFactAddressee, addressFactIdentity, enrichEntityDescriptionsFromEstablishedFacts, entityIsPersonLike, entityTypesAreCompatible, isAddressFact, mergeAddressValues, normalizeKnowledgePredicateTaxonomy, normalizeRelationalKnowledgeTopics, reconcileGenericAddressDuplicates, reconcileStoredMemoryRecords, reconciliationMergeIsCompatible, reconciliationTargetIsCompatible, reconciliationTargetWasRejected, recoverRelationshipBackedEntityDescriptions, relationshipPairIdentity, removeInvalidAddressFacts } from './reconciliation-policy.js?historical-recall=1';
-import { canonicalMemorySubject, canonicalStateAttribute, stateIdentity, stateScope } from './state-lifecycle.js';
+import { canonicalMemorySubject, canonicalStateAttribute, stateIdentity, stateScope, withCanonicalSubjectIndex } from './state-lifecycle.js';
 import { buildDigestTemporalAnchor, buildRelativeTemporalAnchor } from './temporal-anchors.js';
 import { randomUuid } from './uuid.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
@@ -203,11 +203,28 @@ function shouldPreserveHistoricalRecord(item, meta) {
 }
 
 function mergeArray(world, collection, target, incoming, identity, meta, prefix, combine, preserveExisting = false, reconciliationResult = null) {
+    if (!Array.isArray(incoming) || !incoming.length) return;
+    // Replay used to recompute every existing identity for every incoming
+    // record. Build the same first-match lookup once per collection instead.
+    const byId = new Map();
+    const byIdentity = new Map();
+    const factKey = item => `${key(canonicalMemorySubject(world, item?.subject))}|${key(item?.predicate)}|${key(item?.category)}`;
+    const byCanonicalFact = collection === 'facts' ? new Map() : null;
+    for (let index = 0; index < target.length; index++) {
+        const item = target[index];
+        if (item.id && !byId.has(item.id)) byId.set(item.id, index);
+        const match = identity(item);
+        if (match && !byIdentity.has(match)) byIdentity.set(match, index);
+        if (byCanonicalFact) {
+            const canonical = factKey(item);
+            if (!byCanonicalFact.has(canonical)) byCanonicalFact.set(canonical, index);
+        }
+    }
     for (const raw of incoming || []) {
         if (!raw || typeof raw !== 'object') continue;
         if (reconciliationTargetWasRejected(raw)) continue;
         let requestedTargetId = text(raw.targetId);
-        let requestedIndex = requestedTargetId ? target.findIndex(item => item.id === requestedTargetId) : -1;
+        let requestedIndex = requestedTargetId ? (byId.get(requestedTargetId) ?? -1) : -1;
         const missingUntrustedTarget = requestedIndex < 0 && !meta.replayStoredExtraction;
         if (requestedTargetId && requestedIndex >= 0
             && !reconciliationTargetIsCompatible(collection, raw, target[requestedIndex], world, reconciliationResult)) {
@@ -220,11 +237,12 @@ function mergeArray(world, collection, target, incoming, identity, meta, prefix,
             raw.targetId = '';
         }
         const requestedTarget = requestedIndex >= 0 ? target[requestedIndex] : null;
-        const normalized = combine ? combine(raw, requestedTarget) : raw;
+        const canonicalCandidate = byCanonicalFact ? target[byCanonicalFact.get(factKey(raw))] : null;
+        const normalized = combine ? combine(raw, requestedTarget, canonicalCandidate) : raw;
         if (isSuppressedByCorrection(world, collection, normalized, meta)) continue;
         const identityKey = identity(normalized);
         if (!identityKey) continue;
-        const index = requestedIndex >= 0 ? requestedIndex : target.findIndex(item => identity(item) === identityKey);
+        const index = requestedIndex >= 0 ? requestedIndex : (byIdentity.get(identityKey) ?? -1);
         if (index >= 0) {
             // A model can emit an object with the same name as a person (or
             // vice versa). Failing closed is safer than overwriting the durable
@@ -261,12 +279,41 @@ function mergeArray(world, collection, target, incoming, identity, meta, prefix,
                     : observation.observationSources;
                 if (correctionLocked) merged.history = target[index].history || [];
             }
+            const oldIdentity = identity(target[index]);
+            const oldFactKey = byCanonicalFact ? factKey(target[index]) : '';
             target[index] = common({ ...merged, id: target[index].id, createdAt: target[index].createdAt }, meta, prefix);
+            const newIdentity = identity(target[index]);
+            if (oldIdentity !== newIdentity && byIdentity.get(oldIdentity) === index) {
+                const next = target.findIndex(item => identity(item) === oldIdentity);
+                if (next < 0) byIdentity.delete(oldIdentity);
+                else byIdentity.set(oldIdentity, next);
+            }
+            if (newIdentity && (byIdentity.get(newIdentity) === undefined || index < byIdentity.get(newIdentity))) {
+                byIdentity.set(newIdentity, index);
+            }
+            if (byCanonicalFact) {
+                const newFactKey = factKey(target[index]);
+                if (oldFactKey !== newFactKey && byCanonicalFact.get(oldFactKey) === index) {
+                    const next = target.findIndex(item => factKey(item) === oldFactKey);
+                    if (next < 0) byCanonicalFact.delete(oldFactKey);
+                    else byCanonicalFact.set(oldFactKey, next);
+                }
+                if (byCanonicalFact.get(newFactKey) === undefined || index < byCanonicalFact.get(newFactKey)) {
+                    byCanonicalFact.set(newFactKey, index);
+                }
+            }
             raw.targetId = target[index].id;
         } else {
             const created = common({ ...normalized, ...(requestedTargetId ? { id: requestedTargetId } : {}) }, meta, prefix);
             if (collection === 'threads' || collection === 'backgrounds') created.observationSources = [sourceRef(meta)];
             target.push(created);
+            byId.set(created.id, target.length - 1);
+            const createdIdentity = identity(created);
+            if (createdIdentity && !byIdentity.has(createdIdentity)) byIdentity.set(createdIdentity, target.length - 1);
+            if (byCanonicalFact) {
+                const canonical = factKey(created);
+                if (!byCanonicalFact.has(canonical)) byCanonicalFact.set(canonical, target.length - 1);
+            }
             raw.targetId = created.id;
         }
     }
@@ -661,32 +708,34 @@ export function compactDuplicateMemoryRecords(world, messages = null) {
     let compacted = compactDuplicateEntities(world);
     compacted += splitCompositeStateSubjects(world);
     compacted += compactRepeatedEntityDescriptions(world);
-    compacted += reconcileStoredMemoryRecords(world, messages, { neutralSupporting: true });
-    reconcileCanonicalKnowledgeFacts(world);
-    const exactFacts = deduplicateCanonicalRecords(world?.facts, item => item?.correctionId ? ''
-        : addressFactIdentity(item, world) || `${key(canonicalMemorySubject(world, item?.subject))}|${key(item?.predicate)}|${key(item?.category)}`);
-    compacted += (world?.facts?.length || 0) - exactFacts.length;
-    world.facts = exactFacts;
+    return withCanonicalSubjectIndex(world, () => {
+        compacted += reconcileStoredMemoryRecords(world, messages, { neutralSupporting: true });
+        reconcileCanonicalKnowledgeFacts(world);
+        const exactFacts = deduplicateCanonicalRecords(world?.facts, item => item?.correctionId ? ''
+            : addressFactIdentity(item, world) || `${key(canonicalMemorySubject(world, item?.subject))}|${key(item?.predicate)}|${key(item?.category)}`);
+        compacted += (world?.facts?.length || 0) - exactFacts.length;
+        world.facts = exactFacts;
 
-    const exactStates = deduplicateCanonicalRecords(world?.states, item => item?.correctionId ? '' : stateIdentity(world, item));
-    compacted += (world?.states?.length || 0) - exactStates.length;
-    world.states = exactStates;
-    const exactRelationships = deduplicateCanonicalRecords(world?.relationships, item => item?.correctionId ? '' : relationshipPairIdentity(item, world));
-    compacted += (world?.relationships?.length || 0) - exactRelationships.length;
-    world.relationships = exactRelationships;
+        const exactStates = deduplicateCanonicalRecords(world?.states, item => item?.correctionId ? '' : stateIdentity(world, item));
+        compacted += (world?.states?.length || 0) - exactStates.length;
+        world.states = exactStates;
+        const exactRelationships = deduplicateCanonicalRecords(world?.relationships, item => item?.correctionId ? '' : relationshipPairIdentity(item, world));
+        compacted += (world?.relationships?.length || 0) - exactRelationships.length;
+        world.relationships = exactRelationships;
 
-    const threads = compactSemanticRecords(world?.threads, (a, b) => !a.correctionId && !b.correctionId && supportingIdentity(a) === supportingIdentity(b), mergeSemanticListRecord,
-        item => semanticTopicBucket(`${item?.title} ${item?.detail}`, item?.participants || []));
-    world.threads = threads.items;
-    compacted += threads.removed;
-    const backgrounds = compactSemanticRecords(world?.backgrounds, (a, b) => !a.correctionId && !b.correctionId && supportingIdentity(a) === supportingIdentity(b), mergeSemanticListRecord,
-        item => semanticTopicBucket(`${item?.topic} ${item?.summary}`, item?.participants || []));
-    world.backgrounds = backgrounds.items;
-    compacted += backgrounds.removed;
-    const events = compactSemanticRecords(world?.events, semanticallyDuplicateAdjacentEvent, mergeSemanticListRecord);
-    world.events = events.items;
-    compacted += events.removed;
-    return compacted;
+        const threads = compactSemanticRecords(world?.threads, (a, b) => !a.correctionId && !b.correctionId && supportingIdentity(a) === supportingIdentity(b), mergeSemanticListRecord,
+            item => semanticTopicBucket(`${item?.title} ${item?.detail}`, item?.participants || []));
+        world.threads = threads.items;
+        compacted += threads.removed;
+        const backgrounds = compactSemanticRecords(world?.backgrounds, (a, b) => !a.correctionId && !b.correctionId && supportingIdentity(a) === supportingIdentity(b), mergeSemanticListRecord,
+            item => semanticTopicBucket(`${item?.topic} ${item?.summary}`, item?.participants || []));
+        world.backgrounds = backgrounds.items;
+        compacted += backgrounds.removed;
+        const events = compactSemanticRecords(world?.events, semanticallyDuplicateAdjacentEvent, mergeSemanticListRecord);
+        world.events = events.items;
+        compacted += events.removed;
+        return compacted;
+    });
 }
 
 export function normalizeAddressFacts(world) {
@@ -1270,13 +1319,10 @@ export function mergeExtraction(world, result, meta) {
     removeCrossEntityCanonicalAliases(world.entities);
     reconcileCanonicalKnowledgeFacts(world);
 
-    mergeArray(world, 'facts', world.facts, result.facts, item => addressFactIdentity(item, world) || `${key(item.subject)}|${key(item.predicate)}|${key(item.category)}`, meta, 'fact', (item, existing) => {
+    withCanonicalSubjectIndex(world, () => mergeArray(world, 'facts', world.facts, result.facts, item => addressFactIdentity(item, world) || `${key(item.subject)}|${key(item.predicate)}|${key(item.category)}`, meta, 'fact', (item, existing, indexedCurrent) => {
         const address = isAddressFact(item);
         const incomingSubject = canonicalMemorySubject(world, item.subject);
-        const current = existing || world.facts.find(candidate =>
-            key(canonicalMemorySubject(world, candidate?.subject)) === key(incomingSubject)
-            && key(candidate?.predicate) === key(item?.predicate)
-            && key(candidate?.category) === key(item?.category));
+        const current = existing || indexedCurrent;
         const subject = current?.subject || incomingSubject;
         const addressee = address
             ? canonicalMemorySubject(world, addressFactAddressee(current || item))
@@ -1290,7 +1336,7 @@ export function mergeExtraction(world, result, meta) {
             persistence: ['temporary', 'recurring', 'persistent'].includes(item.persistence) ? item.persistence : 'persistent',
             temporalAnchorId: digestTemporal.anchorId,
         };
-    }, preserveHistoricalRecord, result);
+    }, preserveHistoricalRecord, result));
 
     if (meta.allowStateUpdates !== false) applyActiveStates(world, result, meta, digestTemporal);
 

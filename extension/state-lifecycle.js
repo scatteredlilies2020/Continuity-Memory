@@ -24,6 +24,44 @@ function namesForEntity(entity) {
     return [entity?.name, ...(Array.isArray(entity?.aliases) ? entity.aliases : [])].map(text).filter(Boolean);
 }
 
+// A merge's compaction pass repeatedly resolves the same subjects against an
+// unchanged entity roster. Keep this index scoped to that synchronous pass;
+// ordinary lookups still read mutable worlds directly.
+const scopedSubjectIndexes = new WeakMap();
+
+export function withCanonicalSubjectIndex(world, callback) {
+    if (!world || typeof world !== 'object') return callback();
+    const previous = scopedSubjectIndexes.get(world);
+    const exact = new Map();
+    const tokens = new Map();
+    const candidateNames = new Map();
+    for (const entity of world.entities || []) {
+        const names = namesForEntity(entity);
+        const indexedNames = [];
+        for (const name of names) {
+            const nameKey = normalized(name);
+            const prior = exact.get(nameKey);
+            if (prior === undefined) exact.set(nameKey, entity);
+            else if (prior !== entity) exact.set(nameKey, null);
+            if (isRoleOnlyName(name)) continue;
+            const nameTokenSet = new Set(nameTokens(name));
+            if (!nameTokenSet.size) continue;
+            indexedNames.push(nameTokenSet);
+            for (const token of nameTokenSet) {
+                if (!tokens.has(token)) tokens.set(token, new Set());
+                tokens.get(token).add(entity);
+            }
+        }
+        candidateNames.set(entity, indexedNames);
+    }
+    scopedSubjectIndexes.set(world, { exact, tokens, candidateNames });
+    try { return callback(); }
+    finally {
+        if (previous) scopedSubjectIndexes.set(world, previous);
+        else scopedSubjectIndexes.delete(world);
+    }
+}
+
 export function canonicalMemorySubject(world, value) {
     const source = text(value);
     if (!source) return '';
@@ -31,6 +69,24 @@ export function canonicalMemorySubject(world, value) {
     // A role can recur in another scene. A saved alias such as "road-warden"
     // does not establish that every later warden is the same named person.
     if (isRoleOnlyName(source)) return source;
+    const index = world && scopedSubjectIndexes.get(world);
+    if (index) {
+        const exact = index.exact.get(normalized(source));
+        if (exact) return text(exact.name);
+        if (exact === null) return source;
+        if (/['’]s\b/iu.test(source)) return source;
+        const sourceTokens = nameTokens(source);
+        if (!sourceTokens.length || sourceTokens.every(token => GENERIC_NAME_TOKENS.has(token))) return source;
+        const possible = index.tokens.get(sourceTokens[0]);
+        if (!possible) return source;
+        let match = null;
+        for (const entity of possible) {
+            if (!index.candidateNames.get(entity).some(name => sourceTokens.every(token => name.has(token)))) continue;
+            if (match && match !== entity) return source;
+            match = entity;
+        }
+        return match ? text(match.name) : source;
+    }
     const exact = entities.filter(entity => namesForEntity(entity).some(name => normalized(name) === normalized(source)));
     if (exact.length === 1) return text(exact[0].name);
     if (exact.length > 1) return source;

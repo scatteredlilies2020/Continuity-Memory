@@ -74,6 +74,23 @@ test('merges durable records and updates matching facts instead of duplicating t
     assert.deepEqual(target.sources[meta.chatKey].processedMessages, [{ index: 0, fingerprint: 'first', version: EXTRACTION_VERSION }]);
 });
 
+test('fact indexing retains first-match canonical identity across aliases in one Digest', () => {
+    const target = world();
+    target.entities.push({ id: 'alice', name: 'Alice Ren', type: 'person', aliases: ['Alice'], sources: [] });
+    const fact = (subject, value) => ({ subject, predicate: 'favorite drink', value, category: 'preference', importance: 2, persistence: 'persistent' });
+    const result = extraction({
+        scene: null, sceneCapsule: null, entities: [], states: [], relationships: [], events: [], threads: [], backgrounds: [],
+        facts: [fact('Alice', 'tea'), fact('Alice Ren', 'coffee')],
+    });
+
+    mergeExtraction(target, result, { chatKey: 'chat', from: 0, to: 3, allowStateUpdates: true });
+
+    assert.equal(target.facts.length, 1);
+    assert.equal(target.facts[0].subject, 'Alice Ren');
+    assert.equal(result.facts[0].targetId, target.facts[0].id);
+    assert.equal(result.facts[1].targetId, target.facts[0].id);
+});
+
 test('Digest extraction updates only the matching chat rolling story snapshot', () => {
     const target = world();
     target.storySoFar = {};

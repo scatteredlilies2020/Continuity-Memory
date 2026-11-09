@@ -540,16 +540,21 @@ function continuityEntityIndex(result, world) {
             variants.set(variant, matches);
         }
     }
-    return { entities, variants };
+    const mentionPatterns = [...variants.entries()]
+        .filter(([, matches]) => matches.length === 1)
+        .map(([variant, matches]) => ({
+            entity: matches[0],
+            length: variant.length,
+            pattern: new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(variant)}(?:$|[^\\p{L}\\p{N}])`, 'iu'),
+        }))
+        .sort((left, right) => right.length - left.length);
+    return { entities, variants, mentionPatterns };
 }
 
 function canonicalMention(index, value) {
     const source = normalized(value);
     if (!source) return null;
-    const matches = [...index.variants.entries()]
-        .filter(([variant, entities]) => entities.length === 1 && new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped(variant)}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(source))
-        .sort((left, right) => right[0].length - left[0].length);
-    return matches[0]?.[1]?.[0] || null;
+    return index.mentionPatterns.find(({ pattern }) => pattern.test(source))?.entity || null;
 }
 
 function nearestCanonicalMention(index, value) {
@@ -2751,22 +2756,30 @@ function epistemicFactShape(item) {
 
 function entityNamedBeforeAttributionVerb(index, value) {
     const source = cleanText(value);
-    const people = index.entities.filter(personEntity);
-    const namesFor = entity => {
-        const names = [entity.name, ...(entity.aliases || [])].map(cleanText).filter(Boolean);
-        for (const part of cleanText(entity.name).split(/\s+/u)) {
-            if (part.length < 3) continue;
-            const owners = people.filter(candidate => [candidate.name, ...(candidate.aliases || [])]
-                .some(name => cleanText(name).split(/\s+/u).some(candidatePart => normalized(candidatePart) === normalized(part))));
-            if (owners.length === 1) names.push(part);
+    if (!index.attributionPatterns) {
+        const people = index.entities.filter(personEntity);
+        const partOwners = new Map();
+        for (const entity of people) {
+            const parts = new Set([entity.name, ...(entity.aliases || [])]
+                .flatMap(name => cleanText(name).split(/\s+/u).map(normalized)));
+            for (const part of parts) {
+                if (!partOwners.has(part)) partOwners.set(part, new Set());
+                partOwners.get(part).add(entity);
+            }
         }
-        return [...new Set(names)];
-    };
-    const matches = people.filter(entity => namesFor(entity).some(name => new RegExp(
-            `(?:^|[^\\p{L}\\p{N}])${escaped(name)}(?:$|[^\\p{L}\\p{N}])\\s*(?:(?:explicitly|reportedly|allegedly|firmly|privately|now|still)\\s+){0,3}${AUDIT_ACTIVE_ATTRIBUTION_VERB.source}\\b`,
-            'iu',
-        ).test(source)));
-    return matches.length === 1 ? matches[0] : null;
+        index.attributionPatterns = people.map(entity => {
+            const names = [entity.name, ...(entity.aliases || [])].map(cleanText).filter(Boolean);
+            for (const part of cleanText(entity.name).split(/\s+/u)) {
+                if (part.length >= 3 && partOwners.get(normalized(part))?.size === 1) names.push(part);
+            }
+            return { entity, patterns: [...new Set(names)].map(name => new RegExp(
+                `(?:^|[^\\p{L}\\p{N}])${escaped(name)}(?:$|[^\\p{L}\\p{N}])\\s*(?:(?:explicitly|reportedly|allegedly|firmly|privately|now|still)\\s+){0,3}${AUDIT_ACTIVE_ATTRIBUTION_VERB.source}\\b`,
+                'iu',
+            )) };
+        });
+    }
+    const matches = index.attributionPatterns.filter(({ patterns }) => patterns.some(pattern => pattern.test(source)));
+    return matches.length === 1 ? matches[0].entity : null;
 }
 
 function attributedPredicateLabel(item) {
@@ -4708,8 +4721,12 @@ export function removeCrossDirectionAddressContamination(result, world, messages
 }
 
 export function addressFactIdentity(item, world = null) {
+    // Most facts are not forms of address. Check the predicate before doing
+    // either world-wide name lookup (including during every replay compaction).
+    const rawAddressee = addressFactAddressee(item);
+    if (!rawAddressee) return '';
     const speaker = canonicalAddressName(world, item?.subject);
-    const addressee = canonicalAddressName(world, addressFactAddressee(item));
+    const addressee = canonicalAddressName(world, rawAddressee);
     return speaker && addressee ? `${speaker}|${addressee}` : '';
 }
 

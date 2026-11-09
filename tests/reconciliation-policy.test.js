@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { addressFactIdentity, applySourceAttributionFailClosed, canonicalFactReference, enrichEntityDescriptionsFromEstablishedFacts, ensureSceneCapsuleEpistemicCoverage, entityIsPersonLike, entityTypesAreCompatible, hasSelfAddressEvidence, mergeAddressValues, reconcileResolvedIdentityThreads, reconciliationTargetIsCompatible, recoverRelationshipBackedEntityDescriptions, removeInvalidAddressFacts, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
+import { addressFactIdentity, applySourceAttributionFailClosed, canonicalFactReference, enrichEntityDescriptionsFromEstablishedFacts, ensureSceneCapsuleEpistemicCoverage, entityIsPersonLike, entityTypesAreCompatible, hasSelfAddressEvidence, mergeAddressValues, normalizeKnowledgeHolderContamination, reconcileResolvedIdentityThreads, reconciliationTargetIsCompatible, recoverRelationshipBackedEntityDescriptions, removeInvalidAddressFacts, removeInvalidStoredAddressFacts, sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
 
 function extraction() {
     return {
@@ -8,6 +8,23 @@ function extraction() {
         identityResolutions: [], recordMerges: [],
     };
 }
+
+test('stored knowledge attribution reuses name matching without changing holder resolution', () => {
+    const world = { entities: [
+        { name: 'Alice Ren', type: 'person', aliases: ['Alice'] },
+        { name: 'Bob', type: 'person', aliases: [] },
+    ] };
+    const result = { facts: [
+        { subject: 'Bob', predicate: 'knowledge of map', category: 'knowledge', value: 'Alice believes Bob knows the route.' },
+        { subject: 'Bob', predicate: 'knowledge of key', category: 'knowledge', value: 'Alice claims Bob has the key.' },
+    ] };
+
+    assert.equal(normalizeKnowledgeHolderContamination(result, world), 2);
+    assert.deepEqual(result.facts.map(item => [item.subject, item.predicate, item.category]), [
+        ['Alice Ren', 'belief about Bob — knowledge of map', 'character belief'],
+        ['Alice Ren', 'belief about Bob — knowledge of key', 'character belief'],
+    ]);
+});
 
 test('Digest capsule deterministically retains a concealed-identity knowledge boundary', () => {
     const result = extraction();

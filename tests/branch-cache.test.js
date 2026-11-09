@@ -87,3 +87,18 @@ test('branch reuse restores the two-message stability buffer without rescanning 
     assert.equal(result.repairFrom, 8);
     assert.deepEqual(result.world.extractions.map(item => [item.from, item.to]), [[0, 7]]);
 });
+
+test('a fully verified branch with only an undigested tail keeps the parent prefix without replay', () => {
+    const parent = parentWorld();
+    const result = forkWorldToBranch(parent, messages(26), branchKey, parentKey);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.repairFrom, null);
+    assert.equal(result.retained, 3);
+    assert.equal(result.pending, 2);
+    assert.equal(result.world.sources[parentKey], undefined);
+    assert.equal(result.world.sources[branchKey].processedMessages.length, 24);
+    assert.deepEqual(result.world.extractions.map(item => [item.id, item.createdAt, item.updatedAt]),
+        parent.extractions.map(item => [item.id, item.createdAt, item.updatedAt]));
+    assert.deepEqual(result.world.capsules.map(item => item.id), parent.capsules.map(item => item.id));
+});
