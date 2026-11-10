@@ -69,7 +69,7 @@ test('background memory captures the runtime stop sequence before processing', a
 
 test('opening an externally updated chat drains pending Digest after mutation reconciliation', async () => {
     const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../extension/index.js', import.meta.url), 'utf8'));
-    const start = source.indexOf('function scheduleMutationSync');
+    const start = source.indexOf('function synchronizeSourceMutation');
     const end = source.indexOf('async function onChatChanged', start);
     const reconciliation = source.slice(start, end);
     assert.ok(start >= 0 && end > start);

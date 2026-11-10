@@ -99,3 +99,19 @@ export async function ensureGenerationMemory({ sourceMessages, batchSize, curren
     }
     return currentWorld();
 }
+
+// Source repair is not ordinary extraction backlog: even one deleted turn can
+// invalidate a saved suffix. Finish it before selecting or reducing RP history.
+export async function ensureGenerationSourceSync({ readState, subscribe, sync, signal, onWait = () => {} }) {
+    const stopSequence = readState().stopSequence;
+    onWait();
+    while (true) {
+        assertMemoryRunning(readState(), stopSequence, signal);
+        await waitForMemoryProgress({ readState, subscribe, stopSequence, signal,
+            ready: () => !readState().processing });
+        const result = await waitForGenerationTask(sync, signal);
+        assertMemoryRunning(readState(), stopSequence, signal);
+        if (!result?.deferred) return result;
+        if (!readState().processing) throw asRoleplayBlockingError(new Error('Source repair was deferred without active work. Retry the reply after memory repair.'));
+    }
+}
