@@ -1,5 +1,6 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, isGenerating, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
+import { getTokenCountAsync } from '/scripts/tokenizers.js';
 import { promptManager } from '/scripts/openai.js';
 import { api } from './api.js?pending-recovery=1&storage-recovery=1';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js?belief-wording=4&prepared-recall=1&pending-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1';
@@ -19,7 +20,8 @@ import { ensureGenerationEmbeddingIndex, getCachedEmbeddingMemory, queryEmbeddin
 import { previewRetrieval } from './retrieval-preview.js?pending-recovery=1';
 import { isTransientApiError } from './errors.js?v=0.15.0-testing.30';
 import { asRoleplayBlockingError, isRoleplayBlockingError, roleplaySourceMessages, shouldGateRoleplayGeneration, sourceMutationPolicy } from './generation-policy.js?v=0.15.0-testing.30&output-recovery=1';
-import { ensureGenerationMemory, waitForGenerationTask } from './generation-readiness.js?catchup-gate=3&output-recovery=1';
+import { ensureGenerationMemory, ensureGenerationSourceSync, waitForGenerationTask } from './generation-readiness.js?catchup-gate=3&output-recovery=1&source-sync=1';
+import { fitGenerationMemory } from './generation-context-budget.js';
 import { isDigestStabilityProtectedMessage, latestCompleteDigestMessageIndex } from './digest-policy.js';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
 import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.15.0-testing.30';
@@ -41,6 +43,7 @@ let injectionRefreshRunning = false;
 let injectionRefreshPending = false;
 let mutationSync = null;
 let divergenceRepairRequested = false;
+let mutationRepairPromise = null;
 let activeGenerationReadiness = null;
 let pendingEmbeddingSync = null;
 let injectionRefreshCancel = null;
@@ -229,6 +232,19 @@ globalThis.continuityMemoryGenerateInterceptor = async (coreChat, contextSize, a
                 injectionStatus: message, retryStatus: message });
         };
         let world = currentWorld();
+        if (world && (divergenceRepairRequested || mutationRepairPromise)) {
+            try {
+                await timeGenerationStep('CM: source mutation repair', () => ensureGenerationSourceSync({
+                    readState: () => runtime, subscribe: onRuntimeChange, signal: controller.signal,
+                    sync: synchronizeSourceMutation,
+                    onWait: () => showCatchUp('Reply waiting for memory to reconcile deleted or edited messages.'),
+                }), timing);
+                world = currentWorld();
+            } catch (error) {
+                if (controller.signal.aborted) throw error;
+                throw asRoleplayBlockingError(error, 'Source mutation repair failed;');
+            }
+        }
         if (world) {
             try {
                 world = await timeGenerationStep('CM: memory backlog readiness', () => ensureGenerationMemory({
@@ -321,6 +337,23 @@ globalThis.continuityMemoryGenerateInterceptor = async (coreChat, contextSize, a
                 sourceMessages, recentMessages: recent, snapshot, bridgeMetadata, retrievalKey,
             });
         }
+        snapshot = await timeGenerationStep('CM: final context capacity', () => fitGenerationMemory({
+            snapshot, contextSize: Number(contextSize) || context.maxContext,
+            manager: context.mainApi === 'openai' ? promptManager : null,
+            recentText: coreChat.slice(-4).map(message => `${message.name || ''}: ${message.mes || ''}`).join('\n\n'),
+            countTokens: text => waitForGenerationTask(() => getTokenCountAsync(text), controller.signal),
+            rebuild: tokens => buildMemoryPrompt(world, recent, tokens, chatKey, expandedTerms,
+                settings.injectionInstruction, semanticRanks, {
+                    invalidSourceRanges: findInvalidExtractionRanges(world, sourceMessages, chatKey),
+                    includeSceneCheckpoint: getProcessingCoverage(world, sourceMessages).pending === 0,
+                    includeStorySoFar: settings.storySoFarEnabled,
+                }),
+        }), timing);
+        controller.signal.throwIfAborted();
+        if (!injectionRefreshIsCurrent(refreshRevision) || chatKey !== getChatKey() || worldId !== getBoundWorldId()) {
+            abort?.(true);
+            return;
+        }
         const prompt = snapshot?.injection || '';
         const managerApplied = getContext().mainApi === 'openai'
             && configurePromptManagerInjection(promptManager, settings, prompt);
@@ -408,6 +441,7 @@ async function prepareRoleplayGeneration(type) {
 }
 
 async function performInjectionRefresh(useRetrievalAssist, coverageMessages, recentMessages, promptOptions, refreshRevision) {
+    if (!useRetrievalAssist && (divergenceRepairRequested || mutationRepairPromise)) return;
     const settings = getSettings();
     const chatKey = getChatKey();
     const worldId = getBoundWorldId();
@@ -478,20 +512,31 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
     if (!refreshIsCurrent()) return;
     const memoryPromptOptions = { ...(promptOptions || {}) };
     delete memoryPromptOptions.localOnly;
-    const { prompt, estimatedTokens, retrievalDiagnostics } = await timeGenerationStep('CM: memory selection and prompt assembly', () => buildMemoryPrompt(
+    const buildPrompt = tokens => buildMemoryPrompt(
         world,
         recent,
-        budget.tokens,
+        tokens,
         getChatKey(),
         expandedTerms,
         settings.injectionInstruction,
         semanticRanks,
         { ...memoryPromptOptions, invalidSourceRanges, includeSceneCheckpoint: coverage.pending === 0, includeStorySoFar: settings.storySoFarEnabled,
         },
-    ), timing);
+    );
+    const selected = await timeGenerationStep('CM: memory selection and prompt assembly', () => buildPrompt(budget.tokens), timing);
+    const fitted = await fitGenerationMemory({
+        snapshot: createRetrievalSnapshot({ prompt: selected.prompt, tokens: selected.estimatedTokens,
+            diagnostics: selected.retrievalDiagnostics, budget }),
+        contextSize: getContext().maxContext,
+        manager: getContext().mainApi === 'openai' ? promptManager : null,
+        recentText: (getContext().chat || []).slice(-4).map(message => `${message.name || ''}: ${message.mes || ''}`).join('\n\n'),
+        countTokens: getTokenCountAsync, rebuild: buildPrompt,
+    });
+    const { injection: prompt, injectionTokens: estimatedTokens, retrieval: retrievalDiagnostics } = fitted;
     if (!refreshIsCurrent()) return;
-    const managerApplied = useRetrievalAssist && getContext().mainApi === 'openai'
+    const managerApplied = getContext().mainApi === 'openai'
         && configurePromptManagerInjection(promptManager, settings, prompt);
+    if (!managerApplied) clearPromptManagerInjection(promptManager);
     setExtensionPrompt(
         PROMPT_KEY,
         managerApplied ? '' : prompt,
@@ -501,8 +546,11 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
         placement.role,
     );
     const placementStatus = managerApplied ? 'Prompt Manager placement' : settings.injectionPosition === 'at-depth' ? `chat depth ${placement.depth}` : 'main-prompt placement';
-    const injectionStatus = prompt
-        ? `Ready to inject approximately ${estimatedTokens} tokens via ${placementStatus} (${budget.mode} recall target: ${budget.tokens} tokens${settings.storySoFarEnabled ? ' + complete active Chronicle frontier' : ''}).`
+    const fittedBudget = fitted.injectionBudget || budget;
+    const injectionStatus = fittedBudget.injectionShortened
+        ? `Memory automatically fitted to available context (${estimatedTokens} injected tokens); saved memory unchanged.`
+        : prompt
+        ? `Ready to inject approximately ${estimatedTokens} tokens via ${placementStatus} (${fittedBudget.mode} recall target: ${fittedBudget.tokens} tokens${settings.storySoFarEnabled ? ' + complete active Chronicle frontier' : ''}).`
         : 'The selected memory has no injectable records yet.';
     const retrievalSnapshot = createRetrievalSnapshot({
         phase,
@@ -510,7 +558,7 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
         diagnostics: retrievalDiagnostics,
         prompt,
         tokens: estimatedTokens,
-        budget,
+        budget: fittedBudget,
         status: injectionStatus,
     });
     const bridgeMetadata = {
@@ -526,7 +574,7 @@ async function performInjectionRefresh(useRetrievalAssist, coverageMessages, rec
         lastInjection: prompt,
         lastInjectionTokens: estimatedTokens,
         retrievalDiagnostics,
-        injectionBudget: budget,
+        injectionBudget: fittedBudget,
         injectionStatus,
         ...retrievalSnapshotPatch(retrievalSnapshot),
     });
@@ -605,6 +653,12 @@ function scheduleInjectionRefresh() {
             // can move the raw-tail boundary before this snapshot is reused.
             await refreshInjection(false, readiness.sourceMessages, readiness.recentMessages);
         } catch (error) {
+            if (isRoleplayBlockingError(error)) {
+                clearPromptManagerInjection(promptManager);
+                const placement = resolveInjectionPlacement(getSettings(), extension_prompt_types, extension_prompt_roles);
+                setExtensionPrompt(PROMPT_KEY, '', placement.position, placement.depth, false, placement.role);
+                continuityContextBridge.publish('');
+            }
             updateRuntime({ lastError: `Injection failed: ${error.message}` });
         } finally {
             activeGenerationReadiness = null;
@@ -626,6 +680,33 @@ function mutationTouchesProtectedTail(messageIndex) {
     return isDigestStabilityProtectedMessage(allMessages, eligibleMessages, messageIndex);
 }
 
+function synchronizeSourceMutation() {
+    if (mutationRepairPromise) return mutationRepairPromise;
+    if (mutationSync) clearTimeout(mutationSync);
+    mutationSync = null;
+    if (runtime.processing) return Promise.resolve({ deferred: true });
+    const repairRequested = divergenceRepairRequested;
+    // Clear only the request this task owns. New mutations during the await
+    // must remain pending, and a deferred/failed repair must not lose it.
+    divergenceRepairRequested = false;
+    mutationRepairPromise = Promise.resolve().then(async () => {
+        try {
+            const rollback = getTailRollbackStatus();
+            const result = repairRequested || rollback.detected
+                ? await repairDivergedBranch({ sourceMutation: true })
+                : await syncChangedExtractions();
+            if (result?.deferred && repairRequested) divergenceRepairRequested = true;
+            return result;
+        } catch (error) {
+            if (repairRequested) divergenceRepairRequested = true;
+            throw error;
+        } finally {
+            mutationRepairPromise = null;
+        }
+    });
+    return mutationRepairPromise;
+}
+
 function scheduleMutationSync(delay = 350, requireDivergenceRepair = false) {
     if (requireDivergenceRepair) divergenceRepairRequested = true;
     if (mutationSync) clearTimeout(mutationSync);
@@ -639,18 +720,13 @@ function scheduleMutationSync(delay = 350, requireDivergenceRepair = false) {
             scheduleMutationSync(1000, divergenceRepairRequested);
             return;
         }
-        const repairRequested = divergenceRepairRequested;
-        divergenceRepairRequested = false;
         try {
             // User-visible source mutations can change the meaning of every
             // later turn. Remove and replay the divergent suffix instead of
             // replacing only the extraction range containing the changed text.
-            const rollback = getTailRollbackStatus();
-            const result = repairRequested || rollback.detected
-                ? await repairDivergedBranch({ sourceMutation: true })
-                : await syncChangedExtractions();
+            const result = await synchronizeSourceMutation();
             if (result?.deferred) {
-                scheduleMutationSync(1000);
+                scheduleMutationSync(1000, divergenceRepairRequested);
             } else {
                 if (result?.repaired || result?.synced) await refreshInjection();
                 // CHAT_CHANGED is also how an externally updated chat (for
@@ -661,7 +737,6 @@ function scheduleMutationSync(delay = 350, requireDivergenceRepair = false) {
                 backgroundMemoryWork.schedule(0);
             }
         } catch (error) {
-            if (repairRequested) divergenceRepairRequested = true;
             updateRuntime({ lastError: `Live memory update failed: ${error.message}` });
         }
     }, delay);
@@ -851,11 +926,18 @@ async function init() {
     }
     if (event_types.MESSAGE_DELETED) {
         eventSource.on(event_types.MESSAGE_DELETED, () => {
-        if (runtime.roleplayGate?.active) cancelGenerationRetrieval();
-        if (runtime.processing || runtime.queue.length) {
-            invalidateRuntimeWork('A source message was deleted; discarded memory work that could contain it.');
-        }
-        invalidateStoryWork('A source message was deleted; discarded Story work that could contain it.');
+            cancelGenerationRetrieval();
+            if (runtime.processing || runtime.queue.length) {
+                invalidateRuntimeWork('A source message was deleted; discarded memory work that could contain it.');
+            }
+            invalidateStoryWork('A source message was deleted; discarded Story work that could contain it.');
+            // Dry runs skip interceptors. Do not leave a deleted branch's
+            // mandatory prompt installed while the debounced repair is pending.
+            preparedInjection = null;
+            clearPromptManagerInjection(promptManager);
+            const placement = resolveInjectionPlacement(getSettings(), extension_prompt_types, extension_prompt_roles);
+            setExtensionPrompt(PROMPT_KEY, '', placement.position, placement.depth, false, placement.role);
+            continuityContextBridge.publish('');
             scheduleInjectionRefresh();
             scheduleMutationSync(350, true);
         });

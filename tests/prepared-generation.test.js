@@ -8,7 +8,8 @@ import { roleplaySourceMessages } from '../extension/generation-policy.js';
 import { createRetrievalSnapshot } from '../extension/retrieval-snapshot.js';
 import { resolveInjectionBudget } from '../extension/injection-budget.js';
 import { resolveRetrievalAssist } from '../extension/retrieval-assist.js';
-import { ensureGenerationMemory, waitForGenerationTask } from '../extension/generation-readiness.js';
+import { ensureGenerationMemory, ensureGenerationSourceSync, waitForGenerationTask } from '../extension/generation-readiness.js';
+import { fitGenerationMemory } from '../extension/generation-context-budget.js';
 import { asRoleplayBlockingError, isRoleplayBlockingError } from '../extension/generation-policy.js';
 import { parseExpandedTerms } from '../extension/semantic-terms.js';
 
@@ -71,7 +72,10 @@ function interceptorFixture(cache = prepared, messages = chat, { liveWorld = wor
         AbortController, DOMException,
         getGenerationTiming: () => null,
         getSettings: () => ({ ...settings, retrievalMode: mode }),
-        ensureGenerationMemory, waitForGenerationTask, asRoleplayBlockingError, isRoleplayBlockingError,
+        ensureGenerationMemory, ensureGenerationSourceSync, waitForGenerationTask, asRoleplayBlockingError, isRoleplayBlockingError,
+        fitGenerationMemory, getTokenCountAsync: async text => Math.ceil(text.length / 4),
+        divergenceRepairRequested: false, mutationRepairPromise: null,
+        synchronizeSourceMutation: async () => ({ repaired: true }),
         setTimeout: callback => { queueMicrotask(callback); return 0; },
         onRuntimeChange: listener => { listeners.add(listener); return () => listeners.delete(listener); },
         maybeAutoExtract: never, ensureGenerationEmbeddingIndex: never,
@@ -133,6 +137,32 @@ test('generation uses current retrieval while extraction and planning never sett
     assert.equal(fixture.reduced[0].cachedOnly, true);
     assert.deepEqual(fixture.calls, []);
     assert.equal(fixture.lookups.length, 1);
+});
+
+test('the actual interceptor fits oversized Chronicle instead of cancelling the size step', async () => {
+    const fixture = interceptorFixture(null, chat, { mode: 'local' });
+    const savedPrompt = 'Earlier event. '.repeat(1000) + 'Latest event.';
+    fixture.context.buildMemoryPrompt = () => ({ prompt: savedPrompt, estimatedTokens: 5000 });
+    const aborted = [];
+    await fixture.run([...chat], 2000, value => aborted.push(value), 'normal');
+    assert.deepEqual(aborted, []);
+    assert.equal(fixture.applied.length, 1);
+    assert.ok(fixture.applied[0].endsWith('Latest event.'));
+    assert.match(fixture.applied[0], /^\[Continuity Memory: context-limited excerpt/);
+    assert.ok(fixture.context.runtime.lastInjectionTokens < 1500);
+    assert.equal(fixture.context.runtime.lastGenerationRetrieval.injectionBudget.injectionShortened, true);
+    assert.equal(savedPrompt, 'Earlier event. '.repeat(1000) + 'Latest event.');
+});
+
+test('the actual interceptor proceeds without CM when mandatory prompts leave no capacity', async () => {
+    const fixture = interceptorFixture(null, chat, { mode: 'local' });
+    fixture.context.promptManager.tokenHandler = { counts: { main: 50000 } };
+    const aborted = [];
+    await fixture.run([...chat], 2000, value => aborted.push(value), 'normal');
+    assert.deepEqual(aborted, []);
+    assert.deepEqual(fixture.applied, ['']);
+    assert.equal(fixture.context.runtime.lastInjectionTokens, 0);
+    assert.equal(fixture.context.runtime.lastGenerationRetrieval.injectionBudget.injectionShortened, true);
 });
 
 test('cold or stale recall performs current retrieval without waiting for background work', async () => {
@@ -416,4 +446,37 @@ test('failed index catch-up cancels the reply rather than silently switching to 
     assert.deepEqual(aborted, [true]);
     assert.deepEqual(fixture.applied, []);
     assert.match(fixture.context.runtime.lastError, /index provider failed/);
+});
+
+test('deleting then immediately generating repairs before retrieval even with a small backlog', async () => {
+    const fixture = interceptorFixture(null, chat);
+    fixture.context.divergenceRepairRequested = true;
+    let release;
+    const repair = new Promise(resolve => { release = resolve; });
+    fixture.context.synchronizeSourceMutation = async () => {
+        await repair;
+        fixture.context.runtime.world = { ...world, revision: 4 };
+        fixture.context.divergenceRepairRequested = false;
+        return { repaired: true };
+    };
+    const run = fixture.run([...chat], 60000, null, 'normal');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(fixture.lookups.length, 0);
+    assert.equal(fixture.applied.length, 0);
+    release();
+    await run;
+    assert.equal(fixture.lookups[0].args[0].revision, 4);
+    assert.equal(fixture.context.runtime.roleplayGate, null);
+});
+
+test('failed deletion repair cannot release stale mandatory memory', async () => {
+    const fixture = interceptorFixture(prepared, chat);
+    fixture.context.divergenceRepairRequested = true;
+    fixture.context.synchronizeSourceMutation = async () => { throw new Error('repair storage offline'); };
+    const aborted = [];
+    await fixture.run([...chat], 60000, value => aborted.push(value), 'normal');
+    assert.deepEqual(aborted, [true]);
+    assert.equal(fixture.applied.length, 0);
+    assert.equal(fixture.lookups.length, 0);
+    assert.match(fixture.context.runtime.lastError, /Source mutation repair failed/);
 });

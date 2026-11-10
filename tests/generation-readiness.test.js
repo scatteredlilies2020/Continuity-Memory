@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ensureGenerationMemory, waitForGenerationTask } from '../extension/generation-readiness.js';
+import { ensureGenerationMemory, ensureGenerationSourceSync, waitForGenerationTask } from '../extension/generation-readiness.js';
 import { isRoleplayBlockingError } from '../extension/generation-policy.js';
 
 function harness(pending, overrides = {}) {
@@ -199,4 +199,29 @@ test('an already cancelled generation cannot start a shared task', async () => {
     const controller = new AbortController();
     controller.abort();
     assert.throws(() => waitForGenerationTask(() => assert.fail('task started'), controller.signal), { name: 'AbortError' });
+});
+
+test('source repair waits for invalidated active work even below the extraction threshold', async () => {
+    const h = harness(1);
+    h.state.processing = true;
+    let repairs = 0;
+    const run = ensureGenerationSourceSync({ ...h.options, sync: async () => { repairs++; return { repaired: true }; } });
+    assert.equal(repairs, 0);
+    assert.equal(h.listeners.size, 1);
+    h.emit({ processing: false });
+    assert.equal((await run).repaired, true);
+    assert.equal(repairs, 1);
+    assert.equal(h.listeners.size, 0);
+});
+
+test('RP Stop cancels the source repair wait without stopping shared memory work', async () => {
+    const controller = new AbortController();
+    const h = harness(0, { signal: controller.signal });
+    h.state.processing = true;
+    const run = ensureGenerationSourceSync({ ...h.options, sync: () => assert.fail('repair started while processing') });
+    const rejected = assert.rejects(run, { name: 'AbortError' });
+    controller.abort();
+    await rejected;
+    assert.equal(h.state.processing, true);
+    assert.equal(h.listeners.size, 0);
 });
