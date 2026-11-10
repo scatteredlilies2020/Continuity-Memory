@@ -485,13 +485,30 @@
                 <h4>Processing</h4>
                 <div class="continuity-button-row">
                     <button id="continuity_build" class="menu_button"><i class="fa-solid fa-hammer"></i> Build</button>
+                    <button id="continuity_recheck" class="menu_button" type="button" aria-expanded="false" aria-controls="continuity_recheck_panel"><i class="fa-solid fa-list-check"></i> Recheck continuity</button>
                     <button id="continuity_rebuild_hierarchy" class="menu_button"><i class="fa-solid fa-layer-group"></i> Rebuild Chronicles</button>
-                    <button id="continuity_repair_rollback" class="menu_button" style="display: none;"><i class="fa-solid fa-clock-rotate-left"></i> Repair rollback</button>
                     <button id="continuity_stop" class="menu_button redWarningBG"><i class="fa-solid fa-stop"></i> Stop & clear queue</button>
+                </div>
+                <div class="continuity-button-row" role="group" aria-label="Memory recovery tools">
+                    <button id="continuity_repair_rollback" class="menu_button" style="display: none;"><i class="fa-solid fa-clock-rotate-left"></i> Repair rollback</button>
                     <button id="continuity_undo_latest_digest" class="menu_button"><i class="fa-solid fa-rotate-left"></i> Undo latest Digest</button>
                 </div>
                 <small>Build creates missing structured memory and Chronicle C0 entries side by side, then promotes eligible Chronicle layers without redoing completed chunks.</small>
+                <small>Recheck reviews existing memory against original RP sources and proposes selective repairs. It is not a reset or a full extraction rebuild.</small>
                 <small>Rebuild Chronicles keeps Digest, structured memory, and extraction records. It recreates C0 from Digest and regenerates eligible parent layers, replacing the saved hierarchy only when the entire rebuild succeeds.</small>
+                <div id="continuity_recheck_panel" class="continuity-card-inset" hidden>
+                    <b>Source-based continuity recheck</b>
+                    <small>Checks saved fields, Digest, supporting observations and Chronicle parents. Uses the Correct memory model (or extraction model). Makes additional model requests; input-token figures are rough character estimates, not billing totals. Requests are batched without sampling records or clipping source text; difficult cases can request more context. Large source spans can still need a large model context window.</small>
+                    <small>Correct memory and original chat stay unchanged until Apply repairs. Unavailable sources, unresolved RP contradictions, omissions, duplicates and identity changes are flagged for manual review—not silently deleted or guessed. Completed review batches can resume in this tab if memory, RP and model settings have not changed. Closing or reloading loses this review checkpoint and undo snapshot.</small>
+                    <div class="continuity-button-row">
+                        <button id="continuity_recheck_start" class="menu_button" type="button"><i class="fa-solid fa-magnifying-glass"></i> Start / resume recheck</button>
+                        <button id="continuity_recheck_apply" class="menu_button" type="button" disabled><i class="fa-solid fa-check"></i> Apply repairs</button>
+                        <button id="continuity_recheck_discard" class="menu_button" type="button">Discard review</button>
+                        <button id="continuity_recheck_undo" class="menu_button" type="button" disabled>Undo last recheck</button>
+                    </div>
+                    <div id="continuity_recheck_status" class="continuity-progress" role="status" aria-live="polite">No recheck has run. Stop &amp; clear queue also stops a recheck safely.</div>
+                    <pre id="continuity_recheck_preview" class="continuity-log" hidden></pre>
+                </div>
                 <div id="continuity_coverage" class="continuity-progress">Checking chat coverage…</div>
                 <div id="continuity_progress" class="continuity-progress"></div>
                 <div id="continuity_arc_status" class="continuity-progress"></div>
