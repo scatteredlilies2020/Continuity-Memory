@@ -48,6 +48,7 @@ import { nextChroniclePromotion, chronicleCompressionGuide, validateChronicleCom
 import { chronicleRetryFeedback, isRetryableChronicleError, retryChroniclePromotion } from './chronicle-retry.js?pending-recovery=1';
 import { retryConnection } from './connection-retry.js?pending-recovery=1';
 import { randomUuid } from './uuid.js';
+import { RECHECK_PROMPT, RECHECK_SCHEMA, recheckSourceSignature, runContinuityRecheck, applyContinuityRecheck } from './continuity-recheck.js';
 
 
 const extractionJsonSchema = Object.freeze({
@@ -1167,6 +1168,137 @@ async function processDetachedRange(job, chunks, currentWorld) {
     }
 }
 
+let recheckSession = null;
+
+function assertRecheckScope(epoch, worldId, chatKey, signature) {
+    if (runtime.generation !== epoch || runtime.paused || getBoundWorldId() !== worldId || getChatKey() !== chatKey) {
+        throw Object.assign(new Error('Recheck processing stopped; unfinished work was discarded. Completed review batches can resume in this tab.'), { code: RUNTIME_CANCELLED_CODE });
+    }
+    if (recheckSourceSignature(collectFingerprintMessages(getContext().chat || [])) !== signature) throw new Error('The RP changed during recheck. Run Recheck again against the updated sources.');
+}
+
+export async function reviewContinuityAlignment() {
+    if (runtime.processing || runtime.storyProcessing || runtime.pendingExtractionReview || runtime.queue.length) throw new Error('Finish or stop current memory work before rechecking.');
+    const worldId = getBoundWorldId(), chatKey = getChatKey();
+    if (!worldId) throw new Error('Build memory for this chat before rechecking.');
+    const epoch = runtime.generation;
+    const messages = collectFingerprintMessages(getContext().chat || []);
+    const signature = recheckSourceSignature(messages);
+    resumeRuntime();
+    updateRuntime({ processing: true, status: 'rechecking-continuity', lastError: '', retryStatus: 'Loading saved memory for source-based recheck…' });
+    try {
+        const health = await api.health();
+        assertRecheckScope(epoch, worldId, chatKey, signature);
+        if (Number(health.schemaVersion) < 7) throw new Error('Restart SillyTavern to enable durable memory repairs.');
+        const { world } = await api.getWorld(worldId);
+        assertRecheckScope(epoch, worldId, chatKey, signature);
+        if (analyzeBranchDivergence(messages, world.sources?.[chatKey]?.processedMessages || [], world.extractions || [], chatKey).detected) {
+            throw new Error('Saved memory points to changed or deleted RP sources. Use Build / Repair rollback to align source ranges first, then Recheck continuity.');
+        }
+        const settings = getSettings();
+        const profileId = settings.correctionProfileId || settings.memoryProfileId;
+        const directKind = settings.correctionProfileId === DIRECT_PROFILE_ID ? 'correction' : 'extraction';
+        const key = JSON.stringify([worldId, world.revision, chatKey, signature, profileId, settings.thinkingMode,
+            settings.correctionDirectUrl, settings.correctionDirectModel, settings.correctionDirectProvider,
+            settings.extractionDirectUrl, settings.extractionDirectModel, settings.extractionDirectProvider,
+            settings.correctionOpenRouterUrl, settings.correctionOpenRouterModel, settings.extractionOpenRouterUrl, settings.extractionOpenRouterModel,
+            profileId && profileId !== DIRECT_PROFILE_ID ? ConnectionManagerRequestService.getProfile(profileId) : null]);
+        if (recheckSession?.key !== key) recheckSession = { key, checkpoint: new Map() };
+        const result = await runContinuityRecheck({ world, messages, chatKey, checkpoint: recheckSession.checkpoint,
+            assertCurrent: () => assertRecheckScope(epoch, worldId, chatKey, signature),
+            progress: state => updateRuntime({ progress: null,
+                retryStatus: `Recheck ${state.completed}/${state.total} batches · ${state.requests} request(s) · ~${state.estimatedInputTokens} input tokens sent this run (character estimate, not billing)${state.expanding ? ' · expanding source context' : ''}.` }),
+            request: async prompt => {
+                const raw = await requestStructured(prompt, `${RECHECK_PROMPT}\n\n${formatStructuredResponseGuide(schemaFieldGuide(RECHECK_SCHEMA.value))}`, RECHECK_SCHEMA, null, profileId, directKind);
+                return typeof raw === 'string' ? parseJsonResponse(raw) : raw;
+            },
+        });
+        assertRecheckScope(epoch, worldId, chatKey, signature);
+        const fresh = (await api.getWorld(worldId)).world;
+        assertRecheckScope(epoch, worldId, chatKey, signature);
+        if (Number(fresh.revision) !== Number(world.revision)) throw new Error('Memory changed during recheck. Run Recheck again before applying repairs.');
+        updateRuntime({ world: fresh, health, status: 'idle', retryStatus: `Recheck complete: ${result.checked} checked, ${result.changes.length} proposed repair(s), ${result.issues.length} issue(s). No memory changed.` });
+        return result;
+    } catch (error) {
+        if (runtime.generation === epoch) updateRuntime({ status: runtime.paused ? 'paused' : 'error', lastError: error.message, retryStatus: error.message });
+        throw error;
+    } finally {
+        // Do not start automatic work between the preview and Apply. Other
+        // writers are still guarded by fresh revision checks at commit time.
+        if (runtime.generation === epoch || runtime.paused || ['rechecking-continuity', 'stopping'].includes(runtime.status)) updateRuntime({ processing: false });
+    }
+}
+
+export async function commitContinuityAlignment(proposal) {
+    if (runtime.processing || runtime.storyProcessing || runtime.pendingExtractionReview || runtime.queue.length) throw new Error('Finish or stop current memory work before applying repairs.');
+    if (!proposal?.changes?.length) return { changed: 0, world: runtime.world };
+    const worldId = getBoundWorldId(), chatKey = getChatKey(), epoch = runtime.generation;
+    if (proposal.worldId !== worldId || proposal.chatKey !== chatKey) throw new Error('This recheck belongs to another chat. Run Recheck again.');
+    resumeRuntime();
+    assertRecheckScope(epoch, worldId, chatKey, proposal.sourceSignature);
+    updateRuntime({ processing: true, status: 'applying-recheck', lastError: '', retryStatus: 'Applying only reviewed continuity repairs…' });
+    let canonicalSaved = false;
+    const sameChat = () => getBoundWorldId() === worldId && getChatKey() === chatKey;
+    try {
+        const { world } = await api.getWorld(worldId);
+        assertRecheckScope(epoch, worldId, chatKey, proposal.sourceSignature);
+        if (Number(world.revision) !== Number(proposal.baseRevision)) throw new Error('Memory changed after recheck. Recheck again; the old repairs were not applied.');
+        const result = applyContinuityRecheck(world, proposal, { chatKey, to: (getContext().chat || []).length - 1 });
+        if (!result.changed) return result;
+        assertRecheckScope(epoch, worldId, chatKey, proposal.sourceSignature);
+        const saved = (await api.saveWorld(result.world)).world;
+        canonicalSaved = true;
+        if (!sameChat() || runtime.generation !== epoch || runtime.paused) return { ...result, world: saved, hierarchyError: 'Repairs saved to the original chat; follow-up stopped because the active chat or task changed.',
+            undo: { world, worldId, chatKey, sourceSignature: proposal.sourceSignature, appliedRevision: saved.revision } };
+        updateRuntime({ world: saved });
+        let hierarchyError = '', chroniclePromotions = 0;
+        let applied = structuredClone(saved);
+        try {
+            assertRecheckScope(epoch, worldId, chatKey, proposal.sourceSignature);
+            await embedWorldInChat(saved);
+            assertRecheckScope(epoch, worldId, chatKey, proposal.sourceSignature);
+            // Rebuild only invalidated parents, not unrelated eligible layers.
+            // Do not merge a concurrent writer into our undo snapshot frontier.
+            const hierarchy = await rebuildCorrectionHierarchy(result, epoch, { affectedOnly: true, expectedRevision: saved.revision,
+                assertCurrent: () => assertRecheckScope(epoch, worldId, chatKey, proposal.sourceSignature),
+                onSaved: world => { applied = structuredClone(world); } });
+            chroniclePromotions = hierarchy.chroniclePromotions;
+        } catch (error) { hierarchyError = error.message; }
+        recheckSession = null;
+        if (sameChat() && runtime.generation === epoch) updateRuntime({ nextRetrievalPreview: null, status: hierarchyError ? 'error' : 'idle', lastError: hierarchyError,
+            retryStatus: `Applied ${result.changed} continuity repair(s).${hierarchyError ? ` Repairs saved; follow-up needs attention: ${hierarchyError}` : ' Unrelated memory and original chat were preserved.'}` });
+        return { ...result, world: applied, chroniclePromotions, hierarchyError,
+            undo: { world, worldId, chatKey, sourceSignature: proposal.sourceSignature, appliedRevision: applied.revision } };
+    } catch (error) {
+        if (sameChat() && runtime.generation === epoch) updateRuntime({ status: 'error', lastError: error.message, retryStatus: `${canonicalSaved ? 'Repairs saved; follow-up failed' : 'No repairs saved'}: ${error.message}` });
+        throw error;
+    } finally {
+        if (runtime.generation === epoch || runtime.paused || ['applying-recheck', 'stopping'].includes(runtime.status)) updateRuntime({ processing: false });
+    }
+}
+
+export async function undoContinuityAlignment(snapshot) {
+    if (runtime.processing || runtime.storyProcessing || runtime.queue.length || runtime.pendingExtractionReview) throw new Error('Finish or stop current memory work before undoing.');
+    const worldId = getBoundWorldId(), chatKey = getChatKey(), epoch = runtime.generation;
+    if (!snapshot || snapshot.worldId !== worldId || snapshot.chatKey !== chatKey) throw new Error('No recheck undo is available for this chat in this tab.');
+    resumeRuntime();
+    assertRecheckScope(epoch, worldId, chatKey, snapshot.sourceSignature);
+    updateRuntime({ processing: true, status: 'undoing-recheck' });
+    try {
+        const current = (await api.getWorld(worldId)).world;
+        assertRecheckScope(epoch, worldId, chatKey, snapshot.sourceSignature);
+        if (Number(current.revision) !== Number(snapshot.appliedRevision)) throw new Error('Memory changed since the recheck. Undo was blocked to preserve newer work.');
+        const restored = (await api.saveWorld({ ...structuredClone(snapshot.world), revision: current.revision })).world;
+        if (runtime.generation !== epoch || runtime.paused || getBoundWorldId() !== worldId || getChatKey() !== chatKey) return { world: restored };
+        updateRuntime({ world: restored, nextRetrievalPreview: null, status: 'idle', lastError: '', retryStatus: 'Recheck undone. Previous memory and hierarchy restored.' });
+        try { await embedWorldInChat(restored); }
+        catch (error) { if (runtime.generation === epoch) updateRuntime({ lastError: `Undo saved; portable copy needs refresh: ${error.message}` }); }
+        return { world: restored };
+    } finally {
+        if (runtime.generation === epoch || runtime.paused || ['undoing-recheck', 'stopping'].includes(runtime.status)) updateRuntime({ processing: false });
+    }
+}
+
 export async function reviewMemoryCorrection(instruction) {
     const request = String(instruction || '').trim();
     if (!request) throw new Error('Describe the memory correction first.');
@@ -1212,29 +1344,34 @@ export async function reviewMemoryCorrection(instruction) {
     }
 }
 
-async function rebuildCorrectionHierarchy(result, expectedEpoch) {
+async function rebuildCorrectionHierarchy(result, expectedEpoch, { affectedOnly = false, expectedRevision, assertCurrent = () => {}, onSaved } = {}) {
     const hierarchyMode = getSettings().hierarchyMode;
     if (hierarchyMode === 'off') return { chroniclePromotions: 0, world: runtime.world };
     let world = runtime.world;
+    if (affectedOnly && Number(world.revision) !== Number(expectedRevision)) throw new Error('Memory changed after repair; Chronicle follow-up stopped to preserve newer work.');
     let chroniclePromotions = 0;
     const rebuiltIds = new Map();
     const previousParents = (result.invalidatedChronicleRecords || [])
         .slice()
         .sort((left, right) => Number(left.level) - Number(right.level));
     for (let index = 0; index < previousParents.length; index++) {
+        assertCurrent();
+        if (runtime.generation !== expectedEpoch) throw new Error('Correction Chronicle rebuild was stopped.');
         const previous = previousParents[index];
         const childIds = (previous.childIds || []).map(id => rebuiltIds.get(id) || id);
         const children = childIds.map(id => (world.chronicle || []).find(item => item.id === id)).filter(Boolean);
         if (!children.length || children.length !== childIds.length) continue;
         updateRuntime({ retryStatus: `Correction saved. Rebuilding affected Chronicle parent ${index + 1}/${previousParents.length}…` });
         const generated = await generateChroniclePromotion(children);
+        assertCurrent();
         if (runtime.generation !== expectedEpoch) throw new Error('Correction Chronicle rebuild was stopped.');
-        const parent = await saveChroniclePromotion(structuredClone(world), generated, children);
+        if (affectedOnly && (runtime.world?.id !== world.id || Number(runtime.world?.revision) !== Number(world.revision))) throw new Error('Memory changed during Chronicle follow-up; newer work was preserved.');
+        const parent = await saveChroniclePromotion(structuredClone(world), generated, children, true, { strictRevision: affectedOnly, assertCurrent, onSaved });
         rebuiltIds.set(previous.id, parent.id);
         world = runtime.world;
         chroniclePromotions++;
     }
-    while (await buildNextChronicle(undefined, expectedEpoch)) chroniclePromotions++;
+    if (!affectedOnly) while (await buildNextChronicle(undefined, expectedEpoch)) chroniclePromotions++;
     return { chroniclePromotions, world: runtime.world || world };
 }
 
@@ -1378,9 +1515,11 @@ async function generateChroniclePromotion(nodes, previousError = null, sourceRep
     return reviewChronicleProvenance(result, nodes);
 }
 
-async function saveChroniclePromotion(world, result, nodes, embed = true) {
+async function saveChroniclePromotion(world, result, nodes, embed = true, { strictRevision = false, assertCurrent = () => {}, onSaved } = {}) {
     const worldId = world.id;
+    assertCurrent();
     await reviewChronicleProvenance(result, nodes);
+    assertCurrent();
     validateChronicleCompression(result, nodes);
     let created;
     for (let attempt = 0; attempt < 4; attempt++) {
@@ -1388,13 +1527,16 @@ async function saveChroniclePromotion(world, result, nodes, embed = true) {
         const current = nodes.map(source => (world.chronicle || []).find(item => item.id === source.id)).filter(Boolean);
         if (current.length !== nodes.length || current.some((node, index) => JSON.stringify(node) !== JSON.stringify(nodes[index]))) throw new Error('Chronicle sources changed while promotion was being built; retry later.');
         created = addDerivedChronicle(world, result, current);
+        assertCurrent();
         try {
             world = (await api.saveWorld(world)).world;
             break;
         } catch (error) {
-            if (error.status !== 409 || attempt === 3) throw error;
+            if (strictRevision || error.status !== 409 || attempt === 3) throw error;
         }
     }
+    onSaved?.(world);
+    assertCurrent();
     updateRuntime({ world, arcStatus: `Created Chronicle C${created.level} “${created.title}”.`, arcError: '' });
     if (embed) await embedWorldInChat(world);
     return created;

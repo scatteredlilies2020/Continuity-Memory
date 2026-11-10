@@ -6,18 +6,20 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js?pending-recovery=1&storage-recovery=1';
-import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1';
+import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1';
 import { freshResetResiduals, worldCounts } from './memory-model.js?historical-recall=1';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js?belief-wording=4&pending-recovery=1&historical-recall=1';
 import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.30&belief-wording=4&historical-recall=1';
-import { clearRetrievalExpansionCache, expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.30&belief-wording=4&bounded-recall=1&pending-recovery=1&retrieval-json=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1';
+import { clearRetrievalExpansionCache, expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.30&belief-wording=4&bounded-recall=1&pending-recovery=1&retrieval-json=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1';
 import { resolveRetrievalAssist } from './retrieval-assist.js?bounded-recall=1&catchup-gate=1';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js?historical-recall=1';
 import { describeMemoryEdit } from './memory-edit.js?historical-recall=1';
 import { createMemoryEditForm } from './memory-edit-form.js';
-import { commitManualMemoryEdit } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1';
+import { commitManualMemoryEdit } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1';
 import { formatCorrectionPreview } from './memory-correction.js?historical-recall=1';
+import { formatRecheckPreview } from './continuity-recheck.js';
+import { reviewContinuityAlignment, commitContinuityAlignment, undoContinuityAlignment } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1';
 import { resolveCorrectionResponseTokens } from './correction-policy.js?pending-recovery=1';
 import { normalizeExtractionOutputTokens } from './memory-response-policy.js?pending-recovery=1';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js?historical-recall=1';
@@ -2177,6 +2179,58 @@ async function applyReviewedCorrection() {
     return result;
 }
 
+let pendingRecheck = null;
+let recheckUndo = null;
+let recheckBusy = false;
+let recheckPanelScope = null;
+
+function renderRecheckControls() {
+    const worldId = getBoundWorldId(), chatKey = getChatKey();
+    const sameChat = value => value?.worldId === worldId && value?.chatKey === chatKey;
+    const busy = recheckBusy || runtime.processing || runtime.storyProcessing || Boolean(runtime.pendingExtractionReview) || runtime.queue.length > 0;
+    if (recheckPanelScope && !sameChat(recheckPanelScope)) {
+        pendingRecheck = null;
+        recheckPanelScope = null;
+        $('#continuity_recheck_preview').text('').prop('hidden', true);
+        $('#continuity_recheck_status').text('Chat changed; run a new recheck for this memory.');
+    }
+    $('#continuity_recheck_start').prop('disabled', busy || !worldId);
+    $('#continuity_recheck_apply').prop('disabled', busy || !sameChat(pendingRecheck) || !pendingRecheck?.changes.length);
+    $('#continuity_recheck_discard').prop('disabled', busy);
+    $('#continuity_recheck_undo').prop('disabled', busy || !sameChat(recheckUndo));
+    if (recheckBusy) $('#continuity_recheck_status').text(runtime.retryStatus || 'Rechecking continuity…');
+}
+
+async function reviewRecheck() {
+    pendingRecheck = null;
+    recheckPanelScope = { worldId: getBoundWorldId(), chatKey: getChatKey() };
+    $('#continuity_recheck_preview').text('').prop('hidden', true);
+    recheckBusy = true;
+    renderRecheckControls();
+    try {
+        pendingRecheck = await reviewContinuityAlignment();
+        $('#continuity_recheck_preview').text(formatRecheckPreview(pendingRecheck)).prop('hidden', false);
+        $('#continuity_recheck_status').text(`Review complete. ${pendingRecheck.changes.length} repair(s), ${pendingRecheck.issues.length} unresolved issue(s). Memory has not changed.`);
+    } finally { recheckBusy = false; renderRecheckControls(); }
+}
+
+async function applyRecheck() {
+    if (!pendingRecheck?.changes.length) return;
+    recheckBusy = true;
+    renderRecheckControls();
+    try {
+        const result = await commitContinuityAlignment(pendingRecheck);
+        recheckUndo = result.undo || null;
+        pendingRecheck = null;
+        $('#continuity_recheck_preview').text('').prop('hidden', true);
+        if (recheckUndo && (recheckUndo.worldId !== getBoundWorldId() || recheckUndo.chatKey !== getChatKey())) return;
+        clearRetrievalExpansionCache();
+        scheduleEmbeddingIndexSync(result.world, 0);
+        renderMemoryViewer(true);
+        $('#continuity_recheck_status').text(`Saved ${result.changed} selective repair(s).${result.hierarchyError ? ` Follow-up needs attention: ${result.hierarchyError}` : ' Original chat and unrelated memory were preserved.'}`);
+    } finally { recheckBusy = false; renderRecheckControls(); }
+}
+
 function cancelCorrection() {
     pendingCorrection = null;
     $('#continuity_correction_preview').text('');
@@ -2397,6 +2451,42 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
     $('#continuity_refresh').on('click', () => refreshWorlds()
         .then(() => scheduleMemoryMaintenance?.())
         .catch(error => toast('error', error.message)));
+    onRuntimeChange(renderRecheckControls);
+    renderRecheckControls();
+    $('#continuity_recheck').on('click', () => {
+        const panel = $('#continuity_recheck_panel');
+        const open = panel.prop('hidden');
+        panel.prop('hidden', !open);
+        $('#continuity_recheck').attr('aria-expanded', String(open));
+        renderRecheckControls();
+    });
+    const recheckError = error => { $('#continuity_recheck_status').text(error.message); toast('error', error.message); };
+    $('#continuity_recheck_start').on('click', () => reviewRecheck().catch(recheckError));
+    $('#continuity_recheck_apply').on('click', () => applyRecheck().catch(recheckError));
+    $('#continuity_recheck_discard').on('click', () => {
+        pendingRecheck = null;
+        $('#continuity_recheck_preview').text('').prop('hidden', true);
+        $('#continuity_recheck_status').text('Review discarded; no repairs were applied. Completed checks can still resume in this tab.');
+        renderRecheckControls();
+    });
+    $('#continuity_recheck_undo').on('click', async () => {
+        const snapshot = recheckUndo;
+        recheckPanelScope = { worldId: getBoundWorldId(), chatKey: getChatKey() };
+        recheckBusy = true;
+        renderRecheckControls();
+        try {
+            const result = await undoContinuityAlignment(snapshot);
+            recheckUndo = null;
+            pendingRecheck = null;
+            if (result.world.id !== getBoundWorldId() || snapshot.chatKey !== getChatKey()) return;
+            clearRetrievalExpansionCache();
+            scheduleEmbeddingIndexSync(result.world, 0);
+            renderMemoryViewer(true);
+            $('#continuity_recheck_preview').text('').prop('hidden', true);
+            $('#continuity_recheck_status').text('Recheck undone; previous saved memory and Chronicle hierarchy restored.');
+        } catch (error) { recheckError(error); }
+        finally { recheckBusy = false; renderRecheckControls(); }
+    });
     $('#continuity_detach').on('click', () => detachToEmptyMemory()
         .then(result => !result.cancelled && toast('success', 'Attached memory retained unchanged and detached from this chat.'))
         .catch(error => toast('error', error.message)));
