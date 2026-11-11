@@ -436,7 +436,7 @@ test('review cancellation and source changes during model requests never save a 
 test('main controls keep Recheck between Build and Rebuild, with resets separately disclosed', () => {
     const html = readFileSync(new URL('../extension/settings.html', import.meta.url), 'utf8');
     const processing = html.slice(html.indexOf('<h4>Processing</h4>'));
-    const row = processing.match(/<div class="continuity-button-row">([^]*?)<\/div>/)[1];
+    const row = processing.match(/<div class="continuity-button-row continuity-processing-actions"[^>]*>([^]*?)<\/div>/)[1];
     assert.ok(row.indexOf('continuity_build') < row.indexOf('continuity_recheck'));
     assert.ok(row.indexOf('continuity_recheck') < row.indexOf('continuity_rebuild_hierarchy'));
     assert.ok(row.indexOf('continuity_rebuild_hierarchy') < row.indexOf('continuity_stop'));
