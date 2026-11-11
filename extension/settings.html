@@ -25,7 +25,7 @@
                 <small id="continuity_health_backlog"></small>
                 <small id="continuity_health_versions"></small>
                 <button id="continuity_health_details" type="button" class="menu_button continuity-small-button">Recent problems (0)</button>
-                <button id="continuity_health_clear" type="button" class="menu_button continuity-small-button" title="Clear this chat’s recorded problems only. Saved memory and current errors are unchanged." disabled>Clear problem log</button>
+                <button id="continuity_health_clear" type="button" class="menu_button continuity-small-button" title="Clear this chat’s problem log and dismiss displayed errors. Saved memory and recovery work are preserved." disabled>Clear problem log</button>
             </div>
 
             <div class="continuity-card">
@@ -483,7 +483,7 @@
 
             <div class="continuity-card">
                 <h4>Processing</h4>
-                <div class="continuity-button-row">
+                <div class="continuity-button-row continuity-processing-actions" role="group" aria-label="Memory processing">
                     <button id="continuity_build" class="menu_button"><i class="fa-solid fa-hammer"></i> Build</button>
                     <button id="continuity_recheck" class="menu_button" type="button" aria-expanded="false" aria-controls="continuity_recheck_panel"><i class="fa-solid fa-list-check"></i> Recheck continuity</button>
                     <button id="continuity_rebuild_hierarchy" class="menu_button"><i class="fa-solid fa-layer-group"></i> Rebuild Chronicles</button>

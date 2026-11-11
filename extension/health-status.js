@@ -4,6 +4,43 @@ import { CONTINUITY_VERSION } from './build-info.js?historical-recall=1';
 
 const MAX_PROBLEMS = 40;
 const notificationTimes = new Map();
+// Dismissal affects the display, not the error fields used by recovery and
+// generation gates. Runtime errors are ephemeral; persisted jobs use the
+// existing per-chat clear watermark instead.
+const dismissedProblems = new WeakMap();
+
+function liveHealthProblems(state) {
+    return {
+        Storage: state.storageError,
+        Memory: state.lastError,
+        Chronicle: state.arcError,
+        Story: state.storyLastError,
+        Embeddings: state.embeddingIndex?.status === 'error' ? state.embeddingIndex.error : '',
+        Connection: state.memoryJob?.connection?.phase === 'retrying' ? state.memoryJob.connection.error || state.retryStatus : '',
+    };
+}
+
+export function dismissHealthProblems(state, chatKey) {
+    if (!chatKey) return;
+    dismissedProblems.set(state, { chatKey, jobId: state.memoryJob?.id, messages: new Map(Object.entries(liveHealthProblems(state))
+        .filter(([, message]) => message)
+        .map(([source, message]) => [source, String(message).trim()])) });
+}
+
+function currentHealthProblems(state, chatKey) {
+    const problems = liveHealthProblems(state);
+    const dismissed = dismissedProblems.get(state);
+    if (dismissed?.chatKey !== chatKey) return problems;
+    for (const [source, message] of Object.entries(problems)) {
+        // Polling drops the active-job pointer after a job ends. That must not
+        // revive a dismissed error, while a new job must be free to fail again.
+        const newJob = ['Memory', 'Connection'].includes(source) && state.memoryJob?.id
+            && state.memoryJob.id !== dismissed.jobId;
+        if (!newJob && dismissed.messages.get(source) === String(message || '').trim()) problems[source] = '';
+        else dismissed.messages.delete(source);
+    }
+    return problems;
+}
 
 function problemIdentity(message) {
     return String(message || '').replace(/^(?:(?:Automatic memory update failed:|Memory catch-up failed;|Embedding catch-up failed;|Reply cancelled during memory preparation:)\s*)+/u, '').trim();
@@ -64,13 +101,10 @@ export function createHealthProblemTracker({ getHistory, saveHistory, getChatKey
             record({ chatKey, id: job.id, source: 'Memory', message: job.error,
                 time: Date.parse(job.completedAt || job.createdAt) || now() });
         }
-        const problems = [
-            ['Storage', state.storageError],
-            ['Memory', state.lastError], ['Chronicle', state.arcError], ['Story', state.storyLastError],
-            ['Embeddings', state.embeddingIndex?.status === 'error' ? state.embeddingIndex.error : ''],
-            ['Connection', state.memoryJob?.connection?.phase === 'retrying' ? state.memoryJob.connection.error || state.retryStatus : ''],
-        ];
-        for (const [source, value] of problems) {
+        // Observe recovery synchronously so the same error can be reported
+        // again if it returns, even between throttled UI paints.
+        const problems = currentHealthProblems(state, chatKey);
+        for (const [source, value] of Object.entries(problems)) {
             const message = String(value || '').trim();
             const signature = `${chatKey}|${problemIdentity(message)}`;
             if (seen.get(source) === signature) continue;
@@ -85,7 +119,7 @@ export function createHealthProblemTracker({ getHistory, saveHistory, getChatKey
     };
 }
 
-export function continuityHealth(state, settings, coverage = {}, now = Date.now()) {
+export function continuityHealth(state, settings, coverage = {}, now = Date.now(), chatKey = '') {
     const size = resolveDigestGroupSize(settings.extractionBatchMessages);
     const pending = Math.max(0, Number(coverage.extractable) || 0);
     const totalPending = Math.max(0, Number(coverage.pending) || 0);
@@ -96,21 +130,26 @@ export function continuityHealth(state, settings, coverage = {}, now = Date.now(
         ? `server ${state.health.version || 'unknown'}${state.health.version !== CONTINUITY_VERSION ? ' — restart SillyTavern to load the updated server plugin' : ''}`
         : state.health ? 'SillyTavern file storage' : 'checking storage'}`;
     const backlog = `${totalPending} pending · ${pending} stable · automatic batch ${size} · reply catch-up at ${roleplayBacklogPolicy(pending, size).hardLimit}`;
-    const result = (level, label, message) => ({ level, label, message, backlog, versions, totalPending });
+    const result = (level, label, message, hasProblem = false) => ({ level, label, message, backlog, versions, totalPending, hasProblem });
     if (!settings.enabled) return result('muted', 'Disabled', 'Continuity Memory is turned off.');
     const latestJob = [...(job ? [job] : []), ...(state.memoryJobs || [])]
+        .filter(item => !chatKey || item.chatKey === chatKey)
         .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0];
+    const clearedAt = Number(settings.healthProblemClearedAt?.[chatKey]) || 0;
+    const jobFailureTime = Date.parse(latestJob?.completedAt || latestJob?.createdAt) || 0;
     const failedAfterLastSuccess = latestJob?.status === 'error'
-        && (Date.parse(latestJob.completedAt || latestJob.createdAt) || 0) > (Date.parse(state.lastCompletedAt) || 0);
-    const failure = state.lastError || (settings.hierarchyMode !== 'off' && state.arcError)
-        || state.storyLastError || (settings.retrievalMode === 'embedding-hybrid' && index?.status === 'error' && index.error)
+        && jobFailureTime > Math.max(clearedAt, Date.parse(state.lastCompletedAt) || 0);
+    const problems = currentHealthProblems(state, chatKey);
+    const failure = problems.Memory || (settings.hierarchyMode !== 'off' && problems.Chronicle)
+        || problems.Story || (settings.retrievalMode === 'embedding-hybrid' && problems.Embeddings)
         || (!state.processing && !state.queue?.length && failedAfterLastSuccess && latestJob.error);
-    if (failure) return result('error', 'Problem', String(failure));
-    if (state.storageError) return result('warning', 'Reconnecting storage', `${state.storageError} CM retries automatically while this tab is visible; saved memory is preserved.`);
+    if (failure) return result('error', 'Problem', String(failure), true);
+    if (state.storageError) return result('warning', 'Reconnecting storage', `${problems.Storage ? `${problems.Storage} ` : ''}CM retries automatically while this tab is visible; saved memory is preserved.`, Boolean(problems.Storage));
     if (state.paused) return result('warning', 'Paused', 'Memory processing is paused. Saved sections remain intact.');
     if (state.roleplayGate?.active) return result('warning', 'Reply waiting', state.roleplayGate.message);
     if (state.status === 'reconnecting' || connection?.phase === 'retrying') {
-        return result('warning', 'Retrying', connection?.error || state.retryStatus || 'CM is reconnecting automatically; completed sections are saved.');
+        const message = problems.Connection || (connection?.phase !== 'retrying' ? state.retryStatus : '');
+        return result('warning', 'Retrying', message || 'CM is reconnecting automatically; completed sections are saved.', Boolean(problems.Connection));
     }
     if (state.processing || state.queue?.length || ['queued', 'processing'].includes(job?.status)) {
         const lastProgress = Number(connection?.lastProgressAt) || Number(connection?.startedAt) || Date.parse(job?.startedAt);

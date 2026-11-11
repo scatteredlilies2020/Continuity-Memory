@@ -1,3 +1,3 @@
 // Compatibility entry point for installs whose cached manifest still names loader.js.
 // Keep this as a static import: some SillyTavern forks cannot fetch import() modules.
-import './index.js?v=0.15.0-testing.39&belief-wording=4&pending-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&settings-status=1&clear-problems=1&historical-recall=1&catchup-gate=3';
+import './index.js?v=0.15.0-testing.39&belief-wording=4&pending-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&settings-status=1&clear-problems=2&historical-recall=1&catchup-gate=3&mobile-buttons=1';

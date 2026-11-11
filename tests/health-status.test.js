@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { clearHealthProblemHistory, continuityHealth, createHealthProblemTracker, notifyHealthProblem, rememberHealthProblem } from '../extension/health-status.js';
+import { clearHealthProblemHistory, continuityHealth, createHealthProblemTracker, dismissHealthProblems, notifyHealthProblem, rememberHealthProblem } from '../extension/health-status.js';
 import { CONTINUITY_VERSION } from '../extension/build-info.js';
 
 const settings = { enabled: true, autoExtract: true, extractionBatchMessages: 8, hierarchyMode: 'chronicle', requestIdleTimeoutSeconds: 120 };
@@ -101,6 +101,71 @@ test('storage interruptions show automatic recovery and keep their history after
     assert.equal(continuityHealth(state, settings).level, 'ready');
     assert.equal(h.history()[0].source, 'Storage');
     assert.equal(h.history()[0].count, 1);
+});
+
+test('dismissing a timeout removes the banner without changing recovery or saved memory', () => {
+    const h = trackerFixture();
+    const state = { lastError: 'Continuity server request timed out.', storageError: 'Storage unavailable',
+        world: { id: 'saved', digest: ['saved memory'] }, processing: false };
+    const before = structuredClone(state);
+    h.observe(state);
+    h.clear();
+    dismissHealthProblems(state, 'chat');
+    const health = () => continuityHealth(state, settings, { pending: 7, extractable: 5 }, time, 'chat');
+    for (let i = 0; i < 10; i++) h.observe(state);
+    assert.equal(h.history().length, 0);
+    assert.equal(health().hasProblem, false);
+    assert.equal(health().label, 'Reconnecting storage');
+    assert.doesNotMatch(health().message, /timed out|Storage unavailable/);
+    assert.match(health().message, /retries automatically/);
+    assert.match(health().backlog, /^7 pending · 5 stable/);
+    assert.deepEqual(state, before);
+
+    state.lastError = '';
+    state.storageError = '';
+    h.observe(state); // Recovery can happen between UI paints.
+    state.lastError = before.lastError;
+    h.observe(state);
+    assert.equal(health().level, 'error');
+    assert.equal(h.history().length, 1, 'The same timeout must appear again on a new occurrence.');
+});
+
+test('cleared server failures do not restore the banner after polling or reload', () => {
+    const preferences = { ...settings };
+    const state = { memoryJob: failedJob, memoryJobs: [failedJob], lastError: `Automatic memory update failed: ${failedJob.error}` };
+    clearHealthProblemHistory(preferences, 'chat', time);
+    dismissHealthProblems(state, 'chat');
+    const health = value => continuityHealth(value, preferences, {}, time, 'chat');
+    assert.equal(health(state).hasProblem, false);
+    const reloaded = { memoryJobs: structuredClone(state.memoryJobs) };
+    assert.equal(health(reloaded).hasProblem, false, 'Restored jobs use the persisted clear watermark.');
+    state.memoryJob = null;
+    assert.equal(health(state).hasProblem, false, 'Polling clears the active-job pointer after a failed job ends.');
+    assert.equal(health({ memoryJobs: [failedJob] }).hasProblem, false);
+    assert.equal(continuityHealth(structuredClone(state), preferences, {}, time, 'other').level, 'error', 'Dismissal belongs to one chat.');
+    reloaded.lastError = state.lastError;
+    assert.equal(health(reloaded).level, 'error', 'A fresh runtime failure must not be hidden by a cleared job with the same message.');
+
+    const newer = { ...failedJob, id: 'new-failure', completedAt: new Date(time + 1000).toISOString() };
+    Object.assign(state, { memoryJob: newer, memoryJobs: [failedJob, newer] });
+    assert.equal(health(state).level, 'error', 'A new failed job with the same message must remain visible.');
+    assert.equal(health(state).message, state.lastError);
+});
+
+test('dismissing Chronicle, Story, embeddings and connection errors preserves their retry state', () => {
+    for (const field of ['arcError', 'storyLastError', 'embeddingIndex', 'memoryJob']) {
+        const state = { [field]: field === 'embeddingIndex' ? { status: 'error', error: 'Index failed' }
+            : field === 'memoryJob' ? { id: 'retry', status: 'processing', connection: { phase: 'retrying', error: 'Lost connection' } }
+                : 'Layer failed' };
+        const before = structuredClone(state);
+        const preferences = { ...settings, retrievalMode: 'embedding-hybrid' };
+        assert.equal(continuityHealth(state, preferences, {}, time, 'chat').hasProblem, true);
+        dismissHealthProblems(state, 'chat');
+        const health = continuityHealth(state, preferences, {}, time, 'chat');
+        assert.equal(health.hasProblem, false);
+        assert.doesNotMatch(health.message, /failed|Lost connection/);
+        assert.deepEqual(state, before);
+    }
 });
 
 test('polling the same problem does not repeatedly save settings or show popups', () => {
@@ -212,7 +277,7 @@ test('clear log action persists the change, refreshes the UI and leaves runtime 
     let saves = 0, renders = 0, chatKey = 'chat';
     const state = { world: { digest: ['saved memory'] }, lastError: 'Active error', processing: true };
     const before = structuredClone(state);
-    const context = { getSettings: () => preferences, getChatKey: () => chatKey, clearHealthProblemHistory,
+    const context = { getSettings: () => preferences, getChatKey: () => chatKey, clearHealthProblemHistory, dismissHealthProblems,
         saveSettings: () => saves++, renderHealthStatus: () => renders++, runtime: state };
     vm.runInNewContext(source.match(/^function clearCurrentHealthProblems\([^]*?^}/m)[0]
         + '\nclearCurrentHealthProblems();', context);
@@ -221,6 +286,7 @@ test('clear log action persists the change, refreshes the UI and leaves runtime 
     assert.equal(saves, 1);
     assert.equal(renders, 1);
     assert.deepEqual(state, before);
+    assert.equal(continuityHealth(state, settings, {}, time, 'chat').hasProblem, false);
     chatKey = '';
     vm.runInNewContext('clearCurrentHealthProblems();', context);
     assert.equal(saves, 1);
@@ -242,7 +308,7 @@ test('the problem dialog stays open and updates its count and clear button immed
     let saves = 0, close;
     const context = { document: { getElementById: id => elements.get(id),
         querySelector: selector => elements.get(selector.slice(1)), createElement: () => ({ textContent: '' }) },
-        getSettings: () => preferences, getChatKey: () => 'chat', continuityHealth, clearHealthProblemHistory,
+        getSettings: () => preferences, getChatKey: () => 'chat', continuityHealth, clearHealthProblemHistory, dismissHealthProblems,
         saveSettings: () => saves++, runtime: {}, lastHealthCoverage: {}, healthDialogContent: null,
         POPUP_TYPE: { TEXT: 1 }, Popup: class {
             constructor(content, type, value, options) { this.options = options; }
@@ -267,17 +333,43 @@ test('the problem dialog stays open and updates its count and clear button immed
     assert.equal(context.healthDialogContent, null);
 });
 
-test('browser cache keys load the clear-log feature without changing the server build', () => {
+test('clear works with the reported timeout and an already empty problem log', () => {
+    const source = readFileSync(new URL('../extension/ui.js', import.meta.url), 'utf8');
+    const elements = new Map(['continuity_health_card', 'continuity_header_health', 'continuity_health_title',
+        'continuity_health_message', 'continuity_health_backlog', 'continuity_health_versions', 'continuity_health_clear',
+        'continuity_health_details'].map(id => [id, { dataset: {}, textContent: '', disabled: true }]));
+    const preferences = { ...settings, healthProblemHistory: [] };
+    const context = { document: { getElementById: id => elements.get(id), querySelector: selector => elements.get(selector.slice(1)) },
+        runtime: { lastError: 'Continuity server request timed out.', health: { version: CONTINUITY_VERSION, detachedJobs: true } },
+        getSettings: () => preferences, getChatKey: () => 'chat', continuityHealth, clearHealthProblemHistory, dismissHealthProblems,
+        saveSettings: () => {}, lastHealthCoverage: { pending: 7, extractable: 5 }, healthDialogContent: null };
+    vm.createContext(context);
+    for (const name of ['setElementText', 'renderHealthStatus', 'clearCurrentHealthProblems']) {
+        vm.runInContext(source.match(new RegExp(`^function ${name}\\([^]*?^}`, 'm'))[0], context);
+    }
+    vm.runInContext('renderHealthStatus();', context);
+    assert.equal(elements.get('continuity_health_title').textContent, 'Problem');
+    assert.equal(elements.get('continuity_health_details').textContent, 'Recent problems (0)');
+    assert.equal(elements.get('continuity_health_clear').disabled, false);
+    vm.runInContext('clearCurrentHealthProblems(); renderHealthStatus();', context);
+    assert.equal(elements.get('continuity_health_card').dataset.level, 'ready');
+    assert.equal(elements.get('continuity_health_title').textContent, 'Recent messages raw');
+    assert.doesNotMatch(elements.get('continuity_health_message').textContent, /timed out/);
+    assert.equal(elements.get('continuity_health_clear').disabled, true);
+    assert.match(elements.get('continuity_health_backlog').textContent, /^7 pending · 5 stable/);
+});
+
+test('browser cache keys load the updated clear action without changing the server build', () => {
     const source = readFileSync(new URL('../extension/index.js', import.meta.url), 'utf8');
     const ui = readFileSync(new URL('../extension/ui.js', import.meta.url), 'utf8');
     const statusImport = /from '(\.\/health-status\.js[^']+)'/;
     assert.equal(source.match(statusImport)[1], ui.match(statusImport)[1], 'Health notifications must share one module instance.');
-    assert.match(source.match(statusImport)[1], /clear-problems=1/);
-    assert.match(source, /from '\.\/ui\.js[^']*clear-problems=1(?:&[^']*)?'/);
-    assert.match(source, /settings\.html[^']*clear-problems=1/);
+    assert.match(source.match(statusImport)[1], /clear-problems=2/);
+    assert.match(source, /from '\.\/ui\.js[^']*clear-problems=2(?:&[^']*)?'/);
+    assert.match(source, /settings\.html[^']*clear-problems=2/);
     for (const file of ['../manifest.json', '../extension/manifest.json']) {
         const manifest = JSON.parse(readFileSync(new URL(file, import.meta.url)));
-        assert.match(manifest.js, /clear-problems=1/);
+        assert.match(manifest.js, /clear-problems=2/);
         assert.equal(manifest.version, CONTINUITY_VERSION);
     }
 });

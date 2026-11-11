@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 test('Rebuild Chronicles is beside Build and Stop, outside destructive reset controls', async () => {
     const source = await readFile(new URL('../extension/settings.html', import.meta.url), 'utf8');
     const processing = source.slice(source.indexOf('<h4>Processing</h4>'));
-    const primaryRow = processing.match(/<div class="continuity-button-row">([\s\S]*?)<\/div>/u)?.[1];
+    const primaryRow = processing.match(/<div class="continuity-button-row continuity-processing-actions"[^>]*>([\s\S]*?)<\/div>/u)?.[1];
     assert.ok(primaryRow);
     for (const id of ['continuity_build', 'continuity_rebuild_hierarchy', 'continuity_stop']) {
         assert.ok(primaryRow.includes(`id="${id}"`), `${id} must be in the main processing row`);

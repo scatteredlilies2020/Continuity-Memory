@@ -1,6 +1,8 @@
 .continuity-panel .inline-drawer-content { padding: 0 8px 10px; }
 .continuity-master-row { display:flex; justify-content:space-between; align-items:center; gap:10px; margin:8px 0; }
+.continuity-master-row > div { min-width:0; }
 .continuity-master-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:6px; }
+.continuity-master-actions > .menu_button { width:auto; min-width:0; margin:0; gap:6px; }
 .continuity-small-button { font-size:.8em; padding:3px 7px; min-height:unset; }
 .continuity-status { border:1px solid var(--SmartThemeBorderColor); border-radius:999px; padding:3px 9px; font-size:.85em; }
 .continuity-health-badge { font-size:.75em; margin-left:6px; font-weight:400; }
@@ -18,6 +20,11 @@
 .continuity-card h4 { margin:0 0 8px; }
 .continuity-card-inset { border:1px solid var(--SmartThemeBorderColor); border-radius:6px; padding:8px; margin:8px 0; }
 .continuity-button-row { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; }
+.continuity-button-row > .menu_button { box-sizing:border-box; width:auto; min-width:0; max-width:100%; min-height:36px; margin:0; gap:6px; }
+.continuity-button-row > .menu_button > i,
+.continuity-master-actions > .menu_button > i { flex-shrink:0; }
+.continuity-processing-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); grid-auto-rows:1fr; align-items:stretch; }
+.continuity-processing-actions > .menu_button { width:100%; min-height:44px; padding:8px; line-height:1.25; white-space:normal; overflow-wrap:anywhere; }
 .continuity-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(145px,1fr)); gap:8px; margin-top:8px; }
 .continuity-grid.two { grid-template-columns:1fr 1fr; }
 .continuity-grid label { display:flex; flex-direction:column; gap:3px; }
@@ -69,6 +76,11 @@
 @media (max-width: 600px) { .continuity-grid.two { grid-template-columns:1fr; } }
 @media (max-width: 600px) { .continuity-viewer-controls { grid-template-columns:1fr; } }
 @media (max-width: 600px) {
+    .continuity-master-row { flex-direction:column; align-items:stretch; }
+    .continuity-master-row > div:first-child { display:flex; flex-wrap:wrap; gap:6px 12px; }
+    .continuity-master-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:stretch; }
+    .continuity-master-actions > .menu_button { min-height:40px; }
+    .continuity-master-actions > .continuity-status { grid-column:1 / -1; justify-self:start; max-width:100%; overflow-wrap:anywhere; }
     .popup.continuity-review-dialog { width:calc(100vw - 10px) !important; max-width:none; height:calc(100dvh - 10px) !important; max-height:calc(100dvh - 10px); }
     .continuity-review-dialog .popup-body,
     .continuity-review-dialog .popup-content,
