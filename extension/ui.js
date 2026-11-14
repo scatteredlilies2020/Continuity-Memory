@@ -7,7 +7,7 @@ import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js?pending-recovery=1&storage-recovery=1';
 import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1';
-import { freshResetResiduals, worldCounts } from './memory-model.js?historical-recall=1';
+import { freshResetResiduals, worldCounts } from './memory-model.js?historical-recall=1&stored-replay=1';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js?belief-wording=4&pending-recovery=1&historical-recall=1';
 import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.30&belief-wording=4&historical-recall=1';
 import { clearRetrievalExpansionCache, expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.30&belief-wording=4&bounded-recall=1&pending-recovery=1&retrieval-json=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1';

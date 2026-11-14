@@ -24,7 +24,7 @@ import { requestExtractionReview } from './extraction-review.js';
 import { assertReviewedMemoryContent } from './review-content.js';
 import { parseJsonResponse } from './json-response.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
-import { addDerivedChronicle, freshResetResiduals, getLatestDigestUndoStatus as inspectLatestDigestUndo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from './memory-model.js?historical-recall=1';
+import { addDerivedChronicle, freshResetResiduals, getLatestDigestUndoStatus as inspectLatestDigestUndo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from './memory-model.js?historical-recall=1&stored-replay=1';
 import { extractionResponseTokens, memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js?pending-recovery=1&output-recovery=2';
 import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.30';
 import { authoritativeMetaBoundaries, formatExtractionMessages, inWorldSourceEvidence, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.37&chronicle-summary-recovery=1';

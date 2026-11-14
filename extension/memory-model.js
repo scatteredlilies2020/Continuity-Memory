@@ -10,8 +10,9 @@ import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { formatEntityProfile, mergeEntityProfiles } from './entity-profile.js';
 import { thirdPersonOnlyProse } from './canonical-prose.js';
 import { compileRollingStorySnapshot } from './story-snapshot.js';
-import { addChroniclePromotion, removeChronicleChat, syncChronicleBase } from './chronicle.js';
+import { addChroniclePromotion, chronicleTextFromCapsule, removeChronicleChat, syncChronicleBase } from './chronicle.js';
 import { assertCompleteChronicleEntry } from './extraction-contract.js';
+import { hasChronicleNarrative } from './chronicle-validation.js';
 
 function text(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -1239,6 +1240,22 @@ export function promoteStoredTailSnapshot(world, chatKey, latestCompleteIndex) {
 }
 
 export function mergeExtraction(world, result, meta) {
+    // Older saved extractions can contain placeholder Chronicle entries even
+    // though their Digest prose is intact. Deletion/branch repair replays these
+    // records locally, not through the extractor's regeneration/retry path.
+    // Recover only stored replay, from that same record's narrative (never its
+    // title or later messages), without mutating the caller's saved snapshot.
+    if (meta.replayStoredExtraction && result?.chronicleEntry !== undefined
+        && !hasChronicleNarrative(result.chronicleEntry)) {
+        const chronicleEntry = chronicleTextFromCapsule({
+            ...result.sceneCapsule,
+            title: '',
+            storyTime: '',
+            chronicleText: result.chronicleEntry,
+        });
+        assertCompleteChronicleEntry(chronicleEntry);
+        result = { ...result, chronicleEntry };
+    }
     // Final write boundary also covers detached results and stored replay.
     // Reject before mutating any structured memory, sources, or coverage.
     assertCompleteChronicleEntry(result?.chronicleEntry);
