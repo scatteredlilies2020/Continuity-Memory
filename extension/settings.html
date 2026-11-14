@@ -494,7 +494,7 @@
                     <button id="continuity_undo_latest_digest" class="menu_button"><i class="fa-solid fa-rotate-left"></i> Undo latest Digest</button>
                 </div>
                 <small>Build creates missing structured memory and Chronicle C0 entries side by side, then promotes eligible Chronicle layers without redoing completed chunks.</small>
-                <small>Recheck reviews existing memory against original RP sources and proposes selective repairs. It is not a reset or a full extraction rebuild.</small>
+                <small>Recheck reviews existing memory against original RP sources and proposes selective repairs, including malformed stored Digest narratives even when C0 is already correct. Unresolved damage is flagged. It is not a reset or a full extraction rebuild.</small>
                 <small>Rebuild Chronicles keeps Digest, structured memory, and extraction records. It recreates C0 from Digest and regenerates eligible parent layers, replacing the saved hierarchy only when the entire rebuild succeeds.</small>
                 <div id="continuity_recheck_panel" class="continuity-card-inset" hidden>
                     <b>Source-based continuity recheck</b>
@@ -562,7 +562,7 @@
             <div class="continuity-card">
                 <details>
                     <summary>Correct memory</summary>
-                    <small>Describe a correction in plain language, including whether it changes an established fact or only one character's belief. Continuity finds matching stored records and shows every proposed change before anything is saved. Historical events enter Digest and rebuild affected Chronicle parents. Chat messages are never edited.</small>
+                    <small>Describe a correction in plain language, including whether it changes an established fact or only one character's belief. To repair a specific Digest, use Repair Digest in the memory browser, or include its exact ID or message range (for example: Repair Digest messages 624–631, using original zero-based indices). Repairs include the stored Chronicle narrative, even if C0 was already rebuilt. Continuity shows every proposed change before anything is saved. Historical events enter Digest and rebuild affected Chronicle parents. Chat messages are never edited.</small>
                     <label>Correction-review model
                         <select id="continuity_correction_profile" class="text_pole">
                             <option value="">Same as extraction model</option>
@@ -595,7 +595,7 @@
                             <input id="continuity_correction_direct_model" class="text_pole" type="text" placeholder="gpt-4.1-mini">
                         </label>
                     </div>
-                    <textarea id="continuity_correction_input" class="text_pole" rows="4" placeholder="Example: [Character] already knew [information] before [scene]. Remove memories claiming they learned it there."></textarea>
+                    <textarea id="continuity_correction_input" class="text_pole" rows="4" placeholder="Example: Repair Digest messages 624–631; its Chronicle narrative is a single letter. Preserve correct events. Or describe a factual correction."></textarea>
                     <label>Correction output target
                         <input id="continuity_correction_tokens" class="text_pole" type="number" min="1" step="1000">
                         <small>Soft target; default 8000. Complete JSON can exceed it. The selected provider still controls output capacity.</small>

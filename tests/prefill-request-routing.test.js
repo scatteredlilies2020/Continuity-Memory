@@ -301,6 +301,7 @@ test('correction review honors disabled preset prefills across active, Direct, a
             runtime: { world, health: { schemaVersion: 7 }, generation: 0, paused: true },
             getBoundWorldId: () => world.id, getChatKey: () => 'chat', getContext: () => ({ chat: [] }),
             selectCorrectionContext: () => [{ id: 'fact:one', subject: 'Alice' }],
+            correctionDigestSources: () => ({ originalMessages: [], unavailableDigestIds: [] }), collectFingerprintMessages: () => [],
             resolveCorrectionResponseTokens: () => 8000,
             updateRuntime: () => {}, CORRECTION_SYSTEM_PROMPT: 'Repair memory. Return JSON only.',
             correctionJsonSchema: schema, parseJsonResponse: JSON.parse,

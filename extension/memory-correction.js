@@ -3,6 +3,7 @@ import { addressFactIdentity } from './reconciliation-policy.js?historical-recal
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { syncChronicleBase } from './chronicle.js';
 import { assertChronicleNarrative } from './chronicle-validation.js';
+import { digestNarrativeIssue } from './digest-repair.js';
 
 const COLLECTIONS = Object.freeze({
     entities: ['name', 'type', 'aliases', 'description', 'importance'],
@@ -12,7 +13,7 @@ const COLLECTIONS = Object.freeze({
     events: ['title', 'summary', 'participants', 'location', 'storyTime', 'consequences', 'importance'],
     threads: ['title', 'detail', 'status', 'participants', 'importance'],
     backgrounds: ['topic', 'summary', 'status', 'certainty', 'participants', 'importance'],
-    capsules: ['title', 'storyTime', 'location', 'participants', 'opening', 'beats', 'emotionalArc', 'closing', 'importance'],
+    capsules: ['title', 'storyTime', 'location', 'participants', 'opening', 'beats', 'emotionalArc', 'closing', 'chronicleText', 'importance'],
 });
 
 export const CORRECTABLE_CATEGORIES = Object.freeze(Object.keys(COLLECTIONS));
@@ -42,6 +43,8 @@ function publicRecord(category, item) {
     for (const field of COLLECTIONS[category] || []) {
         if (LIST_FIELDS.has(field)) result[field] = list(item?.[field], field === 'beats' ? 8 : 40);
         else if (field === 'importance') result[field] = importance(item?.[field]);
+        // Never truncate or coerce the narrative being diagnosed/repaired.
+        else if (field === 'chronicleText') result[field] = item?.[field] ?? '';
         else result[field] = text(item?.[field]);
     }
     if (category === 'facts' && !['temporary', 'recurring', 'persistent'].includes(result.persistence)) result.persistence = 'persistent';
@@ -82,20 +85,33 @@ function searchable(item) {
         .join(' '));
 }
 
-export function selectCorrectionContext(world, instruction, { limit = 60, characterLimit = 30000 } = {}) {
+export function selectCorrectionContext(world, instruction, { limit = 60, characterLimit = 30000, chatKey = '' } = {}) {
     migrateLegacyBeliefs(world);
     const query = terms(instruction);
+    const digestRequest = /\b(?:digest|capsule|c0)\b/iu.test(instruction);
+    const repairRequest = /\b(?:repair|fix|corrupt|malformed|single[- ]letter|broken)\b/iu.test(instruction);
+    const range = digestRequest && String(instruction).match(/\bmessages?\s*#?\s*(\d+)\s*(?:[–—-]|to)\s*(\d+)/iu);
+    const idTokens = new Set(String(instruction).match(/[\p{L}\p{N}_-]+/gu) || []);
+    const exact = new Set(CORRECTABLE_CATEGORIES.flatMap(category => (world?.[category] || [])
+        .filter(item => item.id && idTokens.has(item.id)).map(item => item.id)));
     const ranked = [];
     for (const category of CORRECTABLE_CATEGORIES) {
         for (const item of world?.[category] || []) {
+            const digestTarget = category === 'capsules' && (!chatKey || item.chatKey === chatKey);
+            if (!exact.size && digestRequest && repairRequest && category === 'capsules' && !digestTarget) continue;
+            if (exact.size && !exact.has(item.id)) continue;
+            if (!exact.size && range && (!digestTarget || item.from !== Number(range[1]) || item.to !== Number(range[2]))) continue;
             const haystack = searchable(item);
             let matches = 0;
             for (const term of query) if (haystack.includes(term)) matches++;
+            if (exact.has(item.id) || range || (digestTarget && digestRequest && repairRequest && digestNarrativeIssue(item))) matches += 100;
             if (!matches) continue;
             ranked.push({
                 category,
                 id: String(item.id || ''),
                 record: publicRecord(category, item),
+                ...(category === 'capsules' ? { sourceRange: { chatKey: item.chatKey, from: item.from, to: item.to },
+                    structuralIssues: digestNarrativeIssue(item) ? [digestNarrativeIssue(item)] : [] } : {}),
                 score: matches * 10 + importance(item.importance),
                 updatedAt: String(item.updatedAt || item.createdAt || ''),
             });
@@ -105,12 +121,22 @@ export function selectCorrectionContext(world, instruction, { limit = 60, charac
     const selected = [];
     let used = 0;
     for (const candidate of ranked.slice(0, Math.max(1, limit))) {
-        const value = JSON.stringify({ category: candidate.category, id: candidate.id, record: candidate.record });
+        const { score, updatedAt, ...record } = candidate;
+        const value = JSON.stringify(record);
         if (selected.length && used + value.length > characterLimit) break;
-        selected.push({ category: candidate.category, id: candidate.id, record: candidate.record });
+        selected.push(record);
         used += value.length;
     }
     return selected;
+}
+
+export function correctionDigestSources(candidates, messages, chatKey) {
+    const ranges = candidates.filter(item => item.category === 'capsules').map(item => ({ id: item.id, ...item.sourceRange }));
+    const available = ranges.filter(range => range.chatKey === chatKey && Number.isInteger(range.from) && Number.isInteger(range.to)
+        && range.from >= 0 && range.to >= range.from && range.to <= (messages.at(-1)?.index ?? -1)
+        && messages.filter(message => message.index >= range.from && message.index <= range.to).length === range.to - range.from + 1);
+    return { originalMessages: messages.filter(message => available.some(range => message.index >= range.from && message.index <= range.to)),
+        unavailableDigestIds: ranges.filter(range => !available.includes(range)).map(range => range.id) };
 }
 
 function parseRecord(value) {
@@ -238,9 +264,21 @@ export function validateCorrectionProposal(world, proposal, instruction = '') {
         if (seen.has(dedupe)) continue;
         seen.add(dedupe);
         let replacement = null;
+        let preserveChronicleText = false;
         if (action !== 'delete') {
             const candidate = parseRecord(raw.recordJson ?? raw.record);
             replacement = publicRecord(category, action === 'update' ? { ...target, ...candidate } : candidate);
+            // A narrative-only repair must not normalize/truncate untouched Digest
+            // prose, lists, or metadata while replacing the damaged field.
+            if (category === 'capsules' && action === 'update') {
+                for (const field of COLLECTIONS.capsules) {
+                    if (!Object.hasOwn(candidate, field) && Object.hasOwn(target, field)) replacement[field] = structuredClone(target[field]);
+                }
+            }
+            if (category === 'capsules' && Object.hasOwn(candidate, 'chronicleText')) {
+                if (candidate.chronicleText !== '') assertChronicleNarrative(candidate.chronicleText, 'Corrected Digest Chronicle narrative');
+                preserveChronicleText = true;
+            }
             if (!requiredIdentity(category, replacement)) throw new Error(`The proposed ${category} record is missing its identifying fields.`);
         }
         operations.push({
@@ -251,6 +289,7 @@ export function validateCorrectionProposal(world, proposal, instruction = '') {
             reason: text(raw.reason, 1000),
             before: target ? publicRecord(category, target) : null,
             replacement,
+            ...(preserveChronicleText ? { preserveChronicleText: true } : {}),
         });
     }
     if (!operations.length) throw new Error('The correction proposal contained no usable changes.');
