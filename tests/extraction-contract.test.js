@@ -5,6 +5,41 @@ import { assertCompleteExtractionRecords, extractionSchema, EXTRACTION_FIELD_GUI
 import { buildExtractionSystemPrompt } from '../extension/prompts.js';
 
 const fact = { subject: 'Alice', predicate: 'takes tea', value: 'without sugar', category: 'preference' };
+
+test('rejects degenerate Chronicle prose without changing the extraction', () => {
+    for (const chronicleEntry of ['M', ' A. ', 'O…', 'c!!!', 'é', '界。', '𝒜', '', ' \n ', '...', '📝', null, 1, ['A']]) {
+        const result = { facts: [fact], chronicleEntry };
+        const before = structuredClone(result);
+        assert.throws(() => assertCompleteExtractionRecords(result), { code: 'CM_INCOMPLETE_RECORDS' });
+        assert.deepEqual(result, before);
+    }
+    for (const chronicleEntry of ['Alice waits.', '天亮。', '夜が明ける。', 'Éva attend.', 'انتهى اللقاء.']) {
+        assert.equal(assertCompleteExtractionRecords({ chronicleEntry }).chronicleEntry, chronicleEntry);
+    }
+    assert.equal(extractionSchema.properties.chronicleEntry.minLength, 2);
+});
+
+test('browser and server reject single-letter Chronicle output before reconciliation', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { runInNewContext } = await import('node:vm');
+    for (const path of ['../extension/engine.js', '../plugin/detached-jobs.js']) {
+        const source = readFileSync(new URL(path, import.meta.url), 'utf8');
+        assert.throws(() => runInNewContext(source.match(/function validateResult\([^]*?^}/m)[0] + '\nvalidateResult(result, {}, []);', {
+            result: { facts: [fact], chronicleEntry: 'M' },
+            assertCompleteExtractionRecords, migrateLegacyBeliefs: () => {},
+            sanitizeReconciliationMetadata: () => assert.fail('Degenerate Chronicle reached reconciliation'),
+        }), { code: 'CM_INCOMPLETE_RECORDS' });
+    }
+});
+
+test('single-letter Chronicle failure requests corrected prose, not padding', () => {
+    let failure;
+    try { assertCompleteExtractionRecords({ chronicleEntry: 'M' }); } catch (error) { failure = error; }
+    const feedback = extractionCompletenessFeedback(failure);
+    assert.match(feedback, /chronicleEntry/);
+    assert.match(feedback, /complete prose/);
+    assert.match(feedback, /do not pad/);
+});
 test('JSON and shape errors receive safe corrective feedback, not silent identical retries', () => {
     for (const error of [
         Object.assign(new Error('private content'), { code: 'CM_INVALID_JSON' }),

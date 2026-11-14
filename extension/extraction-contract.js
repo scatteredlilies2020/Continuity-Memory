@@ -144,7 +144,7 @@ export const extractionSchema = {
                 },
             },
         },
-        chronicleEntry: { type: 'string' },
+        chronicleEntry: { type: 'string', minLength: 2, pattern: '\\S', description: 'A source-supported narrative account, never a single letter, punctuation, or blank placeholder. Use complete prose even for a short excerpt.' },
     },
 };
 
@@ -211,7 +211,18 @@ export const CHRONICLE_OUTPUT_CHECK = `Check that title and summary contain supp
 
 export const EXTRACTION_COMPLETENESS_RULE = `Return complete source-supported records with nonblank identity and core content. Use [] for categories without additions or changes, never blank placeholder records. State set requires a nonblank value; only explicit clear allows an empty value. Unknown or missing values never imply clear. Leave unknown optional details empty; never invent dates, locations, ages, or previous state. Unknown characterProfile groups are []. Preserve distinct supported facts without repeating unchanged records.`;
 
+export function assertCompleteChronicleEntry(value) {
+    // Missing fields remain compatible with pre-Chronicle extraction replay.
+    // Count Unicode letters/numbers, not code units or English words: punctuation
+    // must not make "A." pass, and non-Latin prose must remain valid.
+    if (value === undefined) return;
+    if (typeof value !== 'string' || (value.match(/[\p{L}\p{N}]/gu) || []).length < 2) {
+        throw Object.assign(new Error('Incomplete extraction records: chronicleEntry must contain a source-supported narrative account in complete prose, not a single letter, punctuation, or blank placeholder. Regenerate the complete extraction; do not pad the entry.'), { code: 'CM_INCOMPLETE_RECORDS' });
+    }
+}
+
 export function assertCompleteExtractionRecords(result) {
+    assertCompleteChronicleEntry(result?.chronicleEntry);
     const problems = [];
     const narrative = [result?.chronicleEntry, result?.sceneCapsule?.opening,
         ...(result?.sceneCapsule?.beats || []), result?.sceneCapsule?.closing].filter(value => typeof value === 'string');
