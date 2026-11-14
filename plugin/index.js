@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { migrateLegacyBeliefs } from '../extension/attributed-beliefs.js';
 import { discardLegacyStorySnapshots } from '../extension/story-source.js';
 import { syncChronicleBase } from '../extension/chronicle.js';
+import { assertChronicleChanges } from '../extension/chronicle-validation.js';
 import { cancelDetachedJob, createDetachedJob, getDetachedJob, listDetachedJobs } from './detached-jobs.js';
 import { registerVectorRoutes } from './vector-store.js';
 import { CONTINUITY_VERSION } from '../extension/build-info.js';
@@ -633,6 +634,7 @@ export async function init(router, {
             if (req.body?.revision !== undefined && Number(req.body.revision) !== Number(current.revision || 0)) {
                 throw Object.assign(new Error(`Revision conflict: stored ${current.revision || 0}, received ${req.body.revision}`), { status: 409 });
             }
+            assertChronicleChanges(req.body, current);
             const world = normalizeWorld({ ...req.body, createdAt: current.createdAt }, id);
             await writeShardedWorld(dirs, world, manifest);
             res.json({ ok: true, world, counts: counts(world) });
@@ -708,6 +710,7 @@ export async function init(router, {
                     if (Number(input.revision || 0) !== Number(record.world.revision || 0)) {
                         throw Object.assign(new Error(`Revision conflict: stored ${record.world.revision || 0}, received ${input.revision || 0}`), { status: 409 });
                     }
+                    assertChronicleChanges(input, record.world);
                     const world = normalizeWorld({ ...input, createdAt: record.world.createdAt, revision: record.world.revision }, id);
                     await writeShardedWorld(dirs, world, record.manifest);
                     return world;

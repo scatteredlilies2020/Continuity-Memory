@@ -292,7 +292,7 @@ test('server load replaces obsolete Story snapshots with a source-linked Chronic
     const created = await call(router.routes.get('POST /worlds'), root, { body: { name: 'Story migration' } });
     const world = created.payload.world;
     world.storySoFar.chat = { text: 'Obsolete Story', sourceMode: 'digest', sourcePolicyVersion: 2 };
-    world.capsules.push({ id: 'digest', chatKey: 'chat', from: 0, to: 1 });
+    world.capsules.push({ id: 'digest', chatKey: 'chat', from: 0, to: 1, opening: 'Alice arrives.' });
     world.arcs.push({ id: 'legacy-arc', capsuleIds: ['digest'] });
     world.eras.push({ id: 'legacy-era', arcIds: ['legacy-arc'] });
     const saved = await call(router.routes.get('PUT /worlds/:id'), root, { params: { id: world.id }, body: world });

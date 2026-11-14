@@ -1,3 +1,5 @@
+import { hasChronicleNarrative } from './chronicle-validation.js';
+
 const temporalRelationSchema = {
     type: 'object',
     additionalProperties: false,
@@ -153,10 +155,10 @@ export const chronicleParentSchema = {
     additionalProperties: false,
     required: ['title', 'storyTime', 'participants', 'summary', 'turningPoints', 'emotionalArc', 'closingState', 'openThreads', 'importance'],
     properties: {
-        title: { type: 'string', minLength: 1, pattern: '\\S' },
+        title: { type: 'string', minLength: 2, pattern: '\\S' },
         storyTime: { type: 'string' },
         participants: { type: 'array', items: { type: 'string' } },
-        summary: { type: 'string', minLength: 1, pattern: '\\S' },
+        summary: { type: 'string', minLength: 2, pattern: '\\S', description: 'A source-supported account in complete prose, never a single letter, punctuation, or blank placeholder. Do not pad to satisfy validation.' },
         turningPoints: { type: 'array', items: { type: 'string' }, maxItems: 8 },
         emotionalArc: { type: 'string' },
         closingState: { type: 'string' },
@@ -216,7 +218,7 @@ export function assertCompleteChronicleEntry(value) {
     // Count Unicode letters/numbers, not code units or English words: punctuation
     // must not make "A." pass, and non-Latin prose must remain valid.
     if (value === undefined) return;
-    if (typeof value !== 'string' || (value.match(/[\p{L}\p{N}]/gu) || []).length < 2) {
+    if (!hasChronicleNarrative(value)) {
         throw Object.assign(new Error('Incomplete extraction records: chronicleEntry must contain a source-supported narrative account in complete prose, not a single letter, punctuation, or blank placeholder. Regenerate the complete extraction; do not pad the entry.'), { code: 'CM_INCOMPLETE_RECORDS' });
     }
 }

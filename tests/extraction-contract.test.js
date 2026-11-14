@@ -122,7 +122,7 @@ test('Chronicle field definitions require real core text without priming blank r
     const guide = schemaFieldGuide(chronicleParentSchema);
     const fields = JSON.parse(guide.slice(guide.indexOf('{')));
     assert.equal(fields.title, 'string (nonblank)');
-    assert.equal(fields.summary, 'string (nonblank)');
+    assert.match(fields.summary, /^string \(nonblank\).*complete prose/);
     assert.equal(fields.turningPoints.emptyArrayAllowed, true);
     assert.equal(fields.turningPoints.maxItems, 8);
     assert.match(fields.openThreads.description, /historical context/);
