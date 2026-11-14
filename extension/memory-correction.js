@@ -2,6 +2,7 @@ import { randomUuid } from './uuid.js';
 import { addressFactIdentity } from './reconciliation-policy.js?historical-recall=1';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { syncChronicleBase } from './chronicle.js';
+import { assertChronicleNarrative } from './chronicle-validation.js';
 
 const COLLECTIONS = Object.freeze({
     entities: ['name', 'type', 'aliases', 'description', 'importance'],
@@ -334,6 +335,15 @@ function overlaps(a, b) {
 }
 
 export function applyCorrectionProposal(world, proposal, reviewedSource = {}) {
+    // Reject explicit corrupt narrative replacements before any operation mutates
+    // the world, including earlier unrelated operations in the same proposal.
+    for (const operation of proposal.operations) {
+        if (operation.category === 'capsules' && operation.action !== 'delete'
+            && operation.preserveChronicleText && Object.hasOwn(operation.replacement || {}, 'chronicleText')
+            && operation.replacement.chronicleText !== '') {
+            assertChronicleNarrative(operation.replacement.chronicleText, 'Corrected Digest Chronicle narrative');
+        }
+    }
     migrateLegacyBeliefs(world);
     world.corrections ||= [];
     world.arcs ||= [];

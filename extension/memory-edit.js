@@ -1,5 +1,6 @@
 import { applyCorrectionProposal } from './memory-correction.js?historical-recall=1';
 import { chronicleTextFromCapsule, refreshChronicleStory } from './chronicle.js';
+import { assertChronicleNarrative } from './chronicle-validation.js';
 import { entityProfile, formatEntityProfile, PROFILE_FIELDS } from './entity-profile.js';
 import { supportingHistory, supportingIdentity, supportingRecords } from './supporting-memories.js?v=0.15.0-testing.30&historical-recall=1';
 import { randomUuid } from './uuid.js';
@@ -148,7 +149,8 @@ export function applyManualMemoryEdit(world, target, patch, reviewedSource = {})
     }
     if (target.category === 'states' && !replacement.value?.trim() && replacement.operation !== 'clear') throw new Error('A state needs a value.');
     if (target.category === 'facts' && !replacement.value?.trim()) throw new Error('A fact needs a value.');
-    if (target.category === 'chronicle' && !replacement.text?.trim()) throw new Error('A Chronicle entry needs a narrative.');
+    if (target.category === 'chronicle') assertChronicleNarrative(replacement.text, 'Chronicle narrative');
+    if (target.category === 'capsules' && Object.hasOwn(changes, 'chronicleText') && changes.chronicleText !== '') assertChronicleNarrative(changes.chronicleText, 'Digest Chronicle narrative');
     if (target.category === 'events' && !replacement.title?.trim() && !replacement.summary?.trim()) throw new Error('An event needs a title or summary.');
     if (target.category === 'capsules' && !chronicleTextFromCapsule(replacement)) throw new Error('A Digest entry needs some content.');
     if (['threads', 'backgrounds'].includes(target.category)) {

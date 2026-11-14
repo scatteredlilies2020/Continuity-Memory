@@ -1,4 +1,5 @@
 import { randomUuid } from './uuid.js';
+import { assertChronicleNarrative, hasChronicleNarrative } from './chronicle-validation.js';
 
 export const CHRONICLE_VERSION = 1;
 export const DEFAULT_CHRONICLE_CAPACITY = 24;
@@ -71,7 +72,7 @@ function ordered(records) {
 export function chronicleTextFromCapsule(capsule) {
     if (!capsule) return '';
     const supplied = clean(capsule.chronicleText);
-    if (supplied) return supplied;
+    if (hasChronicleNarrative(capsule.chronicleText)) return supplied;
     const body = unique([
         clean(capsule.opening),
         ...(capsule.beats || []).map(clean),
@@ -80,6 +81,9 @@ export function chronicleTextFromCapsule(capsule) {
     const title = clean(capsule.title);
     const storyTime = clean(capsule.storyTime);
     const heading = [title, storyTime].filter(Boolean).join(' — ');
+    // Legacy corrupt summaries must not override intact source Digest prose.
+    // Never manufacture padding or accept a heading as replacement narrative.
+    if (supplied) assertChronicleNarrative(body, 'Digest fallback narrative', 'CM_INVALID_CHRONICLE_SOURCE');
     return [heading, body].filter(Boolean).join(': ');
 }
 
@@ -118,8 +122,11 @@ function dependentNodeIds(nodes, sourceIds) {
 }
 
 export function syncChronicleBase(world, chatKey = '') {
-    world.chronicle ||= [];
     const capsules = (world.capsules || []).filter(item => !chatKey || item.chatKey === chatKey);
+    // Validate all incoming nodes before invalidating or replacing any history.
+    const incomingNodes = capsules.map(nodeFromCapsule);
+    for (const node of incomingNodes) assertChronicleNarrative(node.text, 'C0 narrative', 'CM_INVALID_CHRONICLE_SOURCE');
+    world.chronicle ||= [];
     const capsuleIds = new Set(capsules.map(item => item.id));
     const chats = new Set(capsules.map(item => item.chatKey || ''));
     if (chatKey) chats.add(chatKey);
@@ -132,8 +139,7 @@ export function syncChronicleBase(world, chatKey = '') {
         }
     }
 
-    for (const capsule of capsules) {
-        const incoming = nodeFromCapsule(capsule);
+    for (const incoming of incomingNodes) {
         const index = world.chronicle.findIndex(item => item.id === incoming.id);
         if (index < 0) {
             world.chronicle.push(incoming);
@@ -184,11 +190,13 @@ export function nextChroniclePromotion(world, settings = {}) {
 }
 
 export function addChroniclePromotion(world, result, children) {
-    world.chronicle ||= [];
+    assertChronicleNarrative(result?.summary ?? result?.text);
+    if (result?.title !== undefined) assertChronicleNarrative(result.title, 'Chronicle title');
+    for (const child of children || []) assertChronicleNarrative(child.text || child.summary, 'Chronicle source narrative; repair this source before promotion', 'CM_INVALID_CHRONICLE_SOURCE');
     const childIds = (children || []).map(item => item.id).filter(Boolean);
     if (childIds.length < 2) throw new Error('Cannot promote Chronicle history without at least two source nodes.');
     const signature = childIds.join('|');
-    const duplicate = world.chronicle.find(item => (item.childIds || []).join('|') === signature);
+    const duplicate = (world.chronicle || []).find(item => (item.childIds || []).join('|') === signature);
     if (duplicate) return duplicate;
     const levels = children.map(item => Number(item.level) || 0);
     if (new Set(levels).size !== 1) throw new Error('Chronicle promotion sources must come from one layer.');
@@ -220,7 +228,7 @@ export function addChroniclePromotion(world, result, children) {
         createdAt: now,
         updatedAt: now,
     };
-    world.chronicle.push(node);
+    (world.chronicle ||= []).push(node);
     refreshChronicleStory(world, node.chatKey);
     return node;
 }

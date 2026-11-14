@@ -1,6 +1,7 @@
 import { errorChainText, isTransientApiError } from './errors.js';
 
 export function isRetryableChronicleError(error) {
+    if (error?.code === 'CM_INCOMPLETE_CHRONICLE') return true;
     if (error?.code === 'CM_PROVENANCE_REVIEW_INVALID' || error?.code === 'CM_OOC_PROVENANCE') return true;
     if (error?.code === 'CONTINUITY_COMPRESSION_NOT_SMALLER') return true;
     if (error?.status === 409) return true;
@@ -20,7 +21,7 @@ export function waitForChronicleRetry(delay, signal) {
 
 export function chronicleRetryFeedback(error) {
     if (!error || error.status === 409 || /Chronicle sources changed/u.test(error.message) || isTransientApiError(error)) return '';
-    return `\n\nThe previous parent failed validation: ${String(error.message).slice(0, 1200)}\nGenerate a corrected, complete JSON parent from the same sources. Preserve source attribution; author notes must not become character speech or knowledge. Use neutral narration for author-level context. Summarize in your own words; do not paste the source nodes back as the summary or repeat their account across detail fields. Return all required fields and a nonempty summary.`;
+    return `\n\nThe previous parent failed validation: ${String(error.message).slice(0, 1200)}\nGenerate a corrected, complete JSON parent from the same sources. Preserve source attribution; author notes must not become character speech or knowledge. Use neutral narration for author-level context. Summarize in your own words; do not paste the source nodes back as the summary or repeat their account across detail fields. Return all required fields and a source-supported summary in complete prose, never a single letter or padded placeholder.`;
 }
 
 export async function retryChroniclePromotion(attempt, {

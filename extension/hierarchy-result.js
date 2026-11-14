@@ -1,3 +1,5 @@
+import { assertChronicleNarrative } from './chronicle-validation.js';
+
 function normalizeListField(value, key, label) {
     if (Array.isArray(value)) return value;
     if (value === null || value === undefined || value === '') return [];
@@ -18,6 +20,7 @@ export function normalizeHierarchyResult(result, label = 'Chronicle') {
     for (const key of ['participants', 'turningPoints', 'openThreads']) {
         normalized[key] = normalizeListField(result[key], key, label);
     }
-    if (!String(normalized.summary || '').trim()) throw new Error(`${label} summarizer returned no summary.`);
+    assertChronicleNarrative(normalized.summary, `${label} summary`);
+    if (normalized.title !== undefined) assertChronicleNarrative(normalized.title, `${label} title`);
     return normalized;
 }
