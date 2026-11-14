@@ -18,6 +18,7 @@ import { describeMemoryEdit } from './memory-edit.js?historical-recall=1';
 import { createMemoryEditForm } from './memory-edit-form.js';
 import { commitManualMemoryEdit } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1';
 import { formatCorrectionPreview } from './memory-correction.js?historical-recall=1';
+import { digestRepairInstruction } from './digest-repair.js';
 import { formatRecheckPreview } from './continuity-recheck.js';
 import { reviewContinuityAlignment, commitContinuityAlignment, undoContinuityAlignment } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1';
 import { resolveCorrectionResponseTokens } from './correction-policy.js?pending-recovery=1';
@@ -1358,6 +1359,20 @@ function renderMemoryViewer(force = false) {
             $('<button>').attr({ type: 'button', title: 'Edit memory', 'aria-label': `Edit ${item.title || 'memory'}` })
                 .addClass('menu_button continuity-memory-edit-button').append($('<i>').addClass('fa-solid fa-pencil').attr('aria-hidden', 'true'))
                 .on('click', () => openStoredMemoryEditor(item, card)).appendTo(heading);
+            if (item.editTarget.category === 'capsules') {
+                const digest = world.capsules.find(record => record.id === item.editTarget.id);
+                if (digest) $('<button>').attr({ type: 'button', title: 'Review a targeted repair in Correct memory' })
+                    .addClass('menu_button continuity-memory-edit-button').text('Repair Digest')
+                    .on('click', () => {
+                        pendingCorrection = null;
+                        $('#continuity_correction_preview_panel').prop('hidden', true);
+                        const input = $('#continuity_correction_input').val(digestRepairInstruction(digest));
+                        input.closest('details').prop('open', true);
+                        $('#continuity_correction_status').text('Digest selected. Refine the request if needed, then Review correction. Nothing has been changed.');
+                        input[0]?.scrollIntoView({ block: 'center' });
+                        input.trigger('focus');
+                    }).appendTo(heading);
+            }
         }
         for (const field of item.fields) {
             const row = $('<div>').addClass('continuity-viewer-field').appendTo(card);

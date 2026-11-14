@@ -6,7 +6,8 @@ import { parseJsonResponse } from '../extension/json-response.js';
 import * as prefill from '../extension/preset-prefill.js';
 import * as profile from '../extension/profile-request-policy.js';
 import * as thinking from '../extension/thinking-policy.js';
-import { augmentCorrectionChronology, selectCorrectionContext, validateCorrectionProposal } from '../extension/memory-correction.js';
+import { augmentCorrectionChronology, correctionDigestSources, selectCorrectionContext, validateCorrectionProposal } from '../extension/memory-correction.js';
+import { collectFingerprintMessages } from '../extension/message-digest.js';
 
 const engine = readFileSync(new URL('../extension/engine.js', import.meta.url), 'utf8');
 function load(name, dependencies) {
@@ -52,7 +53,7 @@ function setup(profileId, prefix, response, { rejectSchema = false } = {}) {
         ...prefill, ...profile, ...thinking, ...contract,
         runtime: { world, health: { schemaVersion: 7 }, generation: 0, paused: true },
         getSettings: () => settings, getBoundWorldId: () => world.id, getChatKey: () => 'chat', getContext: () => ({ chat: [] }),
-        selectCorrectionContext, validateCorrectionProposal, augmentCorrectionChronology, parseJsonResponse,
+        selectCorrectionContext, correctionDigestSources, collectFingerprintMessages, validateCorrectionProposal, augmentCorrectionChronology, parseJsonResponse,
         resolveCorrectionResponseTokens: () => 8000,
         DIRECT_PROFILE_ID: '__direct__', resolveMemoryPrefill: () => prefix, resolveThinkingModeForProfile: mode => mode,
         resolveMemoryResponseTokens: () => undefined, outputTokenPayload: () => ({}), updateRuntime: () => {},
