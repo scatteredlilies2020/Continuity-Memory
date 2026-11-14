@@ -16,6 +16,30 @@ const extracted = {
     chronicleEntry: 'Alice walks along the road.',
 };
 
+test('detached extraction retries single-letter Chronicle output and saves only corrected prose', async () => {
+    const result = await runExtraction('single-letter-chronicle', task([0, 1]), (_, attempt) => ({
+        finish: 'stop', content: attempt === 1 ? { ...extracted, chronicleEntry: 'M' } : extracted,
+    }));
+    assert.equal(result.finished.status, 'complete', result.finished.error);
+    assert.equal(result.requests.length, 2);
+    assert.match(JSON.stringify(result.requests[1].messages), /chronicleEntry must contain/);
+    assert.equal(result.world.capsules[0].chronicleText, extracted.chronicleEntry);
+    assert.equal(result.world.chronicle[0].text, extracted.chronicleEntry);
+    assert.equal(result.world.extractions[0].result.chronicleEntry, extracted.chronicleEntry);
+});
+
+test('repeated single-letter Chronicle output fails without saving memory or coverage', async () => {
+    const result = await runExtraction('single-letter-chronicle-failure', task([0, 1]), () => ({
+        finish: 'stop', content: { ...extracted, chronicleEntry: 'A.' },
+    }));
+    assert.equal(result.finished.status, 'error');
+    assert.equal(result.requests.length, 2);
+    assert.equal(result.world.capsules.length, 0);
+    assert.equal(result.world.chronicle.length, 0);
+    assert.equal(result.world.extractions.length, 0);
+    assert.deepEqual(result.world.sources, {});
+});
+
 function task(indexes) {
     const request = {
         model: 'gemini-test', max_tokens: 8192, reasoning_effort: 'high',

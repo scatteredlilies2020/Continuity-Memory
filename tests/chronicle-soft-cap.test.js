@@ -13,6 +13,15 @@ function extract(chronicle, target = { sources: {} }, from = 0) {
     return target;
 }
 
+test('merge rejects single-letter Chronicle results before changing any saved memory', () => {
+    const target = extract({ chronicleEntry: 'Mira entered the city.' });
+    const before = structuredClone(target);
+    for (const chronicleEntry of ['M', 'A.', 'O…', '', '...']) {
+        assert.throws(() => extract({ chronicleEntry }, target, 8), { code: 'CM_INCOMPLETE_RECORDS' });
+        assert.deepEqual(target, before);
+    }
+});
+
 test('accepted C0 prose survives the former 2400-character boundary and a tiny injection target', () => {
     for (const length of [80, 2399, 2400, 2401, 9000]) {
         const ending = 'Only Mira knows the vault password.';

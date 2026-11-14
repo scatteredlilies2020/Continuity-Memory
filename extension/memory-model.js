@@ -11,6 +11,7 @@ import { formatEntityProfile, mergeEntityProfiles } from './entity-profile.js';
 import { thirdPersonOnlyProse } from './canonical-prose.js';
 import { compileRollingStorySnapshot } from './story-snapshot.js';
 import { addChroniclePromotion, removeChronicleChat, syncChronicleBase } from './chronicle.js';
+import { assertCompleteChronicleEntry } from './extraction-contract.js';
 
 function text(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -1238,6 +1239,9 @@ export function promoteStoredTailSnapshot(world, chatKey, latestCompleteIndex) {
 }
 
 export function mergeExtraction(world, result, meta) {
+    // Final write boundary also covers detached results and stored replay.
+    // Reject before mutating any structured memory, sources, or coverage.
+    assertCompleteChronicleEntry(result?.chronicleEntry);
     migrateLegacyBeliefs(world);
     retainSupportingHistory(world);
     world.entities ||= [];
