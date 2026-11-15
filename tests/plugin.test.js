@@ -6,6 +6,7 @@ import test from 'node:test';
 import { init, syncBundledExtension } from '../plugin/index.js';
 import { pruneWorldShards, waitForStorageMaintenance, withShardWorldLock } from '../plugin/shard-retention.js';
 import { readStorageJson } from '../plugin/storage-json.js';
+import { waitForStorageMigration } from '../plugin/storage-migration.js';
 import { applyManualMemoryEdit } from '../extension/memory-edit.js';
 
 function mockRouter() {
@@ -374,6 +375,7 @@ test('server plugin creates, saves, and explicitly deletes worlds', async t => {
 test('server storage retains immutable shards and heals a broken Syncthing manifest from a validated conflict copy', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-syncthing-test-'));
     t.after(async () => {
+        await waitForStorageMigration({ root: path.join(root, 'continuity-memory') });
         await waitForStorageMaintenance({ root: path.join(root, 'continuity-memory') });
         await fs.rm(root, { recursive: true, force: true });
     });

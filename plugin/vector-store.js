@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { getProxyBatchVector, loadProxyEmbeddingHost } from './proxy-embeddings.js';
-import { atomicStorageJson, decodeStorageJson, readStorageJson } from './storage-json.js';
+import { atomicStorageJson, decodeStorageJson, readStorageJson, repackStorageJson } from './storage-json.js';
 
 const STORE_VERSION = 2;
 const COLLECTION_RE = /^[a-zA-Z0-9_-]{1,160}$/;
@@ -209,6 +209,23 @@ async function withLock(key, operation) {
         release();
         if (locks.get(key) === tail) locks.delete(key);
     }
+}
+
+// Enumerated by the per-user sweep, including inactive providers. Never import
+// native ST indexes, create missing stores, call providers, or resurrect purges.
+export async function migrateVectorIndex(dirs, collectionId, filename) {
+    if (!COLLECTION_RE.test(collectionId) || !/^[a-f0-9]{64}\.json$/.test(filename)) {
+        throw new Error('Invalid vector storage conversion target');
+    }
+    const directory = path.join(dirs.root, 'vectors', collectionId);
+    const file = path.join(directory, filename);
+    return withLock(directory, () => repackStorageJson(file, stored => {
+        const provider = providerFromBody(stored?.provider);
+        if (`${fingerprint(provider)}.json` !== filename) throw new Error('Vector storage filename/provider mismatch');
+        normalizeStore(stored, { file, provider });
+        // Validation must not strip optional metadata during physical conversion.
+        return { ...stored, version: STORE_VERSION };
+    }));
 }
 
 function cosine(left, right) {
