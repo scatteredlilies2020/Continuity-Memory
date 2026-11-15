@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { embedBatchesInOrder, registerVectorRoutes } from '../plugin/vector-store.js';
+import { readStorageJson } from '../plugin/storage-json.js';
 
 function mockRouter() {
     const routes = new Map();
@@ -33,6 +34,89 @@ function vectorFor(text) {
     if (text.includes('east')) return [0, 1];
     return [0.5, 0.5];
 }
+
+test('legacy CM vectors auto-convert once at the authoritative path without re-embedding or rounding', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cm-vector-pack-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    let embeddings = 0;
+    const router = mockRouter();
+    registerVectorRoutes(router, { embedTexts: async ({ texts }) => { embeddings++; return texts.map(vectorFor); } });
+    const invoke = (route, body = base) => call(router.routes.get(`POST /vectors/${route}`), root, body);
+    await invoke('list');
+    const directory = path.join(root, 'continuity-memory', 'vectors', base.collectionId);
+    const [filename] = await fs.readdir(directory);
+    const file = path.join(directory, filename);
+    const original = { version: 1, provider, items: Array.from({ length: 32 }, (_, index) => ({
+        hash: index, index, text: `Exact 中文 🌸 history ${index} `.repeat(100), vector: [0.12345678901234568, -1.2345678901234567e-20],
+    })) };
+    const legacyText = JSON.stringify(original, null, 2);
+    await fs.writeFile(file, legacyText);
+    const expectedHashes = original.items.map(item => item.hash);
+    const opened = await Promise.all([invoke('list'), invoke('list'), invoke('list')]);
+    for (const result of opened) { assert.equal(result.status, 200); assert.deepEqual(result.payload, expectedHashes); }
+    assert.equal(embeddings, 0);
+    assert.deepEqual(await readStorageJson(file), { ...original, version: 2 });
+    assert.equal(JSON.parse(await fs.readFile(file, 'utf8')).continuityStorage, 'continuity-gzip-json-v1');
+    assert.ok((await fs.stat(file)).size < Buffer.byteLength(legacyText) / 4);
+    const timestamp = (await fs.stat(file)).mtimeMs;
+    await invoke('list');
+    assert.equal((await fs.stat(file)).mtimeMs, timestamp);
+    assert.deepEqual(await fs.readdir(directory), [filename]);
+    assert.equal((await invoke('insert', { ...base, items: [{ hash: 100, index: 32, text: 'north newest' }] })).status, 200);
+    assert.equal((await invoke('delete', { ...base, hashes: [0] })).status, 200);
+    assert.deepEqual((await invoke('list')).payload, [...expectedHashes.slice(1), 100]);
+    // Corrupt packed data must never be treated as an absent store.
+    const broken = JSON.stringify({ continuityStorage: 'continuity-gzip-json-v1', data: 'broken!' });
+    await fs.writeFile(file, broken);
+    assert.equal((await invoke('list')).status, 500);
+    assert.equal(await fs.readFile(file, 'utf8'), broken);
+    assert.equal((await invoke('purge')).status, 200);
+    assert.deepEqual((await invoke('list')).payload, []);
+});
+
+test('external vector changes or deletion during conversion never restore a stale legacy index', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cm-vector-conversion-sync-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const router = mockRouter();
+    registerVectorRoutes(router, { embedTexts: async () => { throw new Error('No re-embedding allowed'); } });
+    for (const mode of ['changed', 'deleted']) {
+        const scope = { ...base, collectionId: `continuity_conversion_${mode}` };
+        const vectors = path.join(root, 'native-vectors');
+        const invoke = () => call(router.routes.get('POST /vectors/list'), root, scope, { vectors });
+        await invoke();
+        const directory = path.join(root, 'continuity-memory', 'vectors', scope.collectionId);
+        const [filename] = await fs.readdir(directory);
+        const file = path.join(directory, filename);
+        await fs.writeFile(file, JSON.stringify({ version: 1, provider, items: [{ hash: 1, index: 0, text: 'Original history', vector: [1, 0] }] }));
+        const legacyFile = path.join(vectors, provider.source, scope.collectionId, provider.model, 'index.json');
+        const legacy = JSON.stringify({ items: [{ vector: [0, 1], metadata: { hash: 99, index: 0, text: 'Stale native cache' } }] });
+        await fs.mkdir(path.dirname(legacyFile), { recursive: true });
+        await fs.writeFile(legacyFile, legacy);
+        const newest = JSON.stringify({ version: 1, provider, items: [{ hash: 2, index: 0, text: 'Newer synced history', vector: [0, 1] }] });
+        const writeFile = fs.writeFile;
+        let intercepted = false;
+        fs.writeFile = async (target, ...args) => {
+            const result = await writeFile(target, ...args);
+            if (String(target).startsWith(`${file}.`) && String(target).endsWith('.tmp')) {
+                intercepted = true;
+                if (mode === 'deleted') await fs.unlink(file);
+                else await writeFile(file, newest);
+            }
+            return result;
+        };
+        let result;
+        try { result = await invoke(); } finally { fs.writeFile = writeFile; }
+        assert.equal(intercepted, true);
+        assert.equal(result.status, mode === 'changed' ? 409 : 404);
+        assert.equal(await fs.readFile(legacyFile, 'utf8'), legacy);
+        assert.equal((await fs.readdir(directory)).some(name => name.endsWith('.tmp')), false);
+        if (mode === 'deleted') await assert.rejects(fs.access(file), error => error.code === 'ENOENT');
+        else {
+            assert.equal(await fs.readFile(file, 'utf8'), newest);
+            assert.deepEqual((await invoke()).payload, [2]);
+        }
+    }
+});
 
 test('embedding provider batches use bounded concurrency and preserve vector order', async () => {
     const texts = Array.from({ length: 35 }, (_, index) => `memory-${index}`);

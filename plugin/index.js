@@ -12,11 +12,13 @@ import { cancelDetachedJob, createDetachedJob, getDetachedJob, listDetachedJobs 
 import { registerVectorRoutes } from './vector-store.js';
 import { CONTINUITY_VERSION } from '../extension/build-info.js';
 import { maintainStorageRetention, readShardPolicy, withShardWorldLock, writeShardPolicy } from './shard-retention.js';
+import { atomicStorageJson, readStorageJson } from './storage-json.js';
 
 const PLUGIN = 'continuity-memory';
 const VERSION = CONTINUITY_VERSION;
 const SCHEMA_VERSION = 12;
-const STORAGE_VERSION = 2;
+const STORAGE_VERSION = 4;
+const READ_STORAGE_VERSIONS = [2, COMPACT_STORAGE_VERSION, STORAGE_VERSION];
 const SHARD_CHUNK_SIZE = 128;
 const ARRAY_SHARDS = ['entities', 'facts', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'chronicle', 'extractions', 'threads', 'backgrounds', 'corrections'];
 const LEGACY_ARRAY_SHARDS = ['beliefs'];
@@ -154,7 +156,7 @@ function valueHash(value) {
 }
 
 function isShardManifest(value) {
-    return Boolean(value && [STORAGE_VERSION, COMPACT_STORAGE_VERSION].includes(value.shardedStorage?.version)
+    return Boolean(value && READ_STORAGE_VERSIONS.includes(value.shardedStorage?.version)
         && value.shards && typeof value.shards === 'object' && !Array.isArray(value.shards));
 }
 
@@ -256,14 +258,11 @@ function migrationFingerprint(world) {
 }
 
 async function readJson(file) {
-    const text = await fs.readFile(file, 'utf8');
-    return JSON.parse(text);
+    return readStorageJson(file);
 }
 
 async function atomicWrite(file, value) {
-    const temp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
-    await fs.writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-    await fs.rename(temp, file);
+    return atomicStorageJson(file, value);
 }
 
 async function optionalStoredWorld(dirs, id) {
@@ -276,11 +275,15 @@ async function optionalStoredWorld(dirs, id) {
 }
 
 async function materializeStoredWorld(dirs, id, stored) {
-    if (stored?.shardedStorage && ![STORAGE_VERSION, COMPACT_STORAGE_VERSION].includes(stored.shardedStorage.version)) {
+    if (stored?.shardedStorage && !READ_STORAGE_VERSIONS.includes(stored.shardedStorage.version)) {
         throw unsupportedStorageVersion(stored.shardedStorage.version);
     }
     if (stored?.shardedStorage && !isShardManifest(stored)) {
         throw new Error('Stored memory shard manifest is invalid');
+    }
+    if (stored?.shardedStorage?.version === STORAGE_VERSION
+        && stored.shardedStorage.encoding !== 'adaptive-gzip-json-v1') {
+        throw unsupportedStorageVersion(`${STORAGE_VERSION} (${stored.shardedStorage.encoding || 'unknown encoding'})`);
     }
     if (!isShardManifest(stored)) {
         migrateLegacyBeliefs(stored);
@@ -289,6 +292,9 @@ async function materializeStoredWorld(dirs, id, stored) {
         return stored;
     }
     if (stored.id !== id) throw new Error(`Stored memory ID does not match its manifest (${id})`);
+    if (['entities', 'facts', 'events', 'capsules', 'scene', 'sources'].some(key => !Array.isArray(stored.shards[key]))) {
+        throw new Error('Stored memory shard manifest is incomplete');
+    }
     const world = {
         schemaVersion: stored.schemaVersion || SCHEMA_VERSION,
         id: stored.id,
@@ -310,7 +316,8 @@ async function materializeStoredWorld(dirs, id, stored) {
         if (ARRAY_SHARDS.includes(category) || ARCHIVE_SHARDS.includes(category) || LEGACY_ARRAY_SHARDS.includes(category)) world[category] = parts.flat();
         else world[category] = parts.length ? parts[0] : (['sources', 'storySoFar'].includes(category) ? {} : null);
     }
-    if (stored.shardedStorage.version === COMPACT_STORAGE_VERSION) restoreWorldStorage(world, stored.compaction);
+    if (stored.shardedStorage.version === COMPACT_STORAGE_VERSION || stored.compaction
+        || stored.shardedStorage.version === STORAGE_VERSION && ARCHIVE_SHARDS.some(key => Object.hasOwn(stored.shards, key))) restoreWorldStorage(world, stored.compaction);
     else for (const key of ARCHIVE_SHARDS) delete world[key];
     migrateLegacyBeliefs(world);
     discardLegacyStorySnapshots(world);
@@ -413,13 +420,38 @@ async function optionalWorld(dirs, id) {
     return (await optionalWorldRecord(dirs, id)).world;
 }
 
+// Re-read under the writer/collector lock, rather than migrating an earlier
+// snapshot over a save that arrived while the chat was opening. No revision or
+// timestamp changes: this is a physical conversion, not a memory edit.
+async function openWorldRecord(dirs, id) {
+    const record = await withShardWorldLock(dirs, id, async () => {
+        let originalText;
+        try { originalText = await fs.readFile(worldPath(dirs, id), 'utf8'); }
+        catch (error) { if (error.code !== 'ENOENT') throw error; }
+        const current = await optionalWorldRecord(dirs, id);
+        if (current.world && (current.manifest?.shardedStorage?.version !== STORAGE_VERSION || current.legacyStoryCount)) {
+            if (current.recoveredFrom) originalText = await fs.readFile(worldPath(dirs, id), 'utf8');
+            current.manifest = await writeShardedWorldLocked(dirs, current.world, current.manifest, {
+                beforeCommit: async () => {
+                    if (await fs.readFile(worldPath(dirs, id), 'utf8') !== originalText) {
+                        throw Object.assign(new Error('Memory changed during storage conversion. Reopen the chat to retry; newer memory was kept.'), { status: 409 });
+                    }
+                },
+            });
+        }
+        return current;
+    });
+    void maintainStorageRetention(dirs);
+    return record;
+}
+
 async function writeShardedWorld(dirs, world, previousManifest = null) {
     const manifest = await withShardWorldLock(dirs, world.id, () => writeShardedWorldLocked(dirs, world, previousManifest));
     void maintainStorageRetention(dirs);
     return manifest;
 }
 
-async function writeShardedWorldLocked(dirs, world, previousManifest = null) {
+async function writeShardedWorldLocked(dirs, world, previousManifest = null, manifestOptions = {}) {
     const partition = compactWorldStorage(world);
     world = partition.world;
     const directory = shardDirectory(dirs, world.id);
@@ -427,7 +459,7 @@ async function writeShardedWorldLocked(dirs, world, previousManifest = null) {
     const manifest = {
         schemaVersion: SCHEMA_VERSION,
         storageVersion: STORAGE_VERSION,
-        shardedStorage: { version: STORAGE_VERSION, chunkSize: SHARD_CHUNK_SIZE },
+        shardedStorage: { version: STORAGE_VERSION, chunkSize: SHARD_CHUNK_SIZE, encoding: 'adaptive-gzip-json-v1' },
         id: world.id,
         name: world.name,
         createdAt: world.createdAt,
@@ -436,51 +468,43 @@ async function writeShardedWorldLocked(dirs, world, previousManifest = null) {
         shards: {},
     };
     if (partition.compaction) {
-        manifest.storageVersion = manifest.shardedStorage.version = COMPACT_STORAGE_VERSION;
         manifest.compaction = partition.compaction;
     }
-    const candidates = [];
-    try {
-        for (const category of ALL_SHARDS.filter(key => partition.compaction || !ARCHIVE_SHARDS.includes(key))) {
-            const oldEntries = Array.isArray(previousManifest?.shards?.[category]) ? previousManifest.shards[category] : [];
-            const parts = splitShardValue(world, category);
-            manifest.shards[category] = [];
-            for (let part = 0; part < parts.length; part++) {
-                const data = parts[part];
-                const hash = valueHash(data);
-                const oldEntry = oldEntries[part];
-                let file = oldEntry?.hash === hash ? oldEntry.file : null;
-                if (!file) {
-                    file = `${category}-${String(part).padStart(4, '0')}-${hash}.json`;
-                    const target = shardFilePath(dirs, world.id, file);
-                    const alreadyExisted = await exists(target);
-                    await atomicWrite(target, {
-                        storageVersion: STORAGE_VERSION,
-                        worldId: world.id,
-                        category,
-                        part,
-                        hash,
-                        data,
-                    });
-                    if (!alreadyExisted) candidates.push(file);
-                }
-                if (ARCHIVE_SHARDS.includes(category)) {
-                    const verified = await readJson(shardFilePath(dirs, world.id, file));
-                    if (verified?.worldId !== world.id || verified.category !== category || verified.part !== part
-                        || verified.hash !== hash || JSON.stringify(verified.data) !== JSON.stringify(data)) {
-                        throw new Error(`Storage archive verification failed (${category})`);
-                    }
-                }
-                manifest.shards[category].push({ file, hash, count: Array.isArray(data) ? data.length : 1 });
+    for (const category of ALL_SHARDS.filter(key => partition.compaction || !ARCHIVE_SHARDS.includes(key))) {
+        const oldEntries = Array.isArray(previousManifest?.shards?.[category]) ? previousManifest.shards[category] : [];
+        const parts = splitShardValue(world, category);
+        manifest.shards[category] = [];
+        for (let part = 0; part < parts.length; part++) {
+            const data = parts[part];
+            const hash = valueHash(data);
+            const oldEntry = oldEntries[part];
+            let file = previousManifest?.shardedStorage?.version === STORAGE_VERSION && oldEntry?.hash === hash ? oldEntry.file : null;
+            if (!file) {
+                file = `${category}-packed-${String(part).padStart(4, '0')}-${hash}.json`;
+                const target = shardFilePath(dirs, world.id, file);
+                await atomicStorageJson(target, {
+                    storageVersion: STORAGE_VERSION,
+                    worldId: world.id,
+                    category,
+                    part,
+                    hash,
+                    data,
+                }, { pack: true });
             }
+            if (!oldEntry || file !== oldEntry.file || ARCHIVE_SHARDS.includes(category)) {
+                const verified = await readJson(shardFilePath(dirs, world.id, file));
+                if (verified?.worldId !== world.id || verified.category !== category || verified.part !== part
+                    || verified.hash !== hash || JSON.stringify(verified.data) !== JSON.stringify(data)) {
+                    throw new Error(`Storage shard verification failed (${category})`);
+                }
+            }
+            manifest.shards[category].push({ file, hash, count: Array.isArray(data) ? data.length : 1 });
         }
-        await atomicWrite(worldPath(dirs, world.id), manifest);
-        // Superseded files are retained through the configurable sync grace
-        // period, rather than accumulating every version indefinitely.
-    } catch (error) {
-        await Promise.allSettled(candidates.map(file => fs.rm(shardFilePath(dirs, world.id, file), { force: true })));
-        throw error;
     }
+    await atomicStorageJson(worldPath(dirs, world.id), manifest, manifestOptions);
+    // Superseded files are retained through the configurable sync grace
+    // period, including unpublished shards from interrupted conversion.
+    // Never eagerly unlink them: a concurrent sync manifest may use them.
     return manifest;
 }
 
@@ -616,9 +640,8 @@ export async function init(router, {
         try {
             const dirs = await ensureStorage(req);
             const id = assertWorldId(req.params.id);
-            const { world, manifest, legacyStoryCount } = await optionalWorldRecord(dirs, id);
+            const { world } = await openWorldRecord(dirs, id);
             if (!world) throw Object.assign(new Error('World not found'), { status: 404 });
-            if (legacyStoryCount) await writeShardedWorld(dirs, world, manifest);
             res.json({ ok: true, world, counts: counts(world) });
         } catch (error) {
             sendError(res, error);

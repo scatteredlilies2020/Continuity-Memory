@@ -78,3 +78,13 @@ test('legacy Story snapshots are deleted without touching structured layers', ()
     assert.equal(world.storySoFar.manual.text, 'Manual Story');
     assert.deepEqual(world.capsules, [{ id: 'digest' }]);
 });
+
+test('current recursive Chronicle snapshots survive repeated legacy cleanup unchanged', () => {
+    const story = { text: 'Intact recursive frontier', sourceMode: 'chronicle', sourcePolicyVersion: 1,
+        storyFormat: 'recursive-chronicle-frontier', updatedAt: '2026-01-01T00:00:00.000Z' };
+    const world = { storySoFar: { chat: structuredClone(story), obsolete: { ...story, sourcePolicyVersion: 0 } } };
+    assert.equal(discardLegacyStorySnapshots(world), 1);
+    assert.deepEqual(world.storySoFar, { chat: story });
+    assert.equal(discardLegacyStorySnapshots(world), 0);
+    assert.deepEqual(world.storySoFar, { chat: story });
+});

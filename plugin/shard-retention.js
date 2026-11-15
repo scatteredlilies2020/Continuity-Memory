@@ -93,12 +93,16 @@ async function referenceSnapshot(dirs, id, directory) {
         const manifest = JSON.parse(text);
         if (manifest.id !== id) throw new Error(`Shard cleanup found a mismatched manifest: ${filename}`);
         if (!manifest.shardedStorage && !manifest.shards && !manifest.storageVersion) continue; // Legacy inline world.
-        if (![2, 3].includes(manifest.shardedStorage?.version) || !manifest.shards
+        if (![2, 3, 4].includes(manifest.shardedStorage?.version) || !manifest.shards
             || typeof manifest.shards !== 'object' || Array.isArray(manifest.shards)
             || REQUIRED_BOOKS.some(book => !Array.isArray(manifest.shards[book]))) {
             throw new Error(`Shard cleanup cannot understand manifest: ${filename}`);
         }
-        if (manifest.shardedStorage.version === COMPACT_STORAGE_VERSION) {
+        if (manifest.shardedStorage.version === 4 && manifest.shardedStorage.encoding !== 'adaptive-gzip-json-v1') {
+            throw new Error(`Shard cleanup cannot understand storage encoding: ${filename}`);
+        }
+        if (manifest.shardedStorage.version === COMPACT_STORAGE_VERSION || manifest.compaction
+            || manifest.shardedStorage.version === 4 && ARCHIVE_CATEGORIES.some(key => Object.hasOwn(manifest.shards, `archive-${key}`))) {
             const compaction = manifest.compaction;
             for (const book of ARCHIVE_CATEGORIES) {
                 const counts = compaction?.categories?.[book];
