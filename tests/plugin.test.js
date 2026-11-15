@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { init, syncBundledExtension } from '../plugin/index.js';
-import { waitForStorageMaintenance } from '../plugin/shard-retention.js';
+import { pruneWorldShards, waitForStorageMaintenance, withShardWorldLock } from '../plugin/shard-retention.js';
+import { readStorageJson } from '../plugin/storage-json.js';
 import { applyManualMemoryEdit } from '../extension/memory-edit.js';
 
 function mockRouter() {
@@ -50,6 +51,186 @@ async function call(handler, root, { body = {}, params = {}, query = {}, headers
     await handler(req, res);
     return { status, payload };
 }
+
+// Reproduce real pre-update disk formats, not just a changed version number.
+async function legacyDiskWorld(root, id, version) {
+    const worlds = path.join(root, 'continuity-memory', 'worlds');
+    const filename = path.join(worlds, `${id}.json`);
+    const directory = path.join(worlds, `${id}.shards`);
+    const manifest = await readStorageJson(filename);
+    manifest.storageVersion = manifest.shardedStorage.version = version;
+    delete manifest.shardedStorage.encoding;
+    const originals = [];
+    for (const entries of Object.values(manifest.shards)) {
+        for (const entry of entries) {
+            const shard = await readStorageJson(path.join(directory, entry.file));
+            shard.storageVersion = 2;
+            entry.file = entry.file.replace('-packed-', '-');
+            const file = path.join(directory, entry.file);
+            const text = JSON.stringify(shard, null, 2);
+            await fs.writeFile(file, text);
+            originals.push({ file, text });
+        }
+    }
+    const text = JSON.stringify(manifest, null, 2);
+    await fs.writeFile(filename, text);
+    return { worlds, filename, directory, manifest, originals, text };
+}
+
+for (const version of [2, 3]) {
+    test(`opening v${version} storage auto-packs exactly once without losing history or changing revisions`, async t => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cm-open-conversion-'));
+        const dirs = { root: path.join(root, 'continuity-memory'), worlds: path.join(root, 'continuity-memory', 'worlds') };
+        t.after(async () => { await waitForStorageMaintenance(dirs); await fs.rm(root, { recursive: true, force: true }); });
+        const router = mockRouter(); await init(router, { syncExtension: false });
+        let world = (await call(router.routes.get('POST /worlds'), root, { body: { name: 'Automatic conversion' } })).payload.world;
+        if (version === 3) world = (await import('./helpers/compaction-world.js')).summarizedWorld(world);
+        world.facts = Array.from({ length: 260 }, (_, i) => ({ id: `fact-${i}`, value: `Exact original 中文 🌸 record ${i}. `.repeat(30) }));
+        world = (await call(router.routes.get('PUT /worlds/:id'), root, { params: { id: world.id }, body: world })).payload.world;
+        const disk = await legacyDiskWorld(root, world.id, version);
+        // Remove new-format references from the canonical file. Their orphaned
+        // physical files deliberately remain, as after a partially finished update.
+        const get = () => call(router.routes.get('GET /worlds/:id'), root, { params: { id: world.id } });
+        const results = await Promise.all([get(), get(), get()]);
+        for (const result of results) {
+            assert.equal(result.status, 200);
+            for (const key of ['facts', 'capsules', 'chronicle', 'extractions', 'sources', 'corrections']) {
+                assert.deepEqual(result.payload.world[key], world[key]);
+            }
+            for (const key of ['id', 'createdAt', 'updatedAt', 'revision']) assert.equal(result.payload.world[key], world[key]);
+        }
+        const manifest = await readStorageJson(disk.filename);
+        assert.equal(manifest.shardedStorage.version, 4);
+        const firstShard = path.join(disk.directory, manifest.shards.facts[0].file);
+        assert.equal(JSON.parse(await fs.readFile(firstShard, 'utf8')).continuityStorage, 'continuity-gzip-json-v1');
+        assert.ok((await fs.stat(firstShard)).size < Buffer.byteLength(disk.originals.find(item => item.file.includes('facts-')).text) / 4);
+        for (const { file, text } of disk.originals) assert.equal(await fs.readFile(file, 'utf8'), text);
+        const timestamps = await Promise.all([disk.filename, firstShard].map(file => fs.stat(file).then(stat => stat.mtimeMs)));
+        await get();
+        assert.deepEqual(await Promise.all([disk.filename, firstShard].map(file => fs.stat(file).then(stat => stat.mtimeMs))), timestamps);
+        assert.equal((await fs.readdir(disk.directory)).some(file => file.endsWith('.tmp')), false);
+        // Normal edits use the new authority, never a retained old shard.
+        const edited = results[0].payload.world;
+        edited.facts[0].value = 'Newest update after conversion';
+        assert.equal((await call(router.routes.get('PUT /worlds/:id'), root, { params: { id: world.id }, body: edited })).status, 200);
+        assert.equal((await get()).payload.world.facts[0].value, edited.facts[0].value);
+        assert.equal((await call(router.routes.get('PUT /worlds/:id'), root, { params: { id: world.id }, body: world })).status, 409);
+        // New packed shard names participate in the existing safe grace-period
+        // collector; a legacy conflict manifest still protects its exact sources.
+        await fs.writeFile(path.join(disk.worlds, `${world.id}.sync-conflict-old-device.json`), disk.text);
+        await waitForStorageMaintenance(dirs);
+        await pruneWorldShards(dirs, world.id, { nowMs: Date.now() + 2 * 86400000 });
+        await pruneWorldShards(dirs, world.id, { nowMs: Date.now() + 4 * 86400000 });
+        for (const { file } of disk.originals) await fs.stat(file);
+        assert.equal((await get()).payload.world.facts[0].value, edited.facts[0].value);
+    });
+}
+
+test('opening a monolithic world converts without a generation or semantic revision', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cm-inline-conversion-'));
+    const worlds = path.join(root, 'continuity-memory', 'worlds');
+    t.after(async () => { await waitForStorageMaintenance({ root: path.dirname(worlds) }); await fs.rm(root, { recursive: true, force: true }); });
+    const router = mockRouter(); await init(router, { syncExtension: false });
+    const world = (await call(router.routes.get('POST /worlds'), root, { body: { name: 'Inline legacy' } })).payload.world;
+    world.facts = [{ id: 'original', value: 'Do not regenerate me.' }];
+    const filename = path.join(worlds, `${world.id}.json`);
+    await fs.writeFile(filename, JSON.stringify(world, null, 2));
+    const opened = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: world.id } });
+    assert.equal(opened.status, 200);
+    assert.deepEqual(opened.payload.world.facts, world.facts);
+    assert.equal(opened.payload.world.revision, world.revision);
+    assert.equal((await readStorageJson(filename)).shardedStorage.version, 4);
+});
+
+test('open migration re-reads under the writer lock instead of publishing a stale snapshot', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cm-conversion-lock-'));
+    const dirs = { root: path.join(root, 'continuity-memory'), worlds: path.join(root, 'continuity-memory', 'worlds') };
+    t.after(async () => { await waitForStorageMaintenance(dirs); await fs.rm(root, { recursive: true, force: true }); });
+    const router = mockRouter(); await init(router, { syncExtension: false });
+    const world = (await call(router.routes.get('POST /worlds'), root, { body: { name: 'Lock test' } })).payload.world;
+    const disk = await legacyDiskWorld(root, world.id, 2);
+    let release, entered;
+    const ready = new Promise(resolve => { entered = resolve; });
+    const gate = new Promise(resolve => { release = resolve; });
+    const writer = withShardWorldLock(dirs, world.id, async () => {
+        entered();
+        await gate;
+        disk.manifest.revision = 42;
+        disk.manifest.name = 'Newer concurrent save';
+        await fs.writeFile(disk.filename, JSON.stringify(disk.manifest));
+    });
+    await ready;
+    const opening = call(router.routes.get('GET /worlds/:id'), root, { params: { id: world.id } });
+    release(); await writer;
+    const opened = await opening;
+    assert.equal(opened.status, 200);
+    assert.equal(opened.payload.world.revision, 42);
+    assert.equal((await readStorageJson(disk.filename)).name, 'Newer concurrent save');
+});
+
+test('failed or interrupted open conversion preserves the legacy authority and retries safely', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cm-conversion-failure-'));
+    const dirs = { root: path.join(root, 'continuity-memory'), worlds: path.join(root, 'continuity-memory', 'worlds') };
+    t.after(async () => { await waitForStorageMaintenance(dirs); await fs.rm(root, { recursive: true, force: true }); });
+    const router = mockRouter(); await init(router, { syncExtension: false });
+    let world = (await call(router.routes.get('POST /worlds'), root, { body: { name: 'Keep original' } })).payload.world;
+    world.facts = [{ id: 'intact', value: 'Preserve this source' }];
+    world = (await call(router.routes.get('PUT /worlds/:id'), root, { params: { id: world.id }, body: world })).payload.world;
+    const disk = await legacyDiskWorld(root, world.id, 2);
+    await waitForStorageMaintenance(dirs);
+    const get = () => call(router.routes.get('GET /worlds/:id'), root, { params: { id: world.id } });
+    const shard = disk.originals[0];
+    await fs.writeFile(shard.file, '{broken');
+    assert.equal((await get()).status, 503);
+    assert.equal(await fs.readFile(disk.filename, 'utf8'), disk.text);
+    await fs.writeFile(shard.file, shard.text);
+
+    // Simulate a disk/publish failure only inside this disposable fixture.
+    const rename = fs.rename;
+    let blocked = false;
+    fs.rename = async (from, to) => {
+        if (to === disk.filename) { blocked = true; throw Object.assign(new Error('Simulated manifest publish failure'), { code: 'EACCES' }); }
+        return rename(from, to);
+    };
+    try { assert.equal((await get()).status, 500); } finally { fs.rename = rename; }
+    assert.equal(blocked, true);
+    assert.equal(await fs.readFile(disk.filename, 'utf8'), disk.text);
+    for (const { file, text } of disk.originals) assert.equal(await fs.readFile(file, 'utf8'), text);
+    for (const directory of [disk.directory, disk.worlds]) assert.equal((await fs.readdir(directory)).some(file => file.endsWith('.tmp')), false);
+    assert.equal((await get()).status, 200);
+    assert.equal((await readStorageJson(disk.filename)).shardedStorage.version, 4);
+});
+
+test('external sync during conversion cannot replace a newer manifest with stale memory', async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cm-conversion-sync-'));
+    const dirs = { root: path.join(root, 'continuity-memory'), worlds: path.join(root, 'continuity-memory', 'worlds') };
+    t.after(async () => { await waitForStorageMaintenance(dirs); await fs.rm(root, { recursive: true, force: true }); });
+    const router = mockRouter(); await init(router, { syncExtension: false });
+    const world = (await call(router.routes.get('POST /worlds'), root, { body: { name: 'Sync test' } })).payload.world;
+    const disk = await legacyDiskWorld(root, world.id, 2);
+    await waitForStorageMaintenance(dirs);
+    const newest = JSON.stringify({ ...disk.manifest, revision: 99, name: 'Synced newer world' });
+    const writeFile = fs.writeFile;
+    let synced = false;
+    fs.writeFile = async (file, ...args) => {
+        const result = await writeFile(file, ...args);
+        if (String(file).startsWith(`${disk.filename}.`) && String(file).endsWith('.tmp')) {
+            synced = true;
+            await writeFile(disk.filename, newest);
+        }
+        return result;
+    };
+    const get = () => call(router.routes.get('GET /worlds/:id'), root, { params: { id: world.id } });
+    let failed;
+    try { failed = await get(); } finally { fs.writeFile = writeFile; }
+    assert.equal(synced, true);
+    assert.equal(failed.status, 409);
+    assert.equal(await fs.readFile(disk.filename, 'utf8'), newest);
+    const retry = await get();
+    assert.equal(retry.status, 200);
+    assert.equal(retry.payload.world.revision, 99);
+    assert.equal(retry.payload.world.name, 'Synced newer world');
+});
 
 test('manual entry edits survive server storage and stale saves cannot overwrite them', async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-manual-edit-'));
@@ -152,7 +333,7 @@ test('server plugin creates, saves, and explicitly deletes worlds', async t => {
     assert.equal(created.status, 201);
     assert.equal(created.payload.world.revision, 0);
     const storedManifest = JSON.parse(await fs.readFile(path.join(root, 'continuity-memory', 'worlds', `${created.payload.world.id}.json`), 'utf8'));
-    assert.equal(storedManifest.shardedStorage.version, 2);
+    assert.equal(storedManifest.shardedStorage.version, 4);
 
     const world = created.payload.world;
     world.facts.push({ id: 'fact-1', subject: 'Yui', predicate: 'likes', value: 'cake' });
@@ -335,7 +516,7 @@ test('server plugin migrates a monolithic world on its next save', async t => {
     const saved = await call(router.routes.get('PUT /worlds/:id'), root, { params: { id: 'legacy-world' }, body: legacy });
     const manifest = JSON.parse(await fs.readFile(path.join(worlds, 'legacy-world.json'), 'utf8'));
     assert.equal(saved.payload.world.revision, 4);
-    assert.equal(manifest.shardedStorage.version, 2);
+    assert.equal(manifest.shardedStorage.version, 4);
     assert.equal((await fs.readdir(path.join(worlds, 'legacy-world.shards'))).some(file => file.startsWith('facts-')), true);
 });
 
@@ -808,7 +989,7 @@ test('server storage archives covered detail and restores it for reads, edits an
     assert.equal(saved.status, 200);
     const filename = path.join(root, 'continuity-memory', 'worlds', `${world.id}.json`);
     const manifest = JSON.parse(await fs.readFile(filename, 'utf8'));
-    assert.equal(manifest.shardedStorage.version, 3);
+    assert.equal(manifest.shardedStorage.version, 4);
     assert.equal(manifest.shards.chronicle[0].count, 1);
     assert.equal(manifest.shards.capsules.length, 0);
     const loaded = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: world.id } });

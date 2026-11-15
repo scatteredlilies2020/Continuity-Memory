@@ -1,3 +1,5 @@
+import { CHRONICLE_VERSION } from './chronicle.js';
+
 export const STORY_SOURCE_DIGEST = 'digest';
 export const STORY_SOURCE_RAW = 'raw';
 export const STORY_SOURCE_POLICY_VERSION = 3;
@@ -46,6 +48,11 @@ export function discardLegacyStorySnapshots(world) {
     world.storySoFar ||= {};
     let removed = 0;
     for (const [chatKey, story] of Object.entries(world.storySoFar)) {
+        // Recursive Chronicle snapshots supersede the old independently-built
+        // Story. They have their own policy version and must not be discarded
+        // (then regenerated and persisted) on every storage read.
+        if (story?.storyFormat === 'recursive-chronicle-frontier' && story.sourceMode === 'chronicle'
+            && story.sourcePolicyVersion === CHRONICLE_VERSION) continue;
         if (!isCurrentStorySnapshot(story)) {
             delete world.storySoFar[chatKey];
             removed++;

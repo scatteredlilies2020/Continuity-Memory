@@ -3,8 +3,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { getProxyBatchVector, loadProxyEmbeddingHost } from './proxy-embeddings.js';
+import { atomicStorageJson, decodeStorageJson, readStorageJson } from './storage-json.js';
 
-const STORE_VERSION = 1;
+const STORE_VERSION = 2;
 const COLLECTION_RE = /^[a-zA-Z0-9_-]{1,160}$/;
 const SUPPORTED_SOURCES = new Set(['vllm', 'openrouter']);
 const locks = new Map();
@@ -75,7 +76,7 @@ function normalizeItem(item, expectedLength = 0) {
 }
 
 function normalizeStore(value, location) {
-    if (!value || value.version !== STORE_VERSION || !Array.isArray(value.items)) {
+    if (!value || ![1, STORE_VERSION].includes(value.version) || !Array.isArray(value.items)) {
         throw new SyntaxError(`Invalid Continuity Memory vector store: ${location.file}`);
     }
     const expectedProvider = JSON.stringify(location.provider);
@@ -93,15 +94,9 @@ function normalizeStore(value, location) {
     return { version: STORE_VERSION, provider: location.provider, items };
 }
 
-async function atomicWrite(file, value) {
+async function atomicWrite(file, value, options = {}) {
     await fs.mkdir(path.dirname(file), { recursive: true });
-    const temporary = `${file}.${process.pid}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.tmp`;
-    try {
-        await fs.writeFile(temporary, `${JSON.stringify(value)}\n`, { encoding: 'utf8', flag: 'wx' });
-        await fs.rename(temporary, file);
-    } finally {
-        await fs.rm(temporary, { force: true });
-    }
+    await atomicStorageJson(file, value, { ...options, pack: true });
 }
 
 function legacySanitize(value) {
@@ -163,19 +158,33 @@ async function retireCoveredLegacyStore(req, location, detached) {
 }
 
 async function readStore(req, location, { create = true } = {}) {
+    let originalText;
     try {
-        const detached = normalizeStore(JSON.parse(await fs.readFile(location.file, 'utf8')), location);
-        await retireCoveredLegacyStore(req, location, detached);
-        return detached;
+        originalText = await fs.readFile(location.file, 'utf8');
     } catch (error) {
         if (error.code !== 'ENOENT') throw error;
+    }
+    if (originalText !== undefined) {
+        const stored = await decodeStorageJson(originalText);
+        const detached = normalizeStore(stored, location);
+        // All callers hold the collection lock. Replace this exact authoritative
+        // path atomically: no legacy fallback file can shadow later updates.
+        if (stored.version !== STORE_VERSION) await atomicWrite(location.file, detached, {
+            beforeCommit: async () => {
+                if (await fs.readFile(location.file, 'utf8') !== originalText) {
+                    throw httpError('Vector storage changed during conversion. Retry to read the newer index.', 409);
+                }
+            },
+        });
+        await retireCoveredLegacyStore(req, location, detached);
+        return detached;
     }
     // A collection reset must not resurrect an old provider's native index.
     const legacy = await collectionWasPurged(location.directory) ? null : await legacyStore(req, location);
     const store = legacy?.store || emptyStore(location);
     if (create) {
         await atomicWrite(location.file, store);
-        const verified = normalizeStore(JSON.parse(await fs.readFile(location.file, 'utf8')), location);
+        const verified = normalizeStore(await readStorageJson(location.file), location);
         if (legacy && JSON.stringify(verified) === JSON.stringify(store)) {
             try {
                 await retireLegacyFile(legacy.file, req.user.directories.vectors);
