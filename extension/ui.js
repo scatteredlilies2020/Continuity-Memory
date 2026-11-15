@@ -39,7 +39,7 @@ import { discoveredModelIds, embeddingDiscoveryRequest } from './model-discovery
 import { bindModelSelector, populateModelSelector, syncModelSelector } from './model-selector.js?model-selection=1';
 import { createCredentialMemory, directCredentialContext, embeddingCredentialContext } from './credential-memory.js?connection-memory=1';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
-import { forkWorldToBranch } from './branch-cache.js?v=0.15.0-testing.30&historical-recall=1';
+import { forkWorldToBranch, recoverTruncatedChatPrefix } from './branch-cache.js?v=0.15.0-testing.30&historical-recall=1&tail-recovery=1';
 import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.30';
 import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.15.0-testing.30';
 import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.15.0-testing.30';
@@ -209,6 +209,11 @@ function toast(type, message) {
     if (!getSettings().showNotifications) return;
     if (window.toastr?.[type]) window.toastr[type](message, 'Continuity Memory');
     else console[type === 'error' ? 'error' : 'log'](`[Continuity] ${message}`);
+}
+
+function memoryUnavailableMessage() {
+    if (!getChatKey()) return 'Open a chat with Continuity memory first.';
+    return runtime.lastError || 'Continuity memory is not attached to this chat. Check the memory status above.';
 }
 
 function extractionReviewTitle(review) {
@@ -805,7 +810,7 @@ async function refreshCurrentChatWorlds(chatKey, epoch = runtime.generation) {
                     worlds.unshift({ id: restored.id, name: restored.name, updatedAt: restored.updatedAt });
                 }
             } else {
-                const reason = 'The imported portable memory could not be safely aligned with this chat.';
+                const reason = runtime.lastError || 'The imported portable memory could not be safely aligned with this chat.';
                 updateRuntime({ world: null, status: 'waiting', lastError: reason, injectionStatus: reason });
                 renderRuntime();
                 return null;
@@ -1003,6 +1008,48 @@ async function recoverStoredWorldForCurrentChat(missingBoundWorldId) {
     return { world: saved, ambiguous: false };
 }
 
+async function recoverTruncatedPortableMemory(world, isCurrent) {
+    const chatKey = getChatKey();
+    const epoch = runtime.generation;
+    const messages = collectFingerprintMessages(getContext().chat || []);
+    const signature = JSON.stringify(messages);
+    const current = () => isCurrent() && JSON.stringify(collectFingerprintMessages(getContext().chat || [])) === signature;
+    const recovery = recoverTruncatedChatPrefix(world, messages, chatKey);
+    if (!recovery.ok || !current()) return null;
+
+    // Never overwrite the original world or the rejected portable snapshot
+    // without first persisting and reading back an independent full backup.
+    const backup = (await api.importWorld({ ...structuredClone(world), id: '', name: `${world.name || 'Memory'} · Before tail recovery` })).world;
+    if (!current()) return null;
+    const verifiedBackup = (await api.getWorld(backup.id)).world;
+    if (!current()) return null;
+    for (const key of ['schemaVersion', 'createdAt', 'sources', 'scene', 'entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'chronicle', 'extractions', 'threads', 'backgrounds', 'corrections', 'continuation', 'storySoFar']) {
+        if (JSON.stringify(verifiedBackup?.[key] ?? null) !== JSON.stringify(world[key] ?? null)) {
+            throw new Error('The pre-recovery memory backup could not be verified; the original memory was not replaced.');
+        }
+    }
+    const recovered = (await api.importWorld({ ...recovery.world, id: '' })).world;
+    if (!current()) return null;
+    const alignment = alignWorldToChat(recovered, collectFingerprintMessages(getContext().chat || []), chatKey);
+    if (!alignment.ok || !alignment.matched) throw new Error('The recovered memory prefix could not be verified.');
+    bindCurrentChat(recovered.id);
+    const { world: ignored, ...diagnostic } = recovery;
+    updateRuntime({ world: recovered, importAlignment: diagnostic, lastError: '', status: 'idle' });
+    let metadataWarning = '';
+    try {
+        if (getSettings().embedMemoryInChat) {
+            if (!await embedWorldInChat(recovered, { force: true })) metadataWarning = ' The portable chat backup was not saved; refresh memory to retry.';
+        } else await clearPortableSnapshot();
+    } catch (error) {
+        metadataWarning = ` The portable chat backup could not be saved: ${error.message}. Refresh memory to retry.`;
+    }
+    // The separate world and binding are already committed. A failed metadata
+    // save must not turn successful recovery back into a missing-world error.
+    if (!getSettings().enabled || getChatKey() !== chatKey || runtime.generation !== epoch || getBoundWorldId() !== recovered.id) return null;
+    toast('warning', recovery.message + metadataWarning);
+    return recovered;
+}
+
 export async function ensureCurrentChatMemory(createIfMissing = false, recoverStaleBinding = false) {
     if (!getSettings().enabled) return null;
     const boundWorldId = getBoundWorldId();
@@ -1064,7 +1111,17 @@ export async function ensureCurrentChatMemory(createIfMissing = false, recoverSt
                 }
                 if (!current()) return null;
                 if (!verifiedStored) {
-                    toast('error', `${error.message} The embedded memory was not attached. No equally recent verified stored copy was available; restore a complete memory backup or use Start continuation arc for a different conversation.`);
+                    let recoveryFailure = '';
+                    try {
+                        const recovered = await recoverTruncatedPortableMemory(portable.world, current);
+                        if (recovered) return recovered;
+                    } catch (recoveryError) {
+                        recoveryFailure = ` Safe tail recovery stopped: ${recoveryError.message}`;
+                    }
+                    if (!current()) return null;
+                    const reason = `${error.message} The embedded memory was not attached. No equally recent verified stored copy was available; restore a complete memory backup or use Start continuation arc for a different conversation.${recoveryFailure}`;
+                    updateRuntime({ lastError: reason });
+                    toast('error', reason);
                     return null;
                 }
             }
@@ -2554,19 +2611,19 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
     });
     $('#continuity_test_extractor').on('click', () => testExtractor().then(() => toast('success', 'The active API produced valid structured memory.')).catch(error => toast('error', error.message)));
     $('#continuity_embedding_build').on('click', () => {
-        if (!runtime.world) return toast('error', 'Open a chat with Continuity memory first.');
+        if (!runtime.world) return toast('error', memoryUnavailableMessage());
         resumeEmbeddingIndexing(runtime.world)
             .then(result => toast('success', `Embedding index ready with ${result.total || 0} records.`))
             .catch(error => toast('error', error.message));
     });
     $('#continuity_embedding_rebuild').on('click', () => {
-        if (!runtime.world) return toast('error', 'Open a chat with Continuity memory first.');
+        if (!runtime.world) return toast('error', memoryUnavailableMessage());
         rebuildEmbeddingIndex(runtime.world)
             .then(result => toast('success', `Embedding index rebuilt with ${result.total || 0} records.`))
             .catch(error => toast('error', error.message));
     });
     $('#continuity_embedding_pause').on('click', () => {
-        if (!runtime.world) return toast('error', 'Open a chat with Continuity memory first.');
+        if (!runtime.world) return toast('error', memoryUnavailableMessage());
         if (['paused', 'stopped', 'error'].includes(runtime.embeddingIndex?.status)) {
             resumeEmbeddingIndexing(runtime.world).catch(error => toast('error', error.message));
         } else {
@@ -2580,7 +2637,7 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
         toast('info', 'Vector indexing stopped; completed vectors were preserved.');
     });
     $('#continuity_embedding_delete').on('click', () => {
-        if (!runtime.world) return toast('error', 'Open a chat with Continuity memory first.');
+        if (!runtime.world) return toast('error', memoryUnavailableMessage());
         if (!window.confirm('Delete this memory’s derived embedding index? Structured Continuity memory will not be changed.')) return;
         purgeEmbeddingIndex(runtime.world.id)
             .then(() => toast('success', 'Derived embedding index deleted.'))
