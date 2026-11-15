@@ -12,7 +12,8 @@ import { cancelDetachedJob, createDetachedJob, getDetachedJob, listDetachedJobs 
 import { registerVectorRoutes } from './vector-store.js';
 import { CONTINUITY_VERSION } from '../extension/build-info.js';
 import { maintainStorageRetention, readShardPolicy, withShardWorldLock, writeShardPolicy } from './shard-retention.js';
-import { atomicStorageJson, readStorageJson } from './storage-json.js';
+import { assertPlainStoragePath, atomicStorageJson, readStorageJson } from './storage-json.js';
+import { startStorageMigration } from './storage-migration.js';
 
 const PLUGIN = 'continuity-memory';
 const VERSION = CONTINUITY_VERSION;
@@ -423,25 +424,43 @@ async function optionalWorld(dirs, id) {
 // Re-read under the writer/collector lock, rather than migrating an earlier
 // snapshot over a save that arrived while the chat was opening. No revision or
 // timestamp changes: this is a physical conversion, not a memory edit.
-async function openWorldRecord(dirs, id) {
+async function openWorldRecord(dirs, id, { migrationOnly = false } = {}) {
     const record = await withShardWorldLock(dirs, id, async () => {
         let originalText;
         try { originalText = await fs.readFile(worldPath(dirs, id), 'utf8'); }
         catch (error) { if (error.code !== 'ENOENT') throw error; }
+        if (migrationOnly) {
+            if (originalText === undefined) return { converted: false };
+            await assertPlainStoragePath(worldPath(dirs, id));
+            try { await assertPlainStoragePath(shardDirectory(dirs, id), { directory: true }); }
+            catch (error) { if (error.code !== 'ENOENT') throw error; }
+            const manifest = JSON.parse(originalText);
+            // No need to materialize already-current worlds during a sweep.
+            // Their retained/active physical shards are packed separately.
+            if (manifest.shardedStorage?.version === STORAGE_VERSION && manifest.shardedStorage.encoding === 'adaptive-gzip-json-v1') {
+                return { converted: false };
+            }
+        }
         const current = await optionalWorldRecord(dirs, id);
+        if (current.world && current.world.id !== id) throw new Error('Stored memory ID does not match its filename');
         if (current.world && (current.manifest?.shardedStorage?.version !== STORAGE_VERSION || current.legacyStoryCount)) {
             if (current.recoveredFrom) originalText = await fs.readFile(worldPath(dirs, id), 'utf8');
             current.manifest = await writeShardedWorldLocked(dirs, current.world, current.manifest, {
                 beforeCommit: async () => {
+                    if (migrationOnly) {
+                        await assertPlainStoragePath(worldPath(dirs, id));
+                        await assertPlainStoragePath(shardDirectory(dirs, id), { directory: true });
+                    }
                     if (await fs.readFile(worldPath(dirs, id), 'utf8') !== originalText) {
                         throw Object.assign(new Error('Memory changed during storage conversion. Reopen the chat to retry; newer memory was kept.'), { status: 409 });
                     }
                 },
             });
+            current.converted = true;
         }
         return current;
     });
-    void maintainStorageRetention(dirs);
+    if (!migrationOnly) void maintainStorageRetention(dirs);
     return record;
 }
 
@@ -557,8 +576,11 @@ export async function init(router, {
         try {
             const dirs = await ensureStorage(req);
             const files = (await fs.readdir(dirs.worlds)).filter(canonicalWorldFilename);
+            const storageMigration = startStorageMigration(dirs, {
+                migrateWorld: id => openWorldRecord(dirs, id, { migrationOnly: true }),
+            });
             void maintainStorageRetention(dirs);
-            res.json({ ok: true, plugin: PLUGIN, version: VERSION, schemaVersion: SCHEMA_VERSION, storageVersion: STORAGE_VERSION, detachedJobs: true, detachedChronicle: true, worlds: files.length, storage: dirs.root });
+            res.json({ ok: true, plugin: PLUGIN, version: VERSION, schemaVersion: SCHEMA_VERSION, storageVersion: STORAGE_VERSION, detachedJobs: true, detachedChronicle: true, worlds: files.length, storage: dirs.root, storageMigration });
         } catch (error) {
             sendError(res, error);
         }
@@ -670,12 +692,14 @@ export async function init(router, {
         try {
             const dirs = await ensureStorage(req);
             const id = assertWorldId(req.params.id);
-            const world = await optionalWorld(dirs, id);
-            if (!world) throw Object.assign(new Error('World not found'), { status: 404 });
-            await fs.unlink(worldPath(dirs, id));
-            await fs.rm(shardDirectory(dirs, id), { recursive: true, force: true });
-            await Promise.allSettled((await conflictManifestFiles(dirs, id))
-                .map(file => fs.rm(path.join(dirs.worlds, file), { force: true })));
+            await withShardWorldLock(dirs, id, async () => {
+                const world = await optionalWorld(dirs, id);
+                if (!world) throw Object.assign(new Error('World not found'), { status: 404 });
+                await fs.unlink(worldPath(dirs, id));
+                await fs.rm(shardDirectory(dirs, id), { recursive: true, force: true });
+                await Promise.allSettled((await conflictManifestFiles(dirs, id))
+                    .map(file => fs.rm(path.join(dirs.worlds, file), { force: true })));
+            });
             res.json({ ok: true, deleted: id });
         } catch (error) {
             sendError(res, error);
