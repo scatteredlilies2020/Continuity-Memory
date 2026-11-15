@@ -1,4 +1,4 @@
-import { fingerprintMessage } from './message-digest.js?v=0.15.0-testing.30';
+import { alignWorldToChat, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.30';
 import { digestStabilityRepairFrom } from './digest-policy.js';
 import { mergeExtraction, removeChatContributions, restoreRetainedReplayRecords } from './memory-model.js?historical-recall=1&stored-replay=1';
 import { refreshChronicleStory, syncChronicleBase } from './chronicle.js';
@@ -97,6 +97,40 @@ export function forkWorldToBranch(world, currentMessages, targetChatKey, sourceC
         return { ok: false, code: 'invalid-branch-source', message: 'The parent memory source could not be identified unambiguously.' };
     }
 
+    return reuseWorldPrefix(world, currentMessages, targetChatKey, sourceKey);
+}
+
+/** Recover only a strictly truncated, same-identity chat; never changed history. */
+export function recoverTruncatedChatPrefix(world, currentMessages, targetChatKey) {
+    const rejected = { ok: false, code: 'not-verified-tail', message: 'This memory is not a verified same-chat tail rollback.' };
+    const keys = Object.keys(world?.sources || {});
+    if (keys.length !== 1 || !targetChatKey) return rejected;
+    const sourceKey = keys[0];
+    const identity = key => String(key).includes(':chat:') ? String(key).split(':chat:').slice(1).join(':chat:') : '';
+    if (sourceKey !== targetChatKey && (!identity(targetChatKey) || identity(sourceKey) !== identity(targetChatKey))) return rejected;
+    const messages = Array.isArray(currentMessages) ? currentMessages : [];
+    if (!messages.length) return rejected;
+    const alignment = alignWorldToChat(world, messages, targetChatKey);
+    if (alignment.ok || alignment.code !== 'import-ahead' || alignment.changed || !alignment.matched) return rejected;
+
+    const current = new Map(messages.map(message => [Number(message.index), fingerprintMessage(message)]));
+    const stored = sourceFingerprints(world, sourceKey);
+    const latest = Math.max(...current.keys());
+    // Missing interior positions and newly visible/inserted messages are not
+    // tail truncation, even when every remaining stored fingerprint matches.
+    if ([...current].some(([index, fingerprint]) => stored.get(index) !== fingerprint)
+        || [...stored.keys()].some(index => !current.has(index) && index <= latest)) return rejected;
+
+    const result = reuseWorldPrefix(world, messages, targetChatKey, sourceKey);
+    if (!result.ok || !result.retained || !alignWorldToChat(result.world, messages, targetChatKey).ok) return rejected;
+    return {
+        ...result,
+        code: 'tail-prefix-recovered',
+        message: `Recovered ${result.retained} verified Digest record(s) after this chat's tail was shortened. The affected tail is pending; the complete original memory was preserved as a separate backup.`,
+    };
+}
+
+function reuseWorldPrefix(world, currentMessages, targetChatKey, sourceKey) {
     const messages = Array.isArray(currentMessages) ? currentMessages : [];
     const stored = sourceFingerprints(world, sourceKey);
     if (!stored.size) return { ok: false, code: 'unverifiable-branch', message: 'The parent memory has no message fingerprints to verify.' };

@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from '../extension/chat-ownership.js';
 import { alignWorldToChat, collectFingerprintMessages, fingerprintMessage } from '../extension/message-digest.js';
-import { freshResetResiduals } from '../extension/memory-model.js';
+import { freshResetResiduals, mergeExtraction } from '../extension/memory-model.js';
+import { recoverTruncatedChatPrefix } from '../extension/branch-cache.js';
 
 const ui = readFileSync(new URL('../extension/ui.js', import.meta.url), 'utf8');
 const engine = readFileSync(new URL('../extension/engine.js', import.meta.url), 'utf8');
@@ -31,7 +32,7 @@ function harness() {
         activeChat: 'chat', settings, getSettings: () => settings,
         getContext: () => ({ name2: 'Person', chatId: 'Chat', chat }),
         getChatKey: () => scope.activeChat, getBoundWorldId: () => settings.chatWorlds[scope.activeChat] || '',
-        rankSuperiorSyncedWorlds, resolveMissingWorldBinding, alignWorldToChat, collectFingerprintMessages, freshResetResiduals,
+        rankSuperiorSyncedWorlds, resolveMissingWorldBinding, alignWorldToChat, collectFingerprintMessages, freshResetResiduals, recoverTruncatedChatPrefix,
         bindCurrentChat: id => { settings.chatWorlds[scope.activeChat] = id; },
         updateRuntime: patch => Object.assign(scope.runtime, patch), renderRuntime() {},
         embedWorldInChat: async world => { calls.embed.push(structuredClone(world)); }, clearPortableSnapshot: async () => {},
@@ -58,7 +59,7 @@ function harness() {
     });
     install(policy, 'blockSyncedRecovery', scope);
     for (const name of ['refreshWorlds', 'refreshCurrentChatWorlds', 'recoverSuperiorSyncedWorld', 'reconcileBoundWorldSource',
-        'recoverStoredWorldForCurrentChat', 'ensureCurrentChatMemory']) install(ui, name, scope);
+        'recoverStoredWorldForCurrentChat', 'recoverTruncatedPortableMemory', 'ensureCurrentChatMemory']) install(ui, name, scope);
     scope.loadBoundWorldOnce = async id => (await scope.api.getWorld(id)).world;
     return { scope, settings, calls, saved, original, candidate, makeWorld };
 }
@@ -261,10 +262,144 @@ function invalidPortableHarness() {
     h.scope.embedWorldInChat = async (world, options) => {
         h.calls.embed.push(structuredClone(world));
         h.calls.embedOptions.push(options);
+        return true;
     };
     install(ui, 'verifyMemoryAlignment', h.scope);
     return { ...h, portable };
 }
+
+function truncatedPortableHarness() {
+    const h = invalidPortableHarness();
+    const chat = Array.from({ length: 32 }, (_, index) => ({ name: 'Narrator', mes: `Message ${index}`, is_user: false }));
+    const messages = collectFingerprintMessages(chat);
+    h.scope.getContext().chat.splice(0, 3, ...chat.slice(0, 31));
+    const world = { ...structuredClone(h.original), sources: {}, extractions: [], facts: [] };
+    for (let from = 0; from < 32; from += 8) {
+        mergeExtraction(world, { entities: [], facts: [], sceneCapsule: {
+            title: `Part ${from}`, opening: `Verified narrative for batch ${from}.`, beats: [], closing: '',
+        } }, { chatKey: 'chat', from, to: from + 7, allowStateUpdates: true,
+            messageFingerprints: messages.slice(from, from + 8).map(message => ({ index: message.index, fingerprint: fingerprintMessage(message) })),
+        });
+    }
+    h.portable.world = world;
+    h.scope.worlds = [];
+    h.scope.api.importWorld = async world => {
+        const id = `import-${++h.calls.import}`;
+        const next = { ...structuredClone(world), id, revision: 0 };
+        h.saved.set(id, next);
+        return { world: structuredClone(next) };
+    };
+    return h;
+}
+
+test('truncated portable memory backs up the complete original before attaching a verified prefix, once', async () => {
+    const h = truncatedPortableHarness();
+    const before = structuredClone(h.portable.world);
+    const result = await h.scope.ensureCurrentChatMemory(false, true);
+    assert.equal(result.id, 'import-2');
+    assert.equal(result.sources.chat.processedMessages.length, 24);
+    assert.equal(result.extractions.length, 3);
+    const backup = h.saved.get('import-1');
+    assert.match(backup.name, /Before tail recovery/);
+    assert.deepEqual(backup.sources, before.sources);
+    assert.deepEqual(backup.extractions, before.extractions);
+    assert.deepEqual(h.calls.read, ['import-1'], 'read back the full backup before publishing the prefix');
+    assert.deepEqual(h.portable.world, before, 'do not mutate the original portable object');
+    assert.equal(h.calls.embed.length, 1);
+    assert.equal(h.calls.embedOptions[0].force, true);
+    assert.equal(h.settings.chatWorlds.chat, result.id);
+    assert.equal(h.calls.save.length, 0, 'never overwrite canonical worlds');
+    assert.equal(h.calls.toast[0][0], 'warning');
+    assert.equal((await h.scope.ensureCurrentChatMemory()).id, result.id);
+    h.scope.runtime.world = null;
+    assert.equal((await h.scope.ensureCurrentChatMemory()).id, result.id, 'the saved binding also survives a fresh load');
+    assert.equal(h.calls.import, 2, 'subsequent use does not repeat recovery');
+});
+
+test('simultaneous shortened-chat recovery requests share one backup and prefix import', async () => {
+    const h = truncatedPortableHarness();
+    const results = await Promise.all([h.scope.ensureCurrentChatMemory(false, true), h.scope.ensureCurrentChatMemory(false, true)]);
+    assert.equal(results[0].id, results[1].id);
+    assert.equal(h.calls.import, 2);
+    assert.equal(h.calls.embed.length, 1);
+});
+
+for (const outcome of ['throw', 'skipped']) test(`a ${outcome} metadata save does not undo a committed recovery`, async () => {
+    const h = truncatedPortableHarness();
+    h.scope.embedWorldInChat = async () => {
+        if (outcome === 'throw') throw new Error('Metadata save unavailable');
+        return false;
+    };
+    const result = await h.scope.ensureCurrentChatMemory(false, true);
+    assert.equal(result.id, 'import-2');
+    assert.equal(h.scope.runtime.world.id, result.id);
+    assert.equal(h.settings.chatWorlds.chat, result.id);
+    assert.match(h.calls.toast[0][1], /portable chat backup.*not.*saved/);
+});
+
+for (const failure of ['backup-write', 'backup-read', 'backup-corrupt', 'prefix-write']) {
+    test(`tail recovery preserves the rejected snapshot and binding on ${failure}`, async () => {
+        const h = truncatedPortableHarness();
+        const before = structuredClone(h.portable.world);
+        const write = h.scope.api.importWorld;
+        h.scope.api.importWorld = async world => {
+            if ((failure === 'backup-write' && !h.calls.import) || (failure === 'prefix-write' && h.calls.import === 1)) throw new Error('Disk unavailable');
+            return await write(world);
+        };
+        const read = h.scope.api.getWorld;
+        h.scope.api.getWorld = async id => {
+            if (failure === 'backup-read') throw new Error('Backup unavailable');
+            const result = await read(id);
+            if (failure === 'backup-corrupt') result.world.extractions.pop();
+            return result;
+        };
+        assert.equal(await h.scope.ensureCurrentChatMemory(false, true), null);
+        assert.equal(h.settings.chatWorlds.chat, 'missing-binding');
+        assert.equal(h.scope.runtime.world, null);
+        assert.deepEqual(h.calls.embed, []);
+        assert.deepEqual(h.portable.world, before);
+        assert.match(h.scope.runtime.lastError, /Safe tail recovery stopped/);
+    });
+}
+
+for (const stage of ['backup-write', 'backup-read', 'prefix-write']) for (const change of ['disable', 'chat', 'generation', 'binding', 'messages']) {
+    test(`tail recovery stops on ${change} during ${stage}`, async () => {
+        const h = truncatedPortableHarness();
+        const mutate = () => {
+            if (change === 'disable') h.settings.enabled = false;
+            if (change === 'chat') h.scope.activeChat = 'other';
+            if (change === 'generation') h.scope.runtime.generation++;
+            if (change === 'binding') h.settings.chatWorlds.chat = 'other-world';
+            if (change === 'messages') h.scope.getContext().chat[0].mes = 'Changed while saving';
+        };
+        const write = h.scope.api.importWorld;
+        h.scope.api.importWorld = async world => {
+            const result = await write(world);
+            if ((stage === 'backup-write' && h.calls.import === 1) || (stage === 'prefix-write' && h.calls.import === 2)) mutate();
+            return result;
+        };
+        const read = h.scope.api.getWorld;
+        h.scope.api.getWorld = async id => {
+            const result = await read(id);
+            if (stage === 'backup-read') mutate();
+            return result;
+        };
+        assert.equal(await h.scope.ensureCurrentChatMemory(false, true), null);
+        assert.equal(h.scope.runtime.world, null);
+        assert.deepEqual(h.calls.embed, []);
+        assert.equal(h.settings.chatWorlds.chat, change === 'binding' ? 'other-world' : 'missing-binding');
+        assert.equal(h.calls.import, stage === 'prefix-write' ? 2 : 1);
+    });
+}
+
+test('memory actions distinguish an open chat with an attachment failure from no open chat', () => {
+    const h = harness();
+    install(ui, 'memoryUnavailableMessage', h.scope);
+    h.scope.runtime.lastError = 'Memory recovery was blocked.';
+    assert.equal(h.scope.memoryUnavailableMessage(), h.scope.runtime.lastError);
+    h.scope.activeChat = '';
+    assert.match(h.scope.memoryUnavailableMessage(), /Open a chat/);
+});
 
 test('a new chat never reads or attaches another chat memory with identical messages', async () => {
     const h = harness();
