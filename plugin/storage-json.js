@@ -96,5 +96,15 @@ export async function repackStorageJson(file, transform = value => value) {
             throw Object.assign(new Error('Storage changed during conversion; newer data was kept. Retry conversion.'), { status: 409 });
         }
     } });
-    return { converted: true, bytesSaved: Math.max(0, bytesSaved), fileStamp: committed.fileStamp };
+    let publishedStamp = committed.fileStamp;
+    const afterRename = storageFileStamp(await fs.lstat(file));
+    // Some filesystems update ctime on rename. Verify our published bytes before
+    // caching that new stamp; never bless an unchecked external replacement.
+    if (publishedStamp !== afterRename) {
+        if (await fs.readFile(file, 'utf8') !== text || storageFileStamp(await fs.lstat(file)) !== afterRename) {
+            throw Object.assign(new Error('Storage changed after conversion; newer data was kept. Retry conversion.'), { status: 409 });
+        }
+        publishedStamp = afterRename;
+    }
+    return { converted: true, bytesSaved: Math.max(0, bytesSaved), fileStamp: publishedStamp };
 }

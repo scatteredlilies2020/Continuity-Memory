@@ -262,20 +262,20 @@ async function readJson(file) {
     return readStorageJson(file);
 }
 
-async function atomicWrite(file, value) {
-    return atomicStorageJson(file, value);
-}
-
 async function optionalStoredWorld(dirs, id) {
     try {
-        return await readJson(worldPath(dirs, id));
+        const stored = await readJson(worldPath(dirs, id));
+        if (!stored || typeof stored !== 'object' || Array.isArray(stored)) {
+            throw new Error('Stored memory must be a world object, not an empty or primitive value');
+        }
+        return stored;
     } catch (error) {
         if (error.code === 'ENOENT') return null;
         throw error;
     }
 }
 
-async function materializeStoredWorld(dirs, id, stored) {
+async function materializeStoredWorld(dirs, id, stored, { plainPaths = false } = {}) {
     if (stored?.shardedStorage && !READ_STORAGE_VERSIONS.includes(stored.shardedStorage.version)) {
         throw unsupportedStorageVersion(stored.shardedStorage.version);
     }
@@ -307,6 +307,7 @@ async function materializeStoredWorld(dirs, id, stored) {
     for (const category of READ_SHARDS) {
         const entries = Array.isArray(stored.shards[category]) ? stored.shards[category] : [];
         const parts = await Promise.all(entries.map(async (entry, part) => {
+            if (plainPaths) await assertPlainStoragePath(shardFilePath(dirs, id, entry.file));
             const shard = await readJson(shardFilePath(dirs, id, entry.file));
             if (!shard || shard.worldId !== id || shard.category !== category || Number(shard.part) !== part
                 || shard.hash !== entry.hash || valueHash(shard.data) !== entry.hash) {
@@ -336,14 +337,15 @@ async function conflictManifestFiles(dirs, id) {
         .filter(file => file.startsWith(prefix) && file.endsWith('.json'));
 }
 
-async function validConflictRecords(dirs, id) {
+async function validConflictRecords(dirs, id, { plainPaths = false } = {}) {
     const files = await conflictManifestFiles(dirs, id);
     const records = [];
     for (const file of files) {
         try {
+            if (plainPaths) await assertPlainStoragePath(path.join(dirs.worlds, file));
             const stored = await readJson(path.join(dirs.worlds, file));
             if (stored?.id !== id) continue;
-            const world = await materializeStoredWorld(dirs, id, stored);
+            const world = await materializeStoredWorld(dirs, id, stored, { plainPaths });
             records.push({ file, stored, world, fingerprint: migrationFingerprint(world) });
         } catch {
             // Syncthing conflict copies are recovery candidates only after every
@@ -353,13 +355,13 @@ async function validConflictRecords(dirs, id) {
     return records;
 }
 
-async function optionalWorldRecord(dirs, id) {
+async function optionalWorldRecord(dirs, id, { plainPaths = false, beforeRecoveryCommit } = {}) {
     let stored = null;
     let loadError = null;
     try {
         stored = await optionalStoredWorld(dirs, id);
         if (stored) {
-            const world = await materializeStoredWorld(dirs, id, stored);
+            const world = await materializeStoredWorld(dirs, id, stored, { plainPaths });
             const legacyStoryCount = Number(world.__legacyStorySnapshotsRemoved || 0);
             delete world.__legacyStorySnapshotsRemoved;
             return {
@@ -380,7 +382,7 @@ async function optionalWorldRecord(dirs, id) {
     // incomplete; portable chat recovery handles genuinely missing worlds.
     if (!stored && !loadError) return { world: null, manifest: null };
 
-    const candidates = await validConflictRecords(dirs, id);
+    const candidates = await validConflictRecords(dirs, id, { plainPaths });
     if (candidates.length) {
         const highestRevision = Math.max(...candidates.map(record => Number(record.world.revision || 0)));
         const newest = candidates.filter(record => Number(record.world.revision || 0) === highestRevision);
@@ -390,7 +392,8 @@ async function optionalWorldRecord(dirs, id) {
         }
         newest.sort((a, b) => String(b.world.updatedAt || '').localeCompare(String(a.world.updatedAt || '')) || b.file.localeCompare(a.file));
         const recovered = newest[0];
-        await atomicWrite(worldPath(dirs, id), recovered.stored);
+        const recoveryText = `${JSON.stringify(recovered.stored)}\n`;
+        await atomicStorageJson(worldPath(dirs, id), recovered.stored, { beforeCommit: beforeRecoveryCommit });
         console.warn(`[${PLUGIN}] Recovered world ${id} from validated Syncthing conflict manifest ${recovered.file}.`);
         const legacyStoryCount = Number(recovered.world.__legacyStorySnapshotsRemoved || 0);
         delete recovered.world.__legacyStorySnapshotsRemoved;
@@ -399,6 +402,7 @@ async function optionalWorldRecord(dirs, id) {
             manifest: isShardManifest(recovered.stored) ? recovered.stored : null,
             legacyStoryCount,
             recoveredFrom: recovered.file,
+            recoveryText,
         };
     }
 
@@ -434,30 +438,30 @@ async function openWorldRecord(dirs, id, { migrationOnly = false } = {}) {
             await assertPlainStoragePath(worldPath(dirs, id));
             try { await assertPlainStoragePath(shardDirectory(dirs, id), { directory: true }); }
             catch (error) { if (error.code !== 'ENOENT') throw error; }
-            const manifest = JSON.parse(originalText);
-            // No need to materialize already-current worlds during a sweep.
-            // Their retained/active physical shards are packed separately.
-            if (manifest.shardedStorage?.version === STORAGE_VERSION && manifest.shardedStorage.encoding === 'adaptive-gzip-json-v1') {
-                return { converted: false };
-            }
         }
-        const current = await optionalWorldRecord(dirs, id);
+        const assertUnchanged = async () => {
+            if (migrationOnly) {
+                await assertPlainStoragePath(worldPath(dirs, id));
+                try { await assertPlainStoragePath(shardDirectory(dirs, id), { directory: true }); }
+                catch (error) { if (error.code !== 'ENOENT') throw error; }
+            }
+            if (await fs.readFile(worldPath(dirs, id), 'utf8') !== originalText) {
+                throw Object.assign(new Error('Memory changed during storage conversion. Reopen the chat to retry; newer memory was kept.'), { status: 409 });
+            }
+        };
+        // The one-time / explicit pass validates current manifests too. A v4
+        // label alone must not hide missing references or older cleanup work.
+        const current = await optionalWorldRecord(dirs, id, { plainPaths: migrationOnly, beforeRecoveryCommit: assertUnchanged });
         if (current.world && current.world.id !== id) throw new Error('Stored memory ID does not match its filename');
+        if (current.recoveredFrom) originalText = current.recoveryText;
         if (current.world && (current.manifest?.shardedStorage?.version !== STORAGE_VERSION || current.legacyStoryCount)) {
-            if (current.recoveredFrom) originalText = await fs.readFile(worldPath(dirs, id), 'utf8');
             current.manifest = await writeShardedWorldLocked(dirs, current.world, current.manifest, {
-                beforeCommit: async () => {
-                    if (migrationOnly) {
-                        await assertPlainStoragePath(worldPath(dirs, id));
-                        await assertPlainStoragePath(shardDirectory(dirs, id), { directory: true });
-                    }
-                    if (await fs.readFile(worldPath(dirs, id), 'utf8') !== originalText) {
-                        throw Object.assign(new Error('Memory changed during storage conversion. Reopen the chat to retry; newer memory was kept.'), { status: 409 });
-                    }
-                },
+                beforeCommit: assertUnchanged,
             });
             current.converted = true;
+            originalText = `${JSON.stringify(current.manifest)}\n`;
         }
+        if (migrationOnly) await assertUnchanged();
         return current;
     });
     if (!migrationOnly) void maintainStorageRetention(dirs);
@@ -572,13 +576,22 @@ export async function init(router, {
         try { res.json({ ok: true, policy: await writeShardPolicy(await ensureStorage(req), req.body) }); }
         catch (error) { sendError(res, error); }
     });
+    const conversionStatus = (dirs, force = false) => startStorageMigration(dirs, {
+        force, migrateWorld: id => openWorldRecord(dirs, id, { migrationOnly: true }),
+    });
+    router.get('/storage-migration', async (req, res) => {
+        try { res.json({ ok: true, storageMigration: conversionStatus(await ensureStorage(req)) }); }
+        catch (error) { sendError(res, error); }
+    });
+    router.post('/storage-migration', async (req, res) => {
+        try { res.json({ ok: true, storageMigration: conversionStatus(await ensureStorage(req), true) }); }
+        catch (error) { sendError(res, error); }
+    });
     router.get('/health', async (req, res) => {
         try {
             const dirs = await ensureStorage(req);
             const files = (await fs.readdir(dirs.worlds)).filter(canonicalWorldFilename);
-            const storageMigration = startStorageMigration(dirs, {
-                migrateWorld: id => openWorldRecord(dirs, id, { migrationOnly: true }),
-            });
+            const storageMigration = conversionStatus(dirs);
             void maintainStorageRetention(dirs);
             res.json({ ok: true, plugin: PLUGIN, version: VERSION, schemaVersion: SCHEMA_VERSION, storageVersion: STORAGE_VERSION, detachedJobs: true, detachedChronicle: true, worlds: files.length, storage: dirs.root, storageMigration });
         } catch (error) {

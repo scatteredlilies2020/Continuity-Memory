@@ -115,5 +115,9 @@ test('storage upkeep exposes the real server policy without loading it until ope
     assert.match(ui, /await api\.getStoragePolicy\(\)/u);
     assert.match(ui, /await api\.saveStoragePolicy\(/u);
     assert.match(api, /getStoragePolicy:.*storage-policy/u);
+    assert.match(html, /id="continuity_check_storage"[^>]*>Check all storage</u);
+    assert.match(html, /id="continuity_storage_conversion_status"[^>]*role="status"/u);
+    assert.match(ui, /bindStorageConversionControls\(\{ api,/u);
+    assert.match(api, /checkAllStorage:.*storage-migration.*method: 'POST'/u);
     assert.match(html, /1,024 obsolete files/u);
 });
