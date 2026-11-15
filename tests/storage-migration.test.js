@@ -1,16 +1,18 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { promisify } from 'node:util';
 import { init } from '../plugin/index.js';
-import { startStorageMigration, waitForStorageMigration } from '../plugin/storage-migration.js';
+import { startStorageMigration, storageMigrationReceiptFile, waitForStorageMigration } from '../plugin/storage-migration.js';
 import { readStorageJson, repackStorageJson } from '../plugin/storage-json.js';
 import { migrateVectorIndex } from '../plugin/vector-store.js';
 import { waitForStorageMaintenance, withShardWorldLock } from '../plugin/shard-retention.js';
 
-async function fixture(t) {
+async function fixture(t, { embedTexts = async () => { throw new Error('Conversion must never request embeddings'); } } = {}) {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cm-bulk-conversion-'));
     const dirs = { root: path.join(root, 'continuity-memory'), worlds: path.join(root, 'continuity-memory', 'worlds') };
     await fs.mkdir(dirs.worlds, { recursive: true });
@@ -18,7 +20,7 @@ async function fixture(t) {
     await fs.writeFile(path.join(dirs.root, 'storage-policy.json'), '{"shardRetentionDays":0}');
     const routes = new Map();
     const router = Object.fromEntries(['get', 'post', 'put', 'delete'].map(method => [method, (route, handler) => routes.set(`${method} ${route}`, handler)]));
-    await init(router, { syncExtension: false, embedTexts: async () => { throw new Error('Conversion must never request embeddings'); } });
+    await init(router, { syncExtension: false, embedTexts });
     t.after(async () => {
         await waitForStorageMigration(dirs);
         await waitForStorageMaintenance(dirs);
@@ -130,7 +132,305 @@ test('connection sweeps unopened legacy worlds, inactive vector providers and re
     assert.equal(await fs.readFile(path.join(root, 'continuity-memory', 'storage-policy.json'), 'utf8'), '{"shardRetentionDays":0}');
 });
 
-test('one sequential per-user worker yields, deduplicates tabs and rescans synced legacy files after cooldown', async t => {
+async function restartedSweep(dirs, options = {}) {
+    // Fresh module state models a restart: only the tiny durable receipt remains.
+    const worker = await import(`../plugin/storage-migration.js?restart=${crypto.randomUUID()}`);
+    worker.startStorageMigration(dirs, { migrateWorld: () => ({ converted: false }), ...options });
+    return worker.waitForStorageMigration(dirs);
+}
+
+test('completed receipt skips the entire conversion tree on restart without changing files', async t => {
+    const { dirs } = await fixture(t);
+    const seeded = await seedVector(dirs, 'restart_receipt');
+    const first = await restartedSweep(dirs);
+    assert.equal(first.status, 'complete');
+    assert.equal(first.receipt.saved, true);
+    assert.equal(first.vectors.converted, 1);
+    const receipt = storageMigrationReceiptFile(dirs);
+    const times = await Promise.all([seeded.file, receipt].map(file => fs.stat(file).then(stat => stat.mtimeMs)));
+    const originalRead = fs.readFile;
+    const originalStat = fs.lstat;
+    t.mock.method(fs, 'readdir', () => { throw new Error('Completed migration must not enumerate storage'); });
+    t.mock.method(fs, 'lstat', function(file, ...args) {
+        if (file === seeded.file) throw new Error('Completed migration must not inspect payload metadata');
+        return originalStat.call(this, file, ...args);
+    });
+    t.mock.method(fs, 'readFile', function(file, ...args) {
+        if (file === seeded.file) throw new Error('Completed migration must not read payloads');
+        return originalRead.call(this, file, ...args);
+    });
+    const restart = await restartedSweep(dirs);
+    assert.equal(restart.status, 'complete', JSON.stringify(restart.errors));
+    assert.equal(restart.receipt.loaded, true);
+    assert.deepEqual(restart.vectors, first.vectors);
+    assert.deepEqual(await Promise.all([seeded.file, receipt].map(file => fs.stat(file).then(stat => stat.mtimeMs))), times);
+    t.mock.restoreAll();
+});
+
+test('missing, corrupt, outdated, unfinished and foreign receipts never suppress verification', async t => {
+    const { dirs } = await fixture(t);
+    const seeded = await seedVector(dirs, 'receipt_fallback');
+    assert.equal((await restartedSweep(dirs)).receipt.saved, true);
+    const file = storageMigrationReceiptFile(dirs);
+    const valid = JSON.parse(await fs.readFile(file, 'utf8'));
+    const originalRead = fs.readFile;
+    let reads = 0;
+    t.mock.method(fs, 'readFile', function(file, ...args) {
+        if (file === seeded.file) reads++;
+        return originalRead.call(this, file, ...args);
+    });
+    const invalid = ['{broken', { ...valid, version: 999 }, { ...valid, migration: 'future-encoding' },
+        { ...valid, owner: 'another-machine-or-user' }, { ...valid, status: 'running' }, { ...valid, status: 'partial' },
+        { ...valid, errorCount: 1 }, { ...valid, finishedAt: 'invalid' }, { ...valid, vectors: { checked: -1 } }, null];
+    for (const value of invalid) {
+        if (value === null) await fs.unlink(file);
+        else await fs.writeFile(file, typeof value === 'string' ? value : JSON.stringify(value));
+        reads = 0;
+        const result = await restartedSweep(dirs);
+        assert.equal(result.status, 'complete', JSON.stringify(result.errors));
+        assert.equal(result.receipt.loaded, false);
+        assert.equal(result.receipt.saved, true);
+        assert.ok(reads > 0, 'An untrusted/missing receipt must not suppress validation');
+    }
+});
+
+test('a separate server process skips all storage enumeration after successful conversion', async t => {
+    const { dirs } = await fixture(t);
+    const seeded = await seedVector(dirs, 'process_restart');
+    assert.equal((await restartedSweep(dirs)).receipt.saved, true);
+    const script = `
+        import fs from 'node:fs/promises';
+        import path from 'node:path';
+        const root = process.argv[1];
+        const payload = process.argv[2];
+        const originalRead = fs.readFile;
+        fs.readFile = function(file, ...args) {
+            if (file === payload) throw new Error('Payload read after process restart');
+            return originalRead.call(this, file, ...args);
+        };
+        fs.readdir = () => { throw new Error('Storage tree enumerated after completed conversion'); };
+        const worker = await import(process.argv[3]);
+        const dirs = { root, worlds: path.join(root, 'worlds') };
+        worker.startStorageMigration(dirs, { migrateWorld: () => { throw new Error('World reopened'); } });
+        console.log(JSON.stringify(await worker.waitForStorageMigration(dirs)));
+    `;
+    const { stdout } = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', script,
+        dirs.root, seeded.file, new URL('../plugin/storage-migration.js', import.meta.url).href], { timeout: 10000 });
+    const result = JSON.parse(stdout);
+    assert.equal(result.status, 'complete', JSON.stringify(result.errors));
+    assert.equal(result.receipt.loaded, true);
+    assert.equal(result.receipt.warning, null);
+});
+
+test('denied preflight receipt stops work; denied completion leaves a resumable running receipt', async t => {
+    const { dirs } = await fixture(t);
+    const seeded = await seedVector(dirs, 'receipt_disk_denied');
+    const receipt = storageMigrationReceiptFile(dirs);
+    const originalRename = fs.rename;
+    let denied = true;
+    let publications = 0;
+    t.mock.method(fs, 'rename', async function(from, to) {
+        if (to === receipt && (denied || ++publications === 2)) throw Object.assign(new Error('receipt disk denied'), { code: 'EACCES' });
+        return originalRename.call(this, from, to);
+    });
+    const preflight = await restartedSweep(dirs);
+    assert.equal(preflight.status, 'partial');
+    assert.equal(preflight.vectors.checked, 0);
+    assert.equal(await fs.readFile(seeded.file, 'utf8'), seeded.text);
+    await assert.rejects(fs.stat(receipt), error => error.code === 'ENOENT');
+    denied = false;
+    const completion = await restartedSweep(dirs);
+    assert.equal(completion.status, 'partial');
+    assert.equal(completion.vectors.converted, 1);
+    assert.equal(completion.receipt.saved, false);
+    assert.match(completion.receipt.warning, /receipt disk denied/);
+    assert.equal(JSON.parse(await fs.readFile(receipt, 'utf8')).status, 'running');
+    assert.equal((await readStorageJson(seeded.file)).version, 2);
+    t.mock.restoreAll();
+    const retry = await restartedSweep(dirs);
+    assert.equal(retry.status, 'complete');
+    assert.equal(retry.receipt.loaded, false);
+    assert.equal(retry.vectors.checked, 1);
+});
+
+test('forced pass invalidates completion before work and unfinished work resumes after restart', async t => {
+    const { dirs } = await fixture(t);
+    await fs.writeFile(path.join(dirs.worlds, 'example.json'), '{}');
+    assert.equal((await restartedSweep(dirs)).status, 'complete');
+    const receipt = storageMigrationReceiptFile(dirs);
+    const result = await restartedSweep(dirs, { force: true, migrateWorld: async () => {
+        assert.equal(JSON.parse(await fs.readFile(receipt, 'utf8')).status, 'running');
+        throw new Error('Interrupted conversion');
+    } });
+    assert.equal(result.status, 'partial');
+    assert.equal(JSON.parse(await fs.readFile(receipt, 'utf8')).status, 'partial');
+    const resumed = await restartedSweep(dirs);
+    assert.equal(resumed.status, 'complete');
+    assert.equal(resumed.receipt.loaded, false);
+    assert.equal(resumed.worlds.checked, 1);
+});
+
+test('post-publication external replacements cannot receive a completed receipt', async t => {
+    const { dirs } = await fixture(t);
+    const seeded = await seedVector(dirs, 'publication_race');
+    const originalRename = fs.rename;
+    t.mock.method(fs, 'rename', async function(from, to) {
+        await originalRename.call(this, from, to);
+        if (to === seeded.file) await fs.writeFile(to, seeded.text);
+    });
+    const result = await restartedSweep(dirs);
+    assert.equal(result.status, 'partial');
+    assert.equal(JSON.parse(await fs.readFile(storageMigrationReceiptFile(dirs), 'utf8')).status, 'partial');
+    assert.equal(await fs.readFile(seeded.file, 'utf8'), seeded.text);
+    t.mock.restoreAll();
+    assert.equal((await restartedSweep(dirs)).vectors.converted, 1);
+});
+
+test('external legacy sync requires explicit check, while API saves, imports and opens stay current', async t => {
+    const { dirs, call } = await fixture(t);
+    await call('get /storage-migration');
+    assert.equal((await waitForStorageMigration(dirs)).status, 'complete');
+    const seeded = await seedVector(dirs, 'older_synced_file');
+    await call('get /storage-migration');
+    assert.equal((await waitForStorageMigration(dirs)).vectors.checked, 0);
+    assert.equal(await fs.readFile(seeded.file, 'utf8'), seeded.text);
+    let world = (await call('post /worlds', { body: { name: 'New current world' } })).world;
+    world.facts = [{ id: 'fact', value: 'Exact saved history 中文 '.repeat(1000) }];
+    world = (await call('put /worlds/:id', { params: { id: world.id }, body: world })).world;
+    const assertCurrent = async value => {
+        const manifest = await readStorageJson(path.join(dirs.worlds, `${value.id}.json`));
+        assert.equal(manifest.shardedStorage.version, 4);
+        assert.equal(manifest.shardedStorage.encoding, 'adaptive-gzip-json-v1');
+        const fact = manifest.shards.facts[0];
+        assert.equal(JSON.parse(await fs.readFile(path.join(dirs.worlds, `${value.id}.shards`, fact.file), 'utf8')).continuityStorage, 'continuity-gzip-json-v1');
+    };
+    await assertCurrent(world);
+    const imported = (await call('post /import', { body: { world: { ...world, id: 'older-import' } } })).world;
+    await assertCurrent(imported);
+    // An old world arriving out of band also lazily converts when opened.
+    await fs.writeFile(path.join(dirs.worlds, `${world.id}.json`), JSON.stringify(world));
+    assert.deepEqual((await call('get /worlds/:id', { params: { id: world.id } })).world.facts, world.facts);
+    await assertCurrent(world);
+    const forced = await call('post /storage-migration');
+    assert.equal(forced.storageMigration.status, 'running');
+    const checked = await waitForStorageMigration(dirs);
+    assert.equal(checked.status, 'complete', JSON.stringify(checked.errors));
+    assert.equal(checked.vectors.converted, 1);
+    assert.equal((await readStorageJson(seeded.file)).version, 2);
+    // A foreign user's receipt, even copied verbatim, cannot skip this root.
+    const other = await fixture(t);
+    const legacy = await seedVector(other.dirs, 'other_user');
+    await fs.copyFile(storageMigrationReceiptFile(dirs), storageMigrationReceiptFile(other.dirs));
+    const isolated = await restartedSweep(other.dirs);
+    assert.equal(isolated.receipt.loaded, false);
+    assert.equal(isolated.vectors.converted, 1);
+    assert.equal((await readStorageJson(legacy.file)).version, 2);
+});
+
+test('explicit check validates current worlds, safely recovers supported damage and reports unresolved damage', async t => {
+    const { dirs, call } = await fixture(t);
+    let world = (await call('post /worlds', { body: { name: 'Repair check' } })).world;
+    world.facts = [{ id: 'fact', value: 'Keep every detail 中文 '.repeat(1000) }];
+    world = (await call('put /worlds/:id', { params: { id: world.id }, body: world })).world;
+    await call('get /storage-migration');
+    assert.equal((await waitForStorageMigration(dirs)).status, 'complete');
+    const file = path.join(dirs.worlds, world.id + '.json');
+    const current = await fs.readFile(file, 'utf8');
+    const conflict = path.join(dirs.worlds, world.id + '.sync-conflict-20261115-REPAIR.json');
+    await fs.writeFile(conflict, current);
+    await fs.writeFile(file, '{damaged canonical');
+    await call('post /storage-migration');
+    const repaired = await waitForStorageMigration(dirs);
+    assert.equal(repaired.status, 'complete', JSON.stringify(repaired.errors));
+    assert.equal(repaired.worlds.repaired, 1);
+    assert.equal(await fs.readFile(conflict, 'utf8'), current);
+    const opened = (await call('get /worlds/:id', { params: { id: world.id } })).world;
+    assert.deepEqual(opened.facts, world.facts);
+    assert.equal(opened.revision, world.revision);
+    assert.equal(opened.updatedAt, world.updatedAt);
+    await fs.unlink(conflict); // Only this disposable fixture's recovery candidate.
+    const broken = JSON.parse(current);
+    broken.shards.facts[0].file = 'facts-packed-0000-0000000000000000.json';
+    const brokenText = JSON.stringify(broken);
+    await fs.writeFile(file, brokenText);
+    await call('post /storage-migration');
+    const unresolved = await waitForStorageMigration(dirs);
+    assert.equal(unresolved.status, 'partial', 'A v4 label must not hide missing referenced shards');
+    assert.equal(unresolved.worlds.repaired, 0);
+    assert.match(unresolved.errors[0].message, /incomplete or corrupt/);
+    assert.equal(await fs.readFile(file, 'utf8'), brokenText, 'Never guess replacement memory');
+    assert.equal(JSON.parse(await fs.readFile(storageMigrationReceiptFile(dirs), 'utf8')).status, 'partial');
+    await fs.writeFile(file, current);
+    await call('post /storage-migration');
+    assert.equal((await waitForStorageMigration(dirs)).status, 'complete');
+});
+
+test('vector writes stay packed after completion and legacy reads convert without re-embedding', async t => {
+    let embeddings = 0;
+    const { dirs, call } = await fixture(t, { embedTexts: async ({ texts }) => { embeddings++; return texts.map(() => [0.12345678901234568, -1.234e-20]); } });
+    await call('get /storage-migration');
+    assert.equal((await waitForStorageMigration(dirs)).status, 'complete');
+    const provider = { source: 'vllm', model: 'current-model', apiUrl: 'http://localhost:9999' };
+    const body = { ...provider, collectionId: 'current_writes' };
+    await call('post /vectors/insert', { body: { ...body, items: [{ hash: 42, index: 0, text: 'Exact new memory 中文 '.repeat(1000) }] } });
+    assert.equal(embeddings, 1);
+    const filename = crypto.createHash('sha256').update(JSON.stringify(provider)).digest('hex') + '.json';
+    const file = path.join(dirs.root, 'vectors', body.collectionId, filename);
+    const stored = await readStorageJson(file);
+    assert.equal(stored.version, 2);
+    assert.equal(JSON.parse(await fs.readFile(file, 'utf8')).continuityStorage, 'continuity-gzip-json-v1');
+    await fs.writeFile(file, JSON.stringify({ ...stored, version: 1 }, null, 2));
+    assert.deepEqual(await call('post /vectors/list', { body }), [42]);
+    assert.deepEqual(await readStorageJson(file), stored);
+    assert.equal(embeddings, 1, 'Reading/converting an old index never requests fresh embeddings');
+    await call('get /storage-migration');
+    assert.equal((await waitForStorageMigration(dirs)).vectors.checked, 0, 'Ordinary writes/reads do not invalidate completion');
+});
+
+test('conflict-copy recovery refuses to overwrite newer external canonical content', async t => {
+    const { dirs, call } = await fixture(t);
+    const world = (await call('post /worlds', { body: { name: 'Recovery race' } })).world;
+    const file = path.join(dirs.worlds, world.id + '.json');
+    const current = await fs.readFile(file, 'utf8');
+    await fs.writeFile(path.join(dirs.worlds, world.id + '.sync-conflict-20261115-RACE.json'), current);
+    await fs.writeFile(file, '{broken');
+    const newer = JSON.stringify({ ...JSON.parse(current), name: 'Newer external memory' });
+    const originalWrite = fs.writeFile;
+    let raced = false;
+    t.mock.method(fs, 'writeFile', async function(target, ...args) {
+        if (String(target).startsWith(file + '.') && !raced) {
+            raced = true;
+            await originalWrite(file, newer);
+        }
+        return originalWrite.call(this, target, ...args);
+    });
+    await call('post /storage-migration');
+    const state = await waitForStorageMigration(dirs);
+    assert.equal(state.status, 'partial');
+    assert.match(state.errors[0].message, /newer memory was kept/);
+    assert.equal(await fs.readFile(file, 'utf8'), newer);
+});
+
+test('empty or primitive canonical JSON is damage, never a successfully converted missing world', async t => {
+    const { dirs, call } = await fixture(t);
+    const world = (await call('post /worlds', { body: { name: 'Primitive damage' } })).world;
+    const file = path.join(dirs.worlds, world.id + '.json');
+    const valid = await fs.readFile(file, 'utf8');
+    for (const value of ['null', 'false', '0', '[]']) {
+        await fs.writeFile(file, value);
+        await call('post /storage-migration');
+        const result = await waitForStorageMigration(dirs);
+        assert.equal(result.status, 'partial', value);
+        assert.equal(await fs.readFile(file, 'utf8'), value);
+    }
+    await fs.writeFile(path.join(dirs.worlds, world.id + '.sync-conflict-20261115-VALID.json'), valid);
+    await call('post /storage-migration');
+    const recovered = await waitForStorageMigration(dirs);
+    assert.equal(recovered.status, 'complete', JSON.stringify(recovered.errors));
+    assert.equal(recovered.worlds.repaired, 1);
+});
+
+test('one sequential per-user worker yields, deduplicates tabs and stays stopped after completion', async t => {
     const { dirs } = await fixture(t);
     for (const id of ['a', 'b', 'c']) await fs.writeFile(path.join(dirs.worlds, `${id}.json`), '{}');
     let release;
@@ -155,7 +455,10 @@ test('one sequential per-user worker yields, deduplicates tabs and rescans synce
     assert.equal(visited.length, 3, 'Polling during cooldown does not rescan');
     startStorageMigration(dirs, { ...options, nowMs: Date.now() + 3600001 });
     await waitForStorageMigration(dirs);
-    assert.ok(visited.includes('newly-synced'));
+    assert.equal(visited.length, 3, 'Even after an hour completed conversion must not rescan');
+    startStorageMigration(dirs, { ...options, force: true });
+    await waitForStorageMigration(dirs);
+    assert.ok(visited.includes('newly-synced'), 'Explicit check discovers older synced files');
 });
 
 test('corrupt/future files are retained, reported and retried without blocking other collections', async t => {
@@ -225,26 +528,25 @@ test('physical repacking retains original bytes after write failure and retries 
     assert.equal((await fs.stat(seeded.file)).mtimeMs, time);
 });
 
-test('completed sweeps stop, use metadata for unchanged indexes, and detect old sync replacements', async t => {
+test('explicit checks revalidate unchanged indexes without rewriting and detect old sync replacements', async t => {
     const { dirs } = await fixture(t);
     const seeded = await seedVector(dirs, 'metadata_checks');
     const options = { force: true, migrateWorld: () => ({ converted: false }) };
     startStorageMigration(dirs, options);
     assert.equal((await waitForStorageMigration(dirs)).status, 'complete');
-    // On platforms where rename updates change-time, the next pass validates
-    // that publication once before it can safely cache the new identity.
-    startStorageMigration(dirs, options);
-    await waitForStorageMigration(dirs);
+    const time = (await fs.stat(seeded.file)).mtimeMs;
     const originalRead = fs.readFile;
+    let reads = 0;
     t.mock.method(fs, 'readFile', async function (file, ...args) {
-        if (file === seeded.file) throw new Error('Unchanged index must not be read or decompressed again');
+        if (file === seeded.file) reads++;
         return originalRead.call(this, file, ...args);
     });
     startStorageMigration(dirs, options);
     const unchanged = await waitForStorageMigration(dirs);
     assert.equal(unchanged.status, 'complete');
     assert.equal(unchanged.vectors.converted, 0);
-    assert.equal(unchanged.vectors.unchanged, 1);
+    assert.ok(reads > 0, 'Explicit check must validate actual contents, not just metadata');
+    assert.equal((await fs.stat(seeded.file)).mtimeMs, time);
     t.mock.restoreAll();
     const oldTime = (await fs.stat(seeded.file)).mtime;
     await fs.writeFile(seeded.file, seeded.text); // Sync brings back legacy v1.

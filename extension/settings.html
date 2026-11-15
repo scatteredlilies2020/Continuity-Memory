@@ -41,6 +41,9 @@
                 <small>On: stored chats and SillyTavern JSONL exports include the latest matching Continuity memory for transfer between devices. Off: neither stored chats nor chat exports include a portable copy; normal memory remains in SillyTavern's user storage.</small>
                 <details id="continuity_storage_upkeep">
                     <summary>Storage upkeep</summary>
+                    <button id="continuity_check_storage" class="menu_button" type="button">Check all storage</button>
+                    <small id="continuity_storage_conversion_status" role="status">Open to load conversion status.</small>
+                    <small>Checks saved worlds and shard integrity, runs supported older-format conversions and lossless compression, and uses existing validated conflict-copy recovery where possible. Unresolved damage is reported, never guessed away. Runs once per storage format and saves a completion receipt; reopening ST does not repeat the conversion scan after success. New saves and normal imports already use the current format. Use Check all storage after restoring older files or syncing from an outdated device. Interrupted or failed checks retry on connection; no AI calls, memory-content rebuilds, or re-embedding. Obsolete-copy cleanup below is separate.</small>
                     <label>Obsolete shard and backup retention (days)
                         <input id="continuity_shard_retention" class="text_pole" type="number" min="0" max="3650" step="1" value="1">
                     </label>
