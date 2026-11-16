@@ -1,6 +1,30 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { rankSuperiorSyncedWorlds, resolveDeletedChatBinding, resolveMissingWorldBinding, resolveRenamedChatBinding } from '../extension/chat-ownership.js';
+import { isWorldBoundToOtherConversation, rankSuperiorSyncedWorlds, resolveDeletedChatBinding, resolveMissingWorldBinding, resolveRenamedChatBinding } from '../extension/chat-ownership.js';
+
+test('verified character-index aliases retain the same world while other conversations stay isolated', () => {
+    const current = 'character:0:chat:Naruto - exact timestamp';
+    const oldDevice = 'character:91:chat:Naruto - exact timestamp';
+    const bindings = { [oldDevice]: 'same-world', [current]: 'same-world' };
+    const verified = { ok: true, matched: 31, world: { name: 'Naruto · Naruto - exact timestamp' } };
+    assert.equal(isWorldBoundToOtherConversation(bindings, 'same-world', current, verified, 'Naruto'), false);
+    assert.equal(isWorldBoundToOtherConversation({ ...bindings, 'character:0:chat:Another chat': 'same-world' }, 'same-world', current, verified, 'Naruto'), true);
+    assert.equal(isWorldBoundToOtherConversation({ ...bindings, 'group:91:chat:Naruto - exact timestamp': 'same-world' }, 'same-world', current, verified, 'Naruto'), true);
+    assert.equal(isWorldBoundToOtherConversation({ ...bindings, 'character:1:chat:Another chat': 'unrelated-world' }, 'same-world', current, verified, 'Naruto'), false);
+    assert.equal(isWorldBoundToOtherConversation(bindings, 'same-world', current, verified, 'Different character'), true);
+});
+
+for (const alignment of [undefined, { ok: false, matched: 31 }, { ok: true, matched: 0 }]) {
+    test(`matching chat names alone cannot authorize shared memory (${JSON.stringify(alignment)})`, () => {
+        assert.equal(isWorldBoundToOtherConversation({ 'character:91:chat:Chat': 'world' }, 'world', 'character:0:chat:Chat', alignment, 'Person'), true);
+    });
+}
+
+test('group owner changes and malformed character keys are not device aliases', () => {
+    const alignment = { ok: true, matched: 31 };
+    assert.equal(isWorldBoundToOtherConversation({ 'group:91:chat:Chat': 'world' }, 'world', 'group:0:chat:Chat', alignment), true);
+    assert.equal(isWorldBoundToOtherConversation({ 'character:unknown:chat:Chat': 'world' }, 'world', 'character:0:chat:Chat', alignment), true);
+});
 
 test('resolves one isolated character or group chat memory for deletion', () => {
     const bindings = {

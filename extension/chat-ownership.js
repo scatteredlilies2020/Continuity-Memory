@@ -1,3 +1,19 @@
+/**
+ * Character array indexes are device-local. Only a fingerprint-verified
+ * alignment permits two character keys for the exact same chat filename to
+ * share a world. Keeping its ID also preserves its existing vector collection.
+ */
+export function isWorldBoundToOtherConversation(chatWorlds, worldId, currentChatKey, alignment, characterName = '') {
+    const characterChat = key => /^character:\d+:chat:(.+)$/u.exec(String(key || ''))?.[1] || '';
+    const currentIdentity = characterChat(currentChatKey);
+    const verified = alignment?.ok && Number(alignment.matched) > 0 && characterName
+        && alignment.world?.name === `${characterName} · ${currentIdentity}`;
+    return Object.entries(chatWorlds || {}).some(([key, id]) => {
+        if (id !== worldId || key === currentChatKey) return false;
+        return !(verified && currentIdentity && characterChat(key) === currentIdentity);
+    });
+}
+
 export function resolveDeletedChatBinding(chatWorlds, chatId, ownerKind) {
     const id = String(chatId || '');
     if (!id) return { binding: null, ambiguous: false };

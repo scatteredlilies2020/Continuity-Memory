@@ -27,7 +27,7 @@ import { normalizeExtractionOutputTokens } from './memory-response-policy.js?pen
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js?historical-recall=1';
 import { approveExtractionReview, regenerateExtractionReview, revertExtractionReviewDraft, selectExtractionReviewCandidate, updateExtractionReviewDraft } from './extraction-review.js';
 import { alignWorldToChat, collectFingerprintMessages, collectMemoryEligibleMessages, findInvalidExtractionRanges } from './message-digest.js?v=0.15.0-testing.30';
-import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.15.0-testing.30';
+import { isWorldBoundToOtherConversation, rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from './chat-ownership.js?v=0.15.0-testing.30&device-alias=1';
 import { invalidateRuntimeWork, isRuntimeCancellation, runtime, onRuntimeChange, resumeRuntime, stopRuntime, updateRuntime } from './runtime.js?v=0.15.0-testing.30';
 import { completeDigestMessageCount, latestCompleteDigestMessageIndex, resolveDigestGroupSize, validateDigestGroupSize } from './digest-policy.js';
 import { resolveInjectionBudget } from './injection-budget.js?pending-recovery=1';
@@ -907,8 +907,7 @@ async function recoverSuperiorSyncedWorld(world) {
         return world;
     }
 
-    const boundElsewhere = Object.entries(getSettings().chatWorlds || {})
-        .some(([boundChatKey, worldId]) => boundChatKey !== chatKey && worldId === world.id);
+    const boundElsewhere = isWorldBoundToOtherConversation(getSettings().chatWorlds, world.id, chatKey, currentAlignment, context.name2);
     if (!current()) return world;
     let saved;
     try {
@@ -994,8 +993,7 @@ async function recoverStoredWorldForCurrentChat(missingBoundWorldId) {
     if (!current()) return { world: null, ambiguous: false };
 
     const { stored, alignment } = matches[0];
-    const boundElsewhere = Object.entries(getSettings().chatWorlds || {})
-        .some(([chatKey, worldId]) => chatKey !== getChatKey() && worldId === stored.id);
+    const boundElsewhere = isWorldBoundToOtherConversation(getSettings().chatWorlds, stored.id, chatKey, alignment, context.name2);
     const saved = boundElsewhere
         ? (await api.importWorld(alignment.world)).world
         : alignment.changed || (alignment.sourceChatKey && alignment.sourceChatKey !== getChatKey())
@@ -1023,12 +1021,28 @@ async function recoverTruncatedPortableMemory(world, isCurrent) {
     if (!current()) return null;
     const verifiedBackup = (await api.getWorld(backup.id)).world;
     if (!current()) return null;
-    for (const key of ['schemaVersion', 'createdAt', 'sources', 'scene', 'entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'chronicle', 'extractions', 'threads', 'backgrounds', 'corrections', 'continuation', 'storySoFar']) {
+    const fields = ['schemaVersion', 'createdAt', 'sources', 'scene', 'entities', 'facts', 'beliefs', 'states', 'relationships', 'events', 'capsules', 'arcs', 'eras', 'chronicle', 'extractions', 'threads', 'backgrounds', 'corrections', 'continuation', 'storySoFar'];
+    for (const key of fields) {
         if (JSON.stringify(verifiedBackup?.[key] ?? null) !== JSON.stringify(world[key] ?? null)) {
             throw new Error('The pre-recovery memory backup could not be verified; the original memory was not replaced.');
         }
     }
-    const recovered = (await api.importWorld({ ...recovery.world, id: '' })).world;
+    let stored = null;
+    let missing = false;
+    try { stored = (await api.getWorld(world.id)).world; }
+    catch (error) {
+        if (Number(error.status) === 404) missing = true;
+        else if (Number(error.status) !== 503) throw error;
+    }
+    if (!current()) return null;
+    const shared = isWorldBoundToOtherConversation(getSettings().chatWorlds, world.id, chatKey, recovery, getContext().name2);
+    const sameSnapshot = stored?.id === world.id && Number(stored.revision) === Number(world.revision)
+        && fields.every(key => JSON.stringify(stored[key] ?? null) === JSON.stringify(world[key] ?? null));
+    // Preserve the paid vector collection's ID when the exact original is
+    // backed up and unshared. A competing/newer canonical copy stays untouched.
+    const recovered = sameSnapshot && !shared
+        ? (await api.saveWorld({ ...recovery.world, revision: stored.revision })).world
+        : (await api.importWorld({ ...recovery.world, id: missing && !shared ? world.id : '' })).world;
     if (!current()) return null;
     const alignment = alignWorldToChat(recovered, collectFingerprintMessages(getContext().chat || []), chatKey);
     if (!alignment.ok || !alignment.matched) throw new Error('The recovered memory prefix could not be verified.');
@@ -1125,8 +1139,7 @@ export async function ensureCurrentChatMemory(createIfMissing = false, recoverSt
                     return null;
                 }
             }
-            const boundElsewhere = existing && Object.entries(getSettings().chatWorlds || {})
-                .some(([chatKey, worldId]) => chatKey !== getChatKey() && worldId === existing.id);
+            const boundElsewhere = existing && isWorldBoundToOtherConversation(getSettings().chatWorlds, existing.id, chatKey, alignment, context.name2);
             if (existing?.corrupt && !boundElsewhere) {
                 const recovered = await api.recoverWorld(alignment.world);
                 if (!current()) return null;
