@@ -1,4 +1,10 @@
 // Deliberately contains no keys, headers, or device-local settings.
+export function unavailableEmbeddingRecords(collectionId, missing, expected) {
+    return Object.assign(new Error(`${missing} of ${expected} saved embeddings for this chat are unavailable on this device. They may still be syncing. No embeddings were rebuilt; other chats are unaffected.`), {
+        status: 409, code: 'CONTINUITY_EMBEDDINGS_UNAVAILABLE', collectionId, missing, expected,
+    });
+}
+
 export function portableEmbeddingDescriptor(value, collectionId) {
     if (value?.version !== 1 || value.collectionId !== collectionId || !Array.isArray(value.hashes)
         || value.hashes.some(hash => typeof hash !== 'number' || !Number.isFinite(hash))) {

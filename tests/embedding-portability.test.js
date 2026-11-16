@@ -177,7 +177,9 @@ test('pluginless partial sync blocks automatic rebuilding without issuing insert
         if (url.startsWith('/api/plugins/')) return json({}, 404);
         return json([]);
     });
-    await assert.rejects(request('list', options(base)), error => error.status === 409 && /still syncing/.test(error.message));
+    await assert.rejects(request('list', options(base)), error => error.status === 409
+        && error.code === 'CONTINUITY_EMBEDDINGS_UNAVAILABLE' && error.missing === 1 && error.expected === 1
+        && /may still be syncing/.test(error.message) && !/Waiting for|have not finished syncing/.test(error.message));
     assert.equal(calls.some(url => url.endsWith('/insert') || url === '/api/files/upload'), false);
 });
 

@@ -20,7 +20,7 @@ function deferred() {
 }
 
 function harness(fetchFn, overrides = {}) {
-    const runtime = {};
+    const runtime = { world: world() };
     const listeners = new Set();
     const settings = { retrievalMode: 'embedding-hybrid', embeddingAutoSync: true,
         embeddingProxyUrl: 'http://localhost:9999', embeddingProxyModel: 'test-model' };
@@ -42,6 +42,64 @@ function world() {
 }
 
 function json(value) { return new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } }); }
+
+test('unavailable embeddings identify only the affected chat without asserting sync is the cause', async () => {
+    const { api, runtime } = harness(async () => new Response(JSON.stringify({
+        code: 'CONTINUITY_EMBEDDINGS_UNAVAILABLE', collectionId: 'continuity_active-world',
+        missing: 3, expected: 79, error: 'legacy server detail',
+    }), { status: 409, headers: { 'content-type': 'application/json' } }));
+    runtime.world.name = 'Harry Potter';
+    await assert.rejects(api.inspectEmbeddingIndex(runtime.world), error =>
+        error.status === 409 && /Embeddings for “Harry Potter”/.test(error.message)
+        && /3 of 79/.test(error.message) && /may still be syncing/.test(error.message)
+        && !/legacy server detail|Vector Storage list failed|Waiting for/.test(error.message));
+    assert.equal(runtime.embeddingIndex.worldId, 'active-world');
+    assert.equal(runtime.embeddingIndex.status, 'error');
+    assert.equal(runtime.lastError, undefined, 'embedding access must not become a memory restore failure');
+});
+
+test('a late inspection from an unrelated chat cannot replace active chat status', async () => {
+    const started = deferred(), release = deferred();
+    const { api, runtime } = harness(async () => { started.resolve(); await release.promise; return json([]); });
+    const inspection = api.inspectEmbeddingIndex(runtime.world);
+    await started.promise;
+    runtime.world = { ...world(), id: 'harry-potter', name: 'Harry Potter' };
+    const current = runtime.embeddingIndex = { worldId: 'harry-potter', status: 'ready', indexed: 79 };
+    release.resolve();
+    await inspection;
+    assert.equal(runtime.embeddingIndex, current);
+});
+
+test('a failed unrelated build neither publishes its error nor blocks active chat inspection', async () => {
+    const started = deferred(), release = deferred();
+    const { api, runtime } = harness(async (url, options) => {
+        if (url.endsWith('/insert')) {
+            started.resolve(); await release.promise;
+            return new Response(JSON.stringify({ error: 'old chat failure' }), { status: 409, headers: { 'content-type': 'application/json' } });
+        }
+        return json([]);
+    });
+    const building = api.ensureEmbeddingIndex(runtime.world);
+    const failed = assert.rejects(building, /old chat failure/);
+    await started.promise;
+    runtime.world = { ...world(), id: 'harry-potter', name: 'Harry Potter' };
+    const current = runtime.embeddingIndex = { worldId: 'harry-potter', status: 'ready' };
+    release.resolve();
+    await failed;
+    assert.equal(runtime.embeddingIndex, current);
+    const result = await api.inspectEmbeddingIndex(runtime.world);
+    assert.equal(result.worldId, 'harry-potter');
+    assert.equal(result.status, 'empty');
+});
+
+test('a scheduled embedding check is discarded after switching to an unrelated chat', async () => {
+    const calls = [];
+    const { api, runtime } = harness(async url => { calls.push(url); return json([]); });
+    api.scheduleEmbeddingIndexSync(runtime.world, 0);
+    runtime.world = { ...world(), id: 'harry-potter' };
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.deepEqual(calls, []);
+});
 
 async function within(promise) {
     let timer;

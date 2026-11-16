@@ -134,6 +134,44 @@ test('stopping the story preserves CM work and respects its separate pause contr
 
 
 const ui = readFileSync(new URL('../extension/ui.js', import.meta.url), 'utf8');
+test('missing embeddings after resume do not report a failed memory restore or stop maintenance', async () => {
+    const world = { id: 'harry-potter', name: 'Harry Potter' };
+    const calls = [];
+    const state = { world, generation: 1, paused: false, stopSequence: 0, lastError: '' };
+    const scope = { document: { hidden: false }, liveUiRecoveryNeeded: true, liveUiRecoveryPromise: null,
+        lastLiveUiRecoveryAt: 0, LIVE_UI_RECOVERY_INTERVAL: 30000, runtime: state,
+        getChatKey: () => 'harry-potter', getSettings: () => ({ enabled: true, retrievalMode: 'embedding-hybrid' }),
+        repaintLiveSettings() {}, requestAnimationFrame: callback => callback(), refreshWorlds: async () => world,
+        inspectEmbeddingIndex: async () => { throw new Error('3 of 79 saved embeddings for Harry Potter are unavailable'); },
+        updateRuntime: patch => Object.assign(state, patch), scheduleResumedMemoryMaintenance: () => calls.push('maintenance'),
+    };
+    vm.createContext(scope);
+    vm.runInContext(ui.match(/function recoverLiveUiAfterResume\([^]*?^}/m)[0], scope);
+    scope.recoverLiveUiAfterResume(true);
+    await scope.liveUiRecoveryPromise;
+    assert.equal(state.lastError, '');
+    assert.equal(state.embeddingIndex.worldId, world.id);
+    assert.match(state.embeddingIndex.error, /Harry Potter/);
+    assert.deepEqual(calls, ['maintenance']);
+});
+
+test('resume does not inspect a previous chat after the active chat changes during loading', async () => {
+    let currentChat = 'story-of-evil';
+    const scope = { document: { hidden: false }, liveUiRecoveryNeeded: true, liveUiRecoveryPromise: null,
+        lastLiveUiRecoveryAt: 0, LIVE_UI_RECOVERY_INTERVAL: 30000, runtime: { generation: 1, stopSequence: 0 },
+        getChatKey: () => currentChat, getSettings: () => ({ enabled: true, retrievalMode: 'embedding-hybrid' }),
+        repaintLiveSettings() {}, requestAnimationFrame: callback => callback(),
+        refreshWorlds: async () => { currentChat = 'harry-potter'; return { id: 'story-of-evil' }; },
+        inspectEmbeddingIndex: () => { throw new Error('Must not inspect unrelated chat'); },
+        updateRuntime: () => { throw new Error('Must not publish an unrelated error'); },
+        scheduleResumedMemoryMaintenance: () => { throw new Error('Must not schedule unrelated work'); },
+    };
+    vm.createContext(scope);
+    vm.runInContext(ui.match(/function recoverLiveUiAfterResume\([^]*?^}/m)[0], scope);
+    scope.recoverLiveUiAfterResume(true);
+    await scope.liveUiRecoveryPromise;
+});
+
 test('browser reconnection refreshes persisted memory then schedules catch-up without overriding pause', async () => {
     for (const paused of [false, true]) {
         const calls = [];
