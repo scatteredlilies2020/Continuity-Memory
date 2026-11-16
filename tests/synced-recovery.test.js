@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from '../extension/chat-ownership.js';
+import { isWorldBoundToOtherConversation, rankSuperiorSyncedWorlds, resolveMissingWorldBinding } from '../extension/chat-ownership.js';
+import { buildEmbeddingDocuments } from '../extension/embedding-index.js';
 import { alignWorldToChat, collectFingerprintMessages, fingerprintMessage } from '../extension/message-digest.js';
 import { freshResetResiduals, mergeExtraction } from '../extension/memory-model.js';
 import { recoverTruncatedChatPrefix } from '../extension/branch-cache.js';
@@ -32,7 +33,7 @@ function harness() {
         activeChat: 'chat', settings, getSettings: () => settings,
         getContext: () => ({ name2: 'Person', chatId: 'Chat', chat }),
         getChatKey: () => scope.activeChat, getBoundWorldId: () => settings.chatWorlds[scope.activeChat] || '',
-        rankSuperiorSyncedWorlds, resolveMissingWorldBinding, alignWorldToChat, collectFingerprintMessages, freshResetResiduals, recoverTruncatedChatPrefix,
+        isWorldBoundToOtherConversation, rankSuperiorSyncedWorlds, resolveMissingWorldBinding, alignWorldToChat, collectFingerprintMessages, freshResetResiduals, recoverTruncatedChatPrefix,
         bindCurrentChat: id => { settings.chatWorlds[scope.activeChat] = id; },
         updateRuntime: patch => Object.assign(scope.runtime, patch), renderRuntime() {},
         embedWorldInChat: async world => { calls.embed.push(structuredClone(world)); }, clearPortableSnapshot: async () => {},
@@ -284,7 +285,8 @@ function truncatedPortableHarness() {
     h.portable.world = world;
     h.scope.worlds = [];
     h.scope.api.importWorld = async world => {
-        const id = `import-${++h.calls.import}`;
+        h.calls.import++;
+        const id = world.id || `import-${h.calls.import}`;
         const next = { ...structuredClone(world), id, revision: 0 };
         h.saved.set(id, next);
         return { world: structuredClone(next) };
@@ -303,7 +305,7 @@ test('truncated portable memory backs up the complete original before attaching 
     assert.match(backup.name, /Before tail recovery/);
     assert.deepEqual(backup.sources, before.sources);
     assert.deepEqual(backup.extractions, before.extractions);
-    assert.deepEqual(h.calls.read, ['import-1'], 'read back the full backup before publishing the prefix');
+    assert.deepEqual(h.calls.read, ['import-1', h.original.id], 'verify the full backup and inspect the canonical destination before publishing');
     assert.deepEqual(h.portable.world, before, 'do not mutate the original portable object');
     assert.equal(h.calls.embed.length, 1);
     assert.equal(h.calls.embedOptions[0].force, true);
@@ -322,6 +324,58 @@ test('simultaneous shortened-chat recovery requests share one backup and prefix 
     assert.equal(results[0].id, results[1].id);
     assert.equal(h.calls.import, 2);
     assert.equal(h.calls.embed.length, 1);
+});
+
+test('tail recovery preserves the embedding collection ID when its exact canonical snapshot is safely backed up', async () => {
+    const h = truncatedPortableHarness();
+    h.saved.set(h.original.id, structuredClone(h.portable.world));
+    const before = structuredClone(h.portable.world);
+    const hashes = new Set(buildEmbeddingDocuments(structuredClone(before)).map(item => item.hash));
+    const result = await h.scope.ensureCurrentChatMemory(false, true);
+    assert.equal(result.id, before.id, 'retain the existing vector collection');
+    assert.equal(h.calls.import, 1, 'only the full backup needs a new ID');
+    assert.equal(h.calls.save.length, 1);
+    assert.equal(result.sources.chat.processedMessages.length, 24);
+    assert.deepEqual(h.saved.get('import-1').extractions, before.extractions);
+    assert.ok(buildEmbeddingDocuments(result).some(item => hashes.has(item.hash)), 'verified records keep reusable vector hashes');
+});
+
+test('a missing canonical memory is restored under its original ID so synced vectors still attach', async () => {
+    const h = truncatedPortableHarness();
+    h.saved.delete(h.original.id);
+    const read = h.scope.api.getWorld;
+    h.scope.api.getWorld = async id => {
+        if (!h.saved.has(id)) throw Object.assign(new Error('Not found'), { status: 404 });
+        return await read(id);
+    };
+    const result = await h.scope.ensureCurrentChatMemory(false, true);
+    assert.equal(result.id, h.original.id);
+    assert.equal(h.calls.import, 2);
+    assert.equal(h.calls.save.length, 0);
+});
+
+for (const problem of ['newer', 'changed', 'shared']) test(`tail repair does not overwrite a ${problem} canonical memory to retain vectors`, async () => {
+    const h = truncatedPortableHarness();
+    const stored = structuredClone(h.portable.world);
+    if (problem === 'newer') stored.revision++;
+    if (problem === 'changed') stored.facts.push({ id: 'different-fact' });
+    if (problem === 'shared') h.settings.chatWorlds.other = stored.id;
+    h.saved.set(stored.id, stored);
+    const before = structuredClone(stored);
+    const result = await h.scope.ensureCurrentChatMemory(false, true);
+    assert.notEqual(result.id, stored.id);
+    assert.deepEqual(h.saved.get(stored.id), before);
+    assert.equal(h.calls.save.length, 0);
+});
+
+test('a canonical revision conflict during ID-preserving tail repair leaves the original backup and binding intact', async () => {
+    const h = truncatedPortableHarness();
+    h.saved.set(h.original.id, structuredClone(h.portable.world));
+    h.scope.api.saveWorld = async () => { throw Object.assign(new Error('Revision conflict'), { status: 409 }); };
+    assert.equal(await h.scope.ensureCurrentChatMemory(false, true), null);
+    assert.equal(h.settings.chatWorlds.chat, 'missing-binding');
+    assert.deepEqual(h.saved.get('import-1').extractions, h.portable.world.extractions);
+    assert.deepEqual(h.calls.embed, []);
 });
 
 for (const outcome of ['throw', 'skipped']) test(`a ${outcome} metadata save does not undo a committed recovery`, async () => {
@@ -436,6 +490,94 @@ test('same named recovery still rejects changed conversation history', async () 
     assert.deepEqual(h.calls.save, []);
     assert.deepEqual(h.calls.embed, []);
     assert.equal(h.settings.chatWorlds.chat, undefined);
+});
+
+function deviceAliasHarness() {
+    const h = invalidPortableHarness();
+    const oldKey = 'character:91:chat:Chat';
+    const currentKey = 'character:0:chat:Chat';
+    h.scope.activeChat = currentKey;
+    h.settings.chatWorlds = { [oldKey]: h.original.id };
+    h.original.sources = { [oldKey]: h.original.sources.chat };
+    h.original.facts = [{ id: 'same-record', subject: 'Guide', predicate: 'owns', value: 'a compass' }];
+    h.portable.world = structuredClone(h.original);
+    h.saved.delete(h.candidate.id);
+    h.scope.worlds = [{ id: h.original.id, name: h.original.name }];
+    const documents = buildEmbeddingDocuments(structuredClone(h.original));
+    // Simulates the already-paid vector collection keyed by world ID. Changing
+    // that ID would make coverage zero even with identical record hashes.
+    const storedVectors = new Map([[h.original.id, new Set(documents.map(item => item.hash))]]);
+    const assertVectorsRetained = world => {
+        const hashes = storedVectors.get(world.id) || new Set();
+        const currentDocuments = buildEmbeddingDocuments(structuredClone(world));
+        assert.ok(currentDocuments.length > 0);
+        assert.equal(currentDocuments.filter(item => hashes.has(item.hash)).length, currentDocuments.length);
+    };
+    return { ...h, oldKey, currentKey, assertVectorsRetained };
+}
+
+for (const embedded of ['valid', 'invalid']) test(`${embedded} portable restore preserves the vector collection across a device index change`, async () => {
+    const h = deviceAliasHarness();
+    if (embedded === 'invalid') h.portable.world.sources = {};
+    const result = await h.scope.ensureCurrentChatMemory(false);
+    assert.equal(result.id, h.original.id);
+    assert.equal(result.sources[h.oldKey], undefined);
+    assert.equal(result.sources[h.currentKey].processedMessages.length, 1);
+    assert.equal(h.settings.chatWorlds[h.oldKey], h.original.id);
+    assert.equal(h.settings.chatWorlds[h.currentKey], h.original.id);
+    assert.equal(h.calls.import, 0, 'do not fork memory or start a new embedding collection');
+    h.assertVectorsRetained(result);
+
+    h.scope.activeChat = h.oldKey;
+    h.scope.runtime.world = null;
+    const returned = await h.scope.refreshWorlds();
+    assert.equal(returned.id, h.original.id);
+    assert.equal(returned.sources[h.currentKey], undefined);
+    assert.equal(returned.sources[h.oldKey].processedMessages.length, 1);
+    assert.equal(h.calls.import, 0, 'switching back to the first device must not fork either');
+    h.assertVectorsRetained(returned);
+});
+
+test('stored-only same-chat recovery keeps its vector collection despite an old device binding', async () => {
+    const h = deviceAliasHarness();
+    const result = await h.scope.recoverStoredWorldForCurrentChat('missing');
+    assert.equal(result.world.id, h.original.id);
+    assert.equal(h.calls.import, 0);
+    h.assertVectorsRetained(result.world);
+});
+
+test('superior synced recovery retains the destination ID when its other binding is a verified device alias', async () => {
+    const h = harness();
+    const oldKey = 'character:91:chat:Chat', currentKey = 'character:0:chat:Chat';
+    h.scope.activeChat = currentKey;
+    h.settings.chatWorlds = { [oldKey]: h.original.id, [currentKey]: h.original.id };
+    h.original.sources = { [oldKey]: h.original.sources.chat };
+    h.candidate.sources = { [oldKey]: h.candidate.sources['old-device-chat'] };
+    const result = await h.scope.recoverSuperiorSyncedWorld(h.original);
+    assert.equal(result.id, h.original.id);
+    assert.equal(result.sources[currentKey].processedMessages.length, 3);
+    assert.equal(h.calls.import, 0);
+    assert.equal(h.calls.save.length, 1);
+});
+
+test('a genuine different-chat binding still forces a copy even alongside verified device aliases', async () => {
+    const h = deviceAliasHarness();
+    h.settings.chatWorlds['character:91:chat:Different conversation'] = h.original.id;
+    const before = structuredClone(h.original);
+    const result = await h.scope.ensureCurrentChatMemory(false);
+    assert.equal(result.id, 'private-copy');
+    assert.equal(h.calls.import, 1);
+    assert.deepEqual(h.saved.get(h.original.id), before);
+});
+
+test('changed source history cannot use a device alias to bypass fingerprint verification', async () => {
+    const h = deviceAliasHarness();
+    h.scope.getContext().chat[0].mes = 'Changed history';
+    assert.equal(await h.scope.ensureCurrentChatMemory(false), null);
+    assert.equal(h.calls.import, 0);
+    assert.deepEqual(h.calls.save, []);
+    assert.deepEqual(h.calls.embed, []);
+    assert.equal(h.settings.chatWorlds[h.currentKey], undefined);
 });
 
 test('invalid embedded fingerprints recover from an independently verified same-revision stored copy', async () => {
