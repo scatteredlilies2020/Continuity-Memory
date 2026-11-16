@@ -33,7 +33,7 @@ import { completeDigestMessageCount, latestCompleteDigestMessageIndex, resolveDi
 import { resolveInjectionBudget } from './injection-budget.js?pending-recovery=1';
 import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&historical-recall=1';
 import { blockSyncedRecovery } from './synced-recovery-policy.js?belief-wording=4&pending-recovery=1&historical-recall=1';
-import { queryEmbeddingMemory, embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2&current-recall=1&bounded-recall=1&catchup-gate=1&pending-recovery=1&historical-recall=1';
+import { queryEmbeddingMemory, embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2&current-recall=1&bounded-recall=1&catchup-gate=1&pending-recovery=1&historical-recall=1&portable-vectors=1';
 import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.30';
 import { discoveredModelIds, embeddingDiscoveryRequest } from './model-discovery.js?embedding-discovery=1';
 import { bindModelSelector, populateModelSelector, syncModelSelector } from './model-selector.js?model-selection=1';

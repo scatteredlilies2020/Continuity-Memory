@@ -36,6 +36,7 @@ function queryFixture(overrides = {}) {
     const requests = [];
     const context = {
         checkRetrievalDeadline, embeddingCoverageReady, getSettings: () => ({}), providerRequest: () => ({ fingerprint: 'provider', body: {} }),
+        prepareProvider: async () => ({ fingerprint: 'provider', body: {} }),
         indexSignature: () => 'signature', syncedIndexes: new Map([['world', 'signature']]), queryCache: new Map(),
         buildEmbeddingQuery: () => 'current query', buildEmbeddingDocuments: () => [], collectionId: () => 'collection',
         vectorRequest: async (...args) => { requests.push(args); return {}; },

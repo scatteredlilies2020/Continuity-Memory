@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { runInNewContext } from 'node:vm';
 import { buildEmbeddingDocuments, buildEmbeddingQuery, semanticRanksFromResponse } from '../extension/embedding-index.js';
-import { resolveEmbeddingProvider } from '../extension/embedding-provider.js';
+import { resolveIndexedEmbeddingProvider } from '../extension/embedding-provider.js';
 import { createVectorStorageRequester, vectorStorageError } from '../extension/vector-storage-client.js';
 import { embeddingRetryDelay, isRetryableEmbeddingError } from '../extension/embedding-retry.js';
 import { checkRetrievalDeadline } from '../extension/retrieval-assist.js';
@@ -25,8 +25,8 @@ function harness(fetchFn, overrides = {}) {
     const settings = { retrievalMode: 'embedding-hybrid', embeddingAutoSync: true,
         embeddingProxyUrl: 'http://localhost:9999', embeddingProxyModel: 'test-model' };
     const api = runInNewContext(`${source}\n({ rebuildEmbeddingIndex, ensureEmbeddingIndex, ensureGenerationEmbeddingIndex, queryEmbeddingMemory, inspectEmbeddingIndex, scheduleEmbeddingIndexSync, pauseEmbeddingIndexing, stopEmbeddingIndexing, resumeEmbeddingIndexing })`, {
-        buildEmbeddingDocuments, buildEmbeddingQuery, semanticRanksFromResponse, resolveEmbeddingProvider,
-        createVectorStorageRequester: () => createVectorStorageRequester(fetchFn), vectorStorageError,
+        buildEmbeddingDocuments, buildEmbeddingQuery, semanticRanksFromResponse, resolveIndexedEmbeddingProvider,
+        createVectorStorageRequester: () => createVectorStorageRequester(fetchFn, { portable: false }), vectorStorageError,
         embeddingRetryDelay, isRetryableEmbeddingError, checkRetrievalDeadline, embeddingCoverageReady, asRoleplayBlockingError,
         getSettings: () => settings, getRequestHeaders: () => ({}), runtime,
         onRuntimeChange: listener => { listeners.add(listener); return () => listeners.delete(listener); },
