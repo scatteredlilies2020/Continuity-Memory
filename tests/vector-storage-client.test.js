@@ -31,7 +31,7 @@ test('vector client falls back to native SillyTavern storage when the optional C
     assert.equal((await request('list', {})).status, 200);
     assert.equal((await request('insert', {})).status, 200);
     assert.deepEqual(calls, [
-        '/api/plugins/continuity-memory/vectors/list',
+        '/api/plugins/continuity-memory/vectors/native/list',
         '/api/vector/list',
         '/api/vector/insert',
     ]);
@@ -47,8 +47,8 @@ test('vector client keeps all operations on CM storage when its plugin is availa
     await request('list', {});
     await request('delete', {});
     assert.deepEqual(calls, [
-        '/api/plugins/continuity-memory/vectors/list',
-        '/api/plugins/continuity-memory/vectors/delete',
+        '/api/plugins/continuity-memory/vectors/native/list',
+        '/api/plugins/continuity-memory/vectors/native/delete',
     ]);
 });
 
@@ -60,5 +60,5 @@ test('vector client does not hide real CM storage errors behind another backend'
     });
 
     assert.equal((await request('list', {})).status, 500);
-    assert.deepEqual(calls, ['/api/plugins/continuity-memory/vectors/list']);
+    assert.deepEqual(calls, ['/api/plugins/continuity-memory/vectors/native/list']);
 });

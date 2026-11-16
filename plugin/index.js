@@ -10,6 +10,7 @@ import { syncChronicleBase } from '../extension/chronicle.js';
 import { assertChronicleChanges } from '../extension/chronicle-validation.js';
 import { cancelDetachedJob, createDetachedJob, getDetachedJob, listDetachedJobs } from './detached-jobs.js';
 import { registerVectorRoutes } from './vector-store.js';
+import { registerNativeVectorRoutes } from './native-vector-store.js';
 import { CONTINUITY_VERSION } from '../extension/build-info.js';
 import { maintainStorageRetention, readShardPolicy, withShardWorldLock, writeShardPolicy } from './shard-retention.js';
 import { assertPlainStoragePath, atomicStorageJson, readStorageJson } from './storage-json.js';
@@ -568,6 +569,7 @@ export async function init(router, {
         console.log(`[${PLUGIN}] frontend ${frontend.status} at ${frontend.path}`);
     }
     registerVectorRoutes(router, { embedTexts });
+    registerNativeVectorRoutes(router, { embedTexts });
     router.get('/storage-policy', async (req, res) => {
         try { res.json({ ok: true, policy: await readShardPolicy(await ensureStorage(req)) }); }
         catch (error) { sendError(res, error); }

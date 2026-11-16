@@ -1,1 +1,1 @@
-export const CONTINUITY_VERSION = '0.15.0-testing.46';
+export const CONTINUITY_VERSION = '0.15.0-testing.47';

@@ -47,6 +47,15 @@ export function resolveEmbeddingProvider(settings = {}) {
     };
 }
 
+export function resolveIndexedEmbeddingProvider(settings, saved) {
+    if (!saved) return resolveEmbeddingProvider(settings);
+    const provider = resolveEmbeddingProvider({ ...settings,
+        embeddingProvider: saved.source === 'openrouter' ? EMBEDDING_PROVIDERS.OPENROUTER : EMBEDDING_PROVIDERS.PROXY,
+        embeddingProxyModel: saved.model, embeddingOpenRouterModel: saved.model,
+    });
+    return { ...provider, label: `${provider.label} (saved with this index)` };
+}
+
 function validatedEndpoint(value, label) {
     const apiUrl = required(value, label).replace(/\/+$/, '');
     let parsed;

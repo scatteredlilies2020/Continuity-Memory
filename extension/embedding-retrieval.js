@@ -1,9 +1,9 @@
 import { getRequestHeaders } from '/script.js';
 import { buildEmbeddingDocuments, buildEmbeddingQuery, semanticRanksFromResponse } from './embedding-index.js?v=0.15.0-testing.30&historical-recall=1';
-import { resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.30';
+import { resolveIndexedEmbeddingProvider } from './embedding-provider.js?portable-vectors=1';
 import { getSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&historical-recall=1';
 import { onRuntimeChange, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.30';
-import { createVectorStorageRequester, vectorStorageError } from './vector-storage-client.js?v=0.15.0-testing.30';
+import { createVectorStorageRequester, vectorStorageError } from './vector-storage-client.js?portable-vectors=1';
 import { embeddingRetryDelay, isRetryableEmbeddingError } from './embedding-retry.js?v=0.15.0-testing.30';
 import { checkRetrievalDeadline } from './retrieval-assist.js?bounded-recall=1&catchup-gate=1';
 import { asRoleplayBlockingError } from './generation-policy.js?v=0.15.0-testing.30';
@@ -22,8 +22,16 @@ const EMBEDDING_STALL_RESTART_DELAY_MS = 10000;
 let indexingControl = 'running';
 const requestVectorStorage = createVectorStorageRequester();
 
-function providerRequest() {
-    return resolveEmbeddingProvider(getSettings());
+function providerRequest(world = runtime.world) {
+    const saved = world?.id && requestVectorStorage.providerFor(collectionId(world.id));
+    const provider = resolveIndexedEmbeddingProvider(getSettings(), saved);
+    const { source, model, apiUrl } = provider.body;
+    return { ...provider, fingerprint: `portable:${JSON.stringify({ source, model, apiUrl })}` };
+}
+
+async function prepareProvider(world, signal) {
+    await requestVectorStorage.prepare(collectionId(world.id), { headers: getRequestHeaders(), signal });
+    return providerRequest(world);
 }
 
 function collectionId(worldId) {
@@ -176,7 +184,7 @@ export function embeddingProviderDescription() {
 
 export async function inspectEmbeddingIndex(world, { signal } = {}) {
     if (!world?.id) throw new Error('No Continuity memory is open for embedding indexing.');
-    const provider = providerRequest();
+    const provider = await prepareProvider(world, signal);
     const documents = buildEmbeddingDocuments(world);
     // Reply lookups must not replace a running build's progress or queue a
     // cancellable inspection behind its current insert on the server.
@@ -238,7 +246,7 @@ export async function ensureEmbeddingIndex(world, force = false, lockHeld = fals
         const lockName = `continuity-embedding-index:${world.id}`;
         return globalThis.navigator.locks.request(lockName, () => ensureEmbeddingIndex(world, force, true));
     }
-    const provider = providerRequest();
+    const provider = await prepareProvider(world);
     if (!embeddingBuildAllowed()) return interruptedResult(world, provider);
     const signature = indexSignature(world, provider);
     if (!force && syncedIndexes.get(world.id) === signature) return { status: 'ready', unchanged: true, provider: provider.label };
@@ -411,7 +419,7 @@ export function scheduleEmbeddingIndexSync(world, delay = 300, allowAutomaticBui
 
 export function getCachedEmbeddingMemory(world, messages) {
     const settings = getSettings();
-    const provider = providerRequest();
+    const provider = providerRequest(world);
     const query = buildEmbeddingQuery(messages, settings.retrievalQueryMessages, 6000);
     const topK = Math.min(200, Math.max(10, Number(settings.embeddingTopK) || 100));
     const threshold = Math.min(1, Math.max(0, Number(settings.embeddingThreshold) || 0));
@@ -420,7 +428,7 @@ export function getCachedEmbeddingMemory(world, messages) {
 }
 
 function generationEmbeddingCoverageReady(world) {
-    const signature = indexSignature(world, providerRequest());
+    const signature = indexSignature(world, providerRequest(world));
     if (syncedIndexes.get(world.id) === signature) return true;
     const active = activeWorldSyncs.get(world.id);
     if (!active || activeSyncs.get(signature) !== active || runtime.embeddingIndex?.worldId !== world.id) return false;
@@ -457,6 +465,8 @@ function waitForGenerationEmbeddingCoverage(world, work, signal) {
 }
 
 export async function ensureGenerationEmbeddingIndex(world, { signal } = {}) {
+    if (getSettings().retrievalMode !== 'embedding-hybrid') return;
+    await prepareProvider(world, signal);
     while (true) {
         signal?.throwIfAborted();
         if (getSettings().retrievalMode !== 'embedding-hybrid') return;
@@ -482,7 +492,8 @@ export async function ensureGenerationEmbeddingIndex(world, { signal } = {}) {
 export async function queryEmbeddingMemory(world, messages, { signal, deadline, onDispatch } = {}) {
     checkRetrievalDeadline(signal, deadline);
     const settings = getSettings();
-    const provider = providerRequest();
+    const provider = await prepareProvider(world, signal);
+    checkRetrievalDeadline(signal, deadline);
     const signature = indexSignature(world, provider);
     let index = syncedIndexes.get(world.id) === signature
         ? { status: 'ready' }

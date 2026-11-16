@@ -21,7 +21,7 @@ function requiredText(value, label, maximum = 1000) {
     return text;
 }
 
-function providerFromBody(body = {}) {
+export function providerFromBody(body = {}) {
     const source = requiredText(body.source, 'Embedding source', 40);
     if (!SUPPORTED_SOURCES.has(source)) throw httpError(`Unsupported embedding source: ${source}`);
     const model = requiredText(body.model, 'Embedding model', 300);
@@ -33,13 +33,13 @@ function providerFromBody(body = {}) {
     return { source, model, apiUrl };
 }
 
-function collectionFromBody(body = {}) {
+export function collectionFromBody(body = {}) {
     const collectionId = requiredText(body.collectionId, 'Collection ID', 160);
     if (!COLLECTION_RE.test(collectionId)) throw httpError('Collection ID is invalid');
     return collectionId;
 }
 
-function fingerprint(provider) {
+export function fingerprint(provider) {
     return crypto.createHash('sha256').update(JSON.stringify(provider)).digest('hex');
 }
 
@@ -75,7 +75,7 @@ function normalizeItem(item, expectedLength = 0) {
     return { hash, text, index, vector };
 }
 
-function normalizeStore(value, location) {
+export function normalizeStore(value, location) {
     if (!value || ![1, STORE_VERSION].includes(value.version) || !Array.isArray(value.items)) {
         throw new SyntaxError(`Invalid Continuity Memory vector store: ${location.file}`);
     }
@@ -276,18 +276,21 @@ export async function hostEmbedTexts({ provider, texts, directories }, { loadPro
     return results;
 }
 
-export function registerVectorRoutes(router, { embedTexts = hostEmbedTexts } = {}) {
+export function registerVectorRoutes(router, { embedTexts = hostEmbedTexts, storage } = {}) {
+    const locate = storage?.location || storeLocation;
+    const read = storage?.read || readStore;
+    const write = storage?.write || ((location, value) => atomicWrite(location.file, value));
     router.post('/vectors/list', async (req, res) => {
         try {
-            const location = storeLocation(req, req.body);
-            const hashes = await withLock(location.directory, async () => (await readStore(req, location)).items.map(item => item.hash));
+            const location = locate(req, req.body);
+            const hashes = await withLock(location.directory, async () => (await read(req, location)).items.map(item => item.hash));
             res.json(hashes);
         } catch (error) { sendVectorError(res, error); }
     });
 
     router.post('/vectors/insert', async (req, res) => {
         try {
-            const location = storeLocation(req, req.body);
+            const location = locate(req, req.body);
             if (!Array.isArray(req.body.items)) throw httpError('Vector items must be an array');
             const items = req.body.items.map(value => {
                 const hash = Number(value?.hash);
@@ -297,19 +300,22 @@ export function registerVectorRoutes(router, { embedTexts = hostEmbedTexts } = {
                 return { hash, text, index };
             });
             await withLock(location.directory, async () => {
+                // A portable cache may still be arriving via sync. Detect that
+                // before requesting any paid replacement vectors.
+                if (storage) await read(req, location);
                 const vectors = await embedTexts({ provider: location.provider, texts: items.map(item => item.text), directories: req.user.directories, isQuery: false });
                 if (vectors.length !== items.length) throw new Error(`Embedding provider returned ${vectors.length} vectors for ${items.length} texts`);
                 const additions = items.map((item, index) => {
                     if (!validVector(vectors[index])) throw new Error(`Embedding provider returned an invalid vector at index ${index}`);
                     return { ...item, vector: vectors[index] };
                 });
-                const store = await readStore(req, location);
+                const store = await read(req, location);
                 const dimensions = store.items[0]?.vector.length || additions[0]?.vector.length || 0;
                 if (additions.some(item => !validVector(item.vector, dimensions))) throw new Error('Embedding vector dimensions do not match the stored index');
                 const byHash = new Map(store.items.map(item => [item.hash, item]));
                 for (const item of additions) byHash.set(item.hash, item);
                 store.items = [...byHash.values()];
-                await atomicWrite(location.file, store);
+                await write(location, store);
             });
             res.json({ ok: true, inserted: items.length });
         } catch (error) { sendVectorError(res, error); }
@@ -317,15 +323,15 @@ export function registerVectorRoutes(router, { embedTexts = hostEmbedTexts } = {
 
     router.post('/vectors/delete', async (req, res) => {
         try {
-            const location = storeLocation(req, req.body);
+            const location = locate(req, req.body);
             if (!Array.isArray(req.body.hashes)) throw httpError('Vector hashes must be an array');
             const hashes = new Set(req.body.hashes.map(Number).filter(Number.isFinite));
             let removed = 0;
             await withLock(location.directory, async () => {
-                const store = await readStore(req, location);
+                const store = await read(req, location);
                 const retained = store.items.filter(item => !hashes.has(item.hash));
                 removed = store.items.length - retained.length;
-                if (removed) await atomicWrite(location.file, { ...store, items: retained });
+                if (removed) await write(location, { ...store, items: retained });
             });
             res.json({ ok: true, removed });
         } catch (error) { sendVectorError(res, error); }
@@ -333,14 +339,18 @@ export function registerVectorRoutes(router, { embedTexts = hostEmbedTexts } = {
 
     router.post('/vectors/query', async (req, res) => {
         try {
-            const location = storeLocation(req, req.body);
+            const location = locate(req, req.body);
             const searchText = requiredText(req.body.searchText, 'Search text', 10000);
             const topK = Math.min(1000, Math.max(1, Number(req.body.topK) || 10));
             const threshold = Math.min(1, Math.max(-1, Number(req.body.threshold) || 0));
+            if (storage) await withLock(location.directory, () => read(req, location));
             const [queryVector] = await embedTexts({ provider: location.provider, texts: [searchText], directories: req.user.directories, isQuery: true });
             if (!validVector(queryVector)) throw new Error('Embedding provider returned an invalid query vector');
             const results = await withLock(location.directory, async () => {
-                const store = await readStore(req, location);
+                const store = await read(req, location);
+                if (storage && store.items.length && store.items[0].vector.length !== queryVector.length) {
+                    throw httpError('The local embedding service returned different dimensions from the saved model. The paid cache was kept; connect a service that supports this model.', 409);
+                }
                 return store.items
                     .map(item => ({ item, score: cosine(queryVector, item.vector) }))
                     .filter(result => result.score >= threshold)
@@ -359,6 +369,10 @@ export function registerVectorRoutes(router, { embedTexts = hostEmbedTexts } = {
             // Match the native API: purge the collection, not only the current
             // provider. This must also work with embeddings disabled/unconfigured.
             const collectionId = collectionFromBody(req.body);
+            if (storage?.purge) {
+                await storage.purge(req, collectionId, withLock);
+                return res.json({ ok: true });
+            }
             const directory = path.join(req.user.directories.root, 'continuity-memory', 'vectors', collectionId);
             await withLock(directory, async () => {
                 await atomicWrite(path.join(directory, '.purged'), { purged: true });
