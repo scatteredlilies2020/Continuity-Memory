@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { collectionFromBody, providerFromBody, fingerprint, normalizeStore, registerVectorRoutes } from './vector-store.js';
 import { atomicStorageJson, readStorageJson } from './storage-json.js';
-import { embeddingDescriptorFilename, portableEmbeddingDescriptor } from '../extension/embedding-portability.js';
+import { embeddingDescriptorFilename, portableEmbeddingDescriptor, unavailableEmbeddingRecords } from '../extension/embedding-portability.js';
 
 const conflict = message => Object.assign(new Error(message), { status: 409 });
 
@@ -75,9 +75,8 @@ async function read(req, loc) {
     let store = loc.original === undefined ? { version: 2, provider: loc.provider, items: [] } : fromNative(JSON.parse(loc.original), loc);
     if (descriptor) {
         const hashes = new Set(store.items.map(item => item.hash));
-        if (descriptor.hashes.some(hash => !hashes.has(hash))) {
-            throw conflict('Saved embedding records have not finished syncing. Waiting for the native vectors folder; no re-embedding was requested.');
-        }
+        const missing = descriptor.hashes.filter(hash => !hashes.has(hash)).length;
+        if (missing) throw unavailableEmbeddingRecords(loc.collectionId, missing, descriptor.hashes.length);
         // A descriptor is also a migration receipt. In particular, a purge
         // must never resurrect the retained detached backup.
         return store;

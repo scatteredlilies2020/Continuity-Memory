@@ -73,6 +73,8 @@ Conversion verifies new shards before atomically publishing the manifest, shares
 
 ### Syncthing rules for embeddings
 
+An unavailable-cache warning names the affected chat and reports how many saved embeddings are missing on this device. Sync is one possible cause, not a confirmed diagnosis. This does not mean structured memory failed to restore: memory maintenance continues, while paid replacement indexing remains blocked for the affected cache. Switching chats clears its displayed embedding status; unrelated chats do not wait for that cache.
+
 If your synced folder is the SillyTavern user data directory and you exclude `/vectors`, put these exceptions **before** that exclusion on **each device**:
 
 ```text

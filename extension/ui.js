@@ -33,7 +33,7 @@ import { completeDigestMessageCount, latestCompleteDigestMessageIndex, resolveDi
 import { resolveInjectionBudget } from './injection-budget.js?pending-recovery=1';
 import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&historical-recall=1';
 import { blockSyncedRecovery } from './synced-recovery-policy.js?belief-wording=4&pending-recovery=1&historical-recall=1';
-import { queryEmbeddingMemory, embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2&current-recall=1&bounded-recall=1&catchup-gate=1&pending-recovery=1&historical-recall=1&portable-vectors=1';
+import { queryEmbeddingMemory, embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2&current-recall=1&bounded-recall=1&catchup-gate=1&pending-recovery=1&historical-recall=1&portable-vectors=1&cache-status=1';
 import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.30';
 import { discoveredModelIds, embeddingDiscoveryRequest } from './model-discovery.js?embedding-discovery=1';
 import { bindModelSelector, populateModelSelector, syncModelSelector } from './model-selector.js?model-selection=1';
@@ -560,10 +560,20 @@ function recoverLiveUiAfterResume(forceReload = false) {
     liveUiRecoveryPromise = (async () => {
         await new Promise(resolve => requestAnimationFrame(resolve));
         const world = await refreshWorlds();
+        if (getChatKey() !== recoveryChatKey || runtime.generation !== recoveryGeneration) return;
         if (world && getSettings().retrievalMode === 'embedding-hybrid') {
             // Restore persisted coverage without automatically embedding. A
             // user action or generation gate may resume an incomplete build.
-            await inspectEmbeddingIndex(world);
+            try { await inspectEmbeddingIndex(world); }
+            catch (error) {
+                // An unavailable vector cache is not a failure to restore
+                // structured memory. Inspection reports it in Embeddings;
+                // keep normal memory maintenance running for this chat.
+                if (getChatKey() === recoveryChatKey && runtime.generation === recoveryGeneration
+                    && runtime.world?.id === world.id) {
+                    updateRuntime({ embeddingIndex: { worldId: world.id, status: 'error', error: error.message } });
+                }
+            }
         }
         lastLiveUiRecoveryAt = Date.now();
         if (getSettings().enabled && !runtime.paused && runtime.stopSequence === stopSequence

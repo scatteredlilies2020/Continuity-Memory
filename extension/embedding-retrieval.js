@@ -3,7 +3,7 @@ import { buildEmbeddingDocuments, buildEmbeddingQuery, semanticRanksFromResponse
 import { resolveIndexedEmbeddingProvider } from './embedding-provider.js?portable-vectors=1';
 import { getSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&historical-recall=1';
 import { onRuntimeChange, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.30';
-import { createVectorStorageRequester, vectorStorageError } from './vector-storage-client.js?portable-vectors=1';
+import { createVectorStorageRequester, vectorStorageError } from './vector-storage-client.js?portable-vectors=1&cache-status=1';
 import { embeddingRetryDelay, isRetryableEmbeddingError } from './embedding-retry.js?v=0.15.0-testing.30';
 import { checkRetrievalDeadline } from './retrieval-assist.js?bounded-recall=1&catchup-gate=1';
 import { asRoleplayBlockingError } from './generation-policy.js?v=0.15.0-testing.30';
@@ -13,6 +13,7 @@ const syncedIndexes = new Map();
 const activeSyncs = new Map();
 const activeWorldSyncs = new Map();
 const queryCache = new Map();
+const embeddingWorldNames = new Map();
 const syncTimers = new Map();
 const activeControllers = new Set();
 const activeRestartWaiters = new Set();
@@ -23,6 +24,7 @@ let indexingControl = 'running';
 const requestVectorStorage = createVectorStorageRequester();
 
 function providerRequest(world = runtime.world) {
+    if (world?.id) embeddingWorldNames.set(collectionId(world.id), String(world.name || world.id));
     const saved = world?.id && requestVectorStorage.providerFor(collectionId(world.id));
     const provider = resolveIndexedEmbeddingProvider(getSettings(), saved);
     const { source, model, apiUrl } = provider.body;
@@ -64,6 +66,10 @@ async function vectorRequest(route, payload, signal, onDispatch) {
         const contentType = response.headers.get('content-type') || '';
         return contentType.includes('application/json') ? response.json() : null;
     } catch (error) {
+        if (error.code === 'CONTINUITY_EMBEDDINGS_UNAVAILABLE') {
+            const name = embeddingWorldNames.get(payload.collectionId) || payload.collectionId;
+            error.message = `Embeddings for “${name}”: ${error.message}`;
+        }
         if (timedOut) {
             const timeoutError = new Error(`Vector Storage ${route} timed out after ${Math.round(timeoutMs / 1000)} seconds; it will resume from stored vectors.`, { cause: error });
             timeoutError.code = 'CONTINUITY_VECTOR_REQUEST_TIMEOUT';
@@ -137,7 +143,11 @@ function indexSignature(world, provider) {
 }
 
 function setIndexStatus(patch) {
-    updateRuntime({ embeddingIndex: { ...(runtime.embeddingIndex || {}), ...(patch || {}) } });
+    // An old chat's in-flight build/check must not replace the active chat's
+    // progress or publish its failure after a switch.
+    if (patch?.worldId && patch.worldId !== runtime.world?.id) return;
+    const previous = runtime.embeddingIndex?.worldId === (patch?.worldId || runtime.world?.id) ? runtime.embeddingIndex : {};
+    updateRuntime({ embeddingIndex: { ...previous, ...(patch || {}) } });
 }
 
 function interruptedResult(world, provider) {
@@ -206,7 +216,12 @@ export async function inspectEmbeddingIndex(world, { signal } = {}) {
         error: '',
     });
     const inspectionStatus = runtime.embeddingIndex;
-    const saved = await vectorRequest('list', base, signal) || [];
+    let saved;
+    try { saved = await vectorRequest('list', base, signal) || []; }
+    catch (error) {
+        if (runtime.embeddingIndex === inspectionStatus) setIndexStatus({ status: 'error', error: error.message, worldId: world.id });
+        throw error;
+    }
     const desiredHashes = new Set(documents.map(document => document.hash));
     const savedHashes = [...new Set((Array.isArray(saved) ? saved : []).map(Number).filter(Number.isFinite))];
     const retained = savedHashes.filter(hash => desiredHashes.has(hash)).length;
@@ -403,9 +418,11 @@ export function scheduleEmbeddingIndexSync(world, delay = 300, allowAutomaticBui
         syncTimers.delete(world.id);
         const settings = getSettings();
         if (settings.retrievalMode !== 'embedding-hybrid' || indexingControl !== 'running') return;
+        if (runtime.world?.id !== world.id) return;
         const task = allowAutomaticBuild && settings.embeddingAutoSync
             ? resumeEmbeddingIndexing(world)
             : inspectEmbeddingIndex(world).then(index => {
+                if (runtime.world?.id !== world.id) return index;
                 // Resume a saved partial build even when the memory revision
                 // has not changed since opening the chat or generating a reply.
                 if (allowAutomaticBuild && index.status === 'incomplete' && settings.embeddingAutoSync && indexingControl === 'running') {

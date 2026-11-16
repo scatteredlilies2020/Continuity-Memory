@@ -390,5 +390,7 @@ export function registerVectorRoutes(router, { embedTexts = hostEmbedTexts, stor
 function sendVectorError(res, error) {
     const status = Number(error.status) || (error.code === 'ENOENT' ? 404 : 500);
     if (status >= 500) console.error('[continuity-memory] Vector storage error:', error);
-    res.status(status).json({ ok: false, error: error.message || String(error) });
+    const detail = error.code === 'CONTINUITY_EMBEDDINGS_UNAVAILABLE'
+        ? { code: error.code, collectionId: error.collectionId, missing: error.missing, expected: error.expected } : {};
+    res.status(status).json({ ok: false, error: error.message || String(error), ...detail });
 }

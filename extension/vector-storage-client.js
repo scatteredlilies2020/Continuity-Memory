@@ -1,4 +1,4 @@
-import { embeddingDescriptorFilename, portableEmbeddingDescriptor } from './embedding-portability.js';
+import { embeddingDescriptorFilename, portableEmbeddingDescriptor, unavailableEmbeddingRecords } from './embedding-portability.js?cache-status=1';
 
 const STANDALONE_BASE = '/api/plugins/continuity-memory/vectors/native';
 const SILLYTAVERN_BASE = '/api/vector';
@@ -8,6 +8,10 @@ export async function vectorStorageError(route, response) {
     try {
         if (response.headers?.get('content-type')?.includes('application/json')) {
             const body = await response.json();
+            if (response.status === 409 && body?.code === 'CONTINUITY_EMBEDDINGS_UNAVAILABLE'
+                && Number.isInteger(body.missing) && body.missing > 0 && Number.isInteger(body.expected) && body.expected >= body.missing) {
+                return unavailableEmbeddingRecords(body.collectionId, body.missing, body.expected);
+            }
             if (typeof body?.error === 'string') detail = body.error.slice(0, 500);
         }
     } catch { /* Keep the HTTP status if the error body is malformed. */ }
@@ -82,9 +86,8 @@ export function createVectorStorageRequester(fetchFn = (...args) => fetch(...arg
             const hashes = await response.clone().json();
             if (!Array.isArray(hashes)) throw new Error('Invalid stored embedding hashes');
             const saved = new Set(hashes);
-            if (descriptor?.hashes.some(hash => !saved.has(hash))) {
-                throw Object.assign(new Error('Saved embeddings are still syncing. Waiting for the vectors folder; the cache will not be rebuilt automatically.'), { status: 409 });
-            }
+            const missing = descriptor?.hashes.filter(hash => !saved.has(hash)).length || 0;
+            if (missing) throw unavailableEmbeddingRecords(collectionId, missing, descriptor.hashes.length);
             if (hashes.length && (!descriptor || JSON.stringify(descriptor.hashes) !== JSON.stringify(hashes))) {
                 await save(collectionId, { version: 1, collectionId, provider: body, hashes }, options);
             }
