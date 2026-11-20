@@ -33,13 +33,14 @@ import { completeDigestMessageCount, latestCompleteDigestMessageIndex, resolveDi
 import { resolveInjectionBudget } from './injection-budget.js?pending-recovery=1';
 import { bindCurrentChat, getBoundWorldId, getChatKey, getSettings, markWorldDeleted, resetConfigurationSettings, resetPromptSettings, saveSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&historical-recall=1';
 import { blockSyncedRecovery } from './synced-recovery-policy.js?belief-wording=4&pending-recovery=1&historical-recall=1';
-import { queryEmbeddingMemory, embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2&current-recall=1&bounded-recall=1&catchup-gate=1&pending-recovery=1&historical-recall=1&portable-vectors=1&cache-status=1';
+import { queryEmbeddingMemory, embeddingProviderDescription, inspectEmbeddingIndex, pauseEmbeddingIndexing, purgeEmbeddingIndex, rebuildEmbeddingIndex, resumeEmbeddingIndexing, scheduleEmbeddingIndexSync, stopEmbeddingIndexing } from './embedding-retrieval.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2&current-recall=1&bounded-recall=1&catchup-gate=1&pending-recovery=1&historical-recall=1&portable-vectors=1&cache-status=1&branch-vectors=1';
 import { embeddingModelChoices, resolveEmbeddingProvider } from './embedding-provider.js?v=0.15.0-testing.30';
 import { discoveredModelIds, embeddingDiscoveryRequest } from './model-discovery.js?embedding-discovery=1';
 import { bindModelSelector, populateModelSelector, syncModelSelector } from './model-selector.js?model-selection=1';
 import { createCredentialMemory, directCredentialContext, embeddingCredentialContext } from './credential-memory.js?connection-memory=1';
 import { embedPortableMemoryInChatExport, getPortableSnapshotFromChatExport, parseChatExport, removePortableMemoryFromChatExport } from './chat-export-portability.js';
 import { forkWorldToBranch, recoverTruncatedChatPrefix } from './branch-cache.js?v=0.15.0-testing.30&historical-recall=1&tail-recovery=1';
+import { inheritBranchEmbeddings } from './branch-embeddings.js';
 import { clampReviewFontSize, DEFAULT_REVIEW_FONT_SIZE, extractionReviewRecoveryAction, pinchedReviewFontSize, REVIEW_FONT_STEP, touchDistance } from './review-display.js?v=0.15.0-testing.30';
 import { retrievalSnapshotDiagnostics } from './retrieval-snapshot.js?v=0.15.0-testing.30';
 import { buildNativeChatExportRequest, readNativeChatExportResponse } from './chat-export-request.js?v=0.15.0-testing.30';
@@ -1106,6 +1107,15 @@ export async function ensureCurrentChatMemory(createIfMissing = false, recoverSt
     creatingChatMemory = (async () => {
         const context = getContext();
         const parentChatKey = branchParentChatKey();
+        const reuseBranchEmbeddings = async (alignment, parentWorldId, importedWorld) => {
+            if (alignment.code !== 'branch-prefix-reused' || !current()) return;
+            try {
+                await inheritBranchEmbeddings(parentWorldId, importedWorld, getRequestHeaders());
+            } catch (error) {
+                console.warn('[Continuity] Could not reuse the parent branch’s embeddings.', error);
+                if (current()) toast('warning', `Structured memory was copied, but parent embeddings could not be reused: ${error.message}`);
+            }
+        };
         const portable = getPortableSnapshot();
         if (portable && !(getSettings().deletedWorldIds || []).includes(portable.world.id)) {
             let alignment;
@@ -1149,7 +1159,8 @@ export async function ensureCurrentChatMemory(createIfMissing = false, recoverSt
                     return null;
                 }
             }
-            const boundElsewhere = existing && isWorldBoundToOtherConversation(getSettings().chatWorlds, existing.id, chatKey, alignment, context.name2);
+            const boundElsewhere = alignment.code === 'branch-prefix-reused'
+                || (existing && isWorldBoundToOtherConversation(getSettings().chatWorlds, existing.id, chatKey, alignment, context.name2));
             if (existing?.corrupt && !boundElsewhere) {
                 const recovered = await api.recoverWorld(alignment.world);
                 if (!current()) return null;
@@ -1174,7 +1185,9 @@ export async function ensureCurrentChatMemory(createIfMissing = false, recoverSt
                 else await clearPortableSnapshot();
                 return saved;
             }
-            const imported = await api.importWorld(alignment.world);
+            const imported = await api.importWorld(alignment.code === 'branch-prefix-reused'
+                ? { ...alignment.world, id: '' } : alignment.world);
+            await reuseBranchEmbeddings(alignment, portable.world.id, imported.world);
             if (!current()) return null;
             bindCurrentChat(imported.world.id);
             updateRuntime({ world: imported.world });
@@ -1195,7 +1208,8 @@ export async function ensureCurrentChatMemory(createIfMissing = false, recoverSt
                     allowBranchReuse: true,
                     sourceChatKey: parentChatKey,
                 });
-                const imported = await api.importWorld(alignment.world);
+                const imported = await api.importWorld({ ...alignment.world, id: '' });
+                await reuseBranchEmbeddings(alignment, parentWorldId, imported.world);
                 if (!current()) return null;
                 bindCurrentChat(imported.world.id);
                 updateRuntime({ world: imported.world });

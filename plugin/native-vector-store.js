@@ -24,13 +24,23 @@ async function readText(file) {
 function location(req, body) {
     const collectionId = collectionFromBody(body);
     const provider = providerFromBody(body);
+    const loc = nativeLocation(req, collectionId, provider);
+    const root = req.user.directories.root;
+    return { ...loc, detached: path.join(root, 'continuity-memory', 'vectors', collectionId, `${fingerprint(provider)}.json`) };
+}
+
+function descriptorPath(req, collectionId) {
+    const { files, root } = req.user.directories;
+    return path.join(files || path.join(root, 'user', 'files'), embeddingDescriptorFilename(collectionId));
+}
+
+function nativeLocation(req, collectionId, provider) {
     const root = req.user.directories.root;
     const vectors = req.user.directories.vectors || path.join(root, 'vectors');
     const directory = path.join(vectors, nativeSegment(provider.source), collectionId, nativeSegment(provider.model));
     return {
         collectionId, provider, directory, file: path.join(directory, 'index.json'),
-        descriptor: path.join(req.user.directories.files || path.join(root, 'user', 'files'), embeddingDescriptorFilename(collectionId)),
-        detached: path.join(root, 'continuity-memory', 'vectors', collectionId, `${fingerprint(provider)}.json`),
+        descriptor: descriptorPath(req, collectionId),
     };
 }
 
@@ -58,6 +68,7 @@ async function write(loc, store) {
     await fs.mkdir(loc.directory, { recursive: true });
     await atomicStorageJson(loc.file, value, { beforeCommit: async () => {
         if (await readText(loc.file) !== loc.original) throw conflict('Embedding index changed during sync; newer data was kept. Retry after syncing finishes.');
+        if (loc.freshFork && await readText(loc.descriptor) !== undefined) throw conflict('This branch already has a saved embedding descriptor.');
     } });
     loc.original = `${JSON.stringify(value)}\n`;
     if (await fs.readFile(loc.file, 'utf8') !== loc.original) throw conflict('Embedding index changed after publication; retry after syncing finishes.');
@@ -93,6 +104,47 @@ async function read(req, loc) {
     return store;
 }
 
+async function fork(req, body, withLock) {
+    const targetId = collectionFromBody(body);
+    const parentId = collectionFromBody({ collectionId: body.parentCollectionId });
+    if (targetId.toLowerCase() === parentId.toLowerCase() || !Array.isArray(body.items)
+        || body.items.some(item => !Number.isFinite(item?.hash) || typeof item.text !== 'string'
+            || !item.text || !Number.isInteger(item.index) || item.index < 0)
+        || new Set(body.items.map(item => item.hash)).size !== body.items.length) {
+        throw Object.assign(new Error('Invalid branch embedding documents.'), { status: 400 });
+    }
+    if (!body.items.length) return { copied: 0 };
+    const descriptorFile = descriptorPath(req, parentId);
+    const original = await readText(descriptorFile);
+    if (original === undefined) return { copied: 0 };
+    const descriptor = portableEmbeddingDescriptor(JSON.parse(original), parentId);
+    if (!descriptor.provider || !descriptor.hashes.length) return { copied: 0 };
+    const parent = nativeLocation(req, parentId, descriptor.provider);
+    const target = nativeLocation(req, targetId, descriptor.provider);
+    const vectorsByText = await withLock(parent.directory, async () => {
+        const raw = await readText(parent.file);
+        const items = raw === undefined ? [] : fromNative(JSON.parse(raw), parent).items;
+        if (await readText(descriptorFile) !== original) throw conflict('Parent embedding descriptor changed during branch creation.');
+        const byHash = new Map(items.map(item => [item.hash, item]));
+        const missing = descriptor.hashes.filter(hash => !byHash.has(hash)).length;
+        if (missing) throw unavailableEmbeddingRecords(parentId, missing, descriptor.hashes.length);
+        return new Map(descriptor.hashes.map(hash => {
+            const { text, vector } = byHash.get(hash);
+            return [text, vector];
+        }));
+    });
+    // Replay may assign new record IDs and hashes. Reuse only an exact match
+    // of the actual embedding input, and store it under the branch's own hash.
+    const items = body.items.filter(item => vectorsByText.has(item.text))
+        .map(({ hash, text, index }) => ({ hash, text, index, vector: vectorsByText.get(text) }));
+    if (!items.length) return { copied: 0 };
+    return withLock(target.directory, async () => {
+        if (await readText(target.descriptor) !== undefined || await readText(target.file) !== undefined) return { copied: 0 };
+        await write({ ...target, freshFork: true }, { items });
+        return { copied: items.length };
+    });
+}
+
 async function purge(req, collectionId, withLock) {
     // Native API purges all providers. Keep that behavior without recursive
     // filesystem removal, and retain the old detached data as a backup only.
@@ -124,6 +176,6 @@ async function purge(req, collectionId, withLock) {
 
 export function registerNativeVectorRoutes(router, options = {}) {
     registerVectorRoutes({ post(route, handler) { router.post(route.replace('/vectors/', '/vectors/native/'), handler); } }, {
-        ...options, storage: { location, read, write, purge },
+        ...options, storage: { location, read, write, purge, fork },
     });
 }

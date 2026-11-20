@@ -29,7 +29,7 @@ function harness() {
     const settings = { enabled: true, embedMemoryInChat: true, chatWorlds: { chat: 'bound' }, deletedWorldIds: [] };
     const calls = { list: 0, read: [], save: [], import: 0, embed: [], toast: [], settings: 0 };
     const scope = vm.createContext({ structuredClone, console, worlds: [{ id: 'synced', name: candidate.name, counts: { retryableDigest: 3 } }],
-        refreshingWorlds: null, runtime: { world: structuredClone(original), generation: 0, processing: false },
+        refreshingWorlds: null, creatingChatMemory: null, runtime: { world: structuredClone(original), generation: 0, processing: false },
         activeChat: 'chat', settings, getSettings: () => settings,
         getContext: () => ({ name2: 'Person', chatId: 'Chat', chat }),
         getChatKey: () => scope.activeChat, getBoundWorldId: () => settings.chatWorlds[scope.activeChat] || '',
@@ -142,6 +142,33 @@ test('shared destination recovery forks once without changing another chat memor
     assert.deepEqual(h.saved.get('bound'), h.original);
     await h.scope.refreshWorlds();
     assert.equal(h.calls.import, 1);
+});
+
+for (const portable of [false, true]) test(`a verified ${portable ? 'portable' : 'stored'} parent seeds only the new branch cache before it is bound`, async () => {
+    const h = harness();
+    h.scope.activeChat = 'branch';
+    h.scope.branchParentChatKey = () => 'chat';
+    h.scope.getPortableSnapshot = () => portable ? { world: h.original } : null;
+    h.scope.verifyMemoryAlignment = (world, opts) => {
+        assert.equal(opts.sourceChatKey, 'chat');
+        assert.equal(world.id, 'bound');
+        return { world, code: 'branch-prefix-reused' };
+    };
+    h.scope.getRequestHeaders = () => ({});
+    const importWorld = h.scope.api.importWorld;
+    h.scope.api.importWorld = async world => {
+        assert.equal(world.id, '', 'a branch must not claim the parent collection even if it is absent locally');
+        return importWorld(world);
+    };
+    const copied = [];
+    h.scope.inheritBranchEmbeddings = async (parent, target) => {
+        assert.equal(h.settings.chatWorlds.branch, undefined);
+        copied.push([parent, target.id]);
+    };
+    assert.equal((await h.scope.ensureCurrentChatMemory(true)).id, 'private-copy');
+    assert.deepEqual(copied, [['bound', 'private-copy']]);
+    assert.equal(h.settings.chatWorlds.branch, 'private-copy');
+    assert.equal(h.settings.chatWorlds.chat, 'bound');
 });
 
 test('explicit fresh starts and older saved empty worlds cannot be filled from an old synced copy', async () => {

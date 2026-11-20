@@ -280,6 +280,11 @@ export function registerVectorRoutes(router, { embedTexts = hostEmbedTexts, stor
     const locate = storage?.location || storeLocation;
     const read = storage?.read || readStore;
     const write = storage?.write || ((location, value) => atomicWrite(location.file, value));
+    if (storage?.fork) router.post('/vectors/fork', async (req, res) => {
+        try {
+            res.json(await storage.fork(req, req.body, withLock));
+        } catch (error) { sendVectorError(res, error); }
+    });
     router.post('/vectors/list', async (req, res) => {
         try {
             const location = locate(req, req.body);

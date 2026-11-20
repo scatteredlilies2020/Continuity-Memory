@@ -8,6 +8,7 @@ import { embeddingRetryDelay, isRetryableEmbeddingError } from './embedding-retr
 import { checkRetrievalDeadline } from './retrieval-assist.js?bounded-recall=1&catchup-gate=1';
 import { asRoleplayBlockingError } from './generation-policy.js?v=0.15.0-testing.30';
 import { embeddingCoverageReady } from './embedding-policy.js';
+import { embeddingCollectionId as collectionId } from './embedding-portability.js?branch-vectors=1';
 
 const syncedIndexes = new Map();
 const activeSyncs = new Map();
@@ -34,10 +35,6 @@ function providerRequest(world = runtime.world) {
 async function prepareProvider(world, signal) {
     await requestVectorStorage.prepare(collectionId(world.id), { headers: getRequestHeaders(), signal });
     return providerRequest(world);
-}
-
-function collectionId(worldId) {
-    return `continuity_${String(worldId || '').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
 }
 
 async function vectorRequest(route, payload, signal, onDispatch) {

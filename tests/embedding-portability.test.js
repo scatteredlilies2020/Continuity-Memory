@@ -84,6 +84,49 @@ test('empty inspection does not create a cache or block a later Syncthing arriva
     assert.deepEqual((await f.invoke('list')).payload, [7]);
 });
 
+test('branch cache copies only identical embedding inputs under new hashes, without modifying the parent or calling its provider', async t => {
+    const f = await fixture(t);
+    await f.seed();
+    await f.invoke('list');
+    const parent = await fs.readFile(f.native);
+    const parentDescriptor = await fs.readFile(f.manifest);
+    const target = 'continuity_new-branch';
+    const request = { parentCollectionId: collectionId, collectionId: target, items: [
+        { hash: 123, text: item.text, index: 2 },
+        { hash: item.hash, text: 'changed swipe memory', index: 0 },
+    ] };
+    const file = path.join(f.dirs.vectors, provider.source, target, provider.model, 'index.json');
+    const manifest = path.join(f.dirs.files, embeddingDescriptorFilename(target));
+    assert.deepEqual(await f.invoke('fork', request), { status: 200, payload: { copied: 1 } });
+    const raw = await fs.readFile(file);
+    const [entry] = JSON.parse(raw).items;
+    assert.equal(JSON.parse(raw).items.length, 1);
+    assert.deepEqual(entry.metadata, request.items[0]);
+    assert.deepEqual(entry.vector, item.vector);
+    assert.deepEqual(JSON.parse(await fs.readFile(manifest)), { ...descriptor([123]), collectionId: target });
+    assert.deepEqual((await f.invoke('list', { ...base, collectionId: target })).payload, [123]);
+    assert.deepEqual((await f.invoke('fork', request)).payload, { copied: 0 });
+    assert.deepEqual(await fs.readFile(file), raw);
+    assert.deepEqual(await fs.readFile(f.native), parent);
+    assert.deepEqual(await fs.readFile(f.manifest), parentDescriptor);
+    assert.equal(f.calls(), 0);
+});
+
+test('branch cache copy cannot overwrite the parent or manufacture an index from a missing synced cache', async t => {
+    const f = await fixture(t);
+    await f.seed();
+    await f.invoke('list');
+    const target = 'continuity_branch-with-missing-source';
+    const request = { parentCollectionId: collectionId, collectionId: target, items: [item] };
+    assert.equal((await f.invoke('fork', { ...request, collectionId })).status, 400);
+    await fs.unlink(f.native);
+    const missing = await f.invoke('fork', request);
+    assert.equal(missing.status, 409);
+    assert.equal(missing.payload.code, 'CONTINUITY_EMBEDDINGS_UNAVAILABLE');
+    await assert.rejects(fs.access(path.join(f.dirs.files, embeddingDescriptorFilename(target))), { code: 'ENOENT' });
+    assert.equal(f.calls(), 0);
+});
+
 test('missing synced vectors block paid replacement and recover when the index arrives', async t => {
     const f = await fixture(t);
     await f.seed();

@@ -8,6 +8,7 @@ import { createVectorStorageRequester, vectorStorageError } from '../extension/v
 import { embeddingRetryDelay, isRetryableEmbeddingError } from '../extension/embedding-retry.js';
 import { checkRetrievalDeadline } from '../extension/retrieval-assist.js';
 import { embeddingCoverageReady } from '../extension/embedding-policy.js';
+import { embeddingCollectionId } from '../extension/embedding-portability.js';
 import { asRoleplayBlockingError, isRoleplayBlockingError } from '../extension/generation-policy.js';
 
 const source = (await readFile(new URL('../extension/embedding-retrieval.js', import.meta.url), 'utf8'))
@@ -26,6 +27,7 @@ function harness(fetchFn, overrides = {}) {
         embeddingProxyUrl: 'http://localhost:9999', embeddingProxyModel: 'test-model' };
     const api = runInNewContext(`${source}\n({ rebuildEmbeddingIndex, ensureEmbeddingIndex, ensureGenerationEmbeddingIndex, queryEmbeddingMemory, inspectEmbeddingIndex, scheduleEmbeddingIndexSync, pauseEmbeddingIndexing, stopEmbeddingIndexing, resumeEmbeddingIndexing })`, {
         buildEmbeddingDocuments, buildEmbeddingQuery, semanticRanksFromResponse, resolveIndexedEmbeddingProvider,
+        collectionId: embeddingCollectionId,
         createVectorStorageRequester: () => createVectorStorageRequester(fetchFn, { portable: false }), vectorStorageError,
         embeddingRetryDelay, isRetryableEmbeddingError, checkRetrievalDeadline, embeddingCoverageReady, asRoleplayBlockingError,
         getSettings: () => settings, getRequestHeaders: () => ({}), runtime,
