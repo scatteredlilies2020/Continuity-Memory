@@ -698,7 +698,7 @@ test('detached incomplete records retry with feedback before committing any cove
     assert.ok(!loaded.payload.world.capsules[0].chronicleText.includes('Teleportation'));
 });
 
-for (const scenario of ['incomplete fact', 'chronicle recovery', 'invalid chronicle recovery', 'misattributed chronicle recovery', 'chronicle and incomplete fact']) test(`detached repeated incomplete output: ${scenario}`, async t => {
+for (const scenario of ['incomplete fact', 'chronicle recovery', 'plain prose recovery', 'invalid chronicle recovery', 'misattributed chronicle recovery', 'chronicle and incomplete fact']) test(`detached repeated incomplete output: ${scenario}`, async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-detached-test-'));
     t.after(async () => {
         await waitForStorageMaintenance({ root: path.join(root, 'continuity-memory') });
@@ -716,6 +716,7 @@ for (const scenario of ['incomplete fact', 'chronicle recovery', 'invalid chroni
         facts: [{ targetId: '', subject: 'Alice', predicate: 'takes tea', value: 'without sugar', category: 'preference', importance: 2, persistence: 'persistent' }],
         states: [], relationships: [], events: [], threads: [], backgrounds: [],
     };
+    const validChronicle = 'Alice explains that she always takes her tea without sugar.';
     const misattributed = 'Alice revealed that teleportation cannot cross salt water.';
     let attempts = 0;
     const fetchImpl = async (_url, options) => {
@@ -738,15 +739,21 @@ for (const scenario of ['incomplete fact', 'chronicle recovery', 'invalid chroni
             const pending = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: worldId } });
             assert.equal(pending.payload.world.capsules.length, 0);
             assert.equal(pending.payload.world.facts.length, 0);
-            response = scenario === 'chronicle recovery'
-                ? { chronicleEntry: 'Alice explains that she always takes her tea without sugar.' }
-                : { chronicleEntry: scenario === 'misattributed chronicle recovery' ? misattributed : '…' };
-        } else if (attempts === 4 && scenario === 'misattributed chronicle recovery') {
+            response = { chronicleEntry: scenario === 'chronicle recovery' ? validChronicle : '…' };
+        } else if (attempts === 4) {
+            assert.equal(body.model, 'test');
+            assert.equal(body.json_schema, undefined);
+            assert.deepEqual(body.messages.map(message => message.role), ['system', 'user']);
+            assert.match(body.messages[1].content, /as plain text, not JSON/);
+            assert.match(body.messages[1].content, /<AUTHOR_OOC_META_SPAN>\s*Setting: Teleportation/);
+            response = scenario === 'plain prose recovery' ? validChronicle
+                : scenario === 'misattributed chronicle recovery' ? misattributed : 'N/A';
+        } else if (attempts === 5 && scenario === 'misattributed chronicle recovery') {
             assert.equal(body.json_schema.name, 'continuity_provenance_review');
             response = { assessments: [{ sentence: misattributed, violation: true,
                 reason: 'The setting constraint is author-only, not Alice’s speech.', evidence: [] }] };
         }
-        return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(response) }, finish_reason: 'stop' }] }), { status: 200 });
+        return new Response(JSON.stringify({ choices: [{ message: { content: typeof response === 'string' ? response : JSON.stringify(response) }, finish_reason: 'stop' }] }), { status: 200 });
     };
     const router = mockRouter();
     await init(router, { syncExtension: false, fetchImpl, detachedRequestTimeoutMs: 1000, detachedRetryDelayMs: 10 });
@@ -775,15 +782,16 @@ for (const scenario of ['incomplete fact', 'chronicle recovery', 'invalid chroni
     }
     const loaded = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: worldId } });
     const world = loaded.payload.world;
-    const success = scenario === 'chronicle recovery';
+    const success = scenario === 'chronicle recovery' || scenario === 'plain prose recovery';
     assert.equal(job.status, success ? 'complete' : 'error', job.error);
-    assert.equal(attempts, scenario.includes('incomplete fact') ? 2 : scenario === 'misattributed chronicle recovery' ? 4 : 3);
+    assert.equal(attempts, scenario.includes('incomplete fact') ? 2 : scenario === 'chronicle recovery' ? 3
+        : scenario === 'misattributed chronicle recovery' ? 5 : 4);
     assert.equal(world.capsules.length, success ? 1 : 0);
     assert.equal(world.facts.length, success ? 1 : 0);
     assert.equal(world.sources['character:chat']?.processedMessages?.length || 0, success ? 1 : 0);
     if (success) {
         assert.equal(world.capsules[0].title, 'Morning tea');
-        assert.equal(world.capsules[0].chronicleText, 'Alice explains that she always takes her tea without sugar.');
+        assert.equal(world.capsules[0].chronicleText, validChronicle);
         assert.equal(world.facts[0].value, 'without sugar');
     } else if (scenario === 'misattributed chronicle recovery') assert.match(job.error, /OOC provenance violation confirmed/);
     else assert.match(job.error, scenario === 'invalid chronicle recovery' ? /regeneration failed; this section remains pending/ : /facts\[1\].value/);

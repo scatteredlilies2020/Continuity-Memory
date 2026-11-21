@@ -31,16 +31,18 @@ test('detached extraction retries single-letter Chronicle output and saves only 
 test('repeated single-letter Chronicle output still fails when the focused repair returns a placeholder', async () => {
     const result = await runExtraction('single-letter-chronicle-failure', task([0, 1]), (_, attempt) => ({
         finish: 'stop', content: attempt < 3 ? { ...extracted, chronicleEntry: 'A.' } : { chronicleEntry: 'A.' },
+        ...(attempt === 4 ? { text: 'A.' } : {}),
     }));
     assert.equal(result.finished.status, 'error');
     assert.match(result.finished.error, /regeneration failed; this section remains pending/);
-    assert.equal(result.requests.length, 3);
+    assert.equal(result.requests.length, 4);
     const focused = result.requests[2];
     assert.equal(focused.custom_url, 'http://localhost/extractor');
     assert.equal(focused.reasoning_effort, 'high');
     assert.equal(focused.json_schema, undefined);
     assert.deepEqual(focused.messages.map(message => message.role), ['system', 'user']);
     assert.match(focused.messages[1].content, /with only the string field "chronicleEntry"/);
+    assert.match(result.requests[3].messages[1].content, /as plain text, not JSON/);
     assert.equal(result.world.capsules.length, 0);
     assert.equal(result.world.chronicle.length, 0);
     assert.equal(result.world.extractions.length, 0);
@@ -83,7 +85,7 @@ async function runExtraction(label, root, reply, { saveFailures = 0, ...jobOptio
             const replyValue = reply(body, requests.length, saves, () => getDetachedJob(req, job.id));
             const finish = typeof replyValue === 'string' ? replyValue : replyValue.finish;
             return new Response(JSON.stringify({ choices: [{
-                message: { content: JSON.stringify(replyValue.content ?? extracted) }, finish_reason: finish,
+                message: { content: replyValue.text ?? JSON.stringify(replyValue.content ?? extracted) }, finish_reason: finish,
             }] }));
         },
     });
