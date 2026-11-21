@@ -22,18 +22,25 @@ test('detached extraction retries single-letter Chronicle output and saves only 
     }));
     assert.equal(result.finished.status, 'complete', result.finished.error);
     assert.equal(result.requests.length, 2);
-    assert.match(JSON.stringify(result.requests[1].messages), /chronicleEntry must contain/);
+    assert.match(JSON.stringify(result.requests[1].messages), /chronicleEntry was a placeholder/);
     assert.equal(result.world.capsules[0].chronicleText, extracted.chronicleEntry);
     assert.equal(result.world.chronicle[0].text, extracted.chronicleEntry);
     assert.equal(result.world.extractions[0].result.chronicleEntry, extracted.chronicleEntry);
 });
 
-test('repeated single-letter Chronicle output fails without saving memory or coverage', async () => {
-    const result = await runExtraction('single-letter-chronicle-failure', task([0, 1]), () => ({
-        finish: 'stop', content: { ...extracted, chronicleEntry: 'A.' },
+test('repeated single-letter Chronicle output still fails when the focused repair returns a placeholder', async () => {
+    const result = await runExtraction('single-letter-chronicle-failure', task([0, 1]), (_, attempt) => ({
+        finish: 'stop', content: attempt < 3 ? { ...extracted, chronicleEntry: 'A.' } : { chronicleEntry: 'A.' },
     }));
     assert.equal(result.finished.status, 'error');
-    assert.equal(result.requests.length, 2);
+    assert.match(result.finished.error, /regeneration failed; this section remains pending/);
+    assert.equal(result.requests.length, 3);
+    const focused = result.requests[2];
+    assert.equal(focused.custom_url, 'http://localhost/extractor');
+    assert.equal(focused.reasoning_effort, 'high');
+    assert.equal(focused.json_schema, undefined);
+    assert.deepEqual(focused.messages.map(message => message.role), ['system', 'user']);
+    assert.match(focused.messages[1].content, /with only the string field "chronicleEntry"/);
     assert.equal(result.world.capsules.length, 0);
     assert.equal(result.world.chronicle.length, 0);
     assert.equal(result.world.extractions.length, 0);

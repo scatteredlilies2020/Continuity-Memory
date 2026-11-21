@@ -25,10 +25,11 @@ test('browser and server reject single-letter Chronicle output before reconcilia
     for (const path of ['../extension/engine.js', '../plugin/detached-jobs.js']) {
         const source = readFileSync(new URL(path, import.meta.url), 'utf8');
         assert.throws(() => runInNewContext(source.match(/function validateResult\([^]*?^}/m)[0] + '\nvalidateResult(result, {}, []);', {
-            result: { facts: [fact], chronicleEntry: 'M' },
+            result: { sceneCapsule: { beats: [] }, entities: [], facts: [fact], states: [], relationships: [],
+                events: [], threads: [], backgrounds: [], chronicleEntry: 'M' },
             assertCompleteExtractionRecords, migrateLegacyBeliefs: () => {},
             sanitizeReconciliationMetadata: () => assert.fail('Degenerate Chronicle reached reconciliation'),
-        }), { code: 'CM_INCOMPLETE_RECORDS' });
+        }), { code: 'CM_INCOMPLETE_RECORDS', field: 'chronicleEntry' });
     }
 });
 
@@ -38,7 +39,7 @@ test('single-letter Chronicle failure requests corrected prose, not padding', ()
     const feedback = extractionCompletenessFeedback(failure);
     assert.match(feedback, /chronicleEntry/);
     assert.match(feedback, /complete prose/);
-    assert.match(feedback, /do not pad/);
+    assert.match(feedback, /do not pad/i);
 });
 test('JSON and shape errors receive safe corrective feedback, not silent identical retries', () => {
     for (const error of [

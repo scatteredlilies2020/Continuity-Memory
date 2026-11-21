@@ -219,7 +219,7 @@ export function assertCompleteChronicleEntry(value) {
     // must not make "A." pass, and non-Latin prose must remain valid.
     if (value === undefined) return;
     if (!hasChronicleNarrative(value)) {
-        throw Object.assign(new Error('Incomplete extraction records: chronicleEntry must contain a source-supported narrative account in complete prose, not a single letter, punctuation, or blank placeholder. Regenerate the complete extraction; do not pad the entry.'), { code: 'CM_INCOMPLETE_RECORDS' });
+        throw Object.assign(new Error('Incomplete extraction records: chronicleEntry must contain a source-supported narrative account in complete prose, not a single letter, punctuation, or blank placeholder. Do not pad the entry.'), { code: 'CM_INCOMPLETE_RECORDS', field: 'chronicleEntry' });
     }
 }
 
@@ -254,6 +254,9 @@ export function assertCompleteExtractionRecords(result) {
 export function extractionCompletenessFeedback(error) {
     if (error?.code === 'CM_OOC_PROVENANCE' || error?.code === 'CM_PROVENANCE_REVIEW_INVALID' || /OOC provenance violation/u.test(error?.message || '')) {
         return `\n\nThe previous extraction failed source attribution: ${String(error.message).slice(0, 1200)}\nGenerate a corrected complete JSON extraction from the same excerpt. Preserve the author-level correction as canon using neutral narration. Do not invent a character's speech, realization, disclosure, or knowledge to explain an author note. Keep actual in-world speech and knowledge only when supported by the in-world excerpt. Return all required fields, not a patch.`;
+    }
+    if (error?.code === 'CM_INCOMPLETE_RECORDS' && error.field === 'chronicleEntry') {
+        return '\n\nThe previous response was rejected because chronicleEntry was a placeholder. Write complete prose from the excerpt itself: describe what happened or what the author established, in third person. A short excerpt can warrant just one grounded sentence. Keep author-only information separate from what characters say or know. Return the complete extraction with every required field, not just chronicleEntry. Do not pad or invent details.';
     }
     if (error?.code === 'CM_INCOMPLETE_RECORDS') return `\n\nThe previous response was rejected: ${error.message}\n${EXTRACTION_COMPLETENESS_RULE}`;
     if (error?.code === 'CM_INVALID_JSON'
