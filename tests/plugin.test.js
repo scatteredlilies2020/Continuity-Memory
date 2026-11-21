@@ -698,7 +698,7 @@ test('detached incomplete records retry with feedback before committing any cove
     assert.ok(!loaded.payload.world.capsules[0].chronicleText.includes('Teleportation'));
 });
 
-test('detached repeated incomplete output leaves the entire section pending', async t => {
+for (const scenario of ['incomplete fact', 'chronicle recovery', 'invalid chronicle recovery', 'misattributed chronicle recovery', 'chronicle and incomplete fact']) test(`detached repeated incomplete output: ${scenario}`, async t => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'continuity-detached-test-'));
     t.after(async () => {
         await waitForStorageMaintenance({ root: path.join(root, 'continuity-memory') });
@@ -716,12 +716,37 @@ test('detached repeated incomplete output leaves the entire section pending', as
         facts: [{ targetId: '', subject: 'Alice', predicate: 'takes tea', value: 'without sugar', category: 'preference', importance: 2, persistence: 'persistent' }],
         states: [], relationships: [], events: [], threads: [], backgrounds: [],
     };
+    const misattributed = 'Alice revealed that teleportation cannot cross salt water.';
     let attempts = 0;
     const fetchImpl = async (_url, options) => {
         attempts++;
+        const body = JSON.parse(options.body);
         const incomplete = structuredClone(extracted);
-        incomplete.facts.push({ ...incomplete.facts[0], value: '  ' });
-        return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(incomplete) }, finish_reason: 'stop' }] }), { status: 200 });
+        if (scenario !== 'incomplete fact') incomplete.chronicleEntry = attempts === 1 ? 'A.' : '  ';
+        if (scenario.includes('incomplete fact')) incomplete.facts.push({ ...incomplete.facts[0], value: '  ' });
+        let response = incomplete;
+        if (attempts === 2 && scenario !== 'incomplete fact') {
+            assert.match(body.messages.at(-2).content, /chronicleEntry was a placeholder/);
+        }
+        if (attempts === 3) {
+            assert.equal(body.model, 'test');
+            assert.equal(body.json_schema.name, 'continuity_chronicle_entry_repair');
+            assert.deepEqual(body.json_schema.value.required, ['chronicleEntry']);
+            assert.deepEqual(body.messages.map(message => message.role), ['system', 'user']);
+            assert.match(body.messages[1].content, /I always take my tea without sugar/);
+            assert.match(body.messages[1].content, /<AUTHOR_OOC_META_SPAN>\s*Setting: Teleportation/);
+            const pending = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: worldId } });
+            assert.equal(pending.payload.world.capsules.length, 0);
+            assert.equal(pending.payload.world.facts.length, 0);
+            response = scenario === 'chronicle recovery'
+                ? { chronicleEntry: 'Alice explains that she always takes her tea without sugar.' }
+                : { chronicleEntry: scenario === 'misattributed chronicle recovery' ? misattributed : '…' };
+        } else if (attempts === 4 && scenario === 'misattributed chronicle recovery') {
+            assert.equal(body.json_schema.name, 'continuity_provenance_review');
+            response = { assessments: [{ sentence: misattributed, violation: true,
+                reason: 'The setting constraint is author-only, not Alice’s speech.', evidence: [] }] };
+        }
+        return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(response) }, finish_reason: 'stop' }] }), { status: 200 });
     };
     const router = mockRouter();
     await init(router, { syncExtension: false, fetchImpl, detachedRequestTimeoutMs: 1000, detachedRetryDelayMs: 10 });
@@ -732,7 +757,8 @@ test('detached repeated incomplete output leaves the entire section pending', as
     const worldId = created.payload.world.id;
     const task = {
         messages: [{ index: 0, name: 'Alice', text: 'Setting: Teleportation cannot cross salt water.\n\nI always take my tea without sugar.' }],
-        request: { chat_completion_source: 'openai', model: 'test', messages: [] },
+        request: { chat_completion_source: 'openai', model: 'test', json_schema: { name: 'extraction' },
+            messages: [{ role: 'user', content: 'Extract the scene' }, { role: 'assistant', content: '<think>' }] },
     };
     const started = await call(router.routes.get('POST /extraction-jobs'), root, {
         body: { worldId, chatKey: 'character:chat', tasks: [task], reason: 'manual' },
@@ -747,13 +773,20 @@ test('detached repeated incomplete output leaves the entire section pending', as
         if (job.status === 'complete' || job.status === 'error') break;
         await new Promise(resolve => setTimeout(resolve, 5));
     }
-    assert.equal(job.status, 'error');
-    assert.match(job.error, /Incomplete extraction records/);
-    assert.equal(attempts, 2);
     const loaded = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: worldId } });
-    assert.equal(loaded.payload.world.capsules.length, 0);
-    assert.equal(loaded.payload.world.facts.length, 0);
-    assert.equal(loaded.payload.world.sources['character:chat']?.processedMessages?.length || 0, 0);
+    const world = loaded.payload.world;
+    const success = scenario === 'chronicle recovery';
+    assert.equal(job.status, success ? 'complete' : 'error', job.error);
+    assert.equal(attempts, scenario.includes('incomplete fact') ? 2 : scenario === 'misattributed chronicle recovery' ? 4 : 3);
+    assert.equal(world.capsules.length, success ? 1 : 0);
+    assert.equal(world.facts.length, success ? 1 : 0);
+    assert.equal(world.sources['character:chat']?.processedMessages?.length || 0, success ? 1 : 0);
+    if (success) {
+        assert.equal(world.capsules[0].title, 'Morning tea');
+        assert.equal(world.capsules[0].chronicleText, 'Alice explains that she always takes her tea without sugar.');
+        assert.equal(world.facts[0].value, 'without sugar');
+    } else if (scenario === 'misattributed chronicle recovery') assert.match(job.error, /OOC provenance violation confirmed/);
+    else assert.match(job.error, scenario === 'invalid chronicle recovery' ? /regeneration failed; this section remains pending/ : /facts\[1\].value/);
 });
 
 test('detached jobs report source tokens and promote Recursive Chronicle without a browser', async t => {
