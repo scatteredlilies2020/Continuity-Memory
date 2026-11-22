@@ -1,7 +1,9 @@
 import { LEGACY_DIGEST_RESCAN_MESSAGE } from './legacy-support.js';
-import { chronicleSizeStatus, chronicleTokenTarget } from './chronicle.js';
+import { chronicleTokenTarget, renderChronicleFrontier } from './chronicle.js';
+import { createChronicleTokenMeter, formatChronicleTokenStatus } from './chronicle-token-meter.js';
 import { characters, getRequestHeaders, saveChatConditional, this_chid } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
+import { getTokenCountAsync, getTokenizerModel } from '/scripts/tokenizers.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
@@ -1627,9 +1629,28 @@ function initHealthDisplay() {
     globalThis.setInterval(() => {
         if (document.hidden) return;
         renderHealthStatus();
+        renderChronicleTokenCount();
         const silentRetry = pendingStorageRetry?.chatKey === getChatKey() && pendingStorageRetry?.epoch === runtime.generation;
         if ((runtime.storageError || silentRetry) && getSettings().enabled) recoverLiveUiAfterResume(true);
     }, 10000);
+}
+
+const measureChronicleTokens = createChronicleTokenMeter(getTokenCountAsync, renderChronicleTokenCount);
+
+export function renderChronicleTokenCount() {
+    if (!document.getElementById('continuity_chronicle_size')) return;
+    const chatKey = getChatKey();
+    const worldId = getBoundWorldId();
+    const world = runtime.world?.id === worldId ? runtime.world : null;
+    const text = world ? renderChronicleFrontier(world, chatKey) : '';
+    let tokenizer;
+    if (text) {
+        try { tokenizer = getTokenizerModel(); } catch { /* No tokenizer available for the current connection. */ }
+    }
+    const measurement = measureChronicleTokens({ chatKey, tokenizer, text });
+    setElementText('#continuity_chronicle_size', world || !worldId
+        ? formatChronicleTokenStatus(measurement, chronicleTokenTarget(getSettings()))
+        : 'Stored Story so far: loading saved memory…');
 }
 
 export function renderRuntime(refreshSettings = true) {
@@ -1774,7 +1795,7 @@ export function renderRuntime(refreshSettings = true) {
     $('#continuity_arc_status').text(runtime.arcError ? `Chronicle promotion deferred: ${runtime.arcError}` : runtime.arcStatus || 'Chronicle parents are derived non-destructively when a layer exceeds its capacity.');
     $('#continuity_retry_status').text(runtime.retryStatus || 'No manual build running.');
     const coverage = getProcessingCoverage();
-    setElementText('#continuity_chronicle_size', chronicleSizeStatus(runtime.world, getChatKey(), settings));
+    renderChronicleTokenCount();
     renderHealthStatus(coverage);
     $('#continuity_coverage').text(!runtime.world
         ? (getChatKey() ? 'Loading saved memory coverage…' : 'Open a chat to inspect memory coverage.')

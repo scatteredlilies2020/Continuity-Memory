@@ -37,15 +37,6 @@ export function chronicleCompressionGuide(nodes, settings = {}) {
     return `Compression planning target: approximately ${target} tokens TOTAL across all parent prose fields (source approximately ${source} tokens). Aim for about 30% of the source size or less. This is a soft target, not a wire output limit: finish complete sentences and retain consequential causes, outcomes, attribution, conditions, and who knows what. Merge repeated developments, omit incidental detail, and do not repeat the summary in turningPoints, closingState, or other fields. Original children remain stored for detailed retrieval. Never invent, truncate, or erase a critical knowledge boundary to meet the target.`;
 }
 
-export function chronicleSizeStatus(world, chatKey, settings = {}) {
-    const nodes = activeChronicleNodes(world, chatKey);
-    const levels = [...new Set(nodes.map(node => Number(node.level) || 0))].sort((a, b) => a - b);
-    const parts = levels.map(level => `C${level}: ~${chronicleSize(nodes.filter(node => Number(node.level) === level))} tokens`);
-    const total = chronicleSize(nodes);
-    const target = chronicleTokenTarget(settings);
-    return `Story so far: ~${total} tokens / ${target} target${parts.length ? ` (${parts.join(' · ')})` : ''}. Estimates use 4 characters/token; complete nodes are never clipped.${total > target ? ' Over target; layers still fill to capacity before promotion.' : ''}`;
-}
-
 function clean(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
 }
@@ -121,6 +112,13 @@ function dependentNodeIds(nodes, sourceIds) {
     return affected;
 }
 
+function sameChronicleSource(left, right) {
+    return left.text === right.text && left.title === right.title && left.storyTime === right.storyTime
+        && Number(left.from) === Number(right.from) && Number(left.to) === Number(right.to)
+        && left.chatKey === right.chatKey
+        && JSON.stringify(left.provenanceBoundaries || []) === JSON.stringify(right.provenanceBoundaries || []);
+}
+
 export function syncChronicleBase(world, chatKey = '') {
     const capsules = (world.capsules || []).filter(item => !chatKey || item.chatKey === chatKey);
     // Validate all incoming nodes before invalidating or replacing any history.
@@ -146,9 +144,7 @@ export function syncChronicleBase(world, chatKey = '') {
             continue;
         }
         const prior = world.chronicle[index];
-        if (prior.text !== incoming.text || prior.title !== incoming.title || prior.storyTime !== incoming.storyTime
-            || Number(prior.from) !== incoming.from || Number(prior.to) !== incoming.to || prior.chatKey !== incoming.chatKey
-            || JSON.stringify(prior.provenanceBoundaries || []) !== JSON.stringify(incoming.provenanceBoundaries || [])) {
+        if (!sameChronicleSource(prior, incoming)) {
             changedIds.add(prior.id);
             world.chronicle[index] = { ...incoming, createdAt: prior.createdAt || incoming.createdAt };
         }
@@ -164,6 +160,40 @@ export function syncChronicleBase(world, chatKey = '') {
     }
 
     for (const key of chats) refreshChronicleStory(world, key);
+    return world;
+}
+
+export function restoreChronicleAfterReplay(world, previousWorld, chatKey, { rekeyed = false } = {}) {
+    syncChronicleBase(world, chatKey);
+    const previousNodes = (previousWorld?.chronicle || []).filter(node => node.chatKey === chatKey);
+    const priorById = new Map(previousNodes.map(node => [node.id, node]));
+    const priorSources = new Map((previousWorld?.sources?.[chatKey]?.processedMessages || []).map(item => [Number(item.index), item.fingerprint]));
+    const nowSources = new Map((world.sources?.[chatKey]?.processedMessages || []).map(item => [Number(item.index), item.fingerprint]));
+    const changedIndexes = [...new Set([...priorSources.keys(), ...nowSources.keys()])]
+        .filter(index => priorSources.get(index) !== nowSources.get(index));
+    const retained = new Map();
+    const allIds = new Set(world.chronicle.map(node => node.id));
+    const covered = new Set(world.chronicle.flatMap(node => node.childIds || []));
+    for (const node of world.chronicle) {
+        const prior = priorById.get(node.id);
+        if (node.chatKey === chatKey && node.level === 0 && prior?.level === 0 && sameChronicleSource(prior, node)
+            && !changedIndexes.some(index => index >= node.from && index <= node.to)
+            && (rekeyed || JSON.stringify(prior.temporalAnchorIds || []) === JSON.stringify(node.temporalAnchorIds || []))) retained.set(node.id, node);
+    }
+    // Restore bottom-up. Matching IDs alone are insufficient: replay can
+    // reuse a capsule ID for a range that was re-extracted or corrected.
+    for (const parent of previousNodes.filter(node => node.level > 0).sort((a, b) => a.level - b.level)) {
+        const children = parent.childIds || [];
+        if (allIds.has(parent.id) || children.length < 2 || !hasChronicleNarrative(parent.text || parent.summary)
+            || !children.every(id => !covered.has(id) && retained.get(id)?.level === parent.level - 1)) continue;
+        const copy = structuredClone(parent);
+        if (rekeyed) copy.temporalAnchorIds = unique(children.flatMap(id => retained.get(id).temporalAnchorIds || []));
+        world.chronicle.push(copy);
+        allIds.add(parent.id);
+        retained.set(parent.id, copy);
+        for (const id of children) covered.add(id);
+    }
+    refreshChronicleStory(world, chatKey);
     return world;
 }
 

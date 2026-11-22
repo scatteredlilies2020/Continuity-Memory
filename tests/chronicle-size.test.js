@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
-import { activeChronicleNodes, addChroniclePromotion, chronicleCompressionGuide, chronicleSize, chronicleSizeStatus, chronicleTokenTarget, nextChroniclePromotion, renderChronicleFrontier, validateChronicleCompression } from '../extension/chronicle.js';
+import { activeChronicleNodes, addChroniclePromotion, chronicleCompressionGuide, chronicleSize, chronicleTokenTarget, nextChroniclePromotion, renderChronicleFrontier, validateChronicleCompression } from '../extension/chronicle.js';
 import { retryChroniclePromotion } from '../extension/chronicle-retry.js';
 
 const node = (id, level, from, chatKey = 'chat') => ({ id, level, from, to: from + 9, chatKey, childIds: [], text: `${id} ${'Consequential history. '.repeat(160)}` });
@@ -67,8 +67,7 @@ test('token pressure never mixes chats or layers and counts retained parent deta
     const basic = chronicleSize([record]);
     record.closingState = 'Only A knows. '.repeat(200);
     assert.ok(chronicleSize([record]) > basic);
-    assert.match(chronicleSizeStatus({ chronicle: [record] }, 'chat'), /C1: ~/);
-    assert.match(chronicleSizeStatus(null, 'chat'), /~0 tokens/);
+    assert.match(renderChronicleFrontier({ chronicle: [record] }, 'chat'), /\[C1\]/);
 });
 
 test('shared compression guidance targets all fields without imposing truncation', () => {

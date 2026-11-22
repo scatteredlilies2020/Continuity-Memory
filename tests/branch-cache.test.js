@@ -3,6 +3,7 @@ import test from 'node:test';
 import { forkWorldToBranch, recoverTruncatedChatPrefix } from '../extension/branch-cache.js';
 import { fingerprintMessage } from '../extension/message-digest.js';
 import { mergeExtraction } from '../extension/memory-model.js';
+import { addChroniclePromotion } from '../extension/chronicle.js';
 
 const parentKey = 'character:7:chat:adventure';
 const branchKey = 'character:7:chat:adventure - Branch #1';
@@ -66,6 +67,17 @@ test('a truncated branch reuses every stable parent Digest before its new tail',
     assert.equal(result.world.sources[branchKey].processedMessages.length, 16);
     assert.deepEqual(result.world.extractions.map(item => [item.from, item.to]), [[0, 7], [8, 15]]);
     assert.equal(result.world.capsules[0].id, firstCapsuleId);
+});
+
+test('a truncated fork keeps a fully shared parent and rekeys its temporal references', () => {
+    const parent = parentWorld();
+    const promotion = addChroniclePromotion(parent, { summary: 'Player traveled along the road.' }, parent.chronicle.slice(0, 2));
+    const result = forkWorldToBranch(parent, messages(18), branchKey, parentKey);
+    const carried = result.world.chronicle.find(node => node.id === promotion.id);
+    assert.equal(carried.chatKey, branchKey);
+    assert.deepEqual(carried.temporalAnchorIds, result.world.capsules.map(item => item.temporal.anchorId));
+    assert.notDeepEqual(carried.temporalAnchorIds, promotion.temporalAnchorIds);
+    assert.deepEqual(result.world.storySoFar[branchKey].nodeIds, [promotion.id]);
 });
 
 test('a changed branch swipe drops its Digest and the dependent suffix only', () => {

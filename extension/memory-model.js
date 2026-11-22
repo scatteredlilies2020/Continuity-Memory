@@ -10,7 +10,7 @@ import { migrateLegacyBeliefs } from './attributed-beliefs.js';
 import { formatEntityProfile, mergeEntityProfiles } from './entity-profile.js';
 import { thirdPersonOnlyProse } from './canonical-prose.js';
 import { compileRollingStorySnapshot } from './story-snapshot.js';
-import { addChroniclePromotion, chronicleTextFromCapsule, removeChronicleChat, syncChronicleBase } from './chronicle.js';
+import { addChroniclePromotion, chronicleTextFromCapsule, removeChronicleChat, restoreChronicleAfterReplay, syncChronicleBase } from './chronicle.js';
 import { assertCompleteChronicleEntry } from './extraction-contract.js';
 import { hasChronicleNarrative } from './chronicle-validation.js';
 
@@ -1596,7 +1596,7 @@ function replayIdentity(collection, item, chatKey) {
     return '';
 }
 
-export function restoreRetainedReplayRecords(world, previousWorld, chatKey) {
+export function restoreRetainedReplayRecords(world, previousWorld, chatKey, options) {
     migrateLegacyBeliefs(world);
     migrateLegacyBeliefs(previousWorld);
     for (const collection of ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds', 'capsules', 'extractions']) {
@@ -1641,9 +1641,8 @@ export function restoreRetainedReplayRecords(world, previousWorld, chatKey) {
         world.eras.push(structuredClone(era));
         eraIds.add(era.id);
     }
-    // Capsule identities are restored above, so rebuild their deterministic C0 nodes
-    // before returning the replayed world.
-    syncChronicleBase(world, chatKey);
+    // Restore C0 identities and keep only the parents whose provenance survived replay.
+    restoreChronicleAfterReplay(world, previousWorld, chatKey, options);
     const requiredMemoryIndexes = (previousWorld?.sources?.[chatKey]?.requiredMemoryIndexes || [])
         .map(Number)
         .filter(Number.isFinite);

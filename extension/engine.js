@@ -2330,7 +2330,7 @@ export async function repairDivergedBranch({ sourceMessages = null, sourceMutati
         }
         restoreRetainedReplayRecords(targetWorld, previousWorld, chatKey);
         if (recovery.changed) applyStoryRecovery(targetWorld, recovery);
-        else if (previousStory) {
+        else if (previousStory && previousStory.sourceMode !== 'chronicle') {
             targetWorld.storySoFar ||= {};
             targetWorld.storySoFar[chatKey] = previousStory;
         }

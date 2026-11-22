@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
-import { mergeExtraction, removeChatContributions, restoreRetainedReplayRecords } from '../extension/memory-model.js';
+import { mergeExtraction, removeChatContributions, restoreRetainedReplayRecords, undoLatestDigestExtraction } from '../extension/memory-model.js';
+import { activeChronicleNodes, addChroniclePromotion } from '../extension/chronicle.js';
 import { fingerprintMessage } from '../extension/message-digest.js';
 import { analyzeBranchDivergence } from '../extension/coverage.js';
 import { digestStabilityRepairFrom } from '../extension/digest-policy.js';
@@ -59,6 +60,38 @@ test('valid and pre-Chronicle stored entries retain their existing replay behavi
         assert.equal(world.extractions[0].result.chronicleEntry, chronicleEntry);
         if (chronicleEntry) assert.equal(world.capsules[0].chronicleText, chronicleEntry);
     }
+});
+
+function chronicleWithTail() {
+    const world = {};
+    for (let index = 0; index < 6; index++) mergeExtraction(world, extraction(), {
+        ...meta, from: index, to: index, messageFingerprints: [{ index, fingerprint: `original-${index}` }],
+    });
+    const firstLayer = [0, 2, 4].map(index => addChroniclePromotion(world, {
+        summary: 'Alice and Bob waited together.',
+    }, world.chronicle.slice(index, index + 2)));
+    const secondLayer = addChroniclePromotion(world, { summary: 'Their shared wait continued.' }, firstLayer.slice(0, 2));
+    return { world, firstLayer, secondLayer };
+}
+
+test('undoing a tail Digest preserves unrelated C1 and C2 records and retires only its own ancestors', () => {
+    const { world, firstLayer, secondLayer } = chronicleWithTail();
+    const result = undoLatestDigestExtraction(world, 'chat');
+    assert.equal(result.removedChronicle, 1);
+    assert.deepEqual(world.chronicle.filter(node => node.level > 0), [...firstLayer.slice(0, 2), secondLayer]);
+    assert.deepEqual(activeChronicleNodes(world, 'chat').map(node => [node.level, node.from, node.to]), [[2, 0, 3], [0, 4, 4]]);
+    assert.deepEqual(world.storySoFar.chat.nodeIds, activeChronicleNodes(world, 'chat').map(node => node.id));
+});
+
+test('replayed ranges with the same capsule IDs and prose still invalidate parents if the raw fingerprint changed', () => {
+    const { world, firstLayer } = chronicleWithTail(), previous = structuredClone(world);
+    removeChatContributions(world, 'chat');
+    for (const item of previous.extractions) mergeExtraction(world, item.result, {
+        ...meta, from: item.from, to: item.to, replayStoredExtraction: true,
+        messageFingerprints: item.from === 0 ? [{ index: 0, fingerprint: 'changed' }] : item.messageFingerprints,
+    });
+    restoreRetainedReplayRecords(world, previous, 'chat');
+    assert.deepEqual(world.chronicle.filter(node => node.level > 0), firstLayer.slice(1));
 });
 
 test('deletion repair replays legacy entries, removes the stale suffix, and clears the reply repair flag', async () => {

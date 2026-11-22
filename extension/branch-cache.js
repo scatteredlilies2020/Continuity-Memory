@@ -1,7 +1,7 @@
 import { alignWorldToChat, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.30';
 import { digestStabilityRepairFrom } from './digest-policy.js';
 import { mergeExtraction, removeChatContributions, restoreRetainedReplayRecords } from './memory-model.js?historical-recall=1&stored-replay=1';
-import { refreshChronicleStory, syncChronicleBase } from './chronicle.js';
+import { refreshChronicleStory } from './chronicle.js';
 
 function remapWorldChatKey(world, from, to) {
     const remapped = structuredClone(world);
@@ -193,18 +193,7 @@ function reuseWorldPrefix(world, currentMessages, targetChatKey, sourceKey) {
                     .map(([index, fingerprint]) => ({ index, fingerprint })),
             });
         }
-        restoreRetainedReplayRecords(branchedWorld, previousWorld, targetChatKey);
-        syncChronicleBase(branchedWorld, targetChatKey);
-        const retainedNodeIds = new Set((branchedWorld.chronicle || []).map(item => item.id));
-        const retainedParents = (previousWorld.chronicle || [])
-            .filter(item => item.chatKey === targetChatKey && Number(item.level) > 0)
-            .slice()
-            .sort((left, right) => Number(left.level) - Number(right.level));
-        for (const parent of retainedParents) {
-            if (retainedNodeIds.has(parent.id) || !(parent.childIds || []).every(id => retainedNodeIds.has(id))) continue;
-            branchedWorld.chronicle.push(structuredClone(parent));
-            retainedNodeIds.add(parent.id);
-        }
+        restoreRetainedReplayRecords(branchedWorld, previousWorld, targetChatKey, { rekeyed: sourceKey !== targetChatKey });
     }
     refreshChronicleStory(branchedWorld, targetChatKey);
 
