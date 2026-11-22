@@ -294,6 +294,15 @@ export function buildHierarchySystemPrompt(basePrompt) {
         : `${withScope}\n\n${CHRONICLE_HISTORY_RULE}`;
 }
 
+export function buildChronicleProseSystemPrompt(basePrompt) {
+    // Keep historical and attribution rules, but do not ask a prose-only
+    // route to simultaneously produce ratings, labels or compatibility fields.
+    return buildHierarchySystemPrompt(basePrompt)
+        .replace(`${IMPORTANCE_RUBRIC}\nRate the whole source interval.\n`, '')
+        .replace(HIERARCHY_CONCISION_RULES, 'Compress repetition and incidental detail, not the meaning, attribution, conditions, or knowledge boundaries of retained claims. Finish complete sentences without omission ellipses.')
+        .replace(CHRONICLE_HISTORY_RULE, CHRONICLE_HISTORY_RULE.split(' In parent nodes,')[0]);
+}
+
 export function buildRetrievalSystemPrompt(basePrompt) {
     return String(basePrompt ?? DEFAULT_RETRIEVAL_SYSTEM_PROMPT).trim();
 }

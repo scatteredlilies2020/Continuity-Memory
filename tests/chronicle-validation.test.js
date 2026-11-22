@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { normalizeHierarchyResult, recoverChronicleNarrative } from '../extension/hierarchy-result.js';
+import { normalizeChronicleProse, normalizeHierarchyResult, recoverChronicleNarrative } from '../extension/hierarchy-result.js';
 import { activeChronicleNodes, addChroniclePromotion, chronicleTextFromCapsule, syncChronicleBase } from '../extension/chronicle.js';
 import { retryChroniclePromotion, chronicleRetryFeedback } from '../extension/chronicle-retry.js';
 import { applyManualMemoryEdit } from '../extension/memory-edit.js';
 import { applyCorrectionProposal } from '../extension/memory-correction.js';
 import { chronicleParentSchema } from '../extension/extraction-contract.js';
 import { assertChronicleChanges } from '../extension/chronicle-validation.js';
+import { buildChronicleProseSystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, HIERARCHY_ATTRIBUTION_RULE } from '../extension/prompts.js';
 import { createDetachedJob, getDetachedJob } from '../plugin/detached-jobs.js';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
@@ -14,6 +15,24 @@ import { runInNewContext } from 'node:vm';
 const children = [0, 1].map(i => ({ id: `c${i}`, level: 0, chatKey: 'chat', from: i, to: i,
     text: 'Alice reached the city.', capsuleIds: [`d${i}`], childIds: [] }));
 const invalid = ['R', ' A. ', '界。', '𝒜', '...', '📝', '', '  ', null, 7, ['A']];
+
+test('plain promotion accepts prose and incidental wrappers without trusting their metadata', () => {
+    const prose = 'Alice reached the city. 她留下等候。';
+    for (const response of [prose, '```text\n' + prose + '\n```', JSON.stringify(prose),
+        JSON.stringify({ summary: prose, title: 'Invented title', openThreads: ['Invented plan'] })]) {
+        assert.deepEqual(normalizeChronicleProse(response, 'C1'), normalizeHierarchyResult({ summary: prose }, 'C1'));
+    }
+    for (const response of [...invalid, '{}', '{"summary":"R"}', '{"summary":', '```text\nUnknown.\n```']) {
+        assert.throws(() => normalizeChronicleProse(response, 'C1'), { code: 'CM_INCOMPLETE_CHRONICLE' });
+    }
+});
+
+test('default prose promotion instructions preserve attribution and historical scope without demanding fields', () => {
+    const prompt = buildChronicleProseSystemPrompt(DEFAULT_CHRONICLE_SYSTEM_PROMPT);
+    assert.ok(prompt.includes(HIERARCHY_ATTRIBUTION_RULE));
+    assert.match(prompt, /never infer an outcome from silence/);
+    assert.doesNotMatch(prompt, /openThreads|storyTime|Rate the whole source interval/);
+});
 
 test('all parent layers reject malformed summaries and titles before storage mutation', () => {
     for (const level of [0, 1, 2, 8]) {
@@ -163,6 +182,62 @@ test('detached parent generation recovers single-letter JSON with schema-free pr
     assert.equal(world.chronicle.at(-1).childIds.length, 10);
 });
 
+for (const [scenario, plain, expected] of [
+    ['placeholder', 'R', /required narrative field was blank or incomplete/],
+    ['oversized', 'Alice reached the city. '.repeat(100), /not smaller than the source entries/],
+    ['author-only disclosure', 'Alice revealed the secret route.', /author-only information as character speech or knowledge/],
+]) {
+    test(`invalid prose-first promotion (${scenario}) stays pending and leaves the entire C0 frontier untouched`, async () => {
+        const req = { socket: { localPort: 3210 }, headers: {}, user: { directories: { root: `chronicle-fallback-${scenario}` } } };
+        const original = Array.from({ length: 25 }, (_, i) => ({
+            ...children[0], id: `c${i}`, from: i, to: i,
+            provenanceBoundaries: i ? [] : [{ messageIndex: 0, speaker: 'Narrator', terms: ['secret', 'route'] }],
+        }));
+        let world = { id: 'world', chronicle: structuredClone(original) };
+        let saves = 0;
+        let reviews = 0;
+        const sizes = [];
+        const placeholder = '__CHRONICLE_PROMPT__';
+        const { job } = createDetachedJob(req, { worldId: 'world', chatKey: 'chat', reason: 'chronicle', tasks: [], hierarchy: {
+            settings: { chronicleLayerCapacity: 24, chroniclePromotionSize: 10 }, chronicle: {
+                request: { model: 'test', messages: [{ role: 'user', content: placeholder }] }, placeholder,
+                taskTemplate: '{{format}}\n{{nodes}}', valueKey: 'nodes', outputMode: 'prose-v1',
+            },
+        } }, { loadWorld: async () => structuredClone(world), saveWorld: async (_, next) => { saves++; world = structuredClone(next); } }, {
+            retryDelayMs: 1, maxRetryDelayMs: 1, maxNetworkAttempts: 2,
+            fetchImpl: async (_, options) => {
+                const request = JSON.parse(options.body);
+                const prompt = request.messages.find(message => message.role === 'user').content;
+                let content;
+                if (/Review these heuristic provenance flags/u.test(prompt)) {
+                    reviews++;
+                    content = JSON.stringify({ assessments: [{
+                        sentence: plain, violation: true, reason: 'No child establishes that Alice revealed the route.', evidence: [],
+                    }] });
+                } else {
+                    assert.equal(request.json_schema, undefined);
+                    sizes.push([...prompt.matchAll(/"sequence":\d+/g)].length);
+                    content = plain;
+                }
+                return Response.json({ choices: [{ message: { content } }] });
+            },
+        });
+        const deadline = Date.now() + 5000;
+        while (['queued', 'processing'].includes(getDetachedJob(req, job.id).status) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 5));
+        const finished = getDetachedJob(req, job.id);
+        assert.equal(finished.status, 'complete', finished.error);
+        assert.equal(finished.error, '');
+        assert.equal(finished.hierarchyErrorCode, 'CONTINUITY_INVALID_RESPONSE');
+        assert.match(finished.hierarchyError, expected);
+        assert.equal(finished.chronicle, 0);
+        assert.deepEqual(sizes, [10, 5, 3]);
+        assert.equal(reviews, scenario === 'author-only disclosure' ? 3 : 0);
+        assert.equal(saves, 0);
+        assert.deepEqual(world.chronicle, original);
+        assert.equal(activeChronicleNodes(world, 'chat').length, 25);
+    });
+}
+
 test('detached promotion drains 48 C0 entries with smaller validated groups and retains every source', async () => {
     const req = { socket: { localPort: 3210 }, headers: {}, user: { directories: { root: 'chronicle-large-frontier' } } };
     const original = Array.from({ length: 48 }, (_, i) => ({ ...children[0], id: `c${i}`, from: i, to: i, capsuleIds: [`d${i}`] }));
@@ -194,6 +269,48 @@ test('detached promotion drains 48 C0 entries with smaller validated groups and 
     assert.deepEqual(world.chronicle.slice(48).flatMap(node => node.childIds), original.slice(0, 24).map(node => node.id));
     assert.equal(activeChronicleNodes(world, 'chat').filter(node => node.level === 0).length, 24);
 });
+
+for (const [scenario, cap] of [['truncated output', 'max_completion_tokens'], ['cap not supported', 'max_tokens']]) {
+    test(`prose-first detached promotion recovers ${scenario} without requesting JSON`, async () => {
+        const req = { socket: { localPort: 3210 }, headers: {}, user: { directories: { root: scenario } } };
+        const original = Array.from({ length: 25 }, (_, i) => ({ ...children[0], id: `c${i}`, from: i, to: i }));
+        let world = { id: 'world', chronicle: structuredClone(original) };
+        const placeholder = '__CHRONICLE_PROMPT__';
+        const calls = [];
+        const { job } = createDetachedJob(req, { worldId: 'world', chatKey: 'chat', reason: 'chronicle', tasks: [], hierarchy: {
+            settings: { chronicleLayerCapacity: 24, chroniclePromotionSize: 10 }, chronicle: {
+                request: { model: 'test', [cap]: 1024, json_schema: { name: 'legacy' }, response_format: { type: 'json_object' },
+                    messages: [{ role: 'user', content: placeholder }, { role: 'assistant', content: '{' }] }, placeholder,
+                taskTemplate: '{{format}}\n{{nodes}}', valueKey: 'nodes', outputMode: 'prose-v1',
+            },
+        } }, { loadWorld: async () => structuredClone(world), saveWorld: async (_, next) => { world = structuredClone(next); } }, {
+            retryDelayMs: 1, maxRetryDelayMs: 1, maxNetworkAttempts: 2,
+            fetchImpl: async (_, options) => {
+                const request = JSON.parse(options.body);
+                assert.equal(request.json_schema, undefined);
+                assert.equal(request.response_format, undefined);
+                assert.deepEqual(request.messages.map(message => message.role), ['user']);
+                const prompt = request.messages[0].content;
+                assert.match(prompt, /Return only the complete chronological narrative/);
+                calls.push([request[cap], [...prompt.matchAll(/"sequence":\d+/g)].length]);
+                if (calls.length === 1) {
+                    if (scenario === 'cap not supported') return Response.json({ error: { message: 'Unsupported parameter: max_tokens' } }, { status: 400 });
+                    return Response.json({ candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: 'Alice reached the' }] } }] });
+                }
+                return Response.json({ choices: [{ message: { content: 'Alice reached the city.' } }] });
+            },
+        });
+        const deadline = Date.now() + 5000;
+        while (['queued', 'processing'].includes(getDetachedJob(req, job.id).status) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 5));
+        const recoveredCount = scenario === 'cap not supported' ? 10 : 5;
+        const finished = getDetachedJob(req, job.id);
+        assert.equal(finished.status, 'complete', finished.error);
+        assert.equal(finished.hierarchyError, '');
+        assert.deepEqual(calls, [[4096, 10], [scenario === 'cap not supported' ? undefined : 8192, recoveredCount]]);
+        assert.deepEqual(world.chronicle.slice(0, 25), original);
+        assert.deepEqual(world.chronicle.at(-1).childIds, original.slice(0, recoveredCount).map(node => node.id));
+    });
+}
 
 test('a smaller promotion cannot overlap a parent saved while it was being generated', () => {
     const sources = Array.from({ length: 5 }, (_, i) => ({ ...children[0], id: `c${i}`, from: i, to: i }));

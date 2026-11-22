@@ -1,6 +1,6 @@
 import { resolveDigestGroupSize } from './digest-policy.js';
 import { roleplayBacklogPolicy } from './generation-policy.js?v=0.15.0-testing.30&catchup-gate=3';
-import { CONTINUITY_VERSION } from './build-info.js?historical-recall=1&chronicle-defer=2';
+import { CONTINUITY_VERSION } from './build-info.js?historical-recall=1&chronicle-defer=3';
 
 const MAX_PROBLEMS = 40;
 const notificationTimes = new Map();
@@ -162,6 +162,9 @@ export function continuityHealth(state, settings, coverage = {}, now = Date.now(
                 : connection?.outputCharacters ? 'Receiving summary' : 'Building memory';
         const range = job?.from != null && job?.to != null ? ` · messages ${job.from}–${job.to}` : '';
         return result('working', stage, `${state.retryStatus || 'Completed sections are saved as processing continues.'}${range}`);
+    }
+    if (state.chronicleDeferred && settings.hierarchyMode !== 'off') {
+        return result('warning', 'Chronicle pending', state.arcStatus || 'No parent was saved. Source memory remains available.');
     }
     if (pending >= size && settings.autoExtract) return result('warning', 'Update pending', 'A complete stable batch is waiting for automatic extraction.');
     if (!settings.autoExtract) return result('warning', 'Automatic updates off', 'Memory updates are manually managed.');

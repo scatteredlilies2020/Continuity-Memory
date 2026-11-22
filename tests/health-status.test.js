@@ -38,6 +38,18 @@ test('fast failures remain in saved history after a retry clears live error text
     assert.equal(h.history().length, 1, 'A browser reload must retain the user settings history.');
 });
 
+test('unusable promotion output shows a pending notice, not an error or notification', () => {
+    const h = trackerFixture();
+    const state = { chronicleDeferred: true, arcStatus: 'Chronicle promotion pending. Source memory was kept.', arcError: '' };
+    h.observe(state);
+    const status = continuityHealth(state, settings, {}, time, 'chat');
+    assert.equal(status.label, 'Chronicle pending');
+    assert.equal(status.hasProblem, false);
+    assert.deepEqual(h.history(), []);
+    assert.deepEqual(h.notices, []);
+    assert.equal(continuityHealth({ ...state, lastError: 'Network error' }, settings).hasProblem, true);
+});
+
 test('clearing the log only removes the selected chat history, not settings or memory', () => {
     const preferences = { enabled: true, chatWorlds: { chat: 'world' }, healthProblemHistory: [
         { chatKey: 'chat', message: 'First error' }, { chatKey: 'other', message: 'Other error' },

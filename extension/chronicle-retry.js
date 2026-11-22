@@ -1,5 +1,22 @@
 import { errorChainText, isTransientApiError } from './errors.js';
 
+export function chronicleProseRetryFeedback(error) {
+    if (!error || error.status === 409 || isTransientApiError(error)) return '';
+    return `\n\nPrevious attempt: ${chronicleFailureReason(error)} Write a new complete and shorter account using only the source entries supplied in this request.`;
+}
+
+export function chronicleProseOutputTokens(previousError = null) {
+    return /output limit|max_tokens|output (?:was |is )?(?:truncated|incomplete)/iu.test(errorChainText(previousError)) ? 8192 : 4096;
+}
+
+export function chronicleOutputBudgetRejected(error) {
+    const detail = errorChainText(error);
+    return !isTransientApiError(error)
+        && /\b(?:max_tokens|max_completion_tokens|maxOutputTokens|max output tokens)\b/iu.test(detail)
+        && /unsupported|unknown|unrecognized|not (?:supported|allowed)|invalid|at most|out of range|must be (?:less|between|at most)|too (?:large|high)|exceed/iu.test(detail)
+        && !/finish_reason|context length|context_length_exceeded/iu.test(detail);
+}
+
 export function isRetryableChronicleError(error) {
     if (error?.code === 'CM_INCOMPLETE_CHRONICLE') return true;
     if (error?.code === 'CM_PROVENANCE_REVIEW_INVALID' || error?.code === 'CM_OOC_PROVENANCE') return true;

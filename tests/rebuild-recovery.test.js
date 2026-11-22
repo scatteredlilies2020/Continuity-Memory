@@ -39,21 +39,26 @@ test('Chronicle maintenance locks before storage awaits and refuses stale chat r
 
 test('a failed promotion defers only Chronicle, leaving automatic Digest able to run', async () => {
     const runtime = { generation: 0, processing: false, queue: [], paused: false };
-    const reason = 'The response did not match the required JSON structure.';
+    const reason = 'The model did not produce a usable summary. Source memory was kept.';
     const world = { id: 'world' };
     let attempts = 0;
     const maintain = engineFunction('maintainChronicleHierarchy', 'async function requireRetryStorage', {
         runtime, getSettings: () => ({ enabled: true, autoExtract: true }), getBoundWorldId: () => 'world', getChatKey: () => 'chat',
         updateRuntime: patch => Object.assign(runtime, patch), api: { getWorld: async () => ({ world }) },
         nextChroniclePromotion: () => [{}],
-        processDetachedRange: async () => { attempts++; return { hierarchyError: reason }; },
+        processDetachedRange: async () => { attempts++; return { hierarchyError: reason, hierarchyErrorCode: 'CONTINUITY_INVALID_RESPONSE' }; },
+        chronicleDeferredStatus: runInNewContext(engine.match(/^function chronicleDeferredStatus\([^]*?^}/m)[0] + '\nchronicleDeferredStatus', {
+            isTransientApiError: () => false,
+        }),
         isRuntimeCancellation: () => false, isTransientApiError: () => false,
         queueMicrotask: () => {}, processQueue: () => {},
     });
     assert.equal(await maintain(), null);
     assert.equal(runtime.processing, false);
     assert.equal(runtime.status, 'idle');
-    assert.equal(runtime.arcError, reason);
+    assert.equal(runtime.arcError, '');
+    assert.equal(runtime.arcStatus, `Chronicle promotion pending. ${reason}`);
+    assert.equal(runtime.chronicleDeferred, true);
     assert.equal(runtime.chronicleBlocked, true);
     assert.equal(runtime.world, world);
     assert.equal(await maintain(), null);

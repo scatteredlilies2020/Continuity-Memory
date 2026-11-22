@@ -11,14 +11,15 @@ import { fingerprintMessage } from '../extension/message-digest.js';
 import { addDerivedChronicle, mergeExtraction } from '../extension/memory-model.js';
 import { isCurrentStorySnapshot } from '../extension/story-source.js';
 import { migrateLegacyBeliefs } from '../extension/attributed-beliefs.js';
-import { normalizeHierarchyResult, recoverChronicleNarrative } from '../extension/hierarchy-result.js';
+import { CHRONICLE_PROSE_FORMAT, normalizeChronicleProse, normalizeHierarchyResult, recoverChronicleNarrative } from '../extension/hierarchy-result.js';
 import { validateChronicleProvenance, validateExtractionProvenance } from '../extension/chronicle-provenance.js';
 import { captureScenarioContext } from '../extension/scenario-context.js';
 import { CHRONICLE_ENTRY_RULE, renderPromptTemplate } from '../extension/prompts.js';
 import { sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
 import { isMandatoryThinkingError, isThinkingControlError } from '../extension/thinking-policy.js';
 import { nextChroniclePromotion, chronicleCompressionGuide, validateChronicleCompression } from '../extension/chronicle.js';
-import { chronicleRetryFeedback, chronicleRetrySources, retryChroniclePromotion } from '../extension/chronicle-retry.js';
+import { chronicleOutputBudgetRejected, chronicleProseOutputTokens, chronicleProseRetryFeedback, chronicleRetryFeedback, chronicleRetrySources, retryChroniclePromotion } from '../extension/chronicle-retry.js';
+import { outputTokenPayload } from '../extension/model-compatibility.js';
 import { retryConnection } from '../extension/connection-retry.js';
 import { EXTRACTION_VERSION } from '../extension/coverage.js';
 import { requestModel } from './model-response.js';
@@ -68,6 +69,7 @@ function publicJob(job) {
         phase: job.phase,
         chronicle: job.chronicle,
         hierarchyError: job.hierarchyError || '',
+        hierarchyErrorCode: job.hierarchyErrorCode || '',
         pendingTasks: job.tasks.length,
     };
 }
@@ -167,9 +169,22 @@ function requestFromTemplate(template, placeholder, prompt) {
     return request;
 }
 
-async function requestHierarchyText(job, layer, prompt, fallbackPrompt, reviewSystem = null, reviewSchema = null) {
+async function requestHierarchyText(job, layer, prompt, fallbackPrompt, reviewSystem = null, reviewSchema = null, proseTokens = undefined) {
     const prepare = (template, text) => {
         const request = requestFromTemplate(template, layer.placeholder, text);
+        if (request && proseTokens !== undefined) {
+            request.messages = request.messages.filter(message => message.role === 'system' || message.role === 'user');
+            delete request.continuity_prefill;
+            delete request.json_schema;
+            delete request.response_format;
+            if (proseTokens === null) {
+                delete request.max_tokens;
+                delete request.max_completion_tokens;
+                delete request.maxOutputTokens;
+            } else if (request.max_completion_tokens != null) request.max_completion_tokens = proseTokens;
+            else Object.assign(request, outputTokenPayload(request.model, proseTokens));
+            if (request.maxOutputTokens != null) request.maxOutputTokens = proseTokens;
+        }
         if (request && reviewSystem) {
             request.messages = [{ role: 'system', content: reviewSystem }, { role: 'user', content: text }];
             delete request.continuity_prefill;
@@ -210,6 +225,25 @@ function reviewChronicleProvenance(job, result, records) {
 }
 
 async function requestHierarchy(job, layer, records, label, previousError = null) {
+    if (layer.outputMode === 'prose-v1') {
+        const task = renderPromptTemplate(layer.taskTemplate, {
+            nodes: formatChronicleNodes(records), format: CHRONICLE_PROSE_FORMAT, schema: CHRONICLE_PROSE_FORMAT,
+        }, ['nodes']);
+        const prompt = `${task}\n\n${CHRONICLE_PROSE_FORMAT}\n${chronicleCompressionGuide(records, job.hierarchy?.settings)}${chronicleProseRetryFeedback(previousError)}`;
+        const request = tokens => requestHierarchyText(job, layer, prompt, prompt, null, null, tokens);
+        let raw;
+        try {
+            raw = await request(chronicleProseOutputTokens(previousError));
+        } catch (error) {
+            if (!chronicleOutputBudgetRejected(error)) throw error;
+            raw = await request(null);
+        }
+        const result = normalizeChronicleProse(raw, label);
+        validateChronicleCompression(result, records);
+        await reviewChronicleProvenance(job, result, records);
+        return result;
+    }
+    // Already-open older browser clients can still submit the legacy plan.
     const feedback = `\n\n${chronicleCompressionGuide(records, job.hierarchy?.settings)}${chronicleRetryFeedback(previousError)}`;
     const prompt = hierarchyPrompt(layer, records, layer.usesStructuredSchema) + feedback;
     const fallbackPrompt = layer.usesStructuredSchema ? hierarchyPrompt(layer, records, false) + feedback : prompt;
@@ -571,6 +605,7 @@ async function run(job) {
         } catch (error) {
             if (job.cancelled) throw error;
             job.hierarchyError = error.message || String(error);
+            job.hierarchyErrorCode = error.code || '';
             console.warn('[continuity-memory] detached hierarchy was deferred; saved Digest remains intact:', error);
         }
         job.phase = 'complete';

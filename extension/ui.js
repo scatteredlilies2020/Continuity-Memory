@@ -7,21 +7,21 @@ import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js?pending-recovery=1&storage-recovery=1&storage-conversion=1';
 import { bindStorageConversionControls } from './storage-conversion-ui.js';
-import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1&storage-conversion=1&chronicle-defer=2';
+import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1&storage-conversion=1&chronicle-defer=3';
 import { freshResetResiduals, worldCounts } from './memory-model.js?historical-recall=1&stored-replay=1';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js?belief-wording=4&pending-recovery=1&historical-recall=1';
 import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.30&belief-wording=4&historical-recall=1';
-import { clearRetrievalExpansionCache, expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.30&belief-wording=4&bounded-recall=1&pending-recovery=1&retrieval-json=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1&storage-conversion=1&chronicle-defer=2';
+import { clearRetrievalExpansionCache, expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.30&belief-wording=4&bounded-recall=1&pending-recovery=1&retrieval-json=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1&storage-conversion=1&chronicle-defer=3';
 import { resolveRetrievalAssist } from './retrieval-assist.js?bounded-recall=1&catchup-gate=1';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js?historical-recall=1';
 import { describeMemoryEdit } from './memory-edit.js?historical-recall=1';
 import { createMemoryEditForm } from './memory-edit-form.js';
-import { commitManualMemoryEdit } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1&storage-conversion=1&chronicle-defer=2';
+import { commitManualMemoryEdit } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1&storage-conversion=1&chronicle-defer=3';
 import { formatCorrectionPreview } from './memory-correction.js?historical-recall=1';
 import { digestRepairInstruction } from './digest-repair.js';
 import { formatRecheckPreview } from './continuity-recheck.js';
-import { reviewContinuityAlignment, commitContinuityAlignment, undoContinuityAlignment } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1&storage-conversion=1&chronicle-defer=2';
+import { reviewContinuityAlignment, commitContinuityAlignment, undoContinuityAlignment } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1&storage-conversion=1&chronicle-defer=3';
 import { resolveCorrectionResponseTokens } from './correction-policy.js?pending-recovery=1';
 import { normalizeExtractionOutputTokens } from './memory-response-policy.js?pending-recovery=1';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js?historical-recall=1';
@@ -48,7 +48,7 @@ import { createRenderScheduler } from './render-scheduler.js';
 import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.30';
 import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.30';
 import { isTransientApiError } from './errors.js';
-import { clearHealthProblemHistory, continuityHealth, createHealthProblemTracker, dismissHealthProblems, notifyHealthProblem } from './health-status.js?storage-recovery=1&clear-problems=2&historical-recall=1&catchup-gate=3&chronicle-defer=2';
+import { clearHealthProblemHistory, continuityHealth, createHealthProblemTracker, dismissHealthProblems, notifyHealthProblem } from './health-status.js?storage-recovery=1&clear-problems=2&historical-recall=1&catchup-gate=3&chronicle-defer=3';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -2092,6 +2092,11 @@ async function finishHierarchy(digest, clearRetrieval = false, rebuildVectors = 
             updateRuntime({ status: 'paused', lastError: '', retryStatus: runtime.retryStatus || 'Processing paused safely.' });
             return { ...digest, cancelled: true, chroniclePromotions };
         }
+        if (error.code === 'CONTINUITY_INVALID_RESPONSE') {
+            const hierarchyDeferred = `Chronicle promotion pending. ${error.message}`;
+            updateRuntime({ status: 'idle', lastError: '', arcError: '', arcStatus: hierarchyDeferred, retryStatus: hierarchyDeferred, chronicleBlocked: true, chronicleDeferred: true });
+            return { ...digest, chroniclePromotions, hierarchyDeferred };
+        }
         updateRuntime({ status: 'error', retryStatus: `Build stopped safely: ${error.message}` });
         throw error;
     } finally {
@@ -2157,7 +2162,7 @@ async function runMemoryBuildWithRestart() {
             if (runtime.paused) resumeRuntime();
             try {
                 const result = await buildMemory(stopSequence);
-                if (result.cancelled) return result;
+                if (result.cancelled || result.hierarchyDeferred) return result;
                 let vectors = null;
                 if (getSettings().retrievalMode === 'embedding-hybrid' && runtime.world?.id) {
                     updateRuntime({ processing: true, status: 'building', lastError: '', retryStatus: 'Memory layers are ready. Completing the selected embedding index to 100%…' });
@@ -2259,6 +2264,7 @@ async function rebuildHierarchy() {
     if (!digestCount) throw new Error('There are no Digest records to build Chronicle parents from. Use Build or erase everything and start over.');
     if (!window.confirm(`Rebuild every Recursive Chronicle layer from the ${digestCount} existing Digest record(s)? Every C0 will be recreated locally; eligible C1+ parents will be regenerated. Digest, structured memory books, and extraction records will remain untouched.`)) return { cancelled: true };
     const reset = await restartHierarchyFromDigest();
+    if (reset.hierarchyDeferred) return reset;
     return finishHierarchy(reset, true, true);
 }
 
@@ -2620,6 +2626,7 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
         $('#continuity_build').on('click', () => buildMemoryWithRestart()
             .then(result => {
                 if (result.cancelled) return;
+                if (result.hierarchyDeferred) return toast('warning', result.hierarchyDeferred);
                 const changed = Boolean(result.continued || result.chroniclePromotions || result.vectors);
                 toast(changed ? 'success' : 'info', changed ? 'Memory build completed; Digest also updated the Recursive Chronicle.' : 'Memory and Chronicle are already up to date.');
             })
@@ -2635,10 +2642,14 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
         .then(result => !result.cancelled && toast('success', `Rollback repaired: removed memory from ${result.removedMessages || 0} deleted message(s).`))
         .catch(error => toast('error', error.message)));
         $('#continuity_restart_build').on('click', () => restartBuild()
-            .then(result => !result.cancelled && toast('success', `Fresh build complete: ${result.messages || 0} structured-memory messages, ${result.chroniclePromotions || 0} Chronicle promotion(s).`))
+            .then(result => !result.cancelled && (result.hierarchyDeferred
+                ? toast('warning', result.hierarchyDeferred)
+                : toast('success', `Fresh build complete: ${result.messages || 0} structured-memory messages, ${result.chroniclePromotions || 0} Chronicle promotion(s).`)))
             .catch(error => toast('error', error.message)));
     $('#continuity_rebuild_hierarchy').on('click', () => rebuildHierarchy()
-        .then(result => !result.cancelled && toast('success', `Chronicle rebuilt: ${result.chroniclePromotions || 0} parent promotion(s).`))
+        .then(result => !result.cancelled && (result.hierarchyDeferred
+            ? toast('warning', result.hierarchyDeferred)
+            : toast('success', `Chronicle rebuilt: ${result.chroniclePromotions || 0} parent promotion(s).`)))
         .catch(error => toast('error', error.message)));
     $('#continuity_correction_review').on('click', () => reviewCorrection()
         .catch(error => { $('#continuity_correction_status').text(error.message); toast('error', error.message); }));

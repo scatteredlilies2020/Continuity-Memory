@@ -438,6 +438,6 @@ test('Digest and Chronicle opt in to summary overrides, correction does not', as
     });
     await fn('task', 'system', 'fallback', 100);
     assert.equal(args[8], true);
-    assert.match(functionSource(engine, 'generateChroniclePromotion'), /requestStructured\([^;]+thinkingMode, true\)/);
+    assert.match(functionSource(engine, 'generateChroniclePromotion'), /requestStructured\(prompt, chronicleProseSystem\(settings\), null,[^;]+thinkingMode, true, false\)/);
     assert.doesNotMatch(functionSource(engine, 'reviewMemoryCorrection'), /requestStructured\([^;]+true\s*\)/);
 });

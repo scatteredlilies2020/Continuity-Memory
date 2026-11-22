@@ -1,4 +1,4 @@
-import { extractionSchema, chronicleParentSchema, schemaFieldGuide, formatStructuredResponseGuide, EXTRACTION_OUTPUT_CHECK, CHRONICLE_OUTPUT_CHECK, EXTRACTION_FIELD_GUIDE, assertCompleteExtractionRecords, extractionCompletenessFeedback } from './extraction-contract.js?v=0.15.0-testing.34';
+import { extractionSchema, schemaFieldGuide, formatStructuredResponseGuide, EXTRACTION_OUTPUT_CHECK, EXTRACTION_FIELD_GUIDE, assertCompleteExtractionRecords, extractionCompletenessFeedback } from './extraction-contract.js?v=0.15.0-testing.34';
 import { LEGACY_DIGEST_RESCAN_MESSAGE } from './legacy-support.js';
 import { extractMessageFromData, generateRaw, getRequestHeaders } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
@@ -12,7 +12,7 @@ import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTI
 import { isRateLimitError, isTransientApiError } from './errors.js';
 import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.30';
 import { planExtractionOutput, resolveExtractionChunk } from './extraction-budget.js?pending-recovery=1&output-planning=1';
-import { normalizeHierarchyResult, recoverChronicleNarrative } from './hierarchy-result.js?prose-recovery=1';
+import { CHRONICLE_PROSE_FORMAT, CHRONICLE_PROSE_SYSTEM, normalizeChronicleProse, normalizeHierarchyResult } from './hierarchy-result.js?prose-promotion=1';
 import { validateChronicleProvenance, validateExtractionProvenance, chronicleProvenanceSources } from './chronicle-provenance.js';
 import { captureScenarioContext } from './scenario-context.js';
 import { completeDigestMessages, latestCompleteDigestMessageIndex, digestStabilityRepairFrom, DIGEST_STABILITY_BUFFER_MESSAGES, partitionDigestStabilityBuffer, partitionPendingDigestMessages, resolveDigestGroupSize, selectAutomaticDigestMessages } from './digest-policy.js';
@@ -30,7 +30,7 @@ import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.30
 import { authoritativeMetaBoundaries, formatExtractionMessages, inWorldSourceEvidence, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.37&chronicle-summary-recovery=1';
 import { embedWorldInChat } from './portable.js?belief-wording=4&pending-recovery=1&historical-recall=1';
 import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.30';
-import { buildExtractionSystemPrompt, buildHierarchySystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.30&belief-wording=4&historical-recall=1';
+import { buildChronicleProseSystemPrompt, buildExtractionSystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.30&belief-wording=4&historical-recall=1&prose-promotion=1';
 import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.30&historical-recall=1';
 import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&historical-recall=1';
 import { blockSyncedRecovery } from './synced-recovery-policy.js?belief-wording=4&pending-recovery=1&historical-recall=1';
@@ -45,7 +45,7 @@ import { compileRollingStorySnapshot } from './story-snapshot.js?v=0.15.0-testin
 import { planStoryMutationRecovery } from './story-checkpoints.js?v=0.15.0-testing.30';
 import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.30';
 import { nextChroniclePromotion, chronicleCompressionGuide, validateChronicleCompression, chronicleSize } from './chronicle.js';
-import { chronicleRetryFeedback, chronicleRetrySources, isRetryableChronicleError, retryChroniclePromotion } from './chronicle-retry.js?pending-recovery=1&failure-reason=1&adaptive=1';
+import { chronicleOutputBudgetRejected, chronicleProseOutputTokens, chronicleProseRetryFeedback, chronicleRetrySources, retryChroniclePromotion } from './chronicle-retry.js?pending-recovery=1&failure-reason=1&adaptive=1&prose-promotion=1';
 import { retryConnection } from './connection-retry.js?pending-recovery=1';
 import { randomUuid } from './uuid.js';
 import { RECHECK_PROMPT, RECHECK_SCHEMA, recheckSourceSignature, runContinuityRecheck, applyContinuityRecheck } from './continuity-recheck.js';
@@ -59,14 +59,6 @@ const extractionJsonSchema = Object.freeze({
     value: extractionSchema,
 });
 
-
-const chronicleJsonSchema = Object.freeze({
-    name: 'continuity_chronicle_parent',
-    description: 'A non-destructive Chronicle parent derived from chronological same-layer Chronicle nodes. Canonical prose uses explicit names and third person.',
-    strict: true,
-    returnInvalid: true,
-    value: chronicleParentSchema,
-});
 
 const correctionSchema = {
     type: 'object',
@@ -112,7 +104,6 @@ Check every relevant representation of the mistake. In particular, update or rem
 Do not alter unrelated details, invent unsupported events, create new Digest capsules, or edit chat messages. Return JSON only.
 ${formatStructuredResponseGuide(schemaFieldGuide(correctionSchema))}`;
 
-const ARC_JSON_SHAPE_EXAMPLE = schemaFieldGuide(chronicleParentSchema);
 
 const JSON_SHAPE_EXAMPLE = EXTRACTION_FIELD_GUIDE;
 
@@ -765,10 +756,11 @@ function detachedRequestBodies({ prompt, fallbackPrompt, systemPrompt, usesStruc
     profileId = getSettings().memoryProfileId,
     directKind = 'extraction',
     thinkingMode: configuredThinkingMode = null,
+    usePrefill = true,
 } = {}) {
     const settings = getSettings();
     const thinkingMode = resolveThinkingModeForProfile(configuredThinkingMode ?? (directKind === 'summary' ? settings.summaryThinkingMode : settings.thinkingMode), profileId);
-    const prefill = resolveMemoryPrefill(profileId, { summary: true });
+    const prefill = usePrefill ? resolveMemoryPrefill(profileId, { summary: true }) : '';
     const messagesFor = userPrompt => memoryRequestMessages(userPrompt, systemPrompt, prefill);
     usesStructuredSchema = usesStructuredSchema && !prefill;
     let base;
@@ -821,7 +813,7 @@ function detachedRequestBodies({ prompt, fallbackPrompt, systemPrompt, usesStruc
         // Native active-chat settings require browser-side preset expansion.
         return null;
     }
-    const layerTokens = layer === 'digest' ? extractionResponseTokens(settings.extractionOutputTokens, false, responseTokens) : memoryResponseTokens(layer);
+    const layerTokens = layer === 'digest' ? extractionResponseTokens(settings.extractionOutputTokens, false, responseTokens) : responseTokens ?? memoryResponseTokens(layer);
     const responseLength = resolveMemoryResponseTokens(layerTokens, thinking.adapter) ?? undefined;
     const compatible = isolatedProfilePayload({
         ...outputTokenPayload(model, layerTokens),
@@ -885,23 +877,21 @@ function prepareDetachedChronicleLayer() {
     const settings = getSettings();
     const profileId = settings.arcProfileId || settings.memoryProfileId;
     const directKind = settings.arcProfileId === DIRECT_PROFILE_ID ? 'summary' : 'extraction';
-    const jsonSchema = chronicleJsonSchema;
     const thinkingMode = settings.summaryThinkingMode;
-    const usesStructuredSchema = requestSupportsStructuredSchema(jsonSchema, profileId, directKind, thinkingMode, true);
     const placeholder = '__CONTINUITY_DETACHED_HIERARCHY_PROMPT__';
     const requests = detachedRequestBodies({
         prompt: placeholder,
         fallbackPrompt: placeholder,
-        systemPrompt: buildHierarchySystemPrompt(settings.chronicleSystemPrompt ?? DEFAULT_CHRONICLE_SYSTEM_PROMPT),
-        usesStructuredSchema,
-    }, { jsonSchema, layer: 'chronicle', profileId, directKind, thinkingMode });
+        systemPrompt: chronicleProseSystem(settings),
+        usesStructuredSchema: false,
+        responseTokens: chronicleProseOutputTokens(),
+    }, { jsonSchema: null, layer: 'chronicle', profileId, directKind, thinkingMode, usePrefill: false });
     if (!requests) return null;
     return {
         ...requests,
         placeholder,
-        usesStructuredSchema,
-        taskTemplate: `${settings.chronicleTaskTemplate ?? DEFAULT_CHRONICLE_TASK_TEMPLATE}\n\n${CHRONICLE_OUTPUT_CHECK}`,
-        shapeExample: ARC_JSON_SHAPE_EXAMPLE,
+        outputMode: 'prose-v1',
+        taskTemplate: settings.chronicleTaskTemplate || DEFAULT_CHRONICLE_TASK_TEMPLATE,
         valueKey: 'nodes',
     };
 }
@@ -1042,11 +1032,7 @@ async function reconnectDetachedExtraction(worldId, chatKey) {
                 world,
                 status: 'idle',
                 progress: null,
-                arcStatus: completed.hierarchyError
-                    ? 'Chronicle promotion deferred; saved C0 and structured memory remain intact.'
-                    : `Recursive Chronicle complete: ${completed.chronicle || 0} parent node(s) created.`,
-                arcError: completed.hierarchyError || '',
-                chronicleBlocked: Boolean(completed.hierarchyError),
+                ...detachedChronicleStatus(completed),
                 lastValidation: completed.validation || `Detached extraction saved ${completed.messages || 0} message(s).`,
                 lastCompletedAt: completed.completedAt || new Date().toISOString(),
             });
@@ -1067,11 +1053,7 @@ async function reconnectDetachedExtraction(worldId, chatKey) {
             world,
             status: 'idle',
             progress: null,
-            arcStatus: completed.hierarchyError
-                ? 'Chronicle promotion deferred; saved C0 and structured memory remain intact.'
-                : `Recursive Chronicle complete: ${completed.chronicle || 0} parent node(s) created.`,
-            arcError: completed.hierarchyError || '',
-                chronicleBlocked: Boolean(completed.hierarchyError),
+            ...detachedChronicleStatus(completed),
             lastCompletedAt: new Date().toISOString(),
         });
         await embedWorldInChat(world);
@@ -1148,11 +1130,7 @@ async function processDetachedRange(job, chunks, currentWorld) {
         if (runtime.generation !== epoch || runtime.paused) throw Object.assign(new Error('Processing stopped.'), { code: RUNTIME_CANCELLED_CODE });
         updateRuntime({
             world,
-            arcStatus: completed.hierarchyError
-                ? 'Chronicle promotion deferred; saved C0 and structured memory remain intact.'
-                : `Recursive Chronicle complete: ${completed.chronicle || 0} parent node(s) created.`,
-            arcError: completed.hierarchyError || '',
-                chronicleBlocked: Boolean(completed.hierarchyError),
+            ...detachedChronicleStatus(completed),
             lastValidation: completed.validation || `Detached extraction saved ${completed.messages} message(s).`,
         });
         await embedWorldInChat(world);
@@ -1163,6 +1141,7 @@ async function processDetachedRange(job, chunks, currentWorld) {
             skipped: 0,
             chroniclePromotions: completed.chronicle || 0,
             hierarchyError: completed.hierarchyError || '',
+            hierarchyErrorCode: completed.hierarchyErrorCode || '',
         };
     } finally {
         activeDetachedJobs.delete(started.job.id);
@@ -1500,32 +1479,54 @@ function formatChronicleNodes(nodes) {
     })).join('\n');
 }
 
+function chronicleProseSystem(settings) {
+    const configured = settings.chronicleSystemPrompt ?? DEFAULT_CHRONICLE_SYSTEM_PROMPT;
+    return `${buildChronicleProseSystemPrompt(configured)}\n\n${CHRONICLE_PROSE_SYSTEM}\n${CHRONICLE_PROSE_FORMAT} Where earlier instructions request separate fields, preserve their useful details within the narrative instead.`;
+}
+
+function chronicleDeferredStatus(error) {
+    const invalid = error.code === 'CONTINUITY_INVALID_RESPONSE';
+    return {
+        arcStatus: invalid
+            ? `Chronicle promotion pending. ${error.message}`
+            : 'Chronicle promotion deferred; C0 and structured memory are safe.',
+        arcError: invalid ? '' : error.message,
+        chronicleDeferred: invalid,
+        chronicleBlocked: !isTransientApiError(error),
+    };
+}
+
+function detachedChronicleStatus(completed) {
+    return completed.hierarchyError
+        ? chronicleDeferredStatus(Object.assign(new Error(completed.hierarchyError), { code: completed.hierarchyErrorCode }))
+        : { arcStatus: `Recursive Chronicle complete: ${completed.chronicle || 0} parent node(s) created.`, arcError: '', chronicleBlocked: false, chronicleDeferred: false };
+}
+
 async function generateChroniclePromotion(nodes, previousError = null, sourceRepair = false) {
     const settings = getSettings();
     const profileId = settings.arcProfileId || settings.memoryProfileId;
     const directKind = settings.arcProfileId === DIRECT_PROFILE_ID ? 'summary' : 'extraction';
     const thinkingMode = settings.summaryThinkingMode;
-    const usesStructuredSchema = requestSupportsStructuredSchema(chronicleJsonSchema, profileId, directKind, thinkingMode, true);
-    const task = `${settings.chronicleTaskTemplate ?? DEFAULT_CHRONICLE_TASK_TEMPLATE}\n\n${CHRONICLE_OUTPUT_CHECK}`;
-    const values = { nodes: formatChronicleNodes(nodes) };
-    const feedback = `\n\n${chronicleCompressionGuide(nodes, settings)}${chronicleRetryFeedback(previousError)}`;
-    const prompt = renderStructuredTaskPrompt(task, task, values, ARC_JSON_SHAPE_EXAMPLE, usesStructuredSchema, ['nodes']) + feedback;
-    const fallbackPrompt = usesStructuredSchema
-        ? renderStructuredTaskPrompt(task, task, values, ARC_JSON_SHAPE_EXAMPLE, false, ['nodes']) + feedback
-        : prompt;
-    const layer = sourceRepair ? 'C0 repair' : `C${(Number(nodes[0]?.level) || 0) + 1}`;
-    const result = await recoverChronicleNarrative(async () => {
-        const raw = await withRuntimeConnection(() => requestStructured(prompt, buildHierarchySystemPrompt(settings.chronicleSystemPrompt ?? DEFAULT_CHRONICLE_SYSTEM_PROMPT), chronicleJsonSchema, memoryResponseTokens('chronicle'), profileId, directKind, fallbackPrompt, thinkingMode, true));
-        updateRuntime({ lastArcResponse: String(raw).slice(0, 20000) });
-        return validateArcResult(typeof raw === 'string' ? parseJsonResponse(raw) : raw, layer);
-    }, async (plainPrompt, system) => {
-        const raw = await withRuntimeConnection(() => requestStructured(plainPrompt, system, null, memoryResponseTokens('chronicle'), profileId, directKind, plainPrompt, thinkingMode, true, false));
-        updateRuntime({ lastArcResponse: String(raw).slice(0, 20000) });
-        return raw;
-    }, values.nodes, chronicleCompressionGuide(nodes, settings), layer);
+    const template = settings.chronicleTaskTemplate || DEFAULT_CHRONICLE_TASK_TEMPLATE;
+    const task = renderPromptTemplate(template, {
+        nodes: formatChronicleNodes(nodes), format: CHRONICLE_PROSE_FORMAT, schema: CHRONICLE_PROSE_FORMAT,
+    }, ['nodes']);
+    const repair = sourceRepair ? '\nReconstruct this single C0 source entry. Do not add source wrappers or reproduce raw statboxes.' : '';
+    const prompt = `${task}\n\n${CHRONICLE_PROSE_FORMAT}${repair}\n${chronicleCompressionGuide(nodes, settings)}${chronicleProseRetryFeedback(previousError)}`;
+    const request = tokens => withRuntimeConnection(() => requestStructured(prompt, chronicleProseSystem(settings), null,
+        tokens, profileId, directKind, prompt, thinkingMode, true, false));
+    let raw;
+    try {
+        raw = await request(chronicleProseOutputTokens(previousError));
+    } catch (error) {
+        if (!chronicleOutputBudgetRejected(error)) throw error;
+        raw = await request(null);
+    }
+    updateRuntime({ lastArcResponse: String(raw).slice(0, 20000) });
+    const result = normalizeChronicleProse(raw, sourceRepair ? 'C0 repair' : `C${(Number(nodes[0]?.level) || 0) + 1}`);
     if (!sourceRepair) validateChronicleCompression(result, nodes);
-    if (sourceRepair && (chronicleSize([{ ...nodes[0], text: chronicleProvenanceSources([result])[0] }]) >= chronicleSize(nodes)
-        || /<\/?stat\b|\[Source message\s+\d+:/iu.test(chronicleProvenanceSources([result])[0]))) {
+    else if (chronicleSize([{ ...nodes[0], text: result.summary }]) >= chronicleSize(nodes)
+        || /<\/?stat\b|\[Source message\s+\d+:/iu.test(result.summary)) {
         throw Object.assign(new Error('C0 repair must be a smaller generated summary without raw statboxes or source wrappers.'), { code: 'CONTINUITY_COMPRESSION_NOT_SMALLER' });
     }
     return reviewChronicleProvenance(result, nodes);
@@ -1574,8 +1575,7 @@ async function generateChronicleWithRetry(nodes, epoch, sourceRepair = false) {
             return { result: await generateChroniclePromotion(sources, error, sourceRepair), nodes: sources };
         }, {
             signal: controller.signal,
-            onRetry: (error, delay, failures) => updateRuntime({
-                arcError: error.message,
+            onRetry: (_error, delay, failures) => updateRuntime({
                 arcStatus: `Chronicle promotion remains pending; retrying in ${Math.ceil(delay / 1000)}s (attempt ${failures + 1}).`,
             }),
         });
@@ -1592,7 +1592,7 @@ export async function buildNextChronicle(worldId = getBoundWorldId(), expectedEp
     const candidates = nextChroniclePromotion(world, getSettings());
     if (!candidates) return null;
     const destination = (Number(candidates[0].level) || 0) + 1;
-    updateRuntime({ arcStatus: `Promoting ${candidates.length} C${candidates[0].level} nodes into Chronicle C${destination}…`, arcError: '' });
+    updateRuntime({ arcStatus: `Promoting ${candidates.length} C${candidates[0].level} nodes into Chronicle C${destination}…`, arcError: '', chronicleDeferred: false });
     const epoch = expectedEpoch ?? runtime.generation;
     let { result, nodes } = await generateChronicleWithRetry(candidates, epoch);
     result = await reviewHierarchyBeforeSave(result, `C${destination}`, nodes, 'hierarchy', () => generateChroniclePromotion(nodes));
@@ -1635,7 +1635,7 @@ export async function maintainChronicleHierarchy() {
         const detached = await processDetachedRange({ worldId, chatKey: getChatKey(), reason: 'chronicle' }, [], world);
         if (detached) {
             chroniclePromotions += detached.chroniclePromotions || 0;
-            if (detached.hierarchyError) throw new Error(detached.hierarchyError);
+            if (detached.hierarchyError) throw Object.assign(new Error(detached.hierarchyError), { code: detached.hierarchyErrorCode });
         } else {
             while (await buildNextChronicle(worldId, epoch)) chroniclePromotions++;
         }
@@ -1652,8 +1652,7 @@ export async function maintainChronicleHierarchy() {
         const deferred = promotionStarted && !isTransientApiError(error);
         updateRuntime({
             status: deferred ? 'idle' : 'error',
-            arcStatus: 'Chronicle promotion deferred; C0 and structured memory are safe.',
-            arcError: error.message,
+            ...chronicleDeferredStatus(error),
             retryStatus: deferred ? 'Chronicle promotion deferred; automatic Digest can continue.' : '',
             chronicleBlocked: !isTransientApiError(error) && !isRuntimeCancellation(error),
             chronicleRetryAt: Date.now() + 5 * 60 * 1000,
@@ -2017,10 +2016,15 @@ export async function restartHierarchyFromDigest() {
             if (error.status === 409) throw new Error(`Memory changed while the replacement Chronicle was being built (started at revision ${baseRevision}). Nothing was replaced; run the rebuild again.`);
             throw error;
         }
-        updateRuntime({ world, status: 'idle', arcStatus: `Replacement Chronicle committed with ${chroniclePromotions} promotion(s).`, retryStatus: `Atomically rebuilt ${digestKept} C0 record(s) and ${chroniclePromotions} eligible parent node(s) from preserved Digest.` });
+        updateRuntime({ world, status: 'idle', chronicleDeferred: false, arcError: '', arcStatus: `Replacement Chronicle committed with ${chroniclePromotions} promotion(s).`, retryStatus: `Atomically rebuilt ${digestKept} C0 record(s) and ${chroniclePromotions} eligible parent node(s) from preserved Digest.` });
         await embedWorldInChat(world);
         return { digestKept, continued: 0, chroniclePromotions };
     } catch (error) {
+        if (error.code === 'CONTINUITY_INVALID_RESPONSE') {
+            const notice = chronicleDeferredStatus(error);
+            updateRuntime({ ...notice, status: 'idle', progress: null, lastError: '', retryStatus: notice.arcStatus });
+            return { hierarchyDeferred: notice.arcStatus, chroniclePromotions: 0 };
+        }
         updateRuntime({ status: 'error', progress: null, lastError: error.message, retryStatus: `Chronicle rebuild did not commit; the previously saved hierarchy was kept: ${error.message}` });
         throw error;
     } finally {
@@ -2118,8 +2122,7 @@ async function processRange(job, epoch) {
         while (await buildNextChronicle(job.worldId, epoch, { embed: false })) { /* drain recursive Chronicle */ }
     } catch (error) {
         console.warn('[Continuity] Non-destructive hierarchy generation was deferred.', error);
-        updateRuntime({ arcStatus: 'Chronicle promotion deferred; C0 and structured memory are safe.', arcError: error.message,
-            chronicleBlocked: !isTransientApiError(error) });
+        updateRuntime(chronicleDeferredStatus(error));
     }
     // Publish one portable snapshot after the batch rather than rewriting the
     // entire chat metadata after every successfully saved Digest chunk.

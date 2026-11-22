@@ -17,7 +17,7 @@ function load(name, dependencies) {
     return new Function(...Object.keys(dependencies), `${engine.slice(start, end).replace(/^export /, '')}; return ${name};`)(...Object.values(dependencies));
 }
 
-const constants = engine.slice(engine.indexOf('const correctionSchema ='), engine.indexOf('const ARC_JSON_SHAPE_EXAMPLE ='));
+const constants = engine.slice(engine.indexOf('const correctionSchema ='), engine.indexOf('const JSON_SHAPE_EXAMPLE ='));
 const contract = new Function('formatStructuredResponseGuide', 'schemaFieldGuide',
     `${constants}; return { correctionSchema, correctionJsonSchema, CORRECTION_SYSTEM_PROMPT };`)(formatStructuredResponseGuide, schemaFieldGuide);
 const guide = formatStructuredResponseGuide(schemaFieldGuide(contract.correctionSchema));
