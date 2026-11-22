@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { normalizeHierarchyResult } from '../extension/hierarchy-result.js';
-import { addChroniclePromotion, chronicleTextFromCapsule, syncChronicleBase } from '../extension/chronicle.js';
+import { activeChronicleNodes, addChroniclePromotion, chronicleTextFromCapsule, syncChronicleBase } from '../extension/chronicle.js';
 import { retryChroniclePromotion, chronicleRetryFeedback } from '../extension/chronicle-retry.js';
 import { applyManualMemoryEdit } from '../extension/memory-edit.js';
 import { applyCorrectionProposal } from '../extension/memory-correction.js';
@@ -144,4 +144,46 @@ test('detached parent generation retries single-letter output without saving it'
     assert.equal(calls, 2);
     assert.equal(saves, 1);
     assert.equal(world.chronicle.at(-1).text, 'Alice reached the city.');
+});
+
+test('detached promotion drains 48 C0 entries with smaller validated groups and retains every source', async () => {
+    const req = { socket: { localPort: 3210 }, headers: {}, user: { directories: { root: 'chronicle-large-frontier' } } };
+    const original = Array.from({ length: 48 }, (_, i) => ({ ...children[0], id: `c${i}`, from: i, to: i, capsuleIds: [`d${i}`] }));
+    let world = { id: 'world', chronicle: structuredClone(original) };
+    const calls = [];
+    const placeholder = '__CHRONICLE_PROMPT__';
+    const { job } = createDetachedJob(req, { worldId: 'world', chatKey: 'chat', reason: 'chronicle', tasks: [], hierarchy: {
+        settings: { chronicleLayerCapacity: 24, chroniclePromotionSize: 10 }, chronicle: {
+            request: { model: 'test', messages: [{ role: 'user', content: placeholder }] }, placeholder,
+            taskTemplate: '{{format}}\n{{nodes}}', valueKey: 'nodes', shapeExample: '{"summary":""}',
+        },
+    } }, { loadWorld: async () => structuredClone(world), saveWorld: async (_, next) => { world = structuredClone(next); } }, {
+        retryDelayMs: 1, maxRetryDelayMs: 1, maxNetworkAttempts: 2,
+        fetchImpl: async (_, options) => {
+            const prompt = JSON.parse(options.body).messages[0].content;
+            const count = [...prompt.matchAll(/"sequence":\d+/g)].length;
+            calls.push(count);
+            return Response.json({ choices: [{ message: { content: count > 3 ? '{"summary":' : '{"summary":"Alice reached the city."}' } }] });
+        },
+    });
+    const deadline = Date.now() + 5000;
+    while (['queued', 'processing'].includes(getDetachedJob(req, job.id).status) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 5));
+    const finished = getDetachedJob(req, job.id);
+    assert.equal(finished.status, 'complete', JSON.stringify({ ...finished, calls }));
+    assert.equal(finished.hierarchyError, '');
+    assert.equal(finished.chronicle, 8);
+    assert.deepEqual(calls, [10, 5, ...Array(8).fill(3)]);
+    assert.deepEqual(world.chronicle.slice(0, 48), original);
+    assert.deepEqual(world.chronicle.slice(48).flatMap(node => node.childIds), original.slice(0, 24).map(node => node.id));
+    assert.equal(activeChronicleNodes(world, 'chat').filter(node => node.level === 0).length, 24);
+});
+
+test('a smaller promotion cannot overlap a parent saved while it was being generated', () => {
+    const sources = Array.from({ length: 5 }, (_, i) => ({ ...children[0], id: `c${i}`, from: i, to: i }));
+    const world = { chronicle: structuredClone(sources) };
+    const result = { summary: 'Alice reached the city.' };
+    addChroniclePromotion(world, result, sources.slice(0, 3));
+    const saved = structuredClone(world);
+    assert.throws(() => addChroniclePromotion(world, result, sources), /Chronicle sources changed/);
+    assert.deepEqual(world, saved);
 });

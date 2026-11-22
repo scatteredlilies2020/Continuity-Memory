@@ -37,6 +37,29 @@ test('Chronicle maintenance locks before storage awaits and refuses stale chat r
     assert.equal(runtime.world, undefined);
 });
 
+test('a failed promotion defers only Chronicle, leaving automatic Digest able to run', async () => {
+    const runtime = { generation: 0, processing: false, queue: [], paused: false };
+    const reason = 'The response did not match the required JSON structure.';
+    const world = { id: 'world' };
+    let attempts = 0;
+    const maintain = engineFunction('maintainChronicleHierarchy', 'async function requireRetryStorage', {
+        runtime, getSettings: () => ({ enabled: true, autoExtract: true }), getBoundWorldId: () => 'world', getChatKey: () => 'chat',
+        updateRuntime: patch => Object.assign(runtime, patch), api: { getWorld: async () => ({ world }) },
+        nextChroniclePromotion: () => [{}],
+        processDetachedRange: async () => { attempts++; return { hierarchyError: reason }; },
+        isRuntimeCancellation: () => false, isTransientApiError: () => false,
+        queueMicrotask: () => {}, processQueue: () => {},
+    });
+    assert.equal(await maintain(), null);
+    assert.equal(runtime.processing, false);
+    assert.equal(runtime.status, 'idle');
+    assert.equal(runtime.arcError, reason);
+    assert.equal(runtime.chronicleBlocked, true);
+    assert.equal(runtime.world, world);
+    assert.equal(await maintain(), null);
+    assert.equal(attempts, 1);
+});
+
 test('fresh C0 rebuild splits incomplete output, saves every recovered chunk, and preserves the stability buffer', async () => {
     const messages = Array.from({ length: 8 }, (_, index) => ({ index, text: `message ${index}` }));
     const runtime = { generation: 0, processing: false, queue: [], paused: false };

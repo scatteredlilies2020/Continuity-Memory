@@ -6,6 +6,7 @@ export function isRetryableChronicleError(error) {
     if (error?.code === 'CONTINUITY_COMPRESSION_NOT_SMALLER') return true;
     if (error?.status === 409) return true;
     if (isTransientApiError(error)) return true;
+    if (/context length|context_length_exceeded/iu.test(errorChainText(error))) return true;
     return /(?:without a valid JSON object|summarizer returned no (?:JSON object|summary)|field ".+" is not an array|OOC provenance violation|returned no text|reached its output limit|output (?:was |is )?(?:truncated|incomplete)|Chronicle sources changed)/iu.test(errorChainText(error));
 }
 
@@ -21,7 +22,32 @@ export function waitForChronicleRetry(delay, signal) {
 
 export function chronicleRetryFeedback(error) {
     if (!error || error.status === 409 || /Chronicle sources changed/u.test(error.message) || isTransientApiError(error)) return '';
-    return `\n\nThe previous parent failed validation: ${String(error.message).slice(0, 1200)}\nGenerate a corrected, complete JSON parent from the same sources. Preserve source attribution; author notes must not become character speech or knowledge. Use neutral narration for author-level context. Summarize in your own words; do not paste the source nodes back as the summary or repeat their account across detail fields. Return all required fields and a source-supported summary in complete prose, never a single letter or padded placeholder.`;
+    return `\n\nThe previous parent failed validation: ${String(error.message).slice(0, 1200)}\nGenerate a corrected, complete JSON parent using only the sources supplied in this request. Preserve source attribution; author notes must not become character speech or knowledge. Use neutral narration for author-level context. Summarize in your own words; do not paste the source nodes back as the summary or repeat their account across detail fields. Return all required fields and a source-supported summary in complete prose, never a single letter or padded placeholder.`;
+}
+
+// This reason is exposed in job status and saved in the problem log. Do not
+// copy raw model output, provider bodies, or provenance excerpts into it.
+function chronicleFailureReason(error) {
+    switch (error?.code) {
+        case 'CM_INCOMPLETE_CHRONICLE': return 'A required narrative field was blank or incomplete.';
+        case 'CM_PROVENANCE_REVIEW_INVALID': return 'The source-attribution review returned an invalid result.';
+        case 'CM_OOC_PROVENANCE': return 'The summary treated author-only information as character speech or knowledge.';
+        case 'CONTINUITY_COMPRESSION_NOT_SMALLER': return 'The summary and its detail fields were not smaller than the source entries.';
+    }
+    const detail = errorChainText(error);
+    if (/context length|context_length_exceeded/iu.test(detail)) return 'The source entries exceeded the model’s context limit.';
+    if (/output limit|output (?:was |is )?(?:truncated|incomplete)/iu.test(detail)) return 'The response was cut off before it was complete.';
+    if (/valid JSON object|returned no JSON object|is not an array/iu.test(detail)) return 'The response did not match the required JSON structure.';
+    if (/returned no (?:text|summary)/iu.test(detail)) return 'The model returned no usable summary.';
+    if (/Chronicle sources changed/iu.test(detail)) return 'The source entries changed during promotion.';
+    return 'The response did not pass Chronicle validation.';
+}
+
+// Preserve order and only shrink after invalid model responses, not outages
+// or revision conflicts. Save the parent against exactly this subset.
+export function chronicleRetrySources(nodes, corrections = 0) {
+    if (!corrections || nodes.length <= 3) return nodes;
+    return nodes.slice(0, Math.max(3, Math.ceil(nodes.length / (2 ** corrections))));
 }
 
 export async function retryChroniclePromotion(attempt, {
@@ -37,7 +63,7 @@ export async function retryChroniclePromotion(attempt, {
     for (let failures = 0; ; failures++) {
         signal?.throwIfAborted();
         try {
-            const result = await attempt(previousError);
+            const result = await attempt(previousError, corrections);
             signal?.throwIfAborted();
             return result;
         } catch (error) {
@@ -46,7 +72,7 @@ export async function retryChroniclePromotion(attempt, {
             // Outages can recover without user intervention. A completed but
             // invalid response gets a small correction allowance, not a loop.
             if (!isTransientApiError(error) && error.status !== 409 && ++corrections > maxCorrections) {
-                throw Object.assign(new Error(`Chronicle correction stopped after ${corrections} invalid responses; source memory was kept.`, { cause: error }), { code: 'CONTINUITY_INVALID_RESPONSE' });
+                throw Object.assign(new Error(`Chronicle correction stopped after ${corrections} invalid responses. Last failure: ${chronicleFailureReason(error)} Source memory was kept.`, { cause: error }), { code: 'CONTINUITY_INVALID_RESPONSE' });
             }
             // A transport failure must not erase correction feedback from the
             // last actual model response.

@@ -7,21 +7,21 @@ import { SECRET_KEYS, secret_state, writeSecret } from '/scripts/secrets.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '/scripts/popup.js';
 import { api } from './api.js?pending-recovery=1&storage-recovery=1&storage-conversion=1';
 import { bindStorageConversionControls } from './storage-conversion-ui.js';
-import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1&storage-conversion=1';
+import { buildNextChronicle, commitMemoryCorrection, continueQueue, eraseAllMemory, getLatestDigestUndoStatus, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maybeAutoExtract, repairDivergedBranch, repairTailRollback, restartHierarchyFromDigest, restartDigestFromScratch, reviewMemoryCorrection, testExtractor, undoLatestDigest } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1&storage-conversion=1&chronicle-defer=1';
 import { freshResetResiduals, worldCounts } from './memory-model.js?historical-recall=1&stored-replay=1';
 import { clearPortableSnapshot, embedWorldInChat, getPortableSnapshot } from './portable.js?belief-wording=4&pending-recovery=1&historical-recall=1';
 import { buildMemoryPrompt } from './retrieval.js?v=0.15.0-testing.30&belief-wording=4&historical-recall=1';
-import { clearRetrievalExpansionCache, expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.30&belief-wording=4&bounded-recall=1&pending-recovery=1&retrieval-json=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1&storage-conversion=1';
+import { clearRetrievalExpansionCache, expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.30&belief-wording=4&bounded-recall=1&pending-recovery=1&retrieval-json=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1&storage-conversion=1&chronicle-defer=1';
 import { resolveRetrievalAssist } from './retrieval-assist.js?bounded-recall=1&catchup-gate=1';
 import { sanitizeChatExport } from './chat-sanitizer.js';
 import { MEMORY_VIEW_CATEGORIES, memoryViewerPage } from './memory-viewer.js?historical-recall=1';
 import { describeMemoryEdit } from './memory-edit.js?historical-recall=1';
 import { createMemoryEditForm } from './memory-edit-form.js';
-import { commitManualMemoryEdit } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1&storage-conversion=1';
+import { commitManualMemoryEdit } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1&storage-conversion=1&chronicle-defer=1';
 import { formatCorrectionPreview } from './memory-correction.js?historical-recall=1';
 import { digestRepairInstruction } from './digest-repair.js';
 import { formatRecheckPreview } from './continuity-recheck.js';
-import { reviewContinuityAlignment, commitContinuityAlignment, undoContinuityAlignment } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1&storage-conversion=1';
+import { reviewContinuityAlignment, commitContinuityAlignment, undoContinuityAlignment } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1&storage-conversion=1&chronicle-defer=1';
 import { resolveCorrectionResponseTokens } from './correction-policy.js?pending-recovery=1';
 import { normalizeExtractionOutputTokens } from './memory-response-policy.js?pending-recovery=1';
 import { createContinuationPackage, prepareContinuationWorld } from './continuation-handoff.js?historical-recall=1';
@@ -48,7 +48,7 @@ import { createRenderScheduler } from './render-scheduler.js';
 import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.30';
 import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.30';
 import { isTransientApiError } from './errors.js';
-import { clearHealthProblemHistory, continuityHealth, createHealthProblemTracker, dismissHealthProblems, notifyHealthProblem } from './health-status.js?storage-recovery=1&clear-problems=2&historical-recall=1&catchup-gate=3';
+import { clearHealthProblemHistory, continuityHealth, createHealthProblemTracker, dismissHealthProblems, notifyHealthProblem } from './health-status.js?storage-recovery=1&clear-problems=2&historical-recall=1&catchup-gate=3&chronicle-defer=1';
 
 let worlds = [];
 let creatingChatMemory = null;
@@ -1278,7 +1278,7 @@ export function refreshModelProfiles() {
     }
 }
 
-function bindModelProfileSelector(kind) {
+function bindModelProfileSelector(kind, onChange) {
     $(DIRECT_PROFILE_SELECTORS[kind]).on('change', function () {
         const selected = parseProfileChoice($(this).val());
         const settings = getSettings();
@@ -1286,6 +1286,7 @@ function bindModelProfileSelector(kind) {
         if (selected.provider) settings[`${kind}DirectProvider`] = selected.provider;
         saveSettings();
         renderRuntime();
+        onChange?.(settings);
     });
 }
 
@@ -2515,7 +2516,9 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
     setSetting('#continuity_retrieval_prompt', 'retrievalSystemPrompt', String);
     setSetting('#continuity_retrieval_template', 'retrievalQueryTemplate', String);
     for (const kind of DIRECT_KINDS) {
-        bindModelProfileSelector(kind);
+        bindModelProfileSelector(kind, settings => {
+            if (kind === 'summary' || (kind === 'extraction' && !settings.arcProfileId)) scheduleChronicleMaintenance();
+        });
         $(directControl(kind, 'provider')).on('change', function () {
             const settings = getSettings();
             settings[`${kind}DirectProvider`] = $(this).val() === 'openrouter' ? 'openrouter' : 'custom';
@@ -2534,7 +2537,10 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
                 : `${kind}Direct${model ? 'Model' : 'Url'}`;
             settings[key] = String($(this).val() || '').trim();
             saveSettings();
-            if (event.type === 'change') renderRuntime();
+            if (event.type === 'change') {
+                renderRuntime();
+                if (model && (kind === 'summary' || (kind === 'extraction' && !settings.arcProfileId))) scheduleChronicleMaintenance();
+            }
         });
         $(directControl(kind, 'save_key')).on('click', () => saveDirectApiKey(kind)
             .then(saved => toast(saved ? 'success' : 'info', saved

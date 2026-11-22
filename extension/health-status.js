@@ -1,6 +1,6 @@
 import { resolveDigestGroupSize } from './digest-policy.js';
 import { roleplayBacklogPolicy } from './generation-policy.js?v=0.15.0-testing.30&catchup-gate=3';
-import { CONTINUITY_VERSION } from './build-info.js?historical-recall=1';
+import { CONTINUITY_VERSION } from './build-info.js?historical-recall=1&chronicle-defer=1';
 
 const MAX_PROBLEMS = 40;
 const notificationTimes = new Map();

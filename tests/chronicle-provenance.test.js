@@ -101,7 +101,8 @@ test('browser generation, save, atomic rebuild and detached jobs share semantic 
     const engine = await readFile(new URL('../extension/engine.js', import.meta.url), 'utf8');
     const detached = await readFile(new URL('../plugin/detached-jobs.js', import.meta.url), 'utf8');
     assert.match(engine, /return reviewChronicleProvenance\(result, nodes\)/);
-    assert.equal((engine.match(/await reviewChronicleProvenance\(result, nodes\)/g) || []).length, 2);
+    assert.match(engine, /await reviewChronicleProvenance\(result, nodes\)/);
+    assert.match(engine, /await reviewChronicleProvenance\(result, sources\);\s+validateChronicleCompression\(result, sources\);\s+addDerivedChronicle\(world, result, sources\)/);
     assert.match(detached, /await reviewChronicleProvenance\(job, result, records\)/);
     assert.match(detached, /await reviewChronicleProvenance\(job, result, sourceRecords\)/);
     for (const code of [engine, detached]) assert.doesNotMatch(code, /recoverAuthoritativeMetaProvenance\([^\n]*chronicleProvenanceBoundaries/);

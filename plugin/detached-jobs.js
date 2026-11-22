@@ -18,7 +18,7 @@ import { CHRONICLE_ENTRY_RULE, renderPromptTemplate } from '../extension/prompts
 import { sanitizeReconciliationMetadata } from '../extension/reconciliation-policy.js';
 import { isMandatoryThinkingError, isThinkingControlError } from '../extension/thinking-policy.js';
 import { nextChroniclePromotion, chronicleCompressionGuide, validateChronicleCompression } from '../extension/chronicle.js';
-import { chronicleRetryFeedback, retryChroniclePromotion } from '../extension/chronicle-retry.js';
+import { chronicleRetryFeedback, chronicleRetrySources, retryChroniclePromotion } from '../extension/chronicle-retry.js';
 import { retryConnection } from '../extension/connection-retry.js';
 import { EXTRACTION_VERSION } from '../extension/coverage.js';
 import { requestModel } from './model-response.js';
@@ -239,16 +239,23 @@ async function runHierarchy(job) {
     const plan = job.hierarchy;
     if (plan?.chronicle) {
         job.phase = 'chronicle';
+        const recoveredGroupSizes = new Map();
         while (!job.cancelled) {
-            const pending = await retryChroniclePromotion(async previousError => {
+            const pending = await retryChroniclePromotion(async (previousError, corrections) => {
                 const world = await job.loadWorld();
-                const nodes = nextChroniclePromotion(world, plan.settings);
-                if (!nodes) return false;
-                const destination = (Number(nodes[0].level) || 0) + 1;
+                const candidates = nextChroniclePromotion(world, plan.settings);
+                if (!candidates) return false;
+                const destination = (Number(candidates[0].level) || 0) + 1;
+                const priorSize = recoveredGroupSizes.get(destination);
+                const sources = priorSize ? candidates.slice(0, priorSize) : candidates;
+                const nodes = chronicleRetrySources(sources, corrections);
                 job.validation = `Promoting ${nodes.length} Chronicle C${nodes[0].level} nodes into C${destination}…`;
                 const result = await requestHierarchy(job, plan.chronicle, nodes, `C${destination}`, previousError);
                 if (job.cancelled) throw new Error('Detached processing was cancelled.');
-                if (await saveChronicleResult(job, result, nodes)) job.chronicle++;
+                if (await saveChronicleResult(job, result, nodes)) {
+                    job.chronicle++;
+                    if (nodes.length < sources.length) recoveredGroupSizes.set(destination, nodes.length);
+                }
                 job.hierarchyError = '';
                 return true;
             }, {
@@ -560,7 +567,7 @@ async function run(job) {
         }
         job.phase = 'complete';
         job.validation = job.hierarchyError
-            ? `Digest complete; Chronicle promotion deferred: ${job.hierarchyError}`
+            ? (job.reason === 'chronicle' ? `Chronicle promotion deferred: ${job.hierarchyError}` : `Digest saved; Chronicle promotion deferred: ${job.hierarchyError}`)
             : `Detached build complete: Digest ${job.chunks}, Chronicle promotions ${job.chronicle}.`;
         job.status = 'complete';
     } catch (error) {

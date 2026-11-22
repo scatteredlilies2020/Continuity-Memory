@@ -42,6 +42,21 @@ test('network failures retain the last model correction feedback', async () => {
     assert.equal(calls, 3);
 });
 
+test('correction exhaustion reports the last validation category without private response excerpts', async () => {
+    const reason = Object.assign(new Error('OOC provenance violation: private source sentence'), { code: 'CM_OOC_PROVENANCE' });
+    let attempts = 0;
+    await assert.rejects(retryChroniclePromotion(() => {
+        if (++attempts < 3) throw new Error('C1 summarizer returned no JSON object.');
+        throw reason;
+    }, { wait: async () => {} }), error => {
+        assert.equal(error.code, 'CONTINUITY_INVALID_RESPONSE');
+        assert.equal(error.cause, reason);
+        assert.match(error.message, /after 3 invalid responses.*author-only information.*Source memory was kept/);
+        assert.doesNotMatch(error.message, /private source sentence/);
+        return true;
+    });
+});
+
 test('late responses after Stop are discarded and configuration failures are not retried', async () => {
     const controller = new AbortController();
     await assert.rejects(retryChroniclePromotion(() => {

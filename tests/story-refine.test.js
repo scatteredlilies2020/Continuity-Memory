@@ -34,8 +34,9 @@ test('Chronicle rebuild commits only after every replacement parent is ready', (
         ui.indexOf('async function reviewCorrection()', ui.indexOf('async function rebuildHierarchy()')),
     );
 
-    assert.ok(rebuild.indexOf('resetWorldHierarchy(world)') < rebuild.indexOf('generateChroniclePromotion(nodes)'));
-    assert.ok(rebuild.indexOf('generateChroniclePromotion(nodes)') < rebuild.indexOf('api.saveWorld(world)'));
+    const generate = rebuild.indexOf('generateChronicleWithRetry(nodes, epoch)');
+    assert.ok(generate >= 0 && rebuild.indexOf('resetWorldHierarchy(world)') < generate);
+    assert.ok(generate < rebuild.indexOf('api.saveWorld(world)'));
     assert.equal(rebuild.match(/api\.saveWorld\(world\)/g)?.length, 1);
     assert.match(rebuild, /previously saved hierarchy was kept/);
     assert.doesNotMatch(rebuildUi, /purgeEmbeddingIndex|clearRetrievalExpansionCache/);

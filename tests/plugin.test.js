@@ -909,7 +909,7 @@ test('Chronicle-only jobs recover transport, JSON and provenance problems withou
         calls++;
         const loaded = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: worldId } });
         assert.equal(loaded.payload.world.capsules.length, 30);
-        assert.equal(loaded.payload.world.chronicle.length, 30, 'failed candidates must not be saved');
+        assert.equal(loaded.payload.world.chronicle.length, calls <= 9 ? 30 : 31, 'only accepted candidates may be saved');
         const prompt = JSON.parse(options.body).messages.find(message => message.role === 'user').content;
         if (calls <= 5) return Response.json({ error: true });
         if (calls === 6) return Response.json({ choices: [{ message: { content: '{' } }] });
@@ -925,9 +925,13 @@ test('Chronicle-only jobs recover transport, JSON and provenance problems withou
                 reason: 'Alice never disclosed the route in the sources.', evidence: [],
             }] }) } }] });
         }
-        assert.equal(calls, 9, 'Confirmed misattribution must request a corrected summary, not substitute source text.');
-        assert.match(prompt, /previous parent failed validation:.*OOC provenance violation/);
-        assert.match(prompt, /do not paste the source nodes back/);
+        if (calls === 9) {
+            assert.match(prompt, /previous parent failed validation:.*OOC provenance violation/);
+            assert.match(prompt, /do not paste the source nodes back/);
+        } else {
+            assert.equal(calls, 10, 'The job should reuse the recovered group size until the backlog is within capacity.');
+            assert.doesNotMatch(prompt, /previous parent failed validation/);
+        }
         return Response.json({ choices: [{ message: { content: JSON.stringify({ summary: 'Alice continues her journey.' }) } }] });
     };
     await init(router, { syncExtension: false, fetchImpl, detachedRetryDelayMs: 10, detachedMaxRetryDelayMs: 10 });
@@ -957,18 +961,19 @@ test('Chronicle-only jobs recover transport, JSON and provenance problems withou
     }
     assert.equal(job.status, 'complete', job.error || job.validation);
     assert.equal(job.hierarchyError, '');
-    assert.equal(job.chronicle, 1);
+    assert.equal(job.chronicle, 2);
     assert.equal(job.chunks, 0);
-    assert.equal(calls, 9);
+    assert.equal(calls, 10);
     const loaded = (await call(router.routes.get('GET /worlds/:id'), root, { params: { id: worldId } })).payload.world;
     assert.equal(loaded.capsules.length, 30);
     assert.equal(loaded.chronicle.filter(node => node.level === 0).length, 30);
-    assert.equal(loaded.chronicle.filter(node => node.level === 1).length, 1);
-    const parent = loaded.chronicle.find(node => node.level === 1);
+    const parents = loaded.chronicle.filter(node => node.level === 1);
+    assert.deepEqual(parents.map(node => node.childIds.length), [3, 3]);
+    const [parent] = parents;
     assert.equal(parent.text, 'Alice continues her journey.');
     assert.doesNotMatch(parent.text, /Alice revealed the secret route/);
     const covered = new Set(loaded.chronicle.flatMap(node => node.childIds));
-    assert.equal(loaded.chronicle.filter(node => node.level === 0 && !covered.has(node.id)).length, 20);
+    assert.equal(loaded.chronicle.filter(node => node.level === 0 && !covered.has(node.id)).length, 24);
 });
 
 test('server plugin installs and updates its bundled frontend without overwriting an unmanaged install', async t => {

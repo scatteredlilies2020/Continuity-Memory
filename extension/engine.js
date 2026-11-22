@@ -45,7 +45,7 @@ import { compileRollingStorySnapshot } from './story-snapshot.js?v=0.15.0-testin
 import { planStoryMutationRecovery } from './story-checkpoints.js?v=0.15.0-testing.30';
 import { DIRECT_PROFILE_ID } from './direct-profile.js?v=0.15.0-testing.30';
 import { nextChroniclePromotion, chronicleCompressionGuide, validateChronicleCompression, chronicleSize } from './chronicle.js';
-import { chronicleRetryFeedback, isRetryableChronicleError, retryChroniclePromotion } from './chronicle-retry.js?pending-recovery=1';
+import { chronicleRetryFeedback, chronicleRetrySources, isRetryableChronicleError, retryChroniclePromotion } from './chronicle-retry.js?pending-recovery=1&failure-reason=1&adaptive=1';
 import { retryConnection } from './connection-retry.js?pending-recovery=1';
 import { randomUuid } from './uuid.js';
 import { RECHECK_PROMPT, RECHECK_SCHEMA, recheckSourceSignature, runContinuityRecheck, applyContinuityRecheck } from './continuity-recheck.js';
@@ -1563,7 +1563,10 @@ async function generateChronicleWithRetry(nodes, epoch, sourceRepair = false) {
     inspect(runtime);
     let result;
     try {
-        result = await retryChroniclePromotion(error => generateChroniclePromotion(nodes, error, sourceRepair), {
+        result = await retryChroniclePromotion(async (error, corrections) => {
+            const sources = sourceRepair ? nodes : chronicleRetrySources(nodes, corrections);
+            return { result: await generateChroniclePromotion(sources, error, sourceRepair), nodes: sources };
+        }, {
             signal: controller.signal,
             onRetry: (error, delay, failures) => updateRuntime({
                 arcError: error.message,
@@ -1580,12 +1583,12 @@ async function generateChronicleWithRetry(nodes, epoch, sourceRepair = false) {
 export async function buildNextChronicle(worldId = getBoundWorldId(), expectedEpoch = null, { embed = true } = {}) {
     if (!worldId) throw new Error('Open a chat and prepare its memory first.');
     let world = runtime.world?.id === worldId ? structuredClone(runtime.world) : (await api.getWorld(worldId)).world;
-    const nodes = nextChroniclePromotion(world, getSettings());
-    if (!nodes) return null;
-    const destination = (Number(nodes[0].level) || 0) + 1;
-    updateRuntime({ arcStatus: `Promoting ${nodes.length} C${nodes[0].level} nodes into Chronicle C${destination}…`, arcError: '' });
+    const candidates = nextChroniclePromotion(world, getSettings());
+    if (!candidates) return null;
+    const destination = (Number(candidates[0].level) || 0) + 1;
+    updateRuntime({ arcStatus: `Promoting ${candidates.length} C${candidates[0].level} nodes into Chronicle C${destination}…`, arcError: '' });
     const epoch = expectedEpoch ?? runtime.generation;
-    let result = await generateChronicleWithRetry(nodes, epoch);
+    let { result, nodes } = await generateChronicleWithRetry(candidates, epoch);
     result = await reviewHierarchyBeforeSave(result, `C${destination}`, nodes, 'hierarchy', () => generateChroniclePromotion(nodes));
     if (runtime.generation !== epoch || runtime.paused) throw new Error('Processing stopped; pending Chronicle result was discarded.');
     return withRuntimeConnection(() => saveChroniclePromotion(world, result, nodes, embed), true);
@@ -1601,6 +1604,7 @@ export async function maintainChronicleHierarchy() {
 
     const epoch = runtime.generation;
     let chroniclePromotions = 0;
+    let promotionStarted = false;
     // Take the lock before storage I/O: a manual C0 rebuild can otherwise start
     // during getWorld and race a second writer using the old hierarchy.
     updateRuntime({ processing: true });
@@ -1611,6 +1615,7 @@ export async function maintainChronicleHierarchy() {
         }
         updateRuntime({ world });
         if (!nextChroniclePromotion(world, settings)) return null;
+        promotionStarted = true;
         updateRuntime({
             status: 'building',
             lastError: '',
@@ -1638,13 +1643,16 @@ export async function maintainChronicleHierarchy() {
         return { chroniclePromotions, world };
     } catch (error) {
         if (isRuntimeCancellation(error)) throw error;
+        const deferred = promotionStarted && !isTransientApiError(error);
         updateRuntime({
-            status: 'error',
+            status: deferred ? 'idle' : 'error',
             arcStatus: 'Chronicle promotion deferred; C0 and structured memory are safe.',
             arcError: error.message,
+            retryStatus: deferred ? 'Chronicle promotion deferred; automatic Digest can continue.' : '',
             chronicleBlocked: !isTransientApiError(error) && !isRuntimeCancellation(error),
             chronicleRetryAt: Date.now() + 5 * 60 * 1000,
         });
+        if (deferred) return null;
         throw error;
     } finally {
         updateRuntime({ processing: false });
@@ -1969,7 +1977,7 @@ export async function restartHierarchyFromDigest() {
             if (runtime.generation !== epoch) throw new Error('Chronicle repair stopped; saved memory was kept.');
             updateRuntime({ arcStatus: `Regenerating source-dump C0 ${capsule.from}–${capsule.to} as summary prose…` });
             const source = { ...capsule, text: capsule.chronicleText, level: 0, childIds: [] };
-            const repaired = await generateChronicleWithRetry([source], epoch, true);
+            const { result: repaired } = await generateChronicleWithRetry([source], epoch, true);
             capsule.chronicleText = chronicleProvenanceSources([repaired])[0];
         }
         resetWorldHierarchy(world);
@@ -1984,13 +1992,15 @@ export async function restartHierarchyFromDigest() {
                 arcStatus: `Promoting ${nodes.length} C${nodes[0].level} nodes into replacement Chronicle C${destination}…`,
                 retryStatus: `Building replacement Chronicle in memory; the currently saved hierarchy remains untouched (${chroniclePromotions} promotion(s) ready)…`,
             });
-            let result = await generateChronicleWithRetry(nodes, epoch);
+            const generated = await generateChronicleWithRetry(nodes, epoch);
+            let result = generated.result;
+            const sources = generated.nodes;
             if (runtime.generation !== epoch) throw new Error('Chronicle rebuild was stopped; the previously saved hierarchy was kept.');
-            result = await reviewHierarchyBeforeSave(result, `C${destination}`, nodes, 'hierarchy', () => generateChroniclePromotion(nodes));
+            result = await reviewHierarchyBeforeSave(result, `C${destination}`, sources, 'hierarchy', () => generateChroniclePromotion(sources));
             if (runtime.generation !== epoch) throw new Error('Chronicle rebuild was stopped; the previously saved hierarchy was kept.');
-            await reviewChronicleProvenance(result, nodes);
-            validateChronicleCompression(result, nodes);
-            addDerivedChronicle(world, result, nodes);
+            await reviewChronicleProvenance(result, sources);
+            validateChronicleCompression(result, sources);
+            addDerivedChronicle(world, result, sources);
             chroniclePromotions++;
         }
 

@@ -21,7 +21,7 @@ export function chronicleSize(nodes) {
 // and recovered provenance. Character counts are deterministic on both sides;
 // they are not a claim about a provider's tokenizer.
 export function validateChronicleCompression(result, children) {
-    const preview = { chronicle: [] };
+    const preview = { chronicle: children.map(node => ({ ...node, childIds: [] })) };
     const parent = addChroniclePromotion(preview, result, children);
     const sourceCharacters = renderChronicleFrontier({ chronicle: children.map(node => ({ ...node, childIds: [] })) }, parent.chatKey).length;
     const parentCharacters = renderChronicleFrontier(preview, parent.chatKey).length;
@@ -198,6 +198,10 @@ export function addChroniclePromotion(world, result, children) {
     const signature = childIds.join('|');
     const duplicate = (world.chronicle || []).find(item => (item.childIds || []).join('|') === signature);
     if (duplicate) return duplicate;
+    const activeIds = new Set(activeChronicleNodes(world, children[0].chatKey).map(item => item.id));
+    if (childIds.some(id => !activeIds.has(id))) {
+        throw new Error('Chronicle sources changed while promotion was being built; retry with the current frontier.');
+    }
     const levels = children.map(item => Number(item.level) || 0);
     if (new Set(levels).size !== 1) throw new Error('Chronicle promotion sources must come from one layer.');
     const starts = children.map(item => Number(item.from)).filter(Number.isFinite);
