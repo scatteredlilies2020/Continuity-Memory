@@ -11,7 +11,7 @@ import { fingerprintMessage } from '../extension/message-digest.js';
 import { addDerivedChronicle, mergeExtraction } from '../extension/memory-model.js';
 import { isCurrentStorySnapshot } from '../extension/story-source.js';
 import { migrateLegacyBeliefs } from '../extension/attributed-beliefs.js';
-import { normalizeHierarchyResult } from '../extension/hierarchy-result.js';
+import { normalizeHierarchyResult, recoverChronicleNarrative } from '../extension/hierarchy-result.js';
 import { validateChronicleProvenance, validateExtractionProvenance } from '../extension/chronicle-provenance.js';
 import { captureScenarioContext } from '../extension/scenario-context.js';
 import { CHRONICLE_ENTRY_RULE, renderPromptTemplate } from '../extension/prompts.js';
@@ -173,7 +173,10 @@ async function requestHierarchyText(job, layer, prompt, fallbackPrompt, reviewSy
         if (request && reviewSystem) {
             request.messages = [{ role: 'system', content: reviewSystem }, { role: 'user', content: text }];
             delete request.continuity_prefill;
-            if (!reviewSchema) delete request.json_schema;
+            if (!reviewSchema) {
+                delete request.json_schema;
+                delete request.response_format;
+            }
             else if (request.json_schema) request.json_schema = reviewSchema;
         }
         return request;
@@ -210,8 +213,13 @@ async function requestHierarchy(job, layer, records, label, previousError = null
     const feedback = `\n\n${chronicleCompressionGuide(records, job.hierarchy?.settings)}${chronicleRetryFeedback(previousError)}`;
     const prompt = hierarchyPrompt(layer, records, layer.usesStructuredSchema) + feedback;
     const fallbackPrompt = layer.usesStructuredSchema ? hierarchyPrompt(layer, records, false) + feedback : prompt;
-    const raw = await requestHierarchyText(job, layer, prompt, fallbackPrompt);
-    const result = validateHierarchyResult(parseJsonResponse(raw), label);
+    const result = await recoverChronicleNarrative(async () => {
+        const raw = await requestHierarchyText(job, layer, prompt, fallbackPrompt);
+        return validateHierarchyResult(parseJsonResponse(raw), label);
+    }, (plainPrompt, system) => {
+        job.validation = `Recovering ${label} as plain prose after an incomplete structured summary…`;
+        return requestHierarchyText(job, layer, plainPrompt, plainPrompt, system);
+    }, formatChronicleNodes(records), chronicleCompressionGuide(records, job.hierarchy?.settings), label);
     validateChronicleCompression(result, records);
     await reviewChronicleProvenance(job, result, records);
     return result;

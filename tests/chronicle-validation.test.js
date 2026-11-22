@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { normalizeHierarchyResult } from '../extension/hierarchy-result.js';
+import { normalizeHierarchyResult, recoverChronicleNarrative } from '../extension/hierarchy-result.js';
 import { activeChronicleNodes, addChroniclePromotion, chronicleTextFromCapsule, syncChronicleBase } from '../extension/chronicle.js';
 import { retryChroniclePromotion, chronicleRetryFeedback } from '../extension/chronicle-retry.js';
 import { applyManualMemoryEdit } from '../extension/memory-edit.js';
@@ -31,6 +31,15 @@ test('all parent layers reject malformed summaries and titles before storage mut
     assert.equal(chronicleParentSchema.properties.summary.minLength, 2);
     for (const summary of ['天亮。', 'Éva attend.', 'Alice reached the city.']) {
         assert.equal(normalizeHierarchyResult({ summary }).summary, summary);
+    }
+});
+
+test('prose recovery cannot turn a placeholder or another JSON response into a parent', async () => {
+    for (const raw of [...invalid, 'null', 'N/A', 'unknown.', '{"summary":"Alice reached the city."}', '`Alice reached the city.`']) {
+        await assert.rejects(recoverChronicleNarrative(
+            () => normalizeHierarchyResult({ summary: 'R' }, 'C1'),
+            async () => raw, 'Source entry', 'Compression target', 'C1',
+        ), { code: 'CM_INCOMPLETE_CHRONICLE' });
     }
 });
 
@@ -119,22 +128,29 @@ test('browser and server hierarchy validators both enforce the shared narrative 
     }
 });
 
-test('detached parent generation retries single-letter output without saving it', async () => {
+test('detached parent generation recovers single-letter JSON with schema-free prose over the same sources', async () => {
     const req = { socket: { localPort: 3210 }, headers: {}, user: { directories: { root: 'chronicle-single-letter-parent' } } };
     let world = { id: 'world', chronicle: Array.from({ length: 25 }, (_, i) => ({ ...children[0], id: `c${i}`, from: i, to: i })) };
     let calls = 0, saves = 0;
     const placeholder = '__CHRONICLE_PROMPT__';
     const { job } = createDetachedJob(req, { worldId: 'world', chatKey: 'chat', reason: 'chronicle', tasks: [], hierarchy: {
         settings: { chronicleLayerCapacity: 24, chroniclePromotionSize: 10 }, chronicle: {
-            request: { model: 'test', messages: [{ role: 'user', content: placeholder }] }, placeholder,
+            request: { model: 'test', json_schema: { name: 'test_chronicle' }, response_format: { type: 'json_object' },
+                messages: [{ role: 'user', content: placeholder }, { role: 'assistant', content: '{' }] }, placeholder,
             taskTemplate: '{{format}}\n{{nodes}}', valueKey: 'nodes', shapeExample: '{"summary":""}',
         },
     } }, { loadWorld: async () => structuredClone(world), saveWorld: async (_, next) => { saves++; world = structuredClone(next); } }, {
         retryDelayMs: 10, maxRetryDelayMs: 10,
         fetchImpl: async (_, options) => {
             assert.equal(saves, 0);
-            if (++calls > 1) assert.match(JSON.parse(options.body).messages[0].content, /single letter/);
-            return Response.json({ choices: [{ message: { content: JSON.stringify({ summary: calls === 1 ? 'R' : 'Alice reached the city.' }) } }] });
+            const body = JSON.parse(options.body);
+            if (++calls === 1) return Response.json({ choices: [{ message: { content: '{"summary":"R"}' } }] });
+            assert.equal(body.json_schema, undefined);
+            assert.equal(body.response_format, undefined);
+            assert.deepEqual(body.messages.map(message => message.role), ['system', 'user']);
+            assert.match(body.messages[1].content, /plain text, not JSON/);
+            assert.equal([...body.messages[1].content.matchAll(/"sequence":\d+/g)].length, 10);
+            return Response.json({ choices: [{ message: { content: 'Alice reached the city.' } }] });
         },
     });
     const deadline = Date.now() + 3000;
@@ -144,6 +160,7 @@ test('detached parent generation retries single-letter output without saving it'
     assert.equal(calls, 2);
     assert.equal(saves, 1);
     assert.equal(world.chronicle.at(-1).text, 'Alice reached the city.');
+    assert.equal(world.chronicle.at(-1).childIds.length, 10);
 });
 
 test('detached promotion drains 48 C0 entries with smaller validated groups and retains every source', async () => {

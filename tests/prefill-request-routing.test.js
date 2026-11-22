@@ -108,6 +108,24 @@ test('named profiles keep prefills and task isolation across thinking retries', 
     }
 });
 
+test('Chronicle prose recovery omits both schema and stored prefill on named profiles', async () => {
+    const deps = dependencies({
+        ConnectionManagerRequestService: {
+            getProfile: () => ({ name: 'Profile', model: 'test-model' }),
+            validateProfile: () => ({ source: 'custom', selected: 'openai' }),
+            sendRequest: async (_id, messages, _tokens, _options, payload) => {
+                assert.deepEqual(messages.map(message => message.role), ['system', 'user']);
+                assert.equal(messages[1].content, 'Write only prose');
+                assert.ok(!Object.hasOwn(payload, 'json_schema'));
+                return 'Alice reached the city.';
+            },
+        },
+    });
+    const request = load(engine, 'requestStructured', deps, functionSource(engine, 'extractProfileResponse'));
+    assert.equal(await request('Write only prose', 'system', null, 100, 'test-profile', 'summary',
+        'Write only prose', 'off', true, false), 'Alice reached the city.');
+});
+
 test('Direct requests append active-preset prefill without a conflicting schema', async () => {
     let body;
     const fn = load(engine, 'requestDirectStructured', dependencies({

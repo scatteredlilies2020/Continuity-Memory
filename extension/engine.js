@@ -12,7 +12,7 @@ import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTI
 import { isRateLimitError, isTransientApiError } from './errors.js';
 import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.30';
 import { planExtractionOutput, resolveExtractionChunk } from './extraction-budget.js?pending-recovery=1&output-planning=1';
-import { normalizeHierarchyResult } from './hierarchy-result.js';
+import { normalizeHierarchyResult, recoverChronicleNarrative } from './hierarchy-result.js?prose-recovery=1';
 import { validateChronicleProvenance, validateExtractionProvenance, chronicleProvenanceSources } from './chronicle-provenance.js';
 import { captureScenarioContext } from './scenario-context.js';
 import { completeDigestMessages, latestCompleteDigestMessageIndex, digestStabilityRepairFrom, DIGEST_STABILITY_BUFFER_MESSAGES, partitionDigestStabilityBuffer, partitionPendingDigestMessages, resolveDigestGroupSize, selectAutomaticDigestMessages } from './digest-policy.js';
@@ -649,20 +649,20 @@ export async function requestDirectText(prompt, systemPrompt, responseLength = 3
     return requestDirectStructured(prompt, systemPrompt, null, responseLength, kind, false, thinkingMode, signal, undefined, onDispatch);
 }
 
-async function requestStructured(prompt, systemPrompt, jsonSchema, responseLength = null, profileId = getSettings().memoryProfileId, directKind = 'extraction', fallbackPrompt = prompt, thinkingMode = getSettings().thinkingMode, summary = false) {
-    const prefill = resolveMemoryPrefill(profileId, { summary });
+async function requestStructured(prompt, systemPrompt, jsonSchema, responseLength = null, profileId = getSettings().memoryProfileId, directKind = 'extraction', fallbackPrompt = prompt, thinkingMode = getSettings().thinkingMode, summary = false, usePrefill = true) {
+    const prefill = usePrefill ? resolveMemoryPrefill(profileId, { summary }) : '';
     thinkingMode = resolveThinkingModeForProfile(thinkingMode, profileId);
     if (profileId === DIRECT_PROFILE_ID) {
         let directThinkingMode = thinkingMode;
         try {
-            return await requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, directKind, true, directThinkingMode, undefined, prefill);
+            return await requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, directKind, Boolean(jsonSchema), directThinkingMode, undefined, prefill);
         } catch (error) {
             const mandatory = isMandatoryThinkingError(error);
             if (isThinkingControlError(error) && (mandatory || !['auto', 'default'].includes(directThinkingMode))) {
                 directThinkingMode = mandatory ? 'minimum' : 'default';
                 updateRuntime({ thinkingControl: { mode: thinkingMode, adapter: mandatory ? 'mandatory-reasoning' : 'provider-default', fallback: true } });
                 try {
-                    return await requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, directKind, true, directThinkingMode, undefined, prefill);
+                    return await requestDirectStructured(prompt, systemPrompt, jsonSchema, responseLength, directKind, Boolean(jsonSchema), directThinkingMode, undefined, prefill);
                 } catch (retryError) {
                     error = retryError;
                 }
@@ -704,8 +704,8 @@ async function requestStructured(prompt, systemPrompt, jsonSchema, responseLengt
         ...thinkingPayload,
     });
     let response;
-    if (prefill || !shouldSendStructuredSchema(thinking.adapter, jsonSchema)) {
-        updateRuntime({ lastValidation: prefill ? 'Assistant prefill enabled; using exact-shape JSON prompting without a native schema.' : 'Gemini native schema omitted; using compatible exact-shape JSON prompting.' });
+    if (!jsonSchema || prefill || !shouldSendStructuredSchema(thinking.adapter, jsonSchema)) {
+        if (jsonSchema) updateRuntime({ lastValidation: prefill ? 'Assistant prefill enabled; using exact-shape JSON prompting without a native schema.' : 'Gemini native schema omitted; using compatible exact-shape JSON prompting.' });
         try {
             response = await sendMemoryProfileRequest(
                 profileId, messagesFor(fallbackPrompt), profileResponseLength, options, compatibilityPayload(),
@@ -1513,11 +1513,17 @@ async function generateChroniclePromotion(nodes, previousError = null, sourceRep
     const fallbackPrompt = usesStructuredSchema
         ? renderStructuredTaskPrompt(task, task, values, ARC_JSON_SHAPE_EXAMPLE, false, ['nodes']) + feedback
         : prompt;
-    const raw = await withRuntimeConnection(() => requestStructured(prompt, buildHierarchySystemPrompt(settings.chronicleSystemPrompt ?? DEFAULT_CHRONICLE_SYSTEM_PROMPT), chronicleJsonSchema, memoryResponseTokens('chronicle'), profileId, directKind, fallbackPrompt, thinkingMode, true));
-    updateRuntime({ lastArcResponse: String(raw).slice(0, 20000) });
-    const layer = `C${(Number(nodes[0]?.level) || 0) + 1}`;
-    const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
-    const result = sourceRepair ? validateArcResult(parsed, 'C0 repair') : validateChronicleResult(parsed, layer, nodes);
+    const layer = sourceRepair ? 'C0 repair' : `C${(Number(nodes[0]?.level) || 0) + 1}`;
+    const result = await recoverChronicleNarrative(async () => {
+        const raw = await withRuntimeConnection(() => requestStructured(prompt, buildHierarchySystemPrompt(settings.chronicleSystemPrompt ?? DEFAULT_CHRONICLE_SYSTEM_PROMPT), chronicleJsonSchema, memoryResponseTokens('chronicle'), profileId, directKind, fallbackPrompt, thinkingMode, true));
+        updateRuntime({ lastArcResponse: String(raw).slice(0, 20000) });
+        return validateArcResult(typeof raw === 'string' ? parseJsonResponse(raw) : raw, layer);
+    }, async (plainPrompt, system) => {
+        const raw = await withRuntimeConnection(() => requestStructured(plainPrompt, system, null, memoryResponseTokens('chronicle'), profileId, directKind, plainPrompt, thinkingMode, true, false));
+        updateRuntime({ lastArcResponse: String(raw).slice(0, 20000) });
+        return raw;
+    }, values.nodes, chronicleCompressionGuide(nodes, settings), layer);
+    if (!sourceRepair) validateChronicleCompression(result, nodes);
     if (sourceRepair && (chronicleSize([{ ...nodes[0], text: chronicleProvenanceSources([result])[0] }]) >= chronicleSize(nodes)
         || /<\/?stat\b|\[Source message\s+\d+:/iu.test(chronicleProvenanceSources([result])[0]))) {
         throw Object.assign(new Error('C0 repair must be a smaller generated summary without raw statboxes or source wrappers.'), { code: 'CONTINUITY_COMPRESSION_NOT_SMALLER' });
