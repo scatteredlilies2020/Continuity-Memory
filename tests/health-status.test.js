@@ -377,11 +377,14 @@ test('browser cache keys load the updated clear action without changing the serv
     const statusImport = /from '(\.\/health-status\.js[^']+)'/;
     assert.equal(source.match(statusImport)[1], ui.match(statusImport)[1], 'Health notifications must share one module instance.');
     assert.match(source.match(statusImport)[1], /clear-problems=2/);
+    assert.match(source.match(statusImport)[1], /storage-recovery=2/);
     assert.match(source, /from '\.\/ui\.js[^']*clear-problems=2(?:&[^']*)?'/);
+    assert.match(source, /from '\.\/ui\.js[^']*storage-recovery=2(?:&[^']*)?'/);
     assert.match(source, /settings\.html[^']*clear-problems=2/);
     for (const file of ['../manifest.json', '../extension/manifest.json']) {
         const manifest = JSON.parse(readFileSync(new URL(file, import.meta.url)));
         assert.match(manifest.js, /clear-problems=2/);
+        assert.match(manifest.js, /storage-recovery=2/);
         assert.equal(manifest.version, CONTINUITY_VERSION);
     }
 });

@@ -48,12 +48,13 @@ import { createRenderScheduler } from './render-scheduler.js';
 import { DIRECT_CUSTOM_CHOICE, DIRECT_OPENROUTER_CHOICE, DIRECT_PROFILE_ID, directProfileChoice, parseProfileChoice } from './direct-profile.js?v=0.15.0-testing.30';
 import { connectionProfileHasModel } from './profile-request-policy.js?v=0.15.0-testing.30';
 import { isTransientApiError } from './errors.js';
-import { clearHealthProblemHistory, continuityHealth, createHealthProblemTracker, dismissHealthProblems, notifyHealthProblem } from './health-status.js?storage-recovery=1&clear-problems=2&historical-recall=1&catchup-gate=3&chronicle-defer=3';
+import { clearHealthProblemHistory, continuityHealth, createHealthProblemTracker, dismissHealthProblems, notifyHealthProblem } from './health-status.js?storage-recovery=2&clear-problems=2&historical-recall=1&catchup-gate=3&chronicle-defer=3';
 
 let worlds = [];
 let creatingChatMemory = null;
 let loadingBoundWorld = null;
 let refreshingWorlds = null;
+let pendingStorageRetry = null;
 let pendingCorrection = null;
 let viewerCategory = 'digest';
 let viewerSearch = '';
@@ -560,7 +561,14 @@ function recoverLiveUiAfterResume(forceReload = false) {
     const stopSequence = runtime.stopSequence;
     liveUiRecoveryPromise = (async () => {
         await new Promise(resolve => requestAnimationFrame(resolve));
-        const world = await refreshWorlds();
+        let world;
+        try { world = await refreshWorlds({ background: true }); }
+        catch {
+            // A refresh owns its storage warning and retry; it is not an
+            // extraction failure, even when no warning has been shown yet.
+            repaintLiveSettings();
+            return;
+        }
         if (getChatKey() !== recoveryChatKey || runtime.generation !== recoveryGeneration) return;
         if (world && getSettings().retrievalMode === 'embedding-hybrid') {
             // Restore persisted coverage without automatically embedding. A
@@ -581,8 +589,6 @@ function recoverLiveUiAfterResume(forceReload = false) {
             && getChatKey() === recoveryChatKey) scheduleResumedMemoryMaintenance?.();
         repaintLiveSettings();
     })().catch(error => {
-        // refreshWorlds records a recoverable storage problem separately. Do
-        // not turn it into a permanent extraction failure on every reconnect.
         if (getChatKey() === recoveryChatKey && runtime.generation === recoveryGeneration && !runtime.storageError) {
             updateRuntime({ lastError: `Could not restore Continuity after browser resume: ${error.message}` });
         }
@@ -777,28 +783,70 @@ async function loadBoundWorldOnce(expectedWorldId = getBoundWorldId()) {
 }
 
 
-export async function refreshWorlds() {
+export async function refreshWorlds({ background = false } = {}) {
     if (!getSettings().enabled) { renderRuntime(); return null; }
     const chatKey = getChatKey();
     const epoch = runtime.generation;
-    if (refreshingWorlds?.chatKey === chatKey && refreshingWorlds.epoch === epoch) return await refreshingWorlds.promise;
-    const entry = { chatKey, epoch, promise: null };
-    const current = () => getChatKey() === chatKey && runtime.generation === epoch;
+    const current = () => getSettings().enabled && getChatKey() === chatKey && runtime.generation === epoch;
+    if (refreshingWorlds?.chatKey === chatKey && refreshingWorlds.epoch === epoch) {
+        if (background || !refreshingWorlds.background) return await refreshingWorlds.promise;
+        // A manual refresh still explicitly checks the full library.
+        await refreshingWorlds.promise.catch(() => {});
+        return current() ? await refreshWorlds() : null;
+    }
+    const entry = { chatKey, epoch, background, promise: null };
+    const waitingForRetry = () => pendingStorageRetry?.chatKey === chatKey && pendingStorageRetry.epoch === epoch;
     entry.promise = Promise.resolve().then(async () => {
-        const health = await api.health();
         if (!current()) return null;
-        updateRuntime({ health });
-        const world = await refreshCurrentChatWorlds(chatKey, epoch);
-        if (current()) updateRuntime({ storageError: '' });
+        let world = background ? await checkLoadedChatWorld(chatKey, current) : null;
+        if (!world && current()) {
+            const health = await api.health();
+            if (!current()) return null;
+            updateRuntime({ health });
+            world = await refreshCurrentChatWorlds(chatKey, epoch);
+        }
+        if (current()) {
+            if (waitingForRetry()) pendingStorageRetry = null;
+            updateRuntime({ storageError: '' });
+        }
         return world;
     }).catch(error => {
-        if (current()) updateRuntime({ storageError: `Could not refresh stored memory: ${error.message}` });
+        if (current()) {
+            const interrupted = (!error.status || [408, 502, 504].includes(error.status)) && isTransientApiError(error);
+            if (background && interrupted && !waitingForRetry() && !runtime.storageError) {
+                // The visible-tab timer makes a fresh attempt. Don't emit an
+                // error or add a history entry for one missed refresh.
+                pendingStorageRetry = { chatKey, epoch };
+            } else {
+                updateRuntime({ storageError: `Could not refresh stored memory: ${error.message}` });
+            }
+        }
         throw error;
     }).finally(() => {
         if (refreshingWorlds === entry) refreshingWorlds = null;
     });
     refreshingWorlds = entry;
     return await entry.promise;
+}
+
+async function checkLoadedChatWorld(chatKey, current) {
+    const boundId = getBoundWorldId();
+    const cached = runtime.world;
+    if (!chatKey || !boundId || cached?.id !== boundId) return null;
+    const sourceKeys = Object.keys(cached.sources || {});
+    if (sourceKeys.some(key => key !== chatKey)) return null;
+    let stored;
+    try {
+        ({ world: stored } = await api.getWorld(boundId));
+    } catch (error) {
+        // Preserve the existing binding recovery for missing/incomplete worlds.
+        if (error.status === 404 || error.status === 503) return null;
+        throw error;
+    }
+    if (!current() || getBoundWorldId() !== boundId || runtime.world?.id !== boundId) return null;
+    const latest = runtime.world;
+    return stored?.id === boundId && stored.revision === latest.revision && stored.updatedAt === latest.updatedAt
+        ? latest : null;
 }
 
 async function refreshCurrentChatWorlds(chatKey, epoch = runtime.generation) {
@@ -1579,7 +1627,8 @@ function initHealthDisplay() {
     globalThis.setInterval(() => {
         if (document.hidden) return;
         renderHealthStatus();
-        if (runtime.storageError && getSettings().enabled) recoverLiveUiAfterResume(true);
+        const silentRetry = pendingStorageRetry?.chatKey === getChatKey() && pendingStorageRetry?.epoch === runtime.generation;
+        if ((runtime.storageError || silentRetry) && getSettings().enabled) recoverLiveUiAfterResume(true);
     }, 10000);
 }
 
@@ -2729,7 +2778,7 @@ export function initUI({ scheduleMemoryMaintenance = null } = {}) {
     });
     refreshModelProfiles();
     renderRuntime();
-    void refreshWorlds().then(() => {
+    void refreshWorlds({ background: true }).then(() => {
         lastLiveUiRecoveryAt = Date.now();
     }).catch(() => {
         renderRuntime(false);

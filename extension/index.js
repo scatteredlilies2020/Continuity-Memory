@@ -8,7 +8,7 @@ import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackS
 import { buildMemoryPrompt, prepareRetrievalCorpus } from './retrieval.js?v=0.15.0-testing.30&belief-wording=4&historical-recall=1';
 import { invalidateRuntimeWork, invalidateStoryWork, isRuntimeCancellation, onRuntimeChange, onRuntimeStop, resumeRuntime, runtime, updateRuntime } from './runtime.js?v=0.15.0-testing.30';
 import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&historical-recall=1';
-import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2&current-recall=1&bounded-recall=1&catchup-gate=3&pending-recovery=1&retrieval-json=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&settings-status=1&clear-problems=2&historical-recall=1&embedding-discovery=1&model-selection=1&connection-memory=1&continuity-recheck=1&storage-conversion=1&tail-recovery=1&device-alias=1&portable-vectors=1&cache-status=1&branch-vectors=1&chronicle-defer=3';
+import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2&current-recall=1&bounded-recall=1&catchup-gate=3&pending-recovery=1&retrieval-json=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=2&settings-status=1&clear-problems=2&historical-recall=1&embedding-discovery=1&model-selection=1&connection-memory=1&continuity-recheck=1&storage-conversion=1&tail-recovery=1&device-alias=1&portable-vectors=1&cache-status=1&branch-vectors=1&chronicle-defer=3';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
 import { resolveInjectionBudget } from './injection-budget.js?pending-recovery=1';
@@ -32,7 +32,7 @@ import { buildPlanningEvidence, createContinuityContextBridge } from './context-
 import { resolveRetrievalAssist } from './retrieval-assist.js?bounded-recall=1&catchup-gate=1';
 import { expandRetrievalTerms } from './semantic-retrieval.js?v=0.15.0-testing.30&belief-wording=4&bounded-recall=1&pending-recovery=1&retrieval-json=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1&storage-conversion=1&chronicle-defer=3';
 import { getGenerationTiming, timeGenerationStep } from './generation-timing.js';
-import { notifyHealthProblem } from './health-status.js?storage-recovery=1&clear-problems=2&historical-recall=1&catchup-gate=3&chronicle-defer=3';
+import { notifyHealthProblem } from './health-status.js?storage-recovery=2&clear-problems=2&historical-recall=1&catchup-gate=3&chronicle-defer=3';
 
 const PROMPT_KEY = 'continuity_memory_context';
 const continuityContextBridge = createContinuityContextBridge(getContext);
@@ -760,6 +760,7 @@ async function onChatChanged() {
         memoryJob: null,
         memoryJobs: [],
         embeddingIndex: null,
+        storageError: '',
         lastError: '',
         arcError: '',
         storyLastError: '',
@@ -772,7 +773,9 @@ async function onChatChanged() {
         nextRetrievalPreview: null,
     });
     continuityContextBridge.publish('');
-    await refreshWorlds();
+    try { await refreshWorlds({ background: true }); }
+    catch { return; } // Storage refresh reports and retries independently of extraction.
+    if (getChatKey() !== chatKey) return;
     scheduleInjectionRefresh();
     if (automaticWorkChatKey === getChatKey()) scheduleMutationSync();
 }
@@ -852,12 +855,6 @@ async function init() {
         lastOpenedChatKey = automaticWorkChatKey;
         backgroundMemoryWork.schedule(0);
     } });
-
-    try {
-        updateRuntime({ health: await api.health() });
-    } catch (error) {
-        updateRuntime({ storageError: `Could not connect to stored memory: ${error.message}` });
-    }
 
     eventSource.on(event_types.CHAT_CHANGED, () => onChatChanged().catch(error => updateRuntime({ lastError: error.message })));
     if (event_types.CHAT_DELETED) {

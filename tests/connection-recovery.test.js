@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import * as errorHelpers from '../extension/errors.js';
+import { createHealthProblemTracker } from '../extension/health-status.js';
 
 const apiSource = readFileSync(new URL('../extension/api.js', import.meta.url), 'utf8');
 function backendHarness(outcomes) {
@@ -195,7 +196,7 @@ test('a storage timeout clears after a verified refresh while an extraction fail
     const error = new Error('Continuity server request timed out.');
     const world = { id: 'saved' };
     const state = { generation: 1, lastError: 'Extractor reached its output limit.' };
-    const scope = { refreshingWorlds: null, runtime: state, getChatKey: () => 'chat',
+    const scope = { refreshingWorlds: null, pendingStorageRetry: null, ...errorHelpers, runtime: state, getChatKey: () => 'chat',
         getSettings: () => ({ enabled: true }), updateRuntime: patch => Object.assign(state, patch),
         api: { health: async () => { if (fail) throw error; return { detachedJobs: true, version: 'updated' }; } },
         refreshCurrentChatWorlds: async () => world,
@@ -215,7 +216,7 @@ test('storage refresh results cannot mark another chat healthy or overwrite its 
     for (const failure of [false, true]) {
         let chatKey = 'first', resolve, reject;
         const state = { generation: 1, storageError: 'Other chat problem' };
-        const scope = { refreshingWorlds: null, runtime: state, getChatKey: () => chatKey,
+        const scope = { refreshingWorlds: null, pendingStorageRetry: null, ...errorHelpers, runtime: state, getChatKey: () => chatKey,
             getSettings: () => ({ enabled: true }), updateRuntime: patch => Object.assign(state, patch),
             api: { health: async () => ({ detachedJobs: true }) },
             refreshCurrentChatWorlds: () => new Promise((done, fail) => { resolve = done; reject = fail; }),
@@ -241,7 +242,8 @@ test('the visible-tab timer retries storage and resumes maintenance without a ma
     const calls = [];
     const state = { paused: false, stopSequence: 0, storageError: 'Timed out' };
     const scope = { document: { hidden: false, getElementById: () => ({ addEventListener() {} }) },
-        liveUiRecoveryNeeded: false, liveUiRecoveryPromise: null, lastLiveUiRecoveryAt: Date.now(), LIVE_UI_RECOVERY_INTERVAL: 30000,
+        liveUiRecoveryNeeded: false, liveUiRecoveryPromise: null, pendingStorageRetry: null,
+        lastLiveUiRecoveryAt: Date.now(), LIVE_UI_RECOVERY_INTERVAL: 30000,
         runtime: state, getChatKey: () => 'chat', getSettings: () => ({ enabled: true, retrievalMode: 'local' }),
         createHealthProblemTracker: () => () => {}, captureHealthProblems: null,
         isRuntimeCancellation: () => false, openHealthDetails() {}, clearCurrentHealthProblems() {},
@@ -266,4 +268,122 @@ test('the visible-tab timer retries storage and resumes maintenance without a ma
     assert.deepEqual(calls, ['load', 'load', 'catch-up']);
     tick();
     assert.deepEqual(calls, ['load', 'load', 'catch-up']);
+});
+
+function backgroundStorageHarness(outcomes) {
+    const timeout = new Error('Continuity server request timed out.');
+    const world = { id: 'bound', revision: 7, updatedAt: 'saved', sources: { chat: {} } };
+    const state = { world, generation: 1, stopSequence: 0, storageError: '', lastError: '' };
+    let history = [], tick;
+    const notices = [], calls = [];
+    const tracker = createHealthProblemTracker({ getChatKey: () => scope.chatKey,
+        getHistory: () => history, saveHistory: next => { history = next; }, onProblem: message => notices.push(message) });
+    const scope = vm.createContext({
+        ...errorHelpers, chatKey: 'chat', runtime: state, getChatKey: () => scope.chatKey, getBoundWorldId: () => 'bound',
+        getSettings: () => ({ enabled: true, retrievalMode: 'local' }),
+        document: { hidden: false, getElementById: () => ({ addEventListener() {} }) },
+        refreshingWorlds: null, pendingStorageRetry: null, liveUiRecoveryNeeded: false, liveUiRecoveryPromise: null,
+        lastLiveUiRecoveryAt: Date.now(), LIVE_UI_RECOVERY_INTERVAL: 30000,
+        createHealthProblemTracker: () => tracker, captureHealthProblems: null,
+        isRuntimeCancellation: () => false, openHealthDetails() {}, clearCurrentHealthProblems() {},
+        repaintLiveSettings() {}, renderHealthStatus() {}, requestAnimationFrame: callback => callback(),
+        updateRuntime: patch => { Object.assign(state, patch); tracker(state); },
+        setInterval: callback => { tick = callback; },
+        scheduleResumedMemoryMaintenance: () => calls.push('catch-up'),
+        api: {
+            health: async () => { calls.push('health'); return {}; },
+            getWorld: async id => {
+                calls.push(id);
+                const outcome = outcomes.shift();
+                if (outcome === 'timeout') throw timeout;
+                if (outcome instanceof Error) throw outcome;
+                return { world: outcome || { ...world } };
+            },
+        },
+        refreshCurrentChatWorlds: async () => { calls.push('library'); return world; },
+    });
+    for (const name of ['refreshWorlds', 'checkLoadedChatWorld', 'recoverLiveUiAfterResume', 'initHealthDisplay']) {
+        vm.runInContext(ui.match(new RegExp(`(?:async )?function ${name}\\([^]*?^}`, 'm'))[0], scope);
+    }
+    scope.initHealthDisplay();
+    const resume = async () => { scope.recoverLiveUiAfterResume(true); await scope.liveUiRecoveryPromise; };
+    const timer = async () => { tick(); await scope.liveUiRecoveryPromise; };
+    return { scope, state, world, resume, timer, calls, notices, history: () => history };
+}
+
+test('the first background timeout is silent; the visible timer reloads just the bound world and resumes maintenance', async () => {
+    const h = backgroundStorageHarness(['timeout']);
+    await h.resume();
+    assert.deepEqual(h.calls, ['bound']);
+    assert.equal(h.state.storageError, '');
+    assert.equal(h.state.lastError, '');
+    assert.deepEqual(h.history(), []);
+    assert.deepEqual(h.notices, []);
+    h.scope.document.hidden = true;
+    await h.timer();
+    assert.deepEqual(h.calls, ['bound']);
+    h.scope.document.hidden = false;
+    await h.timer();
+    await h.timer();
+    assert.deepEqual(h.calls, ['bound', 'bound', 'catch-up']);
+    assert.deepEqual(h.history(), []);
+    assert.equal(h.scope.pendingStorageRetry, null);
+    assert.equal(h.state.world, h.world);
+});
+
+test('a second storage timeout warns once without an error toast, then clears live status on recovery', async () => {
+    const h = backgroundStorageHarness(['timeout', 'timeout', 'timeout']);
+    await h.resume();
+    await h.timer();
+    assert.match(h.state.storageError, /timed out/);
+    assert.equal(h.state.lastError, '');
+    await h.timer();
+    assert.deepEqual(h.history().map(item => [item.source, item.count]), [['Storage', 1]]);
+    assert.deepEqual(h.notices, []);
+    await h.timer();
+    assert.equal(h.state.storageError, '');
+    assert.deepEqual(h.calls, ['bound', 'bound', 'bound', 'bound', 'catch-up']);
+});
+
+test('opening a chat also retries a library timeout without publishing a memory failure', async () => {
+    const h = backgroundStorageHarness([]);
+    h.state.world = null;
+    const refresh = h.scope.refreshCurrentChatWorlds;
+    h.scope.refreshCurrentChatWorlds = async () => { throw new Error('Continuity server request timed out.'); };
+    await assert.rejects(h.scope.refreshWorlds({ background: true }), /timed out/);
+    assert.equal(h.state.storageError, '');
+    assert.equal(h.state.lastError, '');
+    assert.deepEqual(h.history(), []);
+    h.scope.refreshCurrentChatWorlds = refresh;
+    await h.timer();
+    assert.deepEqual(h.calls, ['health', 'health', 'library', 'catch-up']);
+    assert.deepEqual(h.history(), []);
+});
+
+test('an old chat’s pending retry cannot become a problem for the new chat', async () => {
+    const h = backgroundStorageHarness(['timeout', 'timeout']);
+    await h.resume();
+    h.scope.chatKey = 'other';
+    await h.timer();
+    assert.deepEqual(h.calls, ['bound']);
+    assert.deepEqual(h.history(), []);
+});
+
+test('changed or missing bound storage still enters the full reconciliation path', async () => {
+    const notFound = Object.assign(new Error('World not found'), { status: 404 });
+    for (const outcome of [notFound, { id: 'bound', revision: 8, updatedAt: 'newer' }]) {
+        const h = backgroundStorageHarness([outcome]);
+        await h.resume();
+        assert.deepEqual(h.calls, ['bound', 'health', 'library', 'catch-up']);
+    }
+});
+
+test('manual refreshes still check the library and non-transport storage failures are reported immediately', async () => {
+    const h = backgroundStorageHarness([Object.assign(new Error('Storage format is unsupported'), { status: 409 })]);
+    await h.resume();
+    assert.match(h.state.storageError, /unsupported/);
+    assert.equal(h.history().length, 1);
+    await h.scope.refreshWorlds();
+    assert.deepEqual(h.calls, ['bound', 'health', 'library']);
+    assert.equal(h.state.storageError, '');
 });

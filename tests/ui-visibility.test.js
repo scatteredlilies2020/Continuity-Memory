@@ -30,7 +30,7 @@ test('browser resume repaints settings and restores persisted world and vector c
     const source = await readFile(new URL('../extension/ui.js', import.meta.url), 'utf8');
     assert.match(source, /function recoverLiveUiAfterResume/u);
     assert.match(source, /repaintLiveSettings\(\)/u);
-    assert.match(source, /const world = await refreshWorlds\(\)/u);
+    assert.match(source, /world = await refreshWorlds\(\{ background: true \}\)/u);
     assert.match(source, /await inspectEmbeddingIndex\(world\)/u);
     assert.match(source, /document\.addEventListener\('visibilitychange'/u);
     assert.match(source, /window\.addEventListener\('pageshow'/u);

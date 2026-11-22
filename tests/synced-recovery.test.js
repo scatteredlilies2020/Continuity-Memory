@@ -29,7 +29,7 @@ function harness() {
     const settings = { enabled: true, embedMemoryInChat: true, chatWorlds: { chat: 'bound' }, deletedWorldIds: [] };
     const calls = { list: 0, read: [], save: [], import: 0, embed: [], toast: [], settings: 0 };
     const scope = vm.createContext({ structuredClone, console, worlds: [{ id: 'synced', name: candidate.name, counts: { retryableDigest: 3 } }],
-        refreshingWorlds: null, creatingChatMemory: null, runtime: { world: structuredClone(original), generation: 0, processing: false },
+        refreshingWorlds: null, pendingStorageRetry: null, creatingChatMemory: null, runtime: { world: structuredClone(original), generation: 0, processing: false },
         activeChat: 'chat', settings, getSettings: () => settings,
         getContext: () => ({ name2: 'Person', chatId: 'Chat', chat }),
         getChatKey: () => scope.activeChat, getBoundWorldId: () => settings.chatWorlds[scope.activeChat] || '',

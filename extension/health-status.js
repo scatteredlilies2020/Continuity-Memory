@@ -114,7 +114,7 @@ export function createHealthProblemTracker({ getHistory, saveHistory, getChatKey
                 && problemIdentity(state.memoryJob.error) === problemIdentity(message) ? state.memoryJob : null;
             const time = failedJob ? Date.parse(failedJob.completedAt || failedJob.createdAt) || now() : now();
             record({ chatKey, source, message, time,
-                id: ['Memory', 'Connection'].includes(source) ? state.memoryJob?.id : undefined }, source !== 'Connection');
+                id: ['Memory', 'Connection'].includes(source) ? state.memoryJob?.id : undefined }, source !== 'Connection' && source !== 'Storage');
         }
     };
 }
