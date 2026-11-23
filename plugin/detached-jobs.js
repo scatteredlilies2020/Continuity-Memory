@@ -1,4 +1,4 @@
-import { assertCompleteChronicleEntry, assertCompleteExtractionRecords, extractionCompletenessFeedback, extractionSchema, formatStructuredResponseGuide } from '../extension/extraction-contract.js';
+import { assertCompleteChronicleEntry, assertCompleteExtractionRecords, extractionCompletenessFeedback, extractionSchema, formatStructuredResponseGuide, normalizeDigestNarrative } from '../extension/extraction-contract.js';
 import { appendMemoryFeedback, requestPrefill, decodeMemoryResponse, memoryWireRequest } from '../extension/preset-prefill.js';
 import { parseJsonResponse } from '../extension/json-response.js';
 import crypto from 'node:crypto';
@@ -478,7 +478,8 @@ async function extractTask(job, task, world) {
                     throw error;
                 }
             }
-            const parsed = parseJsonResponse(raw);
+            const decoded = parseJsonResponse(raw);
+            const parsed = task.digestNarrative === true ? normalizeDigestNarrative(decoded) : decoded;
             const review = (prompt, system, schema) => requestHierarchyText(job, {
                 ...task, placeholder: '__CM_PROVENANCE_REVIEW__',
                 request, fallbackRequest, mandatoryRequest, mandatoryFallbackRequest, uncontrolledRequest,
@@ -493,7 +494,7 @@ async function extractTask(job, task, world) {
             try {
                 validated = await validate();
             } catch (error) {
-                if (lastError?.field !== 'chronicleEntry' || error?.field !== 'chronicleEntry') throw error;
+                if (task.digestNarrative === true || lastError?.field !== 'chronicleEntry' || error?.field !== 'chronicleEntry') throw error;
                 // Don't request a repair when other records are also incomplete.
                 assertCompleteExtractionRecords({ ...parsed, chronicleEntry: undefined });
                 repairingChronicle = true;

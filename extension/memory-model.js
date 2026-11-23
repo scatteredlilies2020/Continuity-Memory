@@ -11,7 +11,7 @@ import { formatEntityProfile, mergeEntityProfiles } from './entity-profile.js';
 import { thirdPersonOnlyProse } from './canonical-prose.js';
 import { compileRollingStorySnapshot } from './story-snapshot.js';
 import { addChroniclePromotion, chronicleTextFromCapsule, removeChronicleChat, restoreChronicleAfterReplay, syncChronicleBase } from './chronicle.js';
-import { assertCompleteChronicleEntry } from './extraction-contract.js';
+import { assertCompleteChronicleEntry, requireDigestNarrative } from './extraction-contract.js?digest-narrative=1';
 import { hasChronicleNarrative } from './chronicle-validation.js';
 
 function text(value) {
@@ -1240,6 +1240,10 @@ export function promoteStoredTailSnapshot(world, chatKey, latestCompleteIndex) {
 }
 
 export function mergeExtraction(world, result, meta) {
+    // Compose the same Digest prose before storage's overview fields are
+    // shortened. Replays and edits use the same composition, not a second
+    // model response, and existing legacy prose stays intact.
+    const digestNarrative = result?._digestNarrative === true ? requireDigestNarrative(result.sceneCapsule) : undefined;
     // Older saved extractions can contain placeholder Chronicle entries even
     // though their Digest prose is intact. Deletion/branch repair replays these
     // records locally, not through the extractor's regeneration/retry path.
@@ -1440,7 +1444,7 @@ export function mergeExtraction(world, result, meta) {
             importance: clampImportance(raw.importance),
             // Concision is a generation target, not permission to discard the
             // end of an accepted account (including its knowledge boundaries).
-            chronicleText: text(result.chronicleEntry || compileRollingStorySnapshot(result.storySoFar)),
+            chronicleText: text(digestNarrative ?? (result.chronicleEntry || compileRollingStorySnapshot(result.storySoFar))),
             provenanceBoundaries: structuredClone(result._authoritativeMetaBoundaries || []),
             sourceScenarioContext: structuredClone(result._sourceScenarioContext || []),
             chatKey: meta.chatKey,

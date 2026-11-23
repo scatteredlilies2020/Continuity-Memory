@@ -8,6 +8,7 @@ import {
     buildRetrievalSystemPrompt,
     CHRONICLE_ENTRY_RULE,
     CHRONICLE_ENTRY_LENGTH_RULE,
+    DIGEST_NARRATIVE_RULE,
     CHRONICLE_HISTORY_RULE,
     CHARACTER_PROFILE_RULE,
     CONTINUITY_COVERAGE_RULES,
@@ -43,13 +44,13 @@ import {
 } from '../extension/prompts.js';
 
 test('JB prompt is appended to extraction instructions only when enabled', () => {
-    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', false, '<rules>custom</rules>'), `Base extraction instructions.\n\n${SUPPORTING_MEMORY_RULES}\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}\n\n${EXTRACTION_COMPLETENESS_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', false, '<rules>custom</rules>'), `Base extraction instructions.\n\n${SUPPORTING_MEMORY_RULES}\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${DIGEST_NARRATIVE_RULE}\n\n${SOURCE_SCOPE_RULE}\n\n${EXTRACTION_COMPLETENESS_RULE}`);
     assert.equal(
         buildExtractionSystemPrompt('Base extraction instructions.', true, '<rules>custom</rules>'),
-        `Base extraction instructions.\n\n<rules>custom</rules>\n\n${SUPPORTING_MEMORY_RULES}\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}\n\n${EXTRACTION_COMPLETENESS_RULE}`,
+        `Base extraction instructions.\n\n<rules>custom</rules>\n\n${SUPPORTING_MEMORY_RULES}\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${DIGEST_NARRATIVE_RULE}\n\n${SOURCE_SCOPE_RULE}\n\n${EXTRACTION_COMPLETENESS_RULE}`,
     );
-    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', true, '   '), `Base extraction instructions.\n\n${SUPPORTING_MEMORY_RULES}\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}\n\n${EXTRACTION_COMPLETENESS_RULE}`);
-    assert.equal(buildExtractionSystemPrompt('', true, '<rules>custom</rules>'), `<rules>custom</rules>\n\n${SUPPORTING_MEMORY_RULES}\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${CHRONICLE_ENTRY_RULE}\n\n${SOURCE_SCOPE_RULE}\n\n${EXTRACTION_COMPLETENESS_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('Base extraction instructions.', true, '   '), `Base extraction instructions.\n\n${SUPPORTING_MEMORY_RULES}\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${DIGEST_NARRATIVE_RULE}\n\n${SOURCE_SCOPE_RULE}\n\n${EXTRACTION_COMPLETENESS_RULE}`);
+    assert.equal(buildExtractionSystemPrompt('', true, '<rules>custom</rules>'), `<rules>custom</rules>\n\n${SUPPORTING_MEMORY_RULES}\n\n${OOC_META_AUTHORITY_RULE}\n\n${CHARACTER_PROFILE_RULE}\n\n${EXTREME_CANON_FIDELITY_RULE}\n\n${DIGEST_NARRATIVE_RULE}\n\n${SOURCE_SCOPE_RULE}\n\n${EXTRACTION_COMPLETENESS_RULE}`);
     assert.match(DEFAULT_JB_PROMPT, /^<rules>[\s\S]*<\/rules>$/);
 });
 
@@ -114,7 +115,8 @@ test('saved pre-neutral Chronicle rules upgrade at request time without duplicat
     const prompt = buildExtractionSystemPrompt(`Custom prefix.\n${legacy}\nCustom suffix.`);
     assert.ok(prompt.includes('Custom prefix.'));
     assert.ok(prompt.includes('Custom suffix.'));
-    assert.equal(prompt.split("Return chronicleEntry as a compact").length - 1, 1);
+    assert.equal(prompt.split('Use sceneCapsule.opening, beats, and closing as').length - 1, 1);
+    assert.doesNotMatch(prompt, /chronicleEntry/);
     assert.equal(prompt.split(CHRONICLE_HISTORY_RULE).length - 1, 1);
     assert.equal(buildExtractionSystemPrompt(prompt), prompt);
     const hierarchy = buildHierarchySystemPrompt("Custom prefix. Never invent a transition, flatten a character's belief into objective fact, or resolve an open matter.");
@@ -129,9 +131,10 @@ test('Chronicle entry length is a soft target and saved prompt upgrades are idem
         const prompt = buildExtractionSystemPrompt(`Custom prefix. Aim for 800 characters.\n${rule}\nCustom suffix.`);
         assert.ok(prompt.includes('Custom prefix. Aim for 800 characters.'));
         assert.ok(prompt.includes('Custom suffix.'));
-        assert.ok(prompt.includes(CHRONICLE_ENTRY_RULE));
-        assert.equal(prompt.split(CHRONICLE_ENTRY_LENGTH_RULE).length - 1, 1);
-        assert.equal(prompt.split('Return chronicleEntry as a compact').length - 1, 1);
+        assert.match(prompt, /Aim for roughly 2,400 characters or fewer across opening, beats, and closing/);
+        assert.equal(prompt.split('soft target, not a hard cap or a minimum').length - 1, 1);
+        assert.equal(prompt.split('Use sceneCapsule.opening, beats, and closing as').length - 1, 1);
+        assert.doesNotMatch(prompt, /chronicleEntry/);
         assert.equal(buildExtractionSystemPrompt(prompt), prompt);
     }
     assert.match(CHRONICLE_ENTRY_LENGTH_RULE, /soft target, not a hard cap or a minimum/);
@@ -156,12 +159,12 @@ test('existing extraction and Chronicle prompts preserve source scope across all
 test('Chronicle retains consequential setup independently of structured storage without requiring an event', () => {
     for (const base of [DEFAULT_EXTRACTION_SYSTEM_PROMPT, 'Custom extraction instructions.']) {
         const prompt = buildExtractionSystemPrompt(base);
-        assert.ok(prompt.includes(CHRONICLE_ENTRY_RULE));
+        assert.ok(prompt.includes(DIGEST_NARRATIVE_RULE));
         assert.match(prompt, /this excerpt's consequential setup and causally important change/u);
         assert.match(prompt, /source-supported conditions that materially govern what is possible or how events should be understood/u);
         assert.match(prompt, /even when no action changes them in this excerpt/u);
         assert.match(prompt, /Omit low-value detail and repetition within the entry, not consequential information merely because it is also stored in structured records/u);
-        assert.match(prompt, /check that the entry itself retains the excerpt's consequential setup with its source scope and knowledge boundaries intact/u);
+        assert.match(prompt, /check that the combined Digest narrative retains the excerpt's consequential setup with its source scope and knowledge boundaries intact/u);
         assert.doesNotMatch(prompt, /or repeat details already represented in the structured records unless needed/u);
         assert.equal(buildExtractionSystemPrompt(prompt), prompt);
     }
@@ -328,11 +331,11 @@ test('rolling snapshot is bounded, chronological, and sourced only from supplied
     assert.match(storyTask, /870–1024 tokens/i);
     assert.match(storyTask, /3840 characters/i);
     assert.doesNotMatch(storyTask, /\{\{/);
-    assert.match(DEFAULT_EXTRACTION_TASK_TEMPLATE, /chronicleEntry/i);
-    assert.match(DEFAULT_EXTRACTION_TASK_TEMPLATE, /excerpt only/i);
+    assert.match(DEFAULT_EXTRACTION_TASK_TEMPLATE, /only narrative in sceneCapsule/i);
+    assert.doesNotMatch(DEFAULT_EXTRACTION_TASK_TEMPLATE, /chronicleEntry/i);
     assert.match(CHRONICLE_ENTRY_RULE, /concealed information|who knows what/i);
     assert.doesNotMatch(buildExtractionSystemPrompt(DEFAULT_EXTRACTION_SYSTEM_PROMPT), /prior snapshot plus new chronological/i);
-    assert.ok(buildExtractionSystemPrompt(DEFAULT_EXTRACTION_SYSTEM_PROMPT).includes(CHRONICLE_ENTRY_RULE));
+    assert.match(buildExtractionSystemPrompt(DEFAULT_EXTRACTION_SYSTEM_PROMPT), /the combined Digest narrative/);
 });
 
 test('final Story quality repair protects stakes and removes low-value inventory before save', () => {

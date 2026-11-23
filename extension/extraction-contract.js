@@ -208,6 +208,15 @@ export function formatStructuredResponseGuide(guide, structured = false) {
 }
 
 export const EXTRACTION_FIELD_GUIDE = schemaFieldGuide(extractionSchema);
+// Keep the previous contract for saved reviews and detached requests submitted
+// by older tabs. New requests have one narrative, in the chronological Digest.
+const { chronicleEntry: legacyChronicleEntry, ...digestProperties } = extractionSchema.properties;
+export const digestExtractionSchema = {
+    ...extractionSchema,
+    required: extractionSchema.required.filter(key => key !== 'chronicleEntry'),
+    properties: digestProperties,
+};
+export const DIGEST_EXTRACTION_FIELD_GUIDE = schemaFieldGuide(digestExtractionSchema);
 export const EXTRACTION_OUTPUT_CHECK = `Check required fields, supported content, and targetId matches. Keep characterProfile groups and other list fields as arrays. Follow the record-completeness rules above. Return complete JSON with actual records, not field definitions or placeholders.`;
 export const CHRONICLE_OUTPUT_CHECK = `Check that title and summary contain supported content; participants, turningPoints and openThreads are arrays; importance is an integer from 1 to 5. Leave unknown time or optional context empty. Finish every sentence and close the JSON object. Return content, not definitions or placeholders.`;
 
@@ -221,6 +230,42 @@ export function assertCompleteChronicleEntry(value) {
     if (!hasChronicleNarrative(value)) {
         throw Object.assign(new Error('Incomplete extraction records: chronicleEntry must contain a source-supported narrative account in complete prose, not a single letter, punctuation, or blank placeholder. Do not pad the entry.'), { code: 'CM_INCOMPLETE_RECORDS', field: 'chronicleEntry' });
     }
+}
+
+function digestSentence(value) {
+    const text = typeof value === 'string' ? value.trim() : '';
+    if (!hasChronicleNarrative(text) || /^(?:n\/?a|none|null|unknown|pending|placeholder)[.!…\s]*$/iu.test(text)) return '';
+    return text;
+}
+
+export function digestNarrativeText(capsule) {
+    const beats = Array.isArray(capsule?.beats) ? capsule.beats : [];
+    return [...new Set([capsule?.opening, ...beats, capsule?.closing].map(digestSentence).filter(Boolean))].join(' ');
+}
+
+export function requireDigestNarrative(capsule) {
+    const narrative = digestNarrativeText(capsule);
+    if (!narrative) {
+        throw Object.assign(new Error('The Digest did not describe the excerpt in its opening, beats, or closing.'), {
+            code: 'CM_INCOMPLETE_RECORDS', field: 'sceneCapsule',
+        });
+    }
+    return narrative;
+}
+
+export function normalizeDigestNarrative(result) {
+    if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('Extractor returned no JSON object.');
+    const capsule = result.sceneCapsule;
+    if (!capsule || typeof capsule !== 'object' || Array.isArray(capsule) || !Array.isArray(capsule.beats)) {
+        throw new Error('Extractor returned no valid chronological scene capsule.');
+    }
+    const sceneCapsule = { ...capsule, opening: digestSentence(capsule.opening),
+        beats: capsule.beats.map(digestSentence).filter(Boolean), closing: digestSentence(capsule.closing) };
+    requireDigestNarrative(sceneCapsule);
+    // Do not let an obsolete/unrequested parallel narrative influence either
+    // validation or storage. The Digest remains editable as a single account.
+    const { chronicleEntry, storySoFar, ...records } = result;
+    return { ...records, sceneCapsule, _digestNarrative: true };
 }
 
 export function assertCompleteExtractionRecords(result) {
@@ -257,6 +302,9 @@ export function extractionCompletenessFeedback(error) {
     }
     if (error?.code === 'CM_INCOMPLETE_RECORDS' && error.field === 'chronicleEntry') {
         return '\n\nThe previous response was rejected because chronicleEntry was a placeholder. Write complete prose from the excerpt itself: describe what happened or what the author established, in third person. A short excerpt can warrant just one grounded sentence. Keep author-only information separate from what characters say or know. Return the complete extraction with every required field, not just chronicleEntry. Do not pad or invent details.';
+    }
+    if (error?.code === 'CM_INCOMPLETE_RECORDS' && error.field === 'sceneCapsule') {
+        return '\n\nWrite source-supported complete sentences in sceneCapsule.opening, beats, and closing as needed. A short excerpt can warrant only one grounded sentence. Do not invent an event or fill empty slots for length. Use neutral author-level attribution for OOC information. Return the complete extraction with all required fields.';
     }
     if (error?.code === 'CM_INCOMPLETE_RECORDS') return `\n\nThe previous response was rejected: ${error.message}\n${EXTRACTION_COMPLETENESS_RULE}`;
     if (error?.code === 'CM_INVALID_JSON'

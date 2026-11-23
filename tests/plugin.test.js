@@ -804,7 +804,7 @@ test('detached jobs report source tokens and promote Recursive Chronicle without
         await fs.rm(root, { recursive: true, force: true });
     });
     const extracted = {
-        storySoFar: 'Alice continues steadily along the road toward the destination.',
+        chronicleEntry: 'A.',
         scene: { location: 'Road', time: 'Later', participants: ['Alice'], activity: 'Walking', mood: 'calm' },
         sceneCapsule: {
             title: 'Another step', storyTime: 'Later', location: 'Road', participants: ['Alice'],
@@ -862,6 +862,7 @@ test('detached jobs report source tokens and promote Recursive Chronicle without
     const task = {
         messages: [{ index: 24, name: 'Alice', text: 'I keep walking.' }],
         inputTokens: 321,
+        digestNarrative: true,
         request: { chat_completion_source: 'openai', model: 'test', messages: [] },
     };
     const started = await call(router.routes.get('POST /extraction-jobs'), root, {
@@ -892,6 +893,8 @@ test('detached jobs report source tokens and promote Recursive Chronicle without
     assert.equal(job.hierarchyError, '');
     const loaded = await call(router.routes.get('GET /worlds/:id'), root, { params: { id: world.id } });
     assert.equal(loaded.payload.world.capsules.length, 25);
+    assert.equal(loaded.payload.world.capsules.find(capsule => Number(capsule.from) === 24).chronicleText,
+        'Alice continues. Alice walks onward. Alice keeps walking.');
     assert.equal(loaded.payload.world.chronicle.filter(item => Number(item.level) === 0).length, 25);
     assert.equal(loaded.payload.world.chronicle.filter(item => Number(item.level) === 1).length, 1);
 });

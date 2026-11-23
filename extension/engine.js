@@ -1,4 +1,4 @@
-import { extractionSchema, schemaFieldGuide, formatStructuredResponseGuide, EXTRACTION_OUTPUT_CHECK, EXTRACTION_FIELD_GUIDE, assertCompleteExtractionRecords, extractionCompletenessFeedback } from './extraction-contract.js?v=0.15.0-testing.34';
+import { digestExtractionSchema, schemaFieldGuide, formatStructuredResponseGuide, EXTRACTION_OUTPUT_CHECK, DIGEST_EXTRACTION_FIELD_GUIDE, assertCompleteExtractionRecords, extractionCompletenessFeedback, normalizeDigestNarrative } from './extraction-contract.js?digest-narrative=1';
 import { LEGACY_DIGEST_RESCAN_MESSAGE } from './legacy-support.js';
 import { extractMessageFromData, generateRaw, getRequestHeaders } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
@@ -11,7 +11,7 @@ import { api } from './api.js?pending-recovery=1&storage-recovery=1&storage-conv
 import { analyzeBranchDivergence, analyzeCoverage, analyzeTailRollback, EXTRACTION_VERSION } from './coverage.js';
 import { isRateLimitError, isTransientApiError } from './errors.js';
 import { collectFingerprintMessages, collectMemoryEligibleMessages, findChangedExtractions, fingerprintMessage } from './message-digest.js?v=0.15.0-testing.30';
-import { planExtractionOutput, resolveExtractionChunk } from './extraction-budget.js?pending-recovery=1&output-planning=1';
+import { planExtractionOutput, resolveExtractionChunk } from './extraction-budget.js?pending-recovery=1&output-planning=1&digest-narrative=1';
 import { CHRONICLE_PROSE_FORMAT, CHRONICLE_PROSE_SYSTEM, normalizeChronicleProse, normalizeHierarchyResult } from './hierarchy-result.js?prose-promotion=1';
 import { validateChronicleProvenance, validateExtractionProvenance, chronicleProvenanceSources } from './chronicle-provenance.js';
 import { captureScenarioContext } from './scenario-context.js';
@@ -24,13 +24,13 @@ import { requestExtractionReview } from './extraction-review.js';
 import { assertReviewedMemoryContent } from './review-content.js';
 import { parseJsonResponse } from './json-response.js';
 import { migrateLegacyBeliefs } from './attributed-beliefs.js';
-import { addDerivedChronicle, freshResetResiduals, getLatestDigestUndoStatus as inspectLatestDigestUndo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from './memory-model.js?historical-recall=1&stored-replay=1';
+import { addDerivedChronicle, freshResetResiduals, getLatestDigestUndoStatus as inspectLatestDigestUndo, mergeExtraction, promoteStoredTailSnapshot, removeChatContributions, replaceExtraction, resetWorldHierarchy, resetWorldMemory, restoreRetainedReplayRecords, undoLatestDigestExtraction } from './memory-model.js?historical-recall=1&stored-replay=1&digest-narrative=1';
 import { extractionResponseTokens, memoryResponseTokens, resolveMemoryResponseTokens } from './memory-response-policy.js?pending-recovery=1&output-recovery=2';
 import { outputTokenPayload } from './model-compatibility.js?v=0.15.0-testing.30';
 import { authoritativeMetaBoundaries, formatExtractionMessages, inWorldSourceEvidence, precedingUserAttributionContext } from './extraction-context.js?v=0.15.0-testing.37&chronicle-summary-recovery=1';
 import { embedWorldInChat } from './portable.js?belief-wording=4&pending-recovery=1&historical-recall=1';
 import { connectionProfileModel, isolatedProfileOptions, isolatedProfilePayload } from './profile-request-policy.js?v=0.15.0-testing.30';
-import { buildChronicleProseSystemPrompt, buildExtractionSystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate } from './prompts.js?v=0.15.0-testing.30&belief-wording=4&historical-recall=1&prose-promotion=1';
+import { buildChronicleProseSystemPrompt, buildExtractionSystemPrompt, DEFAULT_CHRONICLE_SYSTEM_PROMPT, DEFAULT_CHRONICLE_TASK_TEMPLATE, DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_EXTRACTION_TASK_TEMPLATE, renderPromptTemplate, rewriteDigestNarrativeInstructions } from './prompts.js?v=0.15.0-testing.30&belief-wording=4&historical-recall=1&prose-promotion=1&digest-narrative=1';
 import { applySourceAttributionFailClosed, canonicalFactReference, sanitizeReconciliationMetadata } from './reconciliation-policy.js?v=0.15.0-testing.30&historical-recall=1';
 import { getBoundWorldId, getChatKey, getSettings } from './settings.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&historical-recall=1';
 import { blockSyncedRecovery } from './synced-recovery-policy.js?belief-wording=4&pending-recovery=1&historical-recall=1';
@@ -56,7 +56,7 @@ const extractionJsonSchema = Object.freeze({
     description: 'Structured continuity memory extracted from a roleplay or simulation excerpt of any genre. All canonical prose uses explicit names and third person, never first/second person or player-facing advice.',
     strict: true,
     returnInvalid: true,
-    value: extractionSchema,
+    value: digestExtractionSchema,
 });
 
 
@@ -105,7 +105,7 @@ Do not alter unrelated details, invent unsupported events, create new Digest cap
 ${formatStructuredResponseGuide(schemaFieldGuide(correctionSchema))}`;
 
 
-const JSON_SHAPE_EXAMPLE = EXTRACTION_FIELD_GUIDE;
+const JSON_SHAPE_EXAMPLE = DIGEST_EXTRACTION_FIELD_GUIDE;
 
 let activeExtractionThinkingMode = null;
 const watchedDetachedJobs = new Set();
@@ -208,9 +208,9 @@ function validateResult(result, world, messages) {
     for (const key of ['entities', 'facts', 'states', 'relationships', 'events', 'threads', 'backgrounds']) {
         if (!Array.isArray(result[key])) throw new Error(`Extractor field "${key}" is not an array.`);
     }
-    if (typeof result.chronicleEntry !== 'string') {
-        // Stored pre-Chronicle responses and in-flight detached jobs remain
-        // replayable; new structured requests require this field explicitly.
+    if (!result._digestNarrative && typeof result.chronicleEntry !== 'string') {
+        // Keep the legacy review path compatible with pre-Chronicle results.
+        // New Digest requests compose their C0 prose at merge time instead.
         result.chronicleEntry = compileRollingStorySnapshot(result.storySoFar)
             || [result.sceneCapsule.opening, ...(result.sceneCapsule.beats || []), result.sceneCapsule.closing].filter(Boolean).join(' ');
     }
@@ -341,7 +341,7 @@ async function extractChunk(messages, world = runtime.world) {
             const recoveryGuide = recovery ? `\n\n${EXTRACTION_OUTPUT_RECOVERY_GUIDE}` : '';
             const raw = await requestExtraction(retryPrompt + feedback + recoveryGuide, systemPrompt, fallbackPrompt ? fallbackPrompt + feedback + recoveryGuide : fallbackPrompt, responseTokens);
             updateRuntime({ lastRawResponse: String(raw).slice(0, 30000) });
-            const parsed = typeof raw === 'string' ? parseJsonResponse(raw) : raw;
+            const parsed = normalizeDigestNarrative(typeof raw === 'string' ? parseJsonResponse(raw) : raw);
             const review = (prompt, system, schema) => requestStructured(prompt, system, schema, prepared.responseTokens);
             await validateExtractionProvenance(parsed, messages, world?.entities || [], review);
             const { result, validation } = validateResult(parsed, world, messages);
@@ -399,7 +399,7 @@ function prepareExtractionPrompts(messages, world = runtime.world) {
             : 'Capture major developments and useful recurring or persistent details without recording filler.';
     const profileId = settings.memoryProfileId;
     const usesStructuredSchema = requestSupportsStructuredSchema(extractionJsonSchema, profileId, 'extraction', settings.thinkingMode, true);
-    const taskTemplate = `${settings.extractionTaskTemplate ?? DEFAULT_EXTRACTION_TASK_TEMPLATE}\n\n${EXTRACTION_OUTPUT_CHECK}\n\n${output.guidance}`;
+    const taskTemplate = `${rewriteDigestNarrativeInstructions(settings.extractionTaskTemplate ?? DEFAULT_EXTRACTION_TASK_TEMPLATE)}\n\n${EXTRACTION_OUTPUT_CHECK}\n\n${output.guidance}`;
     const attributionContext = precedingUserAttributionContext(getContext().chat || [], messages);
     const taskValues = {
         detail: detailInstruction,
@@ -598,7 +598,8 @@ async function reviewMemoryBeforeSave(result, meta, validate, regenerate = null)
 }
 
 async function reviewExtractionBeforeSave(result, world, messages, meta = {}, regenerate = null) {
-    return reviewMemoryBeforeSave(result, { ...meta, layer: 'Digest' }, candidate => validateResult(candidate, world, messages).result, regenerate);
+    const validate = candidate => validateResult(result._digestNarrative ? normalizeDigestNarrative(candidate) : candidate, world, messages).result;
+    return reviewMemoryBeforeSave(result, { ...meta, layer: 'Digest' }, validate, regenerate);
 }
 
 async function reviewHierarchyBeforeSave(result, layer, sources, reason = 'hierarchy', regenerate = null) {
@@ -868,6 +869,7 @@ function prepareDetachedTask(messages, world) {
     const split = splitDetachedMessages(messages);
     return {
         messages,
+        digestNarrative: true,
         ...requests,
         ...(split ? { parts: split.map(part => prepareDetachedTask(part, world)) } : {}),
     };

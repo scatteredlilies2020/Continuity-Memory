@@ -5,7 +5,7 @@ import {
     buildExtractionSystemPrompt, buildHierarchySystemPrompt, upgradePromptWording,
     DEFAULT_EXTRACTION_SYSTEM_PROMPT, DEFAULT_CHRONICLE_SYSTEM_PROMPT,
     DURABLE_MEMORY_RULES, CHARACTER_PROFILE_RULE, PRE_ASSERTION_CHARACTER_PROFILE_RULE, PRE_QUOTATION_CHARACTER_PROFILE_RULE, EPISTEMIC_MEMORY_RULES,
-    CHRONICLE_ENTRY_RULE, CHRONICLE_ENTRY_LENGTH_RULE, SOURCE_SCOPE_RULE,
+    DIGEST_NARRATIVE_RULE, SOURCE_SCOPE_RULE,
     EXTREME_CANON_FIDELITY_RULE, EXTREME_SUMMARY_FIDELITY_RULE,
 } from '../extension/prompts.js';
 import { EXTRACTION_COMPLETENESS_RULE, EXTRACTION_OUTPUT_CHECK } from '../extension/extraction-contract.js';
@@ -62,7 +62,7 @@ test('plain profile and knowledge rules retain attribution and membership distin
 
 test('shorter checklist still accompanies full completeness and detail-preservation rules', () => {
     const extraction = buildExtractionSystemPrompt(DEFAULT_EXTRACTION_SYSTEM_PROMPT);
-    for (const rule of [EXTRACTION_COMPLETENESS_RULE, CHRONICLE_ENTRY_RULE, CHRONICLE_ENTRY_LENGTH_RULE, SOURCE_SCOPE_RULE, EXTREME_CANON_FIDELITY_RULE]) {
+    for (const rule of [EXTRACTION_COMPLETENESS_RULE, DIGEST_NARRATIVE_RULE, SOURCE_SCOPE_RULE, EXTREME_CANON_FIDELITY_RULE]) {
         assert.equal(extraction.split(rule).length - 1, 1);
     }
     assert.ok(DEFAULT_CHRONICLE_SYSTEM_PROMPT.includes(EXTREME_SUMMARY_FIDELITY_RULE));

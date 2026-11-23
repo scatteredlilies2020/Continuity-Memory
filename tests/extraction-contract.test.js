@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { planExtractionOutput } from '../extension/extraction-budget.js';
 import test from 'node:test';
-import { assertCompleteExtractionRecords, extractionSchema, EXTRACTION_FIELD_GUIDE, EXTRACTION_COMPLETENESS_RULE, extractionCompletenessFeedback } from '../extension/extraction-contract.js';
+import { assertCompleteExtractionRecords, extractionSchema, EXTRACTION_FIELD_GUIDE, EXTRACTION_COMPLETENESS_RULE, extractionCompletenessFeedback, normalizeDigestNarrative, digestNarrativeText, digestExtractionSchema, DIGEST_EXTRACTION_FIELD_GUIDE } from '../extension/extraction-contract.js';
 import { buildExtractionSystemPrompt } from '../extension/prompts.js';
 
 const fact = { subject: 'Alice', predicate: 'takes tea', value: 'without sugar', category: 'preference' };
@@ -19,7 +19,7 @@ test('rejects degenerate Chronicle prose without changing the extraction', () =>
     assert.equal(extractionSchema.properties.chronicleEntry.minLength, 2);
 });
 
-test('browser and server reject single-letter Chronicle output before reconciliation', async () => {
+test('legacy browser reviews and detached tasks still reject single-letter Chronicle output before reconciliation', async () => {
     const { readFileSync } = await import('node:fs');
     const { runInNewContext } = await import('node:vm');
     for (const path of ['../extension/engine.js', '../plugin/detached-jobs.js']) {
@@ -31,6 +31,25 @@ test('browser and server reject single-letter Chronicle output before reconcilia
             sanitizeReconciliationMetadata: () => assert.fail('Degenerate Chronicle reached reconciliation'),
         }), { code: 'CM_INCOMPLETE_RECORDS', field: 'chronicleEntry' });
     }
+});
+
+test('new extraction has one narrative and ignores obsolete parallel fields', () => {
+    assert.ok(!digestExtractionSchema.required.includes('chronicleEntry'));
+    assert.ok(!Object.hasOwn(digestExtractionSchema.properties, 'chronicleEntry'));
+    assert.doesNotMatch(DIGEST_EXTRACTION_FIELD_GUIDE, /chronicleEntry/);
+    const input = { sceneCapsule: { opening: '天亮。', beats: ['A.', 'Éva attend.', 'Éva attend.', 'N/A'], closing: '…' },
+        chronicleEntry: 'A.', storySoFar: { text: 'Unrequested prior history.' }, facts: [fact] };
+    const result = normalizeDigestNarrative(input);
+    assert.equal(digestNarrativeText(result.sceneCapsule), '天亮。 Éva attend.');
+    assertCompleteExtractionRecords(result);
+    assert.deepEqual(result.facts, [fact]);
+    assert.equal(input.chronicleEntry, 'A.');
+    assert.equal(Object.hasOwn(result, 'chronicleEntry'), false);
+    assert.equal(Object.hasOwn(result, 'storySoFar'), false);
+    assert.throws(() => normalizeDigestNarrative({ sceneCapsule: { opening: 'A.', beats: ['N/A'], closing: '' },
+        chronicleEntry: 'This parallel field is no longer authoritative.' }), { code: 'CM_INCOMPLETE_RECORDS', field: 'sceneCapsule' });
+    assert.throws(() => assertCompleteExtractionRecords(normalizeDigestNarrative({ sceneCapsule:
+        { opening: 'Éva attend.', beats: ['<stat>Time = noon</stat>'], closing: '' } })), { code: 'CM_INCOMPLETE_RECORDS' });
 });
 
 test('single-letter Chronicle failure requests corrected prose, not padding', () => {
@@ -137,19 +156,20 @@ test('custom and default extraction prompts include first-response checks in bot
     const { readFileSync } = await import('node:fs');
     const { runInNewContext } = await import('node:vm');
     const engine = readFileSync(new URL('../extension/engine.js', import.meta.url), 'utf8');
-    for (const native of [false, true]) for (const template of [undefined, 'Custom task: {{messages}}']) {
+    for (const native of [false, true]) for (const template of [undefined, 'Custom task: {{messages}}; keep chronicleEntry concise.']) {
         const scope = { ...contract, ...prompts, planExtractionOutput, runtime: { world: {} },
             getSettings: () => ({ extractionTaskTemplate: template }), getContext: () => ({ chat: [] }),
             extractionJsonSchema: {}, requestSupportsStructuredSchema: () => native,
             precedingUserAttributionContext: () => '', formatExtractionMessages: () => 'SOURCE',
             extractionStateContext: () => 'CANONICAL', extractionTemporalContext: () => 'TIME',
-            JSON_SHAPE_EXAMPLE: contract.EXTRACTION_FIELD_GUIDE,
+            JSON_SHAPE_EXAMPLE: contract.DIGEST_EXTRACTION_FIELD_GUIDE,
         };
         const functions = ['renderStructuredTaskPrompt', 'prepareExtractionPrompts'].map(name => engine.match(new RegExp('function ' + name + '\\([^]*?^}', 'm'))[0]).join('\n');
         const result = runInNewContext(functions + '\nprepareExtractionPrompts([], {});', scope);
         for (const prompt of [result.prompt, result.fallbackPrompt]) {
             assert.ok(prompt.includes(contract.EXTRACTION_OUTPUT_CHECK));
-            assert.match(prompt, /entire JSON response, including the Digest and chronicleEntry/);
+            assert.match(prompt, /entire JSON response, including the Digest narrative/);
+            assert.doesNotMatch(prompt, /chronicleEntry/);
             assert.match(prompt, /soft target, not a minimum/);
             assert.ok(prompt.includes('SOURCE') && prompt.includes('CANONICAL') && prompt.includes('TIME'));
         }

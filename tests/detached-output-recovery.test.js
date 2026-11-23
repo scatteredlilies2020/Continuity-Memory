@@ -16,6 +16,28 @@ const extracted = {
     chronicleEntry: 'Alice walks along the road.',
 };
 
+test('new detached Digest saves on the first request even if a proxy emits a blank legacy Chronicle field', async () => {
+    const result = await runExtraction('one-digest-narrative', { ...task([0, 1]), digestNarrative: true }, () => ({
+        finish: 'stop', content: { ...extracted, chronicleEntry: ' ' },
+    }));
+    assert.equal(result.finished.status, 'complete', result.finished.error);
+    assert.equal(result.requests.length, 1);
+    assert.equal(result.world.chronicle[0].text, 'Alice walks along the road. Alice continues walking.');
+    assert.equal(Object.hasOwn(result.world.extractions[0].result, 'chronicleEntry'), false);
+});
+
+test('new detached Digest leaves the chunk pending when the actual Digest contains no narrative', async () => {
+    const result = await runExtraction('missing-digest-narrative', { ...task([0]), digestNarrative: true }, () => ({
+        finish: 'stop', content: { ...extracted, sceneCapsule: { title: 'Along the road', opening: 'A.', beats: ['…'], closing: '' } },
+    }));
+    assert.equal(result.finished.status, 'error');
+    assert.match(result.finished.error, /The Digest did not describe the excerpt/);
+    assert.equal(result.requests.length, 2);
+    assert.ok(result.requests[1].messages.some(message => /sceneCapsule.opening, beats, and closing/.test(message.content)));
+    assert.equal(result.world.extractions.length, 0);
+    assert.deepEqual(result.world.sources, {});
+});
+
 test('detached extraction retries single-letter Chronicle output and saves only corrected prose', async () => {
     const result = await runExtraction('single-letter-chronicle', task([0, 1]), (_, attempt) => ({
         finish: 'stop', content: attempt === 1 ? { ...extracted, chronicleEntry: 'M' } : extracted,

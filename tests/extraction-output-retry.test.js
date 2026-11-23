@@ -4,14 +4,15 @@ import test from 'node:test';
 import { runInNewContext } from 'node:vm';
 import { EXTRACTION_OUTPUT_RECOVERY_GUIDE, isAdaptiveExtractionSplitError, isExplicitExtractionOutputLimitError } from '../extension/extraction-recovery.js';
 import { extractionResponseTokens } from '../extension/memory-response-policy.js';
-import { extractionCompletenessFeedback } from '../extension/extraction-contract.js';
+import { assertCompleteExtractionRecords, extractionCompletenessFeedback, normalizeDigestNarrative } from '../extension/extraction-contract.js';
 import { parseJsonResponse } from '../extension/json-response.js';
+import { mergeExtraction } from '../extension/memory-model.js';
 
 const engine = await readFile(new URL('../extension/engine.js', import.meta.url), 'utf8');
 const start = engine.indexOf('async function extractChunk(');
 const end = engine.indexOf('function prepareExtractionPrompts(', start);
 
-function makeExtractor(requestExtraction, settings = { extractionOutputTokens: 0 }, plannedCapacity = undefined) {
+function makeExtractor(requestExtraction, settings = { extractionOutputTokens: 0 }, plannedCapacity = undefined, overrides = {}) {
     const runtime = {};
     const updates = [];
     const context = {
@@ -23,6 +24,7 @@ function makeExtractor(requestExtraction, settings = { extractionOutputTokens: 0
         requestExtraction,
         updateRuntime: patch => updates.push(patch),
         parseJsonResponse,
+        normalizeDigestNarrative: result => result,
         validateExtractionProvenance: async result => result,
         validateResult: parsed => ({ result: parsed, validation: {} }),
         applySourceAttributionFailClosed: () => 0,
@@ -30,9 +32,34 @@ function makeExtractor(requestExtraction, settings = { extractionOutputTokens: 0
         isExplicitExtractionOutputLimitError,
         isAdaptiveExtractionSplitError,
         EXTRACTION_OUTPUT_RECOVERY_GUIDE,
+        ...overrides,
     };
     return { extract: runInNewContext(`${engine.slice(start, end)}\nextractChunk`, context), updates };
 }
+
+test('browser saves one full Digest narrative in C0 without retrying a bogus legacy field', async () => {
+    const sentence = 'Alice kept the route secret while she considered whether to leave the city.';
+    const opening = Array(6).fill(sentence).join(' ');
+    const closing = 'Bob did not learn the route.';
+    let calls = 0;
+    const { extract } = makeExtractor(async () => {
+        calls++;
+        return JSON.stringify({ sceneCapsule: { title: 'The route', opening, beats: [], closing }, chronicleEntry: 'A.' });
+    }, undefined, undefined, {
+        normalizeDigestNarrative,
+        validateResult: result => ({ result: assertCompleteExtractionRecords(result), validation: {} }),
+    });
+    const world = {};
+    const result = await extract([{ index: 0 }, { index: 1 }]);
+    mergeExtraction(world, result, { chatKey: 'chat', from: 0, to: 1 });
+    assert.equal(calls, 1);
+    assert.equal(world.chronicle[0].text, `${opening} ${closing}`);
+    assert.equal(Object.hasOwn(world.extractions[0].result, 'chronicleEntry'), false);
+    assert.ok(world.capsules[0].opening.length < opening.length, 'overview clipping must not shorten C0');
+    const replayed = {};
+    mergeExtraction(replayed, world.extractions[0].result, { chatKey: 'chat', from: 0, to: 1, replayStoredExtraction: true });
+    assert.equal(replayed.chronicle[0].text, world.chronicle[0].text);
+});
 
 test('a truncated single message retries with concise JSON guidance and more output capacity', async () => {
     const budgets = [];

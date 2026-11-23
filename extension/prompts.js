@@ -181,6 +181,16 @@ const PRE_SOFT_CAP_CHRONICLE_ENTRY_RULE = `Return chronicleEntry as a compact, s
 export const CHRONICLE_ENTRY_LENGTH_RULE = `Aim for roughly 2,400 characters or fewer in chronicleEntry by removing repetition and incidental detail. This is a soft target, not a hard cap or a minimum: use less for a simple excerpt and exceed it when consequential continuity, conditions, attribution, or knowledge boundaries require it. Respect a custom length target as guidance, not a reason to cut off sentences or lose consequential meaning.`;
 export const CHRONICLE_ENTRY_RULE = `${PRE_SOFT_CAP_CHRONICLE_ENTRY_RULE} ${CHRONICLE_ENTRY_LENGTH_RULE}`;
 
+const LEGACY_EXTRACTION_NARRATIVE_TASK = 'Write chronicleEntry from this excerpt only. It will be promoted recursively with other source-linked entries later; never rewrite the full history here.';
+const DIGEST_NARRATIVE_TASK = 'Write the excerpt’s only narrative in sceneCapsule.opening, beats, and closing. This account also feeds Chronicle promotion. Do not recap earlier history or output an additional summary field.';
+
+export function rewriteDigestNarrativeInstructions(prompt) {
+    return String(prompt).replaceAll(LEGACY_EXTRACTION_NARRATIVE_TASK, DIGEST_NARRATIVE_TASK)
+        .replace(/\bchronicleEntry\b/gu, 'sceneCapsule narrative (opening, beats, and closing)');
+}
+
+export const DIGEST_NARRATIVE_RULE = `${PRE_SOFT_CAP_CHRONICLE_ENTRY_RULE.replace('Return chronicleEntry as', 'Use sceneCapsule.opening, beats, and closing as').replace('the entry itself', 'the combined Digest narrative')} ${CHRONICLE_ENTRY_LENGTH_RULE.replace('in chronicleEntry', 'across opening, beats, and closing')} One grounded sentence is enough for a short excerpt; leave other slots empty rather than padding. Do not write a separate narrative field.`;
+
 export const DEFAULT_EXTRACTION_TASK_TEMPLATE = `Extract continuity from this chronological excerpt. Empty arrays are valid. {{detail}}
 {{format}}
 
@@ -190,7 +200,7 @@ export const DEFAULT_EXTRACTION_TASK_TEMPLATE = `Extract continuity from this ch
 
 {{temporal_context}}
 
-Write chronicleEntry from this excerpt only. It will be promoted recursively with other source-linked entries later; never rewrite the full history here.`;
+${DIGEST_NARRATIVE_TASK}`;
 
 export const DEFAULT_RETRIEVAL_QUERY_TEMPLATE = `Current conversation:
 {{conversation}}`;
@@ -250,10 +260,13 @@ export function upgradePromptWording(prompt) {
 export function buildExtractionSystemPrompt(basePrompt, jbEnabled = false, jbPrompt = DEFAULT_JB_PROMPT) {
     const legacyEntryRule = PRE_SOFT_CAP_CHRONICLE_ENTRY_RULE.replace(` ${CHRONICLE_HISTORY_RULE}`, '')
         .replace(CHRONICLE_ENTRY_SCOPE, LEGACY_CHRONICLE_ENTRY_SCOPE);
-    const base = upgradePromptWording(basePrompt ?? DEFAULT_EXTRACTION_SYSTEM_PROMPT)
-        .replaceAll(legacyEntryRule, PRE_SOFT_CAP_CHRONICLE_ENTRY_RULE)
-        .replaceAll(LEGACY_CHRONICLE_ENTRY_SCOPE, CHRONICLE_ENTRY_SCOPE).trim();
-    const extra = jbEnabled ? String(jbPrompt ?? DEFAULT_JB_PROMPT).trim() : '';
+    const upgradeNarrativeRule = value => rewriteDigestNarrativeInstructions(value
+        .replaceAll(CHRONICLE_ENTRY_RULE, DIGEST_NARRATIVE_RULE)
+        .replaceAll(PRE_SOFT_CAP_CHRONICLE_ENTRY_RULE, DIGEST_NARRATIVE_RULE)
+        .replaceAll(legacyEntryRule, DIGEST_NARRATIVE_RULE).replaceAll(CHRONICLE_ENTRY_LENGTH_RULE, '')
+        .replaceAll(LEGACY_CHRONICLE_ENTRY_SCOPE, CHRONICLE_ENTRY_SCOPE)).trim();
+    const base = upgradeNarrativeRule(upgradePromptWording(basePrompt ?? DEFAULT_EXTRACTION_SYSTEM_PROMPT));
+    const extra = jbEnabled ? upgradeNarrativeRule(String(jbPrompt ?? DEFAULT_JB_PROMPT)) : '';
     const combined = extra ? (base ? `${base}\n\n${extra}` : extra) : base;
     const neutral = combined.includes(SUPPORTING_MEMORY_RULES) ? combined : `${combined}\n\n${SUPPORTING_MEMORY_RULES}`;
     const withAuthority = neutral.includes(OOC_META_AUTHORITY_RULE)
@@ -265,12 +278,9 @@ export function buildExtractionSystemPrompt(basePrompt, jbEnabled = false, jbPro
     const withExtremeFidelity = withProfiles.includes(EXTREME_CANON_FIDELITY_RULE)
         ? withProfiles
         : `${withProfiles}\n\n${EXTREME_CANON_FIDELITY_RULE}`;
-    const withEntry = withExtremeFidelity.includes(PRE_SOFT_CAP_CHRONICLE_ENTRY_RULE)
+    const withChronicle = withExtremeFidelity.includes(DIGEST_NARRATIVE_RULE)
         ? withExtremeFidelity
-        : `${withExtremeFidelity}\n\n${PRE_SOFT_CAP_CHRONICLE_ENTRY_RULE}`;
-    const withChronicle = withEntry.includes(CHRONICLE_ENTRY_LENGTH_RULE)
-        ? withEntry
-        : withEntry.replace(PRE_SOFT_CAP_CHRONICLE_ENTRY_RULE, CHRONICLE_ENTRY_RULE);
+        : `${withExtremeFidelity}\n\n${DIGEST_NARRATIVE_RULE}`;
     const withScope = withChronicle.includes(SOURCE_SCOPE_RULE)
         ? withChronicle
         : `${withChronicle}\n\n${SOURCE_SCOPE_RULE}`;
