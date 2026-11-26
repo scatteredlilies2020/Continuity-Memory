@@ -21,14 +21,19 @@ function required(value, label) {
     return text;
 }
 
-export function resolveEmbeddingProvider(settings = {}) {
-    const provider = settings.embeddingProvider === EMBEDDING_PROVIDERS.OPENROUTER
-        ? EMBEDDING_PROVIDERS.OPENROUTER
-        : EMBEDDING_PROVIDERS.PROXY;
-
-    if (provider === EMBEDDING_PROVIDERS.OPENROUTER) {
-        const model = required(settings.embeddingOpenRouterModel, 'OpenRouter embedding model');
+export function resolveEmbeddingConnection(settings = {}) {
+    if (settings.embeddingProvider === EMBEDDING_PROVIDERS.OPENROUTER) {
         const apiUrl = validatedEndpoint(settings.embeddingOpenRouterUrl || DEFAULT_OPENROUTER_EMBEDDING_URL, 'OpenRouter endpoint URL');
+        return { source: 'openrouter', apiUrl };
+    }
+    const apiUrl = validatedEndpoint(settings.embeddingProxyUrl || DEFAULT_OPENAI_EMBEDDING_URL, 'Embedding proxy URL');
+    return { source: 'vllm', apiUrl };
+}
+
+export function resolveEmbeddingProvider(settings = {}) {
+    const { source, apiUrl } = resolveEmbeddingConnection(settings);
+    if (source === 'openrouter') {
+        const model = required(settings.embeddingOpenRouterModel, 'OpenRouter embedding model');
         return {
             source: 'openrouter',
             body: { source: 'openrouter', model, apiUrl },
@@ -37,7 +42,6 @@ export function resolveEmbeddingProvider(settings = {}) {
         };
     }
 
-    const apiUrl = validatedEndpoint(settings.embeddingProxyUrl || DEFAULT_OPENAI_EMBEDDING_URL, 'Embedding proxy URL');
     const model = required(settings.embeddingProxyModel, 'Proxy embedding model');
     return {
         source: 'vllm',

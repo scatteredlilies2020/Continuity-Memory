@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { getProxyBatchVector, proxyEmbeddingUrl } from '../plugin/proxy-embeddings.js';
+import { getModelCatalog } from '../plugin/model-discovery.js';
 import { hostEmbedTexts } from '../plugin/vector-store.js';
 
 test('proxy embeddings support regular ST base URLs and fork reverse-proxy prefixes', () => {
@@ -13,6 +14,44 @@ test('proxy embeddings support regular ST base URLs and fork reverse-proxy prefi
         ['http://127.0.0.1:17777/cute/openai/v1///', 'http://127.0.0.1:17777/cute/openai/v1/embeddings'],
         ['https://proxy.example/prefix/v1?region=test', 'https://proxy.example/prefix/v1/embeddings?region=test'],
     ]) assert.equal(proxyEmbeddingUrl(base).href, endpoint);
+});
+
+test('proxy model discovery preserves the prefix and uses the embedding credentials', async () => {
+    const base = 'http://127.0.0.1:17777/cute/qwen/v1/';
+    const directories = { root: 'test-user' };
+    const payload = { data: [{ id: 'qwen3.7-text-embedding-flash' }] };
+    const host = {
+        setAdditionalHeadersByType(headers, type, apiUrl, dirs) {
+            assert.equal(type, 'vllm');
+            assert.equal(apiUrl, base);
+            assert.equal(dirs, directories);
+            headers.Authorization = 'Bearer test-key';
+        },
+        async fetch(url, options) {
+            assert.equal(url.href, 'http://127.0.0.1:17777/cute/qwen/v1/models');
+            assert.equal(options.headers.Authorization, 'Bearer test-key');
+            return { ok: true, json: async () => payload };
+        },
+    };
+    const connection = { source: 'vllm', apiUrl: base, embeddings: true };
+    assert.deepEqual(await getModelCatalog(connection, directories, host), payload);
+    host.fetch = async () => ({ ok: false, status: 404, statusText: 'Not Found' });
+    await assert.rejects(getModelCatalog(connection, directories, host), { status: 502, message: /HTTP 404 Not Found/ });
+});
+
+test('OpenRouter vector requests use the same custom base as discovery', async () => {
+    const provider = { source: 'openrouter', apiUrl: 'https://proxy.example/router/api/v1/', model: 'test-embedding' };
+    const host = {
+        readKey: () => 'test-key',
+        setAdditionalHeadersByType() {},
+        async fetch(url, options) {
+            assert.equal(url.href, 'https://proxy.example/router/api/v1/embeddings');
+            assert.equal(options.headers.Authorization, 'Bearer test-key');
+            assert.equal(JSON.parse(options.body).model, provider.model);
+            return { ok: true, json: async () => ({ data: [{ index: 0, embedding: [1] }] }) };
+        },
+    };
+    assert.deepEqual(await hostEmbedTexts({ provider, texts: ['test'], directories: {} }, { loadProxyHost: async () => host }), [[1]]);
 });
 
 test('host embedding batches preserve prefixes, model, ST auth headers, and vector order', async () => {

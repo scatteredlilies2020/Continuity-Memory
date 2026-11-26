@@ -1,7 +1,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { getProxyBatchVector, loadProxyEmbeddingHost } from './proxy-embeddings.js';
 import { atomicStorageJson, decodeStorageJson, readStorageJson, repackStorageJson } from './storage-json.js';
 
@@ -262,15 +261,8 @@ export async function embedBatchesInOrder(texts, embedBatch, { batchSize = 10, c
 }
 
 export async function hostEmbedTexts({ provider, texts, directories }, { loadProxyHost = loadProxyEmbeddingHost } = {}) {
-    let embedBatch;
-    if (provider.source === 'vllm') {
-        const host = await loadProxyHost();
-        embedBatch = batch => getProxyBatchVector(batch, provider, directories, host);
-    } else if (provider.source === 'openrouter') {
-        const moduleUrl = pathToFileURL(path.join(process.cwd(), 'src', 'vectors', 'openai-vectors.js')).href;
-        const { getOpenAIBatchVector } = await import(moduleUrl);
-        embedBatch = batch => getOpenAIBatchVector(batch, 'openrouter', directories, provider.model, provider.apiUrl);
-    }
+    const host = await loadProxyHost();
+    const embedBatch = batch => getProxyBatchVector(batch, provider, directories, host);
     const results = await embedBatchesInOrder(texts, embedBatch, { batchSize: 10, concurrency: 2 });
     if (results.length !== texts.length) throw new Error(`Embedding provider returned ${results.length} vectors for ${texts.length} texts`);
     return results;
