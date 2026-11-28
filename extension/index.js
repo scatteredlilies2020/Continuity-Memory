@@ -1,7 +1,7 @@
 import { eventSource, event_types, extension_prompt_roles, extension_prompt_types, isGenerating, setExtensionPrompt } from '/script.js';
 import { getContext } from '/scripts/st-context.js';
 import { getTokenCountAsync } from '/scripts/tokenizers.js';
-import { promptManager } from '/scripts/openai.js';
+import { oai_settings, promptManager } from '/scripts/openai.js';
 import { api } from './api.js?pending-recovery=1&storage-recovery=1&storage-conversion=1';
 import { captureChatCompletionOverhead, captureTextCompletionOverhead, reduceChatContext } from './context-reducer.js?belief-wording=4&prepared-recall=1&pending-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1&storage-conversion=1&chronicle-defer=3&digest-narrative=1';
 import { applyExtractionRequestSettings, getProcessingCoverage, getTailRollbackStatus, loadBoundWorld, maintainChronicleHierarchy, maybeAutoExtract, repairDivergedBranch, syncChangedExtractions } from './engine.js?v=0.15.0-testing.30&belief-wording=4&pending-recovery=1&output-recovery=2&mobile-recovery=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=1&historical-recall=1&continuity-recheck=1&storage-conversion=1&chronicle-defer=3&digest-narrative=1';
@@ -11,6 +11,7 @@ import { getBoundWorldId, getChatKey, getSettings, saveSettings } from './settin
 import { ensureCurrentChatMemory, initUI, refreshModelProfiles, renderChronicleTokenCount, renderRuntime, refreshWorlds, restorePendingExtractionReview } from './ui.js?v=0.15.0-testing.30&belief-wording=4&embedding-continuation=2&current-recall=1&bounded-recall=1&catchup-gate=3&pending-recovery=1&retrieval-json=1&output-planning=1&health-status=1&provenance-recovery=2&storage-recovery=2&settings-status=1&clear-problems=2&historical-recall=1&embedding-discovery=3&model-selection=1&connection-memory=1&continuity-recheck=1&storage-conversion=1&tail-recovery=1&device-alias=1&portable-vectors=1&cache-status=1&branch-vectors=1&chronicle-defer=3&chronicle-token-meter=1&digest-narrative=1';
 import { resolveInjectionPlacement } from './injection-placement.js';
 import { clearPromptManagerInjection, configurePromptManagerInjection } from './prompt-manager-injection.js';
+import { blankSavedPromptMemory, isUnsavedPromptExport } from './preset-leak-guard.js';
 import { resolveInjectionBudget } from './injection-budget.js?pending-recovery=1';
 import { injectionScope, latestAvailableWorld, prepareInjectionSnapshot, readyInjectionSnapshot } from './prepared-injection.js?current-recall=1&bounded-recall=1';
 import { getPortableSnapshot } from './portable.js?belief-wording=4&pending-recovery=1&historical-recall=1';
@@ -973,6 +974,50 @@ async function init() {
     for (const eventName of [event_types.CONNECTION_PROFILE_CREATED, event_types.CONNECTION_PROFILE_UPDATED, event_types.CONNECTION_PROFILE_DELETED].filter(Boolean)) {
         eventSource.on(eventName, refreshModelProfiles);
     }
+    // The Prompt Manager slot holds this chat's memory between requests for
+    // SillyTavern's token preview. Nothing that saves or exports prompts may
+    // carry it out of the page.
+    // SillyTavern restores the slot from settings.json before extensions load
+    // and emits nothing afterwards, so empty it here: it belongs to whichever
+    // chat was open when settings were last saved.
+    blankSavedPromptMemory(oai_settings?.prompts);
+    if (event_types.OAI_PRESET_CHANGED_BEFORE) {
+        eventSource.on(event_types.OAI_PRESET_CHANGED_BEFORE, event => {
+            if (!blankSavedPromptMemory(event?.preset?.prompts) || !event.presetName) return;
+            // "New preset" writes its file before announcing the change, and
+            // presets saved earlier stay dirty until they are selected.
+            Promise.resolve(event.savePreset?.(event.presetName, event.preset, false))
+                .catch(error => updateRuntime({ lastError: `Could not remove memory from preset ${event.presetName}: ${error.message}` }));
+        });
+    }
+    if (event_types.OAI_PRESET_CHANGED_AFTER) {
+        // The selected preset has just replaced the live prompts.
+        eventSource.on(event_types.OAI_PRESET_CHANGED_AFTER, scheduleInjectionRefresh);
+    }
+    if (event_types.OAI_PRESET_IMPORT_READY) {
+        eventSource.on(event_types.OAI_PRESET_IMPORT_READY, event => blankSavedPromptMemory(event?.data?.prompts));
+    }
+    if (event_types.OAI_PRESET_EXPORT_READY) {
+        eventSource.on(event_types.OAI_PRESET_EXPORT_READY, preset => blankSavedPromptMemory(preset?.prompts));
+    }
+    if (event_types.PRESET_RENAMED) {
+        // Renaming ends with a scripted Update. jQuery runs SillyTavern's
+        // handler before any listener can see that click, so blank the slot
+        // first; the click guard refills it once the file has been built.
+        eventSource.on(event_types.PRESET_RENAMED, event => {
+            if (event?.apiId !== 'openai') return;
+            invalidateInjectionRefresh();
+            clearPromptManagerInjection(promptManager);
+        });
+    }
+    // "Update preset" and the Prompt Manager export read the live slot without
+    // an event. The capture phase runs before SillyTavern's own handler builds
+    // the file.
+    document.addEventListener('click', event => {
+        if (!isUnsavedPromptExport(event.target)) return;
+        clearPromptManagerInjection(promptManager);
+        globalThis.setTimeout(scheduleInjectionRefresh, 0);
+    }, true);
 
     let wasProcessing = false;
     const schedulePendingChronicle = () => {
