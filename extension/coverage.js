@@ -64,6 +64,27 @@ export function analyzeTailRollback(messages, processedMessages = [], extraction
     };
 }
 
+// A change beyond everything that has been stored cannot invalidate saved
+// memory: those messages were never processed. SillyTavern deletes the current
+// reply before regenerating it, and that reply is normally still unprocessed.
+// Without this check every regenerate waits on a repair with nothing to repair.
+// Unknown or unloaded positions stay conservative and keep the repair.
+export function sourceMutationAffectsStoredMemory(world, chatKey, messageIndex) {
+    if (!world) return true;
+    const index = Number(messageIndex);
+    if (!Number.isFinite(index)) return true;
+    const processed = (world?.sources?.[chatKey]?.processedMessages || [])
+        .map(item => Number(item?.index))
+        .filter(Number.isFinite);
+    const extractedThrough = (world?.extractions || [])
+        .filter(item => item?.chatKey === chatKey)
+        .map(item => Number(item?.to))
+        .filter(Number.isFinite);
+    // A stored range ahead of the chat (a rollback) still counts as stored.
+    const lastStored = Math.max(-1, ...processed, ...extractedThrough);
+    return index <= lastStored;
+}
+
 export function analyzeBranchDivergence(messages, processedMessages = [], extractions = [], chatKey = '') {
     const current = new Map((messages || []).map(message => [Number(message.index), fingerprintMessage(message)]));
     const processed = new Map((processedMessages || []).map(item => [Number(item.index), item]));

@@ -24,6 +24,7 @@ import { asRoleplayBlockingError, isRoleplayBlockingError, roleplaySourceMessage
 import { ensureGenerationMemory, ensureGenerationSourceSync, waitForGenerationTask } from './generation-readiness.js?catchup-gate=3&output-recovery=1&source-sync=1';
 import { fitGenerationMemory } from './generation-context-budget.js';
 import { isDigestStabilityProtectedMessage, latestCompleteDigestMessageIndex } from './digest-policy.js';
+import { sourceMutationAffectsStoredMemory } from './coverage.js?mutation-tail=1';
 import { shouldCapturePromptMeasurement } from './prompt-measurement-policy.js';
 import { createRetrievalSnapshot, retrievalSnapshotPatch } from './retrieval-snapshot.js?v=0.15.0-testing.30';
 import { createBackgroundScheduler } from './background-scheduler.js';
@@ -925,7 +926,7 @@ async function init() {
         });
     }
     if (event_types.MESSAGE_DELETED) {
-        eventSource.on(event_types.MESSAGE_DELETED, () => {
+        eventSource.on(event_types.MESSAGE_DELETED, messageIndex => {
             cancelGenerationRetrieval();
             if (runtime.processing || runtime.queue.length) {
                 invalidateRuntimeWork('A source message was deleted; discarded memory work that could contain it.');
@@ -939,7 +940,10 @@ async function init() {
             setExtensionPrompt(PROMPT_KEY, '', placement.position, placement.depth, false, placement.role);
             continuityContextBridge.publish('');
             scheduleInjectionRefresh();
-            scheduleMutationSync(350, true);
+            // SillyTavern deletes the current reply before regenerating it. A
+            // tail that was never processed cannot invalidate stored memory, so
+            // it must not gate the reply on a repair with nothing to repair.
+            scheduleMutationSync(350, sourceMutationAffectsStoredMemory(runtime.world, getChatKey(), messageIndex));
         });
     }
     // InlineSummary replaces a visible message range directly and keeps its
